@@ -1,0 +1,49 @@
+# Architecture
+
+The framework should be developed as a pipeline for executable Agent training data, not as a flat prompt-response generator.
+
+## Top-Level Domains
+
+1. **Seed and Domain Intake**
+   Normalizes source materials, target domains, task taxonomies, and generation goals.
+
+2. **Environment Synthesis**
+   Builds executable stateful environments from domain requirements. Early versions should use SQLite-backed Python environments; later versions can expose environments through MCP-compatible tool servers.
+
+3. **Tool Synthesis and Registry**
+   Defines typed tools, schemas, dependency graphs, execution contracts, and versioned tool metadata.
+
+4. **Task and Curriculum Generation**
+   Generates tasks from simple to complex, with explicit difficulty dimensions such as tool count, constraints, ambiguity, state changes, and recovery paths.
+
+5. **Trajectory Execution**
+   Runs solution policies or generator agents against environments and records thought/action/observation/final-response traces.
+
+6. **Verification and Quality Gates**
+   Separates generation from validation using executable verification, logical consistency checks, diversity checks, and human review queues for uncertain cases.
+
+7. **Dataset Assembly and Lineage**
+   Emits versioned training examples with environment, tool, task, trajectory, verifier, quality metrics, and provenance metadata.
+
+8. **Orchestration and Scaling**
+   Starts with local async orchestration and evolves toward distributed actor-based execution when throughput demands justify it. Scaling orchestration does not imply deploying a local LLM cluster.
+
+## Canonical Design Docs
+
+- [docs/DESIGN.md](docs/DESIGN.md): architecture contracts and development invariants.
+- [docs/BACKEND.md](docs/BACKEND.md): service and job boundaries.
+- [docs/DATA.md](docs/DATA.md): data model, lineage, metrics, and output schema.
+- [docs/SECURITY.md](docs/SECURITY.md): sandboxing, secrets, external access, and data handling.
+- [docs/design-docs/agent-data-synthesis-framework.md](docs/design-docs/agent-data-synthesis-framework.md): detailed technical design.
+- [docs/design-docs/architecture-explainers.md](docs/design-docs/architecture-explainers.md): detailed explanations of architecture and algorithm concepts.
+
+## Architectural Position
+
+The target architecture combines four ideas from the source analysis:
+
+- DeepSeek-style autonomous environment-tool-task-verifier co-generation.
+- AgentInstruct-style multi-agent refinement and quality specialization.
+- Matrix-style message-driven orchestration when scaling beyond a single process.
+- Agent World Model-style executable environments with standard tool interfaces.
+
+LLM-dependent generation, refinement, trajectory policy execution, and optional judge checks must call a remote OpenAI-compatible LLM API. The repository owns the synthesis pipeline and provider adapter boundary; it does not own local LLM cluster deployment.

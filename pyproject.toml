@@ -1,0 +1,13 @@
+[project]
+name = "agent-data-synthesis"
+version = "0.1.0"
+description = "Executable Agent training data synthesis framework"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.136.1",
+    "httpx>=0.28.1",
+    "pypdf>=6.10.2",
+    "uvicorn>=0.46.0",
+    "itsdangerous>=2.2.0",
+]

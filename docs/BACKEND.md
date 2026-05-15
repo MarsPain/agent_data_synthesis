@@ -1,0 +1,44 @@
+# Backend
+
+## Backend Shape
+
+The first backend should be a local Python pipeline with explicit modules and durable artifacts. "Local" means local orchestration, environment execution, tool execution, and artifact management. LLM-backed generation, solution policy, refinement, and optional judge steps must call a configured remote OpenAI-compatible API. Avoid introducing a web service until there is a concrete need for remote execution or interactive control.
+
+## Proposed Module Boundaries
+
+- `synthesis.seeds`: source registration and normalized seed records.
+- `synthesis.environments`: environment builders, reset/checkpoint operations, and state adapters.
+- `synthesis.tools`: tool definitions, schema generation, registry, and dependency graph.
+- `synthesis.tasks`: task generation, difficulty scoring, and curriculum policies.
+- `synthesis.execution`: trajectory runner, retry policy, and event capture.
+- `synthesis.verification`: executable, logical, and judge-based validators.
+- `synthesis.datasets`: sample assembly, manifests, exports, and version comparison.
+- `synthesis.orchestration`: jobs, workers, queues, cancellation, and metrics.
+- `synthesis.llm`: remote provider adapter, request/response capture, retry policy, cost metadata, and model configuration.
+
+## LLM Provider Boundary
+
+The backend should treat the LLM as an external dependency reached through an OpenAI-compatible API URL. It should not include local LLM cluster provisioning, GPU scheduling, model serving, or inference runtime management.
+
+Minimum runtime configuration:
+
+- `LLM_BASE_URL`: remote OpenAI-compatible API base URL.
+- `API_KEY`: secret key for the selected provider.
+- `LLM_MODEL`: model id used for generation, solution policy, refinement, or judge calls.
+
+Provider calls should record model id, base URL host, prompt or config hash, token and cost metadata when available, retry count, and error class. Secrets must never be written to manifests, trajectories, exports, or logs.
+
+## Job Lifecycle
+
+1. Register seeds and target domain.
+2. Build or load an environment version.
+3. Build or load a tool registry version.
+4. Generate candidate tasks by curriculum policy.
+5. Execute candidate solutions against the environment.
+6. Verify outputs independently.
+7. Route failed samples by error class.
+8. Export accepted samples with metrics and lineage.
+
+## Scaling Direction
+
+Start with a local async runner. Move to an actor or queue-based runner only when local orchestration cannot satisfy throughput goals. The Matrix pattern from the PDF should guide the later distributed form: task state travels with messages; workers stay role-specific and mostly stateless. Scaling should increase pipeline throughput and provider-call routing without adding local LLM cluster deployment as a project responsibility.

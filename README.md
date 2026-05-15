@@ -1,0 +1,42 @@
+# Agent Data Synthesis
+
+Agent Data Synthesis is an early-stage Python project for building an automated framework that generates, validates, and versions agent training data. The design target is not simple instruction-response expansion. The framework should synthesize executable agent trajectories across environments, tools, tasks, observations, and verification results.
+
+## Current State
+
+- The repository currently contains the seed PDF `Agent-数据合成.pdf`, a minimal Python entrypoint, and the initial design documentation.
+- The architecture is documented before implementation so later code can follow stable domain boundaries.
+- The current implementation is intentionally small; treat `docs/` as the source of truth for design and development guidance.
+- The planned synthesis pipeline is LLM-driven through a remote OpenAI-compatible API. It does not include local LLM cluster deployment.
+
+## Documentation Map
+
+- [ARCHITECTURE.md](ARCHITECTURE.md): top-level system map.
+- [AGENTS.md](AGENTS.md): agent working guide and repository navigation.
+- [docs/README.md](docs/README.md): canonical documentation index.
+- [docs/DESIGN.md](docs/DESIGN.md): core architecture contracts.
+- [docs/design-docs/agent-data-synthesis-framework.md](docs/design-docs/agent-data-synthesis-framework.md): deep design for the Agent data synthesis framework.
+- [docs/references/agent-data-synthesis-pdf-analysis.md](docs/references/agent-data-synthesis-pdf-analysis.md): structured analysis of `Agent-数据合成.pdf`.
+- [docs/PLANS.md](docs/PLANS.md): implementation plan index.
+
+## Development Commands
+
+```bash
+uv run python main.py
+uv run python scripts/validate_docs.py
+uv run python -m unittest
+```
+
+## LLM Configuration
+
+LLM-backed generation and judge steps should read these environment variables:
+
+- `LLM_BASE_URL`: OpenAI-compatible remote API base URL.
+- `API_KEY`: API key for the configured remote LLM provider.
+- `LLM_MODEL`: model id used by the synthesis pipeline.
+
+## Repository Rules
+
+- Keep root files concise and use them as navigation entrypoints.
+- Keep deep design, data, backend, security, and product decisions under `docs/`.
+- Update docs and implementation in the same change whenever architecture, workflows, schemas, or entrypoints change.
