@@ -134,6 +134,7 @@ def generate_llm_backed_solution_policy(
             error_class="TypeError",
             retryable=False,
             retry_count=_lineage_retry_count(result.lineage),
+            lineage=result.lineage,
         )
     try:
         raw_steps = raw_policy["steps"]
@@ -155,6 +156,7 @@ def generate_llm_backed_solution_policy(
             error_class=type(exc).__name__,
             retryable=False,
             retry_count=_lineage_retry_count(result.lineage),
+            lineage=result.lineage,
         ) from exc
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,7 +12,7 @@ from synthesis.contracts import (
     validate_sample_record,
 )
 from synthesis.environments import EnvironmentMetadata
-from synthesis.execution import ExecutionResult
+from synthesis.execution import ExecutionResult, SolutionPolicy
 from synthesis.llm import LLMConfig, LLMProviderError
 from synthesis.quality import build_parent_comparison, build_quality_report, retry_eligible
 from synthesis.refinement import RefinementAttempt
@@ -98,22 +98,25 @@ def assemble_rejection(
     *,
     task: CandidateTask,
     verification: VerificationResult,
+    policy: SolutionPolicy | None = None,
 ) -> dict[str, object]:
     failed_check = next(
         (check for check in verification.checks if not check.get("passed")),
         {"name": "unknown", "expected": None, "actual": None},
     )
     cause = str(failed_check.get("cause") or "verification_failed")
+    details: dict[str, object] = {
+        "check": failed_check.get("name"),
+        "expected": failed_check.get("expected"),
+        "actual": failed_check.get("actual"),
+        "retry_eligible": retry_eligible(cause),
+    }
+    _attach_role_lineages(details, task=task, policy=policy)
     return {
         "candidate_id": task.candidate_id,
         "cause": cause,
         "task": task.export(),
-        "details": {
-            "check": failed_check.get("name"),
-            "expected": failed_check.get("expected"),
-            "actual": failed_check.get("actual"),
-            "retry_eligible": retry_eligible(cause),
-        },
+        "details": details,
     }
 
 
@@ -123,6 +126,7 @@ def assemble_quality_gate_rejection(
     cause: str,
     message: str,
     details: dict[str, object] | None = None,
+    policy: SolutionPolicy | None = None,
 ) -> dict[str, object]:
     rejection_details = {
         "message": message,
@@ -130,6 +134,7 @@ def assemble_quality_gate_rejection(
     }
     if details:
         rejection_details.update(details)
+    _attach_role_lineages(rejection_details, task=task, policy=policy)
     return {
         "candidate_id": task.candidate_id,
         "cause": cause,
@@ -143,16 +148,19 @@ def assemble_execution_rejection(
     task: CandidateTask,
     error: Exception,
     cause: str = "tool_runtime_error",
+    policy: SolutionPolicy | None = None,
 ) -> dict[str, object]:
+    details: dict[str, object] = {
+        "error_class": type(error).__name__,
+        "message": str(error),
+        "retry_eligible": retry_eligible(cause),
+    }
+    _attach_role_lineages(details, task=task, policy=policy)
     return {
         "candidate_id": task.candidate_id or "unknown_candidate",
         "cause": cause,
         "task": task.export(),
-        "details": {
-            "error_class": type(error).__name__,
-            "message": str(error),
-            "retry_eligible": retry_eligible(cause),
-        },
+        "details": details,
     }
 
 
@@ -193,6 +201,14 @@ def assemble_pipeline_gate_rejection(*, error: Exception) -> dict[str, object]:
 
 
 def assemble_generation_stage_rejection(*, error: LLMProviderError) -> dict[str, object]:
+    details: dict[str, object] = {
+        "error_class": error.error_class,
+        "message": str(error),
+        "retry_count": error.retry_count,
+        "retry_eligible": retry_eligible(error.cause),
+    }
+    if error.lineage:
+        details["lineage"] = dict(error.lineage)
     return {
         "candidate_id": "generation_stage",
         "cause": error.cause,
@@ -202,12 +218,7 @@ def assemble_generation_stage_rejection(*, error: LLMProviderError) -> dict[str,
             "constraints": {},
             "difficulty": {},
         },
-        "details": {
-            "error_class": error.error_class,
-            "message": str(error),
-            "retry_count": error.retry_count,
-            "retry_eligible": retry_eligible(error.cause),
-        },
+        "details": details,
     }
 
 
@@ -372,3 +383,33 @@ def _default_task_generation_lineage(llm_config: LLMConfig) -> dict[str, object]
     lineage = llm_config.lineage(TASK_GENERATION_ROLE)
     lineage.update(default_role_registry().require_enabled(TASK_GENERATION_ROLE).lineage_metadata())
     return lineage
+
+
+def _attach_role_lineages(
+    details: dict[str, object],
+    *,
+    task: CandidateTask,
+    policy: SolutionPolicy | None = None,
+) -> None:
+    role_lineages = _candidate_role_lineages(task=task, policy=policy)
+    if not role_lineages:
+        return
+    existing = details.get("role_lineages")
+    merged: dict[str, object] = {}
+    if isinstance(existing, Mapping):
+        merged.update({str(key): value for key, value in existing.items()})
+    merged.update(role_lineages)
+    details["role_lineages"] = merged
+
+
+def _candidate_role_lineages(
+    *,
+    task: CandidateTask,
+    policy: SolutionPolicy | None,
+) -> dict[str, object]:
+    lineages: dict[str, object] = {}
+    if task.generation_lineage:
+        lineages["generator"] = dict(task.generation_lineage)
+    if policy is not None and policy.lineage:
+        lineages["solution_policy"] = dict(policy.lineage)
+    return lineages

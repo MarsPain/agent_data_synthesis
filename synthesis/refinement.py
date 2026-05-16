@@ -165,6 +165,7 @@ def generate_llm_backed_refinement(
             error_class=type(exc).__name__,
             retryable=False,
             retry_count=_lineage_retry_count(result.lineage),
+            lineage=result.lineage,
         ) from exc
 
 

@@ -420,6 +420,7 @@ class OpenAICompatibleProviderTest(unittest.TestCase):
 
     def test_chat_completion_exhausted_retry_error_is_sanitized(self) -> None:
         from synthesis.llm import LLMConfig, LLMProviderError, OpenAICompatibleClient
+        from synthesis.roles import TASK_GENERATION_ROLE, default_role_registry
 
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(500, json={"error": "secret-test-key should not leak"})
@@ -436,7 +437,11 @@ class OpenAICompatibleProviderTest(unittest.TestCase):
         )
 
         with self.assertRaises(LLMProviderError) as raised:
-            client.generate_json("Generate candidate tasks with secret-test-key.", role="task_generation")
+            default_role_registry().invoke_json(
+                TASK_GENERATION_ROLE,
+                client,
+                "Generate candidate tasks with secret-test-key.",
+            )
 
         error = raised.exception
         self.assertEqual(error.cause, "llm_provider_error")
@@ -444,6 +449,15 @@ class OpenAICompatibleProviderTest(unittest.TestCase):
         self.assertEqual(error.retry_count, 1)
         self.assertTrue(error.retryable)
         self.assertNotIn("secret-test-key", str(error))
+        self.assertEqual(error.lineage["role"], "task_generation")
+        self.assertEqual(error.lineage["role_version"], "role_task_generation_v1")
+        self.assertEqual(error.lineage["output_type"], "candidate_tasks")
+        self.assertEqual(error.lineage["provider_host"], "llm.example.test")
+        self.assertEqual(error.lineage["model"], "test-generator")
+        self.assertEqual(error.lineage["retry_count"], 1)
+        self.assertEqual(error.lineage["error_class"], "HTTPStatusError")
+        self.assertIn("prompt_hash", error.lineage)
+        self.assertNotIn("secret-test-key", json.dumps(error.lineage))
 
     def test_malformed_chat_completion_content_is_response_schema_error(self) -> None:
         from synthesis.llm import LLMConfig, LLMProviderError, OpenAICompatibleClient

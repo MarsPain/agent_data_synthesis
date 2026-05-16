@@ -111,6 +111,7 @@ def generate_llm_backed_candidates(
             error_class="TypeError",
             retryable=False,
             retry_count=_lineage_retry_count(result.lineage),
+            lineage=result.lineage,
         )
 
     candidates: list[CandidateTask] = []
@@ -121,6 +122,7 @@ def generate_llm_backed_candidates(
                 error_class="TypeError",
                 retryable=False,
                 retry_count=_lineage_retry_count(result.lineage),
+                lineage=result.lineage,
             )
         candidates.append(_candidate_from_mapping(seed, raw_candidate, result.lineage))
     return candidates
@@ -194,6 +196,7 @@ def _candidate_from_mapping(
             error_class=type(exc).__name__,
             retryable=False,
             retry_count=_lineage_retry_count(generation_lineage),
+            lineage=generation_lineage,
         ) from exc
 
 

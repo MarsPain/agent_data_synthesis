@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+from synthesis.llm import LLMProviderError
+
 
 ROLE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -84,7 +86,11 @@ class RoleRegistry:
 
     def invoke_json(self, name: str, client: Any, prompt: str) -> Any:
         role = self.require_enabled(name)
-        result = client.generate_json(prompt, role=role.name)
+        try:
+            result = client.generate_json(prompt, role=role.name)
+        except LLMProviderError as exc:
+            exc.lineage.update(role.lineage_metadata())
+            raise
         result.lineage.update(role.lineage_metadata())
         return result
 

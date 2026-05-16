@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
 
@@ -29,7 +29,7 @@ from synthesis.quality import (
 )
 from synthesis.refinement import Refiner, RefinementAttempt, RefinementContext, repairable
 from synthesis.refinement import generate_llm_backed_refinement
-from synthesis.roles import RoleRegistry, default_role_registry
+from synthesis.roles import TASK_GENERATION_ROLE, RoleRegistry, default_role_registry
 from synthesis.seeds import foundation_seed
 from synthesis.seeds import DomainSeed
 from synthesis.tasks import (
@@ -180,6 +180,7 @@ def run_foundation_pipeline(
         except ContractValidationError as exc:
             rejections.append(assemble_candidate_schema_rejection(error=exc))
             continue
+        task = _ensure_generation_lineage(task, llm_config)
 
         attempt_result = _run_candidate_attempt(
             task=task,
@@ -214,11 +215,13 @@ def run_foundation_pipeline(
                     details={
                         "error_class": exc.error_class,
                         "retry_count": exc.retry_count,
+                        "lineage": dict(exc.lineage) if exc.lineage else {},
                         "source_failure": {
                             "cause": attempt_result.rejection.get("cause"),
                             "details": attempt_result.rejection.get("details", {}),
                         },
                     },
+                    policy=attempt_result.policy,
                 )
             )
             continue
@@ -296,14 +299,36 @@ def _run_candidate_attempt(
     refinement_attempt: RefinementAttempt | None = None,
 ) -> CandidateAttemptResult:
     policy: SolutionPolicy | None = policy_override
-    try:
-        if policy is None:
+    if policy is None:
+        try:
             policy = generate_policy(task)
+        except LLMProviderError as exc:
+            return CandidateAttemptResult(
+                sample=None,
+                rejection=assemble_quality_gate_rejection(
+                    task=task,
+                    cause=exc.cause,
+                    message="Remote solution-policy generation failed before execution.",
+                    details={
+                        "error_class": exc.error_class,
+                        "retry_count": exc.retry_count,
+                        "lineage": dict(exc.lineage) if exc.lineage else {},
+                    },
+                ),
+                signature=None,
+                policy=None,
+            )
+    try:
         execution = execute_candidate(task, registry, policy=policy)
     except ToolMissingError as exc:
         return CandidateAttemptResult(
             sample=None,
-            rejection=assemble_execution_rejection(task=task, error=exc, cause="tool_missing"),
+            rejection=assemble_execution_rejection(
+                task=task,
+                error=exc,
+                cause="tool_missing",
+                policy=policy,
+            ),
             signature=None,
             policy=policy,
         )
@@ -314,6 +339,7 @@ def _run_candidate_attempt(
                 task=task,
                 error=exc,
                 cause="tool_schema_error",
+                policy=policy,
             ),
             signature=None,
             policy=policy,
@@ -325,6 +351,7 @@ def _run_candidate_attempt(
                 task=task,
                 error=exc,
                 cause="tool_schema_error",
+                policy=policy,
             ),
             signature=None,
             policy=policy,
@@ -332,7 +359,7 @@ def _run_candidate_attempt(
     except Exception as exc:
         return CandidateAttemptResult(
             sample=None,
-            rejection=assemble_execution_rejection(task=task, error=exc),
+            rejection=assemble_execution_rejection(task=task, error=exc, policy=policy),
             signature=None,
             policy=policy,
         )
@@ -341,7 +368,7 @@ def _run_candidate_attempt(
     if not verification.passed:
         return CandidateAttemptResult(
             sample=None,
-            rejection=assemble_rejection(task=task, verification=verification),
+            rejection=assemble_rejection(task=task, verification=verification, policy=policy),
             signature=None,
             policy=policy,
         )
@@ -368,6 +395,7 @@ def _run_candidate_attempt(
                 cause="quality_duplicate",
                 message="Accepted candidate duplicates a prior task instruction and tool sequence.",
                 details={"signature": list(signature)},
+                policy=policy,
             ),
             signature=None,
             policy=policy,
@@ -379,6 +407,7 @@ def _run_candidate_attempt(
                 task=task,
                 cause="solution_logic_error",
                 message="Final answer is not supported by observations and verifier expectation.",
+                policy=policy,
             ),
             signature=None,
             policy=policy,
@@ -418,6 +447,14 @@ def _maybe_refine(
     if refinement_attempt is None or refinement_attempt.repair_decision == "not_repairable":
         return None
     return refinement_attempt
+
+
+def _ensure_generation_lineage(task: CandidateTask, llm_config: LLMConfig) -> CandidateTask:
+    if task.generation_lineage:
+        return task
+    lineage = llm_config.lineage(TASK_GENERATION_ROLE)
+    lineage.update(default_role_registry().require_enabled(TASK_GENERATION_ROLE).lineage_metadata())
+    return replace(task, generation_lineage=lineage)
 
 
 def _maybe_route_review(

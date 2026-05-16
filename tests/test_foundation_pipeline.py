@@ -203,6 +203,143 @@ class FoundationPipelineTest(unittest.TestCase):
             self.assertEqual(rejection["cause"], "solution_logic_error")
             self.assertEqual(rejection["details"]["check"], "contact_followup_state_matches_expected")
 
+    def test_verification_rejection_preserves_generator_and_policy_role_lineage(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+
+        def generated_bad_expectation(seed) -> list[CandidateTask]:
+            return [
+                CandidateTask(
+                    candidate_id="candidate_generated_ben_bad",
+                    instruction="Find Ben Carter's email address.",
+                    constraints={"must_use_tool": "lookup_contact_email"},
+                    difficulty={
+                        "level": "easy",
+                        "tool_count": 1,
+                        "constraint_count": 1,
+                        "state_changes": 0,
+                        "ambiguity": "none",
+                        "recovery_paths": 0,
+                    },
+                    tool_name="lookup_contact_email",
+                    arguments={"name": "Ben Carter"},
+                    expected_answer="ben@example.test",
+                    seed_ids=(seed.seed_id,),
+                    generation_lineage={
+                        "role": "task_generation",
+                        "role_version": "role_task_generation_v1",
+                        "output_type": "candidate_tasks",
+                        "provider_host": "llm.example.test",
+                        "model": "test-generator",
+                        "config_hash": "task-hash",
+                    },
+                )
+            ]
+
+        def remote_policy(task: CandidateTask) -> SolutionPolicy:
+            return SolutionPolicy(
+                policy_id="policy_generated_ben",
+                role="solution_policy",
+                steps=(
+                    ToolStep(
+                        tool_name="lookup_contact_email",
+                        arguments={"name": "Ben Carter"},
+                    ),
+                ),
+                final_response_template="{name}'s email is {email}.",
+                lineage={
+                    "role": "solution_policy",
+                    "role_version": "role_solution_policy_v1",
+                    "output_type": "solution_policy",
+                    "provider_host": "llm.example.test",
+                    "model": "test-generator",
+                    "config_hash": "policy-hash",
+                },
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_foundation_pipeline(
+                Path(tmpdir),
+                dataset_version="dataset_role_rejection_lineage",
+                candidate_generator=generated_bad_expectation,
+                policy_generator=remote_policy,
+            )
+
+            self.assertEqual(result.accepted_count, 0)
+            self.assertEqual(result.rejected_count, 1)
+            rejection = json.loads(result.rejections_path.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(rejection["cause"], "verification_failed")
+            self.assertEqual(
+                rejection["details"]["role_lineages"]["generator"]["role"],
+                "task_generation",
+            )
+            self.assertEqual(
+                rejection["details"]["role_lineages"]["solution_policy"]["role"],
+                "solution_policy",
+            )
+            quality_report = json.loads(result.quality_report_path.read_text(encoding="utf-8"))
+            self.assertEqual(quality_report["role_outcomes"]["task_generation"]["rejected"], 1)
+            self.assertEqual(quality_report["role_outcomes"]["solution_policy"]["rejected"], 1)
+
+    def test_remote_policy_error_preserves_llm_cause_and_role_lineage(self) -> None:
+        from synthesis.llm import LLMProviderError
+        from synthesis.pipeline import run_foundation_pipeline
+
+        def one_candidate(seed) -> list[CandidateTask]:
+            return [
+                CandidateTask(
+                    candidate_id="candidate_generated_alice",
+                    instruction="Find Alice Zhang's email address.",
+                    constraints={"must_use_tool": "lookup_contact_email"},
+                    difficulty={
+                        "level": "easy",
+                        "tool_count": 1,
+                        "constraint_count": 1,
+                        "state_changes": 0,
+                        "ambiguity": "none",
+                        "recovery_paths": 0,
+                    },
+                    tool_name="lookup_contact_email",
+                    arguments={"name": "Alice Zhang"},
+                    expected_answer="alice.zhang@example.test",
+                    seed_ids=(seed.seed_id,),
+                )
+            ]
+
+        def failing_policy(task: CandidateTask) -> SolutionPolicy:
+            raise LLMProviderError(
+                cause="llm_response_schema_error",
+                error_class="TypeError",
+                retryable=False,
+                retry_count=2,
+                lineage={
+                    "role": "solution_policy",
+                    "role_version": "role_solution_policy_v1",
+                    "output_type": "solution_policy",
+                    "provider_host": "llm.example.test",
+                    "model": "test-generator",
+                    "config_hash": "policy-hash",
+                    "retry_count": 2,
+                    "error_class": "TypeError",
+                },
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_foundation_pipeline(
+                Path(tmpdir),
+                dataset_version="dataset_policy_error_lineage",
+                candidate_generator=one_candidate,
+                policy_generator=failing_policy,
+            )
+
+            self.assertEqual(result.accepted_count, 0)
+            self.assertEqual(result.rejected_count, 1)
+            rejection = json.loads(result.rejections_path.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(rejection["cause"], "llm_response_schema_error")
+            self.assertEqual(rejection["details"]["retry_count"], 2)
+            self.assertEqual(rejection["details"]["lineage"]["role"], "solution_policy")
+            quality_report = json.loads(result.quality_report_path.read_text(encoding="utf-8"))
+            self.assertEqual(quality_report["role_outcomes"]["solution_policy"]["rejected"], 1)
+
     def test_rejects_candidate_when_tool_execution_fails(self) -> None:
         from synthesis.pipeline import run_foundation_pipeline
 

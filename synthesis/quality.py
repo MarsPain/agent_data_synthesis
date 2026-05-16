@@ -394,6 +394,17 @@ def _rejection_role_lineages(rejection: Mapping[str, Any]) -> list[Mapping[str, 
     direct_lineage = _mapping(details.get("lineage"))
     if direct_lineage:
         lineages.append(direct_lineage)
+    role_lineages = details.get("role_lineages")
+    if isinstance(role_lineages, Mapping):
+        for raw_lineage in role_lineages.values():
+            lineage = _mapping(raw_lineage)
+            if lineage:
+                lineages.append(lineage)
+    elif isinstance(role_lineages, list):
+        for raw_lineage in role_lineages:
+            lineage = _mapping(raw_lineage)
+            if lineage:
+                lineages.append(lineage)
     refinement = _mapping(details.get("refinement"))
     refinement_lineage = _mapping(refinement.get("lineage"))
     if refinement_lineage:

@@ -85,12 +85,14 @@ class LLMProviderError(RuntimeError):
         error_class: str = "LLMProviderError",
         retryable: bool = False,
         retry_count: int = 0,
+        lineage: dict[str, object] | None = None,
     ) -> None:
         super().__init__(f"Remote LLM generation failed: {error_class}")
         self.cause = cause
         self.error_class = error_class
         self.retryable = retryable
         self.retry_count = retry_count
+        self.lineage = dict(lineage) if lineage else {}
 
 
 class OpenAICompatibleClient:
@@ -153,6 +155,12 @@ class OpenAICompatibleClient:
                     error_class=type(exc).__name__,
                     retryable=retryable,
                     retry_count=attempt,
+                    lineage=self._error_lineage(
+                        role=role,
+                        prompt=prompt,
+                        error_class=type(exc).__name__,
+                        retry_count=attempt,
+                    ),
                 ) from exc
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 if attempt < self._max_retries:
@@ -163,6 +171,12 @@ class OpenAICompatibleClient:
                     error_class=type(exc).__name__,
                     retryable=True,
                     retry_count=attempt,
+                    lineage=self._error_lineage(
+                        role=role,
+                        prompt=prompt,
+                        error_class=type(exc).__name__,
+                        retry_count=attempt,
+                    ),
                 ) from exc
             except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
                 raise LLMProviderError(
@@ -170,6 +184,12 @@ class OpenAICompatibleClient:
                     error_class=type(exc).__name__,
                     retryable=False,
                     retry_count=attempt,
+                    lineage=self._error_lineage(
+                        role=role,
+                        prompt=prompt,
+                        error_class=type(exc).__name__,
+                        retry_count=attempt,
+                    ),
                 ) from exc
 
         raise LLMProviderError()
@@ -182,6 +202,21 @@ class OpenAICompatibleClient:
         if self._retry_delay_seconds <= 0:
             return
         self._sleeper(self._retry_delay_seconds)
+
+    def _error_lineage(
+        self,
+        *,
+        role: str,
+        prompt: str,
+        error_class: str,
+        retry_count: int,
+    ) -> dict[str, object]:
+        lineage = self.config.lineage(role)
+        lineage["tokens"] = {}
+        lineage["retry_count"] = retry_count
+        lineage["error_class"] = error_class
+        lineage["prompt_hash"] = _hash_text(prompt)
+        return lineage
 
 
 def _parse_chat_completion_json_content(payload: dict[str, Any]) -> dict[str, Any]:
