@@ -6,6 +6,7 @@ from pathlib import Path
 
 from synthesis.llm import LLMConfigurationError, LLMProviderError
 from synthesis.pipeline import build_llm_candidate_generator, run_foundation_pipeline
+from synthesis.refinement import deterministic_fixture_refiner
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,18 +35,25 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Generate candidate tasks through the configured remote OpenAI-compatible API.",
     )
+    parser.add_argument(
+        "--enable-refinement",
+        action="store_true",
+        help="Enable the deterministic one-shot critic/refinement fixture loop.",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     candidate_generator = build_llm_candidate_generator() if args.use_llm else None
+    refiner = deterministic_fixture_refiner if args.enable_refinement else None
     try:
         result = run_foundation_pipeline(
             args.output_dir,
             dataset_version=args.dataset_version,
             candidate_generator=candidate_generator,
             parent_artifact_path=args.parent_artifact,
+            refiner=refiner,
         )
     except (LLMConfigurationError, LLMProviderError) as exc:
         print(str(exc), file=sys.stderr)

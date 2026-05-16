@@ -45,6 +45,9 @@ def build_quality_report(
             "accepted": len(samples),
             "rejected": len(rejections),
             "executable": executable_count,
+            "refined_attempted": _refined_attempted_count(samples, rejections),
+            "refined_accepted": _refined_accepted_count(samples),
+            "refined_rejected": _refined_rejected_count(rejections),
         },
         "rates": {
             "success_rate": _rate(len(samples), total_count),
@@ -169,6 +172,7 @@ def _build_slices(
         "verifier_type": {},
         "rejection_cause": {},
         "curriculum_level": {},
+        "refinement_status": {},
     }
     for sample in samples:
         _add_slice(dimensions["dataset_version"], str(sample.get("dataset_version", dataset_version)), accepted=True)
@@ -179,6 +183,7 @@ def _build_slices(
         _add_slice(dimensions["tool_combination"], _tool_combination(sample), accepted=True)
         _add_slice(dimensions["generator_role"], _generator_role(sample), accepted=True)
         _add_slice(dimensions["verifier_type"], _verifier_type(sample), accepted=True)
+        _add_slice(dimensions["refinement_status"], _sample_refinement_status(sample), accepted=True)
 
     for rejection in rejections:
         task = _mapping(rejection.get("task"))
@@ -189,6 +194,11 @@ def _build_slices(
         _add_slice(dimensions["curriculum_level"], _difficulty_level(task), accepted=False)
         _add_slice(dimensions["tool_combination"], _rejection_tool_combination(task), accepted=False)
         _add_slice(dimensions["rejection_cause"], cause, accepted=False)
+        _add_slice(
+            dimensions["refinement_status"],
+            _rejection_refinement_status(rejection),
+            accepted=False,
+        )
 
     return {
         dimension: {key: _with_rates(counts) for key, counts in sorted(values.items())}
@@ -226,6 +236,25 @@ def _count_rejection_causes(rejections: list[dict[str, object]]) -> dict[str, in
         cause = str(rejection.get("cause", "unknown"))
         causes[cause] = causes.get(cause, 0) + 1
     return dict(sorted(causes.items()))
+
+
+def _refined_accepted_count(samples: list[dict[str, object]]) -> int:
+    return sum(1 for sample in samples if _sample_refinement_status(sample) == "refined_accepted")
+
+
+def _refined_rejected_count(rejections: list[dict[str, object]]) -> int:
+    return sum(
+        1
+        for rejection in rejections
+        if _rejection_refinement_status(rejection) == "refined_rejected"
+    )
+
+
+def _refined_attempted_count(
+    samples: list[dict[str, object]],
+    rejections: list[dict[str, object]],
+) -> int:
+    return _refined_accepted_count(samples) + _refined_rejected_count(rejections)
 
 
 def _normalize_instruction(raw: object) -> str:
@@ -275,6 +304,20 @@ def _generator_role(sample: Mapping[str, Any]) -> str:
 def _verifier_type(sample: Mapping[str, Any]) -> str:
     verifier = _mapping(sample.get("verifier"))
     return str(verifier.get("id", "unknown"))
+
+
+def _sample_refinement_status(sample: Mapping[str, Any]) -> str:
+    lineage = _mapping(sample.get("lineage"))
+    if isinstance(lineage.get("refinement"), Mapping):
+        return "refined_accepted"
+    return "unrefined"
+
+
+def _rejection_refinement_status(rejection: Mapping[str, Any]) -> str:
+    details = _mapping(rejection.get("details"))
+    if isinstance(details.get("refinement"), Mapping):
+        return "refined_rejected"
+    return "unrefined"
 
 
 def _expected_answer(sample: Mapping[str, Any]) -> str | None:

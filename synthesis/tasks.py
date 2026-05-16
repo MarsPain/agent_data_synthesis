@@ -115,6 +115,35 @@ def generate_llm_backed_candidates(seed: DomainSeed, client: Any) -> list[Candid
     return candidates
 
 
+def candidate_from_mapping(
+    raw: dict[str, Any],
+    *,
+    seed_ids: tuple[str, ...],
+    generation_lineage: dict[str, object] | None = None,
+) -> CandidateTask:
+    difficulty = _normalize_difficulty(raw["difficulty"])
+    constraints = _normalize_constraints(raw["constraints"])
+    arguments = raw["arguments"]
+    if not isinstance(arguments, dict):
+        raise TypeError("candidate arguments must be an object")
+    expected_state = raw.get("expected_state")
+    if expected_state is not None and not isinstance(expected_state, dict):
+        raise TypeError("candidate expected_state must be an object")
+
+    return CandidateTask(
+        candidate_id=str(raw["candidate_id"]),
+        instruction=str(raw["instruction"]),
+        constraints=constraints,
+        difficulty=difficulty,
+        tool_name=_normalize_tool_name(str(raw["tool_name"])),
+        arguments=arguments,
+        expected_answer=str(raw["expected_answer"]),
+        seed_ids=seed_ids,
+        generation_lineage=dict(generation_lineage) if generation_lineage else None,
+        expected_state=expected_state,
+    )
+
+
 def _candidate_generation_prompt(seed: DomainSeed) -> str:
     taxonomy = ", ".join(seed.task_taxonomy)
     return (
@@ -143,22 +172,10 @@ def _candidate_from_mapping(
     generation_lineage: dict[str, object],
 ) -> CandidateTask:
     try:
-        difficulty = _normalize_difficulty(raw["difficulty"])
-        constraints = _normalize_constraints(raw["constraints"])
-        arguments = raw["arguments"]
-        if not isinstance(arguments, dict):
-            raise TypeError("candidate arguments must be an object")
-
-        return CandidateTask(
-            candidate_id=str(raw["candidate_id"]),
-            instruction=str(raw["instruction"]),
-            constraints=constraints,
-            difficulty=difficulty,
-            tool_name=_normalize_tool_name(str(raw["tool_name"])),
-            arguments=arguments,
-            expected_answer=str(raw["expected_answer"]),
+        return candidate_from_mapping(
+            raw,
             seed_ids=(seed.seed_id,),
-            generation_lineage=dict(generation_lineage),
+            generation_lineage=generation_lineage,
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise LLMProviderError(

@@ -15,6 +15,9 @@ The first backend should be a local Python pipeline with explicit modules and du
   execution, trajectory runner, retry policy, and event capture.
 - `synthesis.verification`: executable, logical, state-change, and judge-based
   validators.
+- `synthesis.refinement`: repairability decisions, critic/refiner attempt
+  values, deterministic fixture repairs, remote critic/refinement parsing, and
+  sanitized refinement lineage.
 - `synthesis.quality`: quality reports, metric slices, duplicate signatures,
   logical consistency checks, human-review records, and parent-version comparison.
 - `synthesis.datasets`: sample assembly, manifests, artifact exports, generation
@@ -52,10 +55,13 @@ trajectories, exports, or logs.
 7. Execute policy steps against the environment and record action, observation,
    state-change, and final-response events.
 8. Verify outputs and expected state changes independently.
-9. Apply dataset-quality gates such as exact duplicate detection and logical
+9. For repairable verification or logical-support failures, optionally run one
+   critic/refinement attempt and rerun validation, execution, verification, and
+   quality gates through the normal path.
+10. Apply dataset-quality gates such as exact duplicate detection and logical
    consistency checks.
-10. Route failed samples by error class and optional review policy.
-11. Export accepted samples, rejections, quality reports, and lineage.
+11. Route failed samples by error class and optional review policy.
+12. Export accepted samples, rejections, quality reports, and lineage.
 
 ## Scaling Direction
 

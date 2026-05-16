@@ -547,6 +547,87 @@ class OpenAICompatibleProviderTest(unittest.TestCase):
         self.assertEqual([step.tool_name for step in policy.steps], ["lookup_contact_email", "record_contact_followup"])
         self.assertEqual(policy.lineage["provider_host"], "llm.example.test")
 
+    def test_remote_critic_refinement_uses_openai_boundary_and_sanitized_lineage(self) -> None:
+        from synthesis.llm import LLMConfig, OpenAICompatibleClient
+        from synthesis.refinement import generate_llm_backed_refinement
+
+        captured: dict[str, object] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["authorization"] = request.headers.get("authorization")
+            captured["payload"] = json.loads(request.content.decode("utf-8"))
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json.dumps(
+                                    {
+                                        "repair_decision": "repair_candidate",
+                                        "critic_diagnosis": "Ben Carter expected answer is stale.",
+                                        "candidate": {
+                                            "candidate_id": "candidate_contacts_ben_bad_expectation_refined_1",
+                                            "instruction": "Find Ben Carter's email address.",
+                                            "constraints": {"must_use_tool": "lookup_contact_email"},
+                                            "difficulty": {
+                                                "level": "easy",
+                                                "tool_count": 1,
+                                                "constraint_count": 1,
+                                                "state_changes": 0,
+                                                "ambiguity": "none",
+                                                "recovery_paths": 0,
+                                            },
+                                            "tool_name": "lookup_contact_email",
+                                            "arguments": {"name": "Ben Carter"},
+                                            "expected_answer": "ben.carter@example.test",
+                                        },
+                                    }
+                                ),
+                            }
+                        }
+                    ],
+                    "usage": {"total_tokens": 31},
+                },
+            )
+
+        client = OpenAICompatibleClient(
+            LLMConfig(
+                base_url="https://llm.example.test/v1",
+                api_key="secret-test-key",
+                model="test-generator",
+            ),
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+        task = CandidateTask(
+            candidate_id="candidate_contacts_ben_bad_expectation",
+            instruction="Find Ben Carter's email address.",
+            constraints={"must_use_tool": "lookup_contact_email"},
+            difficulty={"level": "easy", "tool_count": 1},
+            tool_name="lookup_contact_email",
+            arguments={"name": "Ben Carter"},
+            expected_answer="ben@example.test",
+            seed_ids=("seed_contacts_v1",),
+        )
+
+        attempt = generate_llm_backed_refinement(
+            task=task,
+            source_failure_cause="verification_failed",
+            source_failure_details={"expected": "ben@example.test"},
+            attempt_number=1,
+            client=client,
+        )
+
+        self.assertEqual(captured["authorization"], "Bearer secret-test-key")
+        self.assertEqual(captured["payload"]["model"], "test-generator")
+        self.assertEqual(attempt.lineage["role"], "critic_refinement")
+        self.assertEqual(attempt.lineage["provider_host"], "llm.example.test")
+        self.assertEqual(attempt.lineage["model"], "test-generator")
+        self.assertEqual(attempt.lineage["retry_count"], 0)
+        self.assertEqual(attempt.lineage["tokens"]["total_tokens"], 31)
+        self.assertIn("prompt_hash", attempt.lineage)
+        self.assertNotIn("secret-test-key", json.dumps(attempt.export()))
+
 
 if __name__ == "__main__":
     unittest.main()

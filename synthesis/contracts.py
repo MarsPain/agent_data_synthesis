@@ -23,6 +23,12 @@ REJECTION_CAUSES = {
     "solution_logic_error",
 }
 
+REFINEMENT_DECISIONS = {
+    "not_repairable",
+    "repair_candidate",
+    "repair_policy",
+}
+
 
 def validate_candidate_task(task: object) -> CandidateTask:
     if not isinstance(task, CandidateTask):
@@ -101,6 +107,36 @@ def validate_review_record(record: Mapping[str, Any]) -> None:
     _require_non_empty_string(record.get("uncertainty_reason"), "uncertainty_reason")
     _require_non_empty_string(record.get("source_artifact"), "source_artifact")
     _require_non_empty_string(record.get("created_at"), "created_at")
+
+
+def validate_refinement_attempt(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "refinement_attempt")
+    _require_non_empty_string(record.get("original_candidate_id"), "original_candidate_id")
+    _require_positive_int(record.get("attempt_number"), "attempt_number")
+    cause = record.get("source_failure_cause")
+    _require_non_empty_string(cause, "source_failure_cause")
+    if cause not in REJECTION_CAUSES:
+        raise ContractValidationError(
+            f"source_failure_cause must be one of {sorted(REJECTION_CAUSES)}"
+        )
+    _require_mapping(record.get("source_failure_details"), "source_failure_details")
+    _require_non_empty_string(record.get("critic_diagnosis"), "critic_diagnosis")
+    decision = record.get("repair_decision")
+    _require_non_empty_string(decision, "repair_decision")
+    if decision not in REFINEMENT_DECISIONS:
+        raise ContractValidationError(
+            f"repair_decision must be one of {sorted(REFINEMENT_DECISIONS)}"
+        )
+    lineage = _require_mapping(record.get("lineage"), "lineage")
+    _validate_lineage_role(lineage, "lineage")
+    if decision == "repair_candidate":
+        if "revised_candidate" not in record:
+            raise ContractValidationError("revised_candidate is required")
+        _validate_task(record.get("revised_candidate"))
+    elif decision == "repair_policy":
+        if "revised_policy" not in record:
+            raise ContractValidationError("revised_policy is required")
+        _validate_revised_policy(record.get("revised_policy"))
 
 
 def _validate_environment(raw: object) -> None:
@@ -203,6 +239,29 @@ def _validate_lineage(raw: object) -> None:
             "lineage.solution_policy",
         )
         _validate_lineage_role(solution_policy, "lineage.solution_policy")
+    if "refinement" in lineage:
+        refinement = _require_mapping(lineage.get("refinement"), "lineage.refinement")
+        _require_non_empty_string(
+            refinement.get("original_candidate_id"),
+            "lineage.refinement.original_candidate_id",
+        )
+        _require_positive_int(
+            refinement.get("attempt_number"),
+            "lineage.refinement.attempt_number",
+        )
+        _require_non_empty_string(
+            refinement.get("source_failure_cause"),
+            "lineage.refinement.source_failure_cause",
+        )
+        _require_non_empty_string(
+            refinement.get("critic_diagnosis"),
+            "lineage.refinement.critic_diagnosis",
+        )
+        _require_non_empty_string(
+            refinement.get("repair_decision"),
+            "lineage.refinement.repair_decision",
+        )
+        _validate_lineage_role(refinement, "lineage.refinement")
 
     verifier = _require_mapping(lineage.get("verifier"), "lineage.verifier")
     _require_non_empty_string(verifier.get("id"), "lineage.verifier.id")
@@ -240,7 +299,32 @@ def _require_int(raw: object, path: str) -> int:
     return raw
 
 
+def _require_positive_int(raw: object, path: str) -> int:
+    if not isinstance(raw, int) or isinstance(raw, bool) or raw < 1:
+        raise ContractValidationError(f"{path} must be a positive integer")
+    return raw
+
+
 def _require_number(raw: object, path: str) -> float:
     if not isinstance(raw, (int, float)) or isinstance(raw, bool):
         raise ContractValidationError(f"{path} must be a number")
     return float(raw)
+
+
+def _validate_revised_policy(raw: object) -> None:
+    policy = _require_mapping(raw, "revised_policy")
+    _require_non_empty_string(policy.get("policy_id"), "revised_policy.policy_id")
+    steps = _require_sequence(policy.get("steps"), "revised_policy.steps")
+    if not steps:
+        raise ContractValidationError("revised_policy.steps must contain at least one step")
+    for index, raw_step in enumerate(steps):
+        step = _require_mapping(raw_step, f"revised_policy.steps.{index}")
+        _require_non_empty_string(
+            step.get("tool_name"),
+            f"revised_policy.steps.{index}.tool_name",
+        )
+        _require_mapping(step.get("arguments"), f"revised_policy.steps.{index}.arguments")
+    _require_non_empty_string(
+        policy.get("final_response_template"),
+        "revised_policy.final_response_template",
+    )

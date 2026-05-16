@@ -30,6 +30,9 @@
 - Separate task generation from solution-policy execution and preserve policy
   lineage.
 - Add multi-step, stateful trajectories before broader branching behavior.
+- Add a bounded critic/refinement loop that diagnoses failed trajectories, reruns
+  one repaired attempt, and reports refined outcomes separately. Completed in
+  plan 0006.
 - Add generator roles for environment, tool, task, solution, verifier, and critic.
 - Add tool expansion when failures indicate missing capability.
 - Add multi-path trajectory generation and branching behavior-tree tasks.

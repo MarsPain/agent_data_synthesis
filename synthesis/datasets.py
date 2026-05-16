@@ -15,6 +15,7 @@ from synthesis.environments import EnvironmentMetadata
 from synthesis.execution import ExecutionResult
 from synthesis.llm import LLMConfig, LLMProviderError
 from synthesis.quality import build_parent_comparison, build_quality_report, retry_eligible
+from synthesis.refinement import RefinementAttempt
 from synthesis.tasks import CandidateTask
 from synthesis.verification import VerificationResult
 
@@ -40,6 +41,7 @@ def assemble_sample(
     execution: ExecutionResult,
     verification: VerificationResult,
     llm_config: LLMConfig,
+    refinement_attempt: RefinementAttempt | None = None,
 ) -> dict[str, object]:
     action_count = sum(1 for event in execution.trajectory if event.get("type") == "action")
     stateful = any(event.get("type") == "state_change" for event in execution.trajectory)
@@ -53,6 +55,8 @@ def assemble_sample(
     }
     if execution.policy and execution.policy.lineage:
         lineage["solution_policy"] = execution.policy.lineage
+    if refinement_attempt is not None:
+        lineage["refinement"] = refinement_attempt.sample_lineage()
 
     return {
         "sample_id": f"sample_{task.candidate_id}",
@@ -206,6 +210,17 @@ def assemble_generation_stage_rejection(*, error: LLMProviderError) -> dict[str,
     }
 
 
+def attach_refinement_to_rejection(
+    rejection: dict[str, object],
+    refinement_attempt: RefinementAttempt,
+) -> dict[str, object]:
+    refined = dict(rejection)
+    details = dict(refined.get("details", {}))
+    details["refinement"] = refinement_attempt.rejection_metadata(outcome="rejected")
+    refined["details"] = details
+    return refined
+
+
 def write_dataset_artifacts(
     *,
     output_dir: Path,
@@ -346,4 +361,7 @@ def _lineage_config_hashes(samples: list[dict[str, object]]) -> list[object]:
         solution_policy = lineage.get("solution_policy")
         if isinstance(solution_policy, dict):
             values.append(solution_policy.get("config_hash"))
+        refinement = lineage.get("refinement")
+        if isinstance(refinement, dict):
+            values.append(refinement.get("config_hash"))
     return _unique_values(value for value in values if value)

@@ -11,6 +11,8 @@
 - **Trajectory:** ordered interaction events including tool calls, observations,
   state changes, and final responses.
 - **Verifier:** independent checks that decide whether a trajectory satisfies the task.
+- **Refinement Attempt:** bounded critic diagnosis plus one revised candidate or
+  solution policy used to rerun a failed candidate.
 - **Sample:** accepted training record assembled from the above entities.
 - **Dataset Version:** manifest that groups samples, schemas, generator configs, and quality reports.
 
@@ -55,7 +57,7 @@ and a quality report:
   "final_response": "...",
   "verification": {"passed": true, "checks": []},
   "quality": {"scores": {}, "tags": []},
-  "lineage": {"seed_ids": [], "generator": {}, "solution_policy": {}, "verifier": {}}
+  "lineage": {"seed_ids": [], "generator": {}, "solution_policy": {}, "refinement": {}, "verifier": {}}
 }
 ```
 
@@ -74,22 +76,34 @@ Trajectory events currently supported by the contract are:
 is used separately from task generation. It follows the same sanitized role
 metadata shape as `lineage.generator`.
 
+`lineage.refinement` is present only for accepted samples produced by a repaired
+rerun. It records the original candidate id, attempt number, source failure
+cause, critic diagnosis, repair decision, and sanitized role metadata. Refined
+rejections store the same attempt metadata under `details.refinement` while
+preserving the original source failure details.
+
 ### Quality Report Contract
 
 `quality_report.json` uses `schema_version: quality_report_v1` and records:
 
 - `dataset_version`.
-- `counts.total`, `counts.accepted`, `counts.rejected`, and `counts.executable`.
+- `counts.total`, `counts.accepted`, `counts.rejected`, `counts.executable`,
+  `counts.refined_attempted`, `counts.refined_accepted`, and
+  `counts.refined_rejected`.
 - `rates.success_rate` and `rates.executable_rate`.
 - `rejection_causes`, keyed by classified cause.
 - `slices`, keyed by deterministic dimensions currently available in foundation
   records: dataset version, domain, task type, difficulty level, curriculum level,
-  tool combination, generator role, verifier type, and rejection cause.
+  tool combination, generator role, verifier type, rejection cause, and
+  refinement status.
 
 Exact duplicate candidates are rejected with `quality_duplicate` when a later
 accepted candidate repeats the normalized task instruction and ordered action tool
 sequence. Logical consistency failures are rejected with `solution_logic_error`
 when a final answer is not supported by observations and verifier expectations.
+When refinement is enabled, each repairable failure receives at most one rerun.
+The original failure remains inspectable when the rerun is rejected, and refined
+successes and failures are reported separately.
 
 Remote LLM generation-stage failures are rejected before candidate execution.
 Transient provider, timeout, HTTP 429, and HTTP 5xx failures use
