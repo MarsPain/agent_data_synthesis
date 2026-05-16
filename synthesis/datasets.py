@@ -41,6 +41,19 @@ def assemble_sample(
     verification: VerificationResult,
     llm_config: LLMConfig,
 ) -> dict[str, object]:
+    action_count = sum(1 for event in execution.trajectory if event.get("type") == "action")
+    stateful = any(event.get("type") == "state_change" for event in execution.trajectory)
+    lineage = {
+        "seed_ids": list(task.seed_ids),
+        "generator": task.generation_lineage or llm_config.lineage("task_generation"),
+        "verifier": {
+            "id": verification.verifier_id,
+            "version": verification.version,
+        },
+    }
+    if execution.policy and execution.policy.lineage:
+        lineage["solution_policy"] = execution.policy.lineage
+
     return {
         "sample_id": f"sample_{task.candidate_id}",
         "dataset_version": dataset_version,
@@ -69,17 +82,10 @@ def assemble_sample(
                 "verified": 1.0,
                 "instruction_clarity": 1.0,
             },
-            "tags": ["foundation", "sqlite_fixture", "single_tool"],
+            "tags": _quality_tags(action_count=action_count, stateful=stateful),
             "review_status": "auto_accepted",
         },
-        "lineage": {
-            "seed_ids": list(task.seed_ids),
-            "generator": task.generation_lineage or llm_config.lineage("task_generation"),
-            "verifier": {
-                "id": verification.verifier_id,
-                "version": verification.version,
-            },
-        },
+        "lineage": lineage,
     }
 
 
@@ -92,15 +98,16 @@ def assemble_rejection(
         (check for check in verification.checks if not check.get("passed")),
         {"name": "unknown", "expected": None, "actual": None},
     )
+    cause = str(failed_check.get("cause") or "verification_failed")
     return {
         "candidate_id": task.candidate_id,
-        "cause": "verification_failed",
+        "cause": cause,
         "task": task.export(),
         "details": {
             "check": failed_check.get("name"),
             "expected": failed_check.get("expected"),
             "actual": failed_check.get("actual"),
-            "retry_eligible": retry_eligible("verification_failed"),
+            "retry_eligible": retry_eligible(cause),
         },
     }
 
@@ -282,9 +289,7 @@ def write_dataset_artifacts(
         "verifier_versions": _unique_values(
             sample["verifier"]["version"] for sample in samples
         ),
-        "generator_config_hashes": _unique_values(
-            sample["lineage"]["generator"]["config_hash"] for sample in samples
-        ),
+        "generator_config_hashes": _lineage_config_hashes(samples),
         "rejection_causes": quality_report["rejection_causes"],
     }
     validate_manifest_record(manifest)
@@ -319,3 +324,26 @@ def _unique_values(values: Iterable[object]) -> list[object]:
         if value not in unique:
             unique.append(value)
     return unique
+
+
+def _quality_tags(*, action_count: int, stateful: bool) -> list[str]:
+    tags = ["foundation", "sqlite_fixture"]
+    tags.append("multi_step" if action_count > 1 else "single_tool")
+    if stateful:
+        tags.append("stateful")
+    return tags
+
+
+def _lineage_config_hashes(samples: list[dict[str, object]]) -> list[object]:
+    values: list[object] = []
+    for sample in samples:
+        lineage = sample["lineage"]
+        if not isinstance(lineage, dict):
+            continue
+        generator = lineage.get("generator")
+        if isinstance(generator, dict):
+            values.append(generator.get("config_hash"))
+        solution_policy = lineage.get("solution_policy")
+        if isinstance(solution_policy, dict):
+            values.append(solution_policy.get("config_hash"))
+    return _unique_values(value for value in values if value)

@@ -15,7 +15,7 @@ class EnvironmentMetadata:
 
 class ContactEnvironment:
     environment_id = "contacts_fixture"
-    version = "env_contacts_v1"
+    version = "env_contacts_v2"
 
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path
@@ -45,6 +45,16 @@ class ContactEnvironment:
                         ("Ben Carter", "ben.carter@example.test"),
                     ],
                 )
+                connection.execute(
+                    """
+                    CREATE TABLE contact_followups (
+                        name TEXT PRIMARY KEY,
+                        note TEXT NOT NULL,
+                        created_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z',
+                        FOREIGN KEY(name) REFERENCES contacts(name)
+                    )
+                    """
+                )
         return environment
 
     def connect(self) -> sqlite3.Connection:
@@ -60,6 +70,41 @@ class ContactEnvironment:
             raise KeyError(f"Unknown contact: {name}")
         return {"name": name, "email": row[0]}
 
+    def record_followup(self, name: str, note: str) -> dict[str, object]:
+        self.lookup_email(name)
+        with closing(self.connect()) as connection:
+            with connection:
+                connection.execute(
+                    """
+                    INSERT INTO contact_followups(name, note)
+                    VALUES (?, ?)
+                    ON CONFLICT(name) DO UPDATE SET note = excluded.note
+                    """,
+                    (name, note),
+                )
+                row = connection.execute(
+                    "SELECT COUNT(*) FROM contact_followups WHERE name = ? AND note = ?",
+                    (name, note),
+                ).fetchone()
+        return {
+            "name": name,
+            "note": note,
+            "followup_count": int(row[0]) if row else 0,
+            "state_change": {
+                "entity": "contact_followup",
+                "operation": "upsert",
+                "name": name,
+            },
+        }
+
+    def has_followup(self, name: str, note: str) -> bool:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                "SELECT 1 FROM contact_followups WHERE name = ? AND note = ?",
+                (name, note),
+            ).fetchone()
+        return row is not None
+
     def metadata(self) -> EnvironmentMetadata:
         return EnvironmentMetadata(
             environment_id=self.environment_id,
@@ -68,5 +113,6 @@ class ContactEnvironment:
                 "type": "sqlite_fixture",
                 "fixture": "contacts",
                 "database": self.database_path.name,
+                "tables": ["contacts", "contact_followups"],
             },
         )

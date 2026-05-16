@@ -10,9 +10,11 @@ The first backend should be a local Python pipeline with explicit modules and du
 - `synthesis.environments`: environment builders, reset/checkpoint operations, and state adapters.
 - `synthesis.tools`: tool definitions, schema generation, registry, and dependency graph.
 - `synthesis.tasks`: task generation, difficulty scoring, curriculum policies,
-  and candidate-level generation lineage attachment.
-- `synthesis.execution`: trajectory runner, retry policy, and event capture.
-- `synthesis.verification`: executable, logical, and judge-based validators.
+  expected state declarations, and candidate-level generation lineage attachment.
+- `synthesis.execution`: solution policy selection/parsing, ordered tool-step
+  execution, trajectory runner, retry policy, and event capture.
+- `synthesis.verification`: executable, logical, state-change, and judge-based
+  validators.
 - `synthesis.quality`: quality reports, metric slices, duplicate signatures,
   logical consistency checks, human-review records, and parent-version comparison.
 - `synthesis.datasets`: sample assembly, manifests, artifact exports, generation
@@ -46,12 +48,14 @@ trajectories, exports, or logs.
 4. Generate candidate tasks by curriculum policy.
 5. If remote generation fails after configuration, write a classified generation
    rejection plus manifest and quality report artifacts.
-6. Execute candidate solutions against the environment.
-7. Verify outputs independently.
-8. Apply dataset-quality gates such as exact duplicate detection and logical
+6. Generate or select a solution policy for each valid task.
+7. Execute policy steps against the environment and record action, observation,
+   state-change, and final-response events.
+8. Verify outputs and expected state changes independently.
+9. Apply dataset-quality gates such as exact duplicate detection and logical
    consistency checks.
-9. Route failed samples by error class and optional review policy.
-10. Export accepted samples, rejections, quality reports, and lineage.
+10. Route failed samples by error class and optional review policy.
+11. Export accepted samples, rejections, quality reports, and lineage.
 
 ## Scaling Direction
 

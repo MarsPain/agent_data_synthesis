@@ -24,6 +24,32 @@ class DatasetContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ContractValidationError, "trajectory.0.type"):
             validate_sample_record(sample)
 
+    def test_sample_contract_accepts_state_change_events_and_policy_lineage(self) -> None:
+        from synthesis.contracts import validate_sample_record
+
+        sample = _valid_sample()
+        sample["trajectory"].insert(
+            1,
+            {
+                "type": "state_change",
+                "tool": "record_contact_followup",
+                "change": {
+                    "entity": "contact_followup",
+                    "operation": "inserted",
+                    "name": "Alice Zhang",
+                },
+            },
+        )
+        sample["lineage"]["solution_policy"] = {
+            "role": "scripted_solution_policy",
+            "provider_host": "local",
+            "model": "scripted",
+            "config_hash": "policy123",
+            "configured": True,
+        }
+
+        validate_sample_record(sample)
+
     def test_rejection_contract_requires_cause(self) -> None:
         from synthesis.contracts import ContractValidationError, validate_rejection_record
 

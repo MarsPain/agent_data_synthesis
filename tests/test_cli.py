@@ -48,7 +48,7 @@ class FoundationCliTest(unittest.TestCase):
             self.assertTrue((output_dir / "manifest.json").exists(), result.stdout)
             manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["dataset_version"], "dataset_cli_test")
-            self.assertIn("accepted=1", result.stdout)
+            self.assertIn("accepted=2", result.stdout)
             self.assertNotIn("secret-test-key", result.stdout)
 
     def test_use_llm_requires_provider_configuration(self) -> None:

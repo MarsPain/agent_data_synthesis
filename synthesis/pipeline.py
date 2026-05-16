@@ -18,7 +18,7 @@ from synthesis.datasets import (
     write_dataset_artifacts,
 )
 from synthesis.environments import ContactEnvironment
-from synthesis.execution import execute_candidate
+from synthesis.execution import PolicyValidationError, SolutionPolicy, execute_candidate, scripted_solution_policy
 from synthesis.llm import LLMConfig, LLMProviderError, OpenAICompatibleClient
 from synthesis.quality import (
     build_review_record,
@@ -55,6 +55,7 @@ class PipelineResult:
 
 
 CandidateGenerator = Callable[[DomainSeed], list[CandidateTask]]
+PolicyGenerator = Callable[[CandidateTask], SolutionPolicy]
 
 
 class FoundationGateError(RuntimeError):
@@ -71,6 +72,7 @@ def run_foundation_pipeline(
     *,
     dataset_version: str = "dataset_foundation_v1",
     candidate_generator: CandidateGenerator | None = None,
+    policy_generator: PolicyGenerator | None = None,
     parent_artifact_path: Path | None = None,
     route_reviewable_failures: bool = False,
 ) -> PipelineResult:
@@ -80,6 +82,7 @@ def run_foundation_pipeline(
     verifier = ExactAnswerVerifier()
     llm_config = LLMConfig.from_env()
     generate_candidates = candidate_generator or generate_foundation_candidates
+    generate_policy = policy_generator or scripted_solution_policy
 
     samples: list[dict[str, object]] = []
     rejections: list[dict[str, object]] = []
@@ -138,7 +141,8 @@ def run_foundation_pipeline(
             rejections.append(assemble_candidate_schema_rejection(error=exc))
             continue
         try:
-            execution = execute_candidate(task, registry)
+            policy = generate_policy(task)
+            execution = execute_candidate(task, registry, policy=policy)
         except ToolMissingError as exc:
             rejections.append(
                 assemble_execution_rejection(task=task, error=exc, cause="tool_missing")
@@ -149,10 +153,15 @@ def run_foundation_pipeline(
                 assemble_execution_rejection(task=task, error=exc, cause="tool_schema_error")
             )
             continue
+        except PolicyValidationError as exc:
+            rejections.append(
+                assemble_execution_rejection(task=task, error=exc, cause="tool_schema_error")
+            )
+            continue
         except Exception as exc:
             rejections.append(assemble_execution_rejection(task=task, error=exc))
             continue
-        verification = verifier.verify(task, execution)
+        verification = verifier.verify(task, execution, environment=environment)
         if verification.passed:
             sample = assemble_sample(
                 dataset_version=dataset_version,

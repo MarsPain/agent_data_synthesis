@@ -27,6 +27,9 @@
 
 ## Stage 3: Agentic Generation Loop
 
+- Separate task generation from solution-policy execution and preserve policy
+  lineage.
+- Add multi-step, stateful trajectories before broader branching behavior.
 - Add generator roles for environment, tool, task, solution, verifier, and critic.
 - Add tool expansion when failures indicate missing capability.
 - Add multi-path trajectory generation and branching behavior-tree tasks.

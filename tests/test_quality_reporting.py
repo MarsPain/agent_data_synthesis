@@ -136,7 +136,7 @@ class QualityPipelineTest(unittest.TestCase):
             self.assertEqual(manifest["artifacts"]["quality_report"], "quality_report.json")
 
             report = json.loads(result.quality_report_path.read_text(encoding="utf-8"))
-            self.assertEqual(report["counts"]["accepted"], 1)
+            self.assertEqual(report["counts"]["accepted"], 2)
             self.assertEqual(report["counts"]["rejected"], 1)
 
     def test_rejects_later_duplicate_accepted_candidate(self) -> None:

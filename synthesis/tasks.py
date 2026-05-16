@@ -18,6 +18,7 @@ class CandidateTask:
     expected_answer: str
     seed_ids: tuple[str, ...]
     generation_lineage: dict[str, object] | None = None
+    expected_state: dict[str, object] | None = None
 
     def export(self) -> dict[str, object]:
         return {
@@ -57,6 +58,35 @@ def generate_foundation_candidates(seed: DomainSeed) -> list[CandidateTask]:
             arguments={"name": "Ben Carter"},
             expected_answer="ben@example.test",
             seed_ids=(seed.seed_id,),
+        ),
+        CandidateTask(
+            candidate_id="candidate_contacts_alice_followup",
+            instruction=(
+                "Find Alice Zhang's email address and record that a follow-up "
+                "email should be sent."
+            ),
+            constraints={
+                "task_type": "contact_followup",
+                "required_tools": ["lookup_contact_email", "record_contact_followup"],
+            },
+            difficulty={
+                "level": "medium",
+                "tool_count": 2,
+                "constraint_count": 2,
+                "state_changes": 1,
+                "ambiguity": "none",
+                "recovery_paths": 0,
+            },
+            tool_name="lookup_contact_email",
+            arguments={"name": "Alice Zhang"},
+            expected_answer="alice.zhang@example.test",
+            seed_ids=(seed.seed_id,),
+            expected_state={
+                "contact_followup": {
+                    "name": "Alice Zhang",
+                    "note": "Send follow-up email to alice.zhang@example.test.",
+                }
+            },
         ),
     ])
 

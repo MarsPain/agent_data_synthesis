@@ -34,6 +34,8 @@ def validate_candidate_task(task: object) -> CandidateTask:
     _require_non_empty_string(task.tool_name, "tool_name")
     _require_mapping(task.arguments, "arguments")
     _require_non_empty_string(task.expected_answer, "expected_answer")
+    if task.expected_state is not None:
+        _require_mapping(task.expected_state, "expected_state")
     if not task.seed_ids:
         raise ContractValidationError("seed_ids must contain at least one seed id")
     for index, seed_id in enumerate(task.seed_ids):
@@ -147,6 +149,9 @@ def _validate_trajectory(raw: object) -> None:
                 raise ContractValidationError(f"trajectory.{index}.observation is required")
         elif event_type == "final_response":
             _require_non_empty_string(event.get("content"), f"trajectory.{index}.content")
+        elif event_type == "state_change":
+            _require_non_empty_string(event.get("tool"), f"trajectory.{index}.tool")
+            _require_mapping(event.get("change"), f"trajectory.{index}.change")
         else:
             raise ContractValidationError(f"trajectory.{index}.type is unsupported: {event_type}")
 
@@ -191,14 +196,24 @@ def _validate_lineage(raw: object) -> None:
         _require_non_empty_string(seed_id, f"lineage.seed_ids.{index}")
 
     generator = _require_mapping(lineage.get("generator"), "lineage.generator")
-    _require_non_empty_string(generator.get("role"), "lineage.generator.role")
-    _require_non_empty_string(generator.get("provider_host"), "lineage.generator.provider_host")
-    _require_non_empty_string(generator.get("model"), "lineage.generator.model")
-    _require_non_empty_string(generator.get("config_hash"), "lineage.generator.config_hash")
+    _validate_lineage_role(generator, "lineage.generator")
+    if "solution_policy" in lineage:
+        solution_policy = _require_mapping(
+            lineage.get("solution_policy"),
+            "lineage.solution_policy",
+        )
+        _validate_lineage_role(solution_policy, "lineage.solution_policy")
 
     verifier = _require_mapping(lineage.get("verifier"), "lineage.verifier")
     _require_non_empty_string(verifier.get("id"), "lineage.verifier.id")
     _require_non_empty_string(verifier.get("version"), "lineage.verifier.version")
+
+
+def _validate_lineage_role(raw: Mapping[str, Any], path: str) -> None:
+    _require_non_empty_string(raw.get("role"), f"{path}.role")
+    _require_non_empty_string(raw.get("provider_host"), f"{path}.provider_host")
+    _require_non_empty_string(raw.get("model"), f"{path}.model")
+    _require_non_empty_string(raw.get("config_hash"), f"{path}.config_hash")
 
 
 def _require_mapping(raw: object, path: str) -> Mapping[str, Any]:

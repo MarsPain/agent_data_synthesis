@@ -6,7 +6,10 @@
 - **Environment:** executable stateful world with reset/checkpoint behavior.
 - **Tool:** typed callable action exposed to the Agent.
 - **Task:** user-facing goal plus structured constraints and difficulty metadata.
-- **Trajectory:** ordered interaction events including tool calls and observations.
+- **Solution Policy:** selected or generated ordered tool-use plan for satisfying
+  a task.
+- **Trajectory:** ordered interaction events including tool calls, observations,
+  state changes, and final responses.
 - **Verifier:** independent checks that decide whether a trajectory satisfies the task.
 - **Sample:** accepted training record assembled from the above entities.
 - **Dataset Version:** manifest that groups samples, schemas, generator configs, and quality reports.
@@ -48,17 +51,28 @@ and a quality report:
   "environment": {"id": "...", "version": "..."},
   "tools": [{"name": "...", "schema": {}, "version": "..."}],
   "task": {"instruction": "...", "constraints": {}, "difficulty": {}},
-  "trajectory": [{"type": "action", "tool": "...", "arguments": {}, "observation": {}}],
+  "trajectory": [{"type": "action", "tool": "...", "arguments": {}}],
   "final_response": "...",
   "verification": {"passed": true, "checks": []},
   "quality": {"scores": {}, "tags": []},
-  "lineage": {"seed_ids": [], "generator": {}, "verifier": {}}
+  "lineage": {"seed_ids": [], "generator": {}, "solution_policy": {}, "verifier": {}}
 }
 ```
 
 `manifest.json` must include artifact references for `samples`, `rejections`, and
 `quality_report`. When parent comparison or review routing is enabled, it also
 references `parent_comparison` and `review_queue`.
+
+Trajectory events currently supported by the contract are:
+
+- `action`: tool name and JSON arguments submitted by the solution policy.
+- `observation`: structured tool result returned by the registry.
+- `state_change`: sanitized state mutation summary for mutating tools.
+- `final_response`: final assistant response assembled from the executed policy.
+
+`lineage.solution_policy` is present when a scripted or remote policy generator
+is used separately from task generation. It follows the same sanitized role
+metadata shape as `lineage.generator`.
 
 ### Quality Report Contract
 
@@ -128,8 +142,11 @@ For every LLM-backed generation, solution, refinement, or judge step, lineage sh
 - Request role, retry count, error class, token counts, and cost metadata when available.
 
 LLM-backed task candidates carry the generation lineage returned by the provider
-call into accepted samples. The local deterministic fixture path may still build
+call into accepted samples. LLM-backed solution policies carry separate
+`solution_policy` lineage so task generation and execution planning can be
+audited independently. The local deterministic fixture path may still build
 stable local lineage from runtime configuration, but remote samples should use the
-candidate-level provider lineage rather than reconstructing it later.
+candidate-level and policy-level provider lineage rather than reconstructing it
+later.
 
 Do not store `AGENT_DATA_API_KEY` or raw provider credentials in manifests, samples, trajectory logs, or rejected-candidate diagnostics.

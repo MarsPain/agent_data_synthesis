@@ -484,6 +484,69 @@ class OpenAICompatibleProviderTest(unittest.TestCase):
 
         self.assertEqual(raised.exception.cause, "llm_response_schema_error")
 
+    def test_llm_solution_policy_generator_parses_remote_policy(self) -> None:
+        from synthesis.execution import SolutionPolicy, generate_llm_backed_solution_policy
+
+        task = CandidateTask(
+            candidate_id="candidate_contacts_alice_followup",
+            instruction="Find Alice Zhang's email and record a follow-up note.",
+            constraints={
+                "task_type": "contact_followup",
+                "required_tools": ["lookup_contact_email", "record_contact_followup"],
+            },
+            difficulty={"level": "medium", "tool_count": 2},
+            tool_name="lookup_contact_email",
+            arguments={"name": "Alice Zhang"},
+            expected_answer="alice.zhang@example.test",
+            seed_ids=("seed_contacts_v1",),
+        )
+
+        class FakeClient:
+            def generate_json(self, prompt: str, *, role: str) -> object:
+                self.prompt = prompt
+                self.role = role
+                return type(
+                    "FakeResult",
+                    (),
+                    {
+                        "content": {
+                            "policy": {
+                                "policy_id": "policy_llm_followup",
+                                "steps": [
+                                    {
+                                        "tool_name": "lookup_contact_email",
+                                        "arguments": {"name": "Alice Zhang"},
+                                    },
+                                    {
+                                        "tool_name": "record_contact_followup",
+                                        "arguments": {
+                                            "name": "Alice Zhang",
+                                            "note": "Send follow-up email to alice.zhang@example.test.",
+                                        },
+                                    },
+                                ],
+                                "final_response_template": "{name}'s email is {email}. Follow-up recorded.",
+                            }
+                        },
+                        "lineage": {
+                            "role": "solution_policy",
+                            "provider_host": "llm.example.test",
+                            "model": "test-generator",
+                            "config_hash": "abc123",
+                        },
+                    },
+                )()
+
+        fake_client = FakeClient()
+        policy = generate_llm_backed_solution_policy(task, fake_client)
+
+        self.assertEqual(fake_client.role, "solution_policy")
+        self.assertIn("candidate_contacts_alice_followup", fake_client.prompt)
+        self.assertIsInstance(policy, SolutionPolicy)
+        self.assertEqual(policy.policy_id, "policy_llm_followup")
+        self.assertEqual([step.tool_name for step in policy.steps], ["lookup_contact_email", "record_contact_followup"])
+        self.assertEqual(policy.lineage["provider_host"], "llm.example.test")
+
 
 if __name__ == "__main__":
     unittest.main()

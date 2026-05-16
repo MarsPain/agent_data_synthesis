@@ -89,6 +89,39 @@ def build_contact_tool_registry(environment: ContactEnvironment) -> ToolRegistry
         ),
         lookup_contact_email,
     )
+
+    def record_contact_followup(arguments: dict[str, object]) -> dict[str, object]:
+        name = arguments.get("name")
+        note = arguments.get("note")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("record_contact_followup requires a non-empty string name")
+        if not isinstance(note, str) or not note.strip():
+            raise ValueError("record_contact_followup requires a non-empty string note")
+        return environment.record_followup(name, note)
+
+    registry.register(
+        ToolDefinition(
+            name="record_contact_followup",
+            version="tool_record_contact_followup_v1",
+            schema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Full contact name receiving a follow-up note.",
+                    },
+                    "note": {
+                        "type": "string",
+                        "description": "Follow-up note to persist for the contact.",
+                    },
+                },
+                "required": ["name", "note"],
+                "additionalProperties": False,
+            },
+            side_effects="state_mutating",
+        ),
+        record_contact_followup,
+    )
     return registry
 
 

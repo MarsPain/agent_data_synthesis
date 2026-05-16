@@ -34,5 +34,5 @@
 - [exec-plans/active/README.md](exec-plans/active/README.md): active plan bucket.
 - No active execution plan.
 - [exec-plans/completed/README.md](exec-plans/completed/README.md): completed plan bucket.
-- [exec-plans/completed/0004-remote-llm-generation-lineage-and-retry-loop.md](exec-plans/completed/0004-remote-llm-generation-lineage-and-retry-loop.md): latest completed remote LLM generation hardening slice.
+- [exec-plans/completed/0005-solution-policy-and-multi-step-stateful-trajectories.md](exec-plans/completed/0005-solution-policy-and-multi-step-stateful-trajectories.md): latest completed solution-policy and multi-step stateful trajectory slice.
 - [exec-plans/tech-debt/README.md](exec-plans/tech-debt/README.md): technical debt bucket.
