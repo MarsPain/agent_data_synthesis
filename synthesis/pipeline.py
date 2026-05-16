@@ -10,6 +10,7 @@ from synthesis.contracts import ContractValidationError, validate_candidate_task
 from synthesis.datasets import (
     assemble_candidate_schema_rejection,
     assemble_execution_rejection,
+    assemble_generation_stage_rejection,
     assemble_pipeline_gate_rejection,
     assemble_quality_gate_rejection,
     assemble_rejection,
@@ -18,7 +19,7 @@ from synthesis.datasets import (
 )
 from synthesis.environments import ContactEnvironment
 from synthesis.execution import execute_candidate
-from synthesis.llm import LLMConfig, OpenAICompatibleClient
+from synthesis.llm import LLMConfig, LLMProviderError, OpenAICompatibleClient
 from synthesis.quality import (
     build_review_record,
     candidate_duplicate_signature,
@@ -107,7 +108,30 @@ def run_foundation_pipeline(
             rejected_count=artifacts.rejected_count,
         )
 
-    for raw_task in generate_candidates(seed):
+    try:
+        raw_tasks = generate_candidates(seed)
+    except LLMProviderError as exc:
+        rejections.append(assemble_generation_stage_rejection(error=exc))
+        artifacts = write_dataset_artifacts(
+            output_dir=output_dir,
+            dataset_version=dataset_version,
+            samples=samples,
+            rejections=rejections,
+            parent_artifact_path=parent_artifact_path,
+            review_records=review_records,
+        )
+        return PipelineResult(
+            samples_path=artifacts.samples_path,
+            manifest_path=artifacts.manifest_path,
+            rejections_path=artifacts.rejections_path,
+            quality_report_path=artifacts.quality_report_path,
+            parent_comparison_path=artifacts.parent_comparison_path,
+            review_queue_path=artifacts.review_queue_path,
+            accepted_count=artifacts.accepted_count,
+            rejected_count=artifacts.rejected_count,
+        )
+
+    for raw_task in raw_tasks:
         try:
             task = validate_candidate_task(raw_task)
         except ContractValidationError as exc:

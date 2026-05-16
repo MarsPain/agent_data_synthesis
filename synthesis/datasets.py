@@ -13,7 +13,7 @@ from synthesis.contracts import (
 )
 from synthesis.environments import EnvironmentMetadata
 from synthesis.execution import ExecutionResult
-from synthesis.llm import LLMConfig
+from synthesis.llm import LLMConfig, LLMProviderError
 from synthesis.quality import build_parent_comparison, build_quality_report, retry_eligible
 from synthesis.tasks import CandidateTask
 from synthesis.verification import VerificationResult
@@ -74,7 +74,7 @@ def assemble_sample(
         },
         "lineage": {
             "seed_ids": list(task.seed_ids),
-            "generator": llm_config.lineage("task_generation"),
+            "generator": task.generation_lineage or llm_config.lineage("task_generation"),
             "verifier": {
                 "id": verification.verifier_id,
                 "version": verification.version,
@@ -176,6 +176,25 @@ def assemble_pipeline_gate_rejection(*, error: Exception) -> dict[str, object]:
             "error_class": type(error).__name__,
             "message": str(error),
             "retry_eligible": retry_eligible("infrastructure_error"),
+        },
+    }
+
+
+def assemble_generation_stage_rejection(*, error: LLMProviderError) -> dict[str, object]:
+    return {
+        "candidate_id": "generation_stage",
+        "cause": error.cause,
+        "task": {
+            "candidate_id": "generation_stage",
+            "instruction": "Remote LLM candidate generation failed before execution.",
+            "constraints": {},
+            "difficulty": {},
+        },
+        "details": {
+            "error_class": error.error_class,
+            "message": str(error),
+            "retry_count": error.retry_count,
+            "retry_eligible": retry_eligible(error.cause),
         },
     }
 

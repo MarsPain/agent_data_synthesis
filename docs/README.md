@@ -31,7 +31,8 @@
 
 ## Execution Plans
 
+- [exec-plans/active/README.md](exec-plans/active/README.md): active plan bucket.
 - No active execution plan.
 - [exec-plans/completed/README.md](exec-plans/completed/README.md): completed plan bucket.
-- [exec-plans/completed/0003-quality-reporting-and-curriculum-foundation.md](exec-plans/completed/0003-quality-reporting-and-curriculum-foundation.md): latest completed Stage 2 quality reporting slice.
+- [exec-plans/completed/0004-remote-llm-generation-lineage-and-retry-loop.md](exec-plans/completed/0004-remote-llm-generation-lineage-and-retry-loop.md): latest completed remote LLM generation hardening slice.
 - [exec-plans/tech-debt/README.md](exec-plans/tech-debt/README.md): technical debt bucket.

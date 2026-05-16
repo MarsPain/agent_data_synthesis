@@ -77,6 +77,13 @@ accepted candidate repeats the normalized task instruction and ordered action to
 sequence. Logical consistency failures are rejected with `solution_logic_error`
 when a final answer is not supported by observations and verifier expectations.
 
+Remote LLM generation-stage failures are rejected before candidate execution.
+Transient provider, timeout, HTTP 429, and HTTP 5xx failures use
+`llm_provider_error`; malformed provider JSON or malformed candidate arrays use
+`llm_response_schema_error`. Generation-stage rejection details include sanitized
+`error_class`, `retry_count`, and `retry_eligible` values, and must not include raw
+provider payloads, prompts, headers, or credentials.
+
 ### Parent Comparison Contract
 
 When a local parent manifest or quality report path is supplied, the pipeline writes
@@ -119,5 +126,10 @@ For every LLM-backed generation, solution, refinement, or judge step, lineage sh
 - `AGENT_DATA_LLM_MODEL` value.
 - Prompt, template, and runtime config hashes.
 - Request role, retry count, error class, token counts, and cost metadata when available.
+
+LLM-backed task candidates carry the generation lineage returned by the provider
+call into accepted samples. The local deterministic fixture path may still build
+stable local lineage from runtime configuration, but remote samples should use the
+candidate-level provider lineage rather than reconstructing it later.
 
 Do not store `AGENT_DATA_API_KEY` or raw provider credentials in manifests, samples, trajectory logs, or rejected-candidate diagnostics.

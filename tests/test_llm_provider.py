@@ -364,7 +364,125 @@ class OpenAICompatibleProviderTest(unittest.TestCase):
             self.assertEqual(request_count, 1)
             self.assertEqual(result.accepted_count, 1)
             self.assertEqual(sample["lineage"]["generator"]["provider_host"], "llm.example.test")
+            self.assertEqual(sample["lineage"]["generator"]["tokens"]["total_tokens"], 20)
+            self.assertEqual(sample["lineage"]["generator"]["retry_count"], 0)
+            self.assertIn("prompt_hash", sample["lineage"]["generator"])
             self.assertNotIn("secret-test-key", json.dumps(sample))
+
+    def test_chat_completion_retries_transient_status_and_records_retry_count(self) -> None:
+        from synthesis.llm import LLMConfig, OpenAICompatibleClient
+
+        request_count = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal request_count
+            request_count += 1
+            if request_count == 1:
+                return httpx.Response(429, json={"error": "rate limited"})
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json.dumps({"candidates": []}),
+                            }
+                        }
+                    ],
+                    "usage": {"total_tokens": 9},
+                },
+            )
+
+        client = OpenAICompatibleClient(
+            LLMConfig(
+                base_url="https://llm.example.test/v1",
+                api_key="secret-test-key",
+                model="test-generator",
+            ),
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+            max_retries=1,
+            sleeper=lambda _: None,
+        )
+
+        result = client.generate_json("Generate candidate tasks.", role="task_generation")
+
+        self.assertEqual(request_count, 2)
+        self.assertEqual(result.content, {"candidates": []})
+        self.assertEqual(result.lineage["retry_count"], 1)
+        self.assertEqual(result.lineage["error_class"], None)
+
+    def test_chat_completion_exhausted_retry_error_is_sanitized(self) -> None:
+        from synthesis.llm import LLMConfig, LLMProviderError, OpenAICompatibleClient
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(500, json={"error": "secret-test-key should not leak"})
+
+        client = OpenAICompatibleClient(
+            LLMConfig(
+                base_url="https://llm.example.test/v1",
+                api_key="secret-test-key",
+                model="test-generator",
+            ),
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+            max_retries=1,
+            sleeper=lambda _: None,
+        )
+
+        with self.assertRaises(LLMProviderError) as raised:
+            client.generate_json("Generate candidate tasks with secret-test-key.", role="task_generation")
+
+        error = raised.exception
+        self.assertEqual(error.cause, "llm_provider_error")
+        self.assertEqual(error.error_class, "HTTPStatusError")
+        self.assertEqual(error.retry_count, 1)
+        self.assertTrue(error.retryable)
+        self.assertNotIn("secret-test-key", str(error))
+
+    def test_malformed_chat_completion_content_is_response_schema_error(self) -> None:
+        from synthesis.llm import LLMConfig, LLMProviderError, OpenAICompatibleClient
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": "not-json"}}]},
+            )
+
+        client = OpenAICompatibleClient(
+            LLMConfig(
+                base_url="https://llm.example.test/v1",
+                api_key="secret-test-key",
+                model="test-generator",
+            ),
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+
+        with self.assertRaises(LLMProviderError) as raised:
+            client.generate_json("Generate candidate tasks.", role="task_generation")
+
+        self.assertEqual(raised.exception.cause, "llm_response_schema_error")
+        self.assertEqual(raised.exception.error_class, "JSONDecodeError")
+
+    def test_llm_candidate_generator_classifies_invalid_candidate_array(self) -> None:
+        from synthesis.llm import LLMProviderError
+        from synthesis.tasks import generate_llm_backed_candidates
+
+        seed = foundation_seed()
+
+        class FakeClient:
+            def generate_json(self, prompt: str, *, role: str) -> object:
+                return type(
+                    "FakeResult",
+                    (),
+                    {
+                        "content": {"candidates": {"not": "a list"}},
+                        "lineage": {"provider_host": "llm.example.test"},
+                    },
+                )()
+
+        with self.assertRaises(LLMProviderError) as raised:
+            generate_llm_backed_candidates(seed, FakeClient())
+
+        self.assertEqual(raised.exception.cause, "llm_response_schema_error")
 
 
 if __name__ == "__main__":

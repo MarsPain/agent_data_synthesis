@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from synthesis.llm import LLMProviderError
 from synthesis.seeds import DomainSeed
 
 
@@ -16,6 +17,7 @@ class CandidateTask:
     arguments: dict[str, object]
     expected_answer: str
     seed_ids: tuple[str, ...]
+    generation_lineage: dict[str, object] | None = None
 
     def export(self) -> dict[str, object]:
         return {
@@ -63,13 +65,23 @@ def generate_llm_backed_candidates(seed: DomainSeed, client: Any) -> list[Candid
     result = client.generate_json(_candidate_generation_prompt(seed), role="task_generation")
     raw_candidates = result.content.get("candidates")
     if not isinstance(raw_candidates, list):
-        raise ValueError("LLM candidate response must contain a candidates list")
+        raise LLMProviderError(
+            cause="llm_response_schema_error",
+            error_class="TypeError",
+            retryable=False,
+            retry_count=_lineage_retry_count(result.lineage),
+        )
 
     candidates: list[CandidateTask] = []
     for raw_candidate in raw_candidates:
         if not isinstance(raw_candidate, dict):
-            raise ValueError("Each LLM candidate must be a JSON object")
-        candidates.append(_candidate_from_mapping(seed, raw_candidate))
+            raise LLMProviderError(
+                cause="llm_response_schema_error",
+                error_class="TypeError",
+                retryable=False,
+                retry_count=_lineage_retry_count(result.lineage),
+            )
+        candidates.append(_candidate_from_mapping(seed, raw_candidate, result.lineage))
     return candidates
 
 
@@ -95,23 +107,36 @@ def _candidate_generation_prompt(seed: DomainSeed) -> str:
     )
 
 
-def _candidate_from_mapping(seed: DomainSeed, raw: dict[str, Any]) -> CandidateTask:
-    difficulty = _normalize_difficulty(raw["difficulty"])
-    constraints = _normalize_constraints(raw["constraints"])
-    arguments = raw["arguments"]
-    if not isinstance(arguments, dict):
-        raise ValueError("candidate arguments must be an object")
+def _candidate_from_mapping(
+    seed: DomainSeed,
+    raw: dict[str, Any],
+    generation_lineage: dict[str, object],
+) -> CandidateTask:
+    try:
+        difficulty = _normalize_difficulty(raw["difficulty"])
+        constraints = _normalize_constraints(raw["constraints"])
+        arguments = raw["arguments"]
+        if not isinstance(arguments, dict):
+            raise TypeError("candidate arguments must be an object")
 
-    return CandidateTask(
-        candidate_id=str(raw["candidate_id"]),
-        instruction=str(raw["instruction"]),
-        constraints=constraints,
-        difficulty=difficulty,
-        tool_name=_normalize_tool_name(str(raw["tool_name"])),
-        arguments=arguments,
-        expected_answer=str(raw["expected_answer"]),
-        seed_ids=(seed.seed_id,),
-    )
+        return CandidateTask(
+            candidate_id=str(raw["candidate_id"]),
+            instruction=str(raw["instruction"]),
+            constraints=constraints,
+            difficulty=difficulty,
+            tool_name=_normalize_tool_name(str(raw["tool_name"])),
+            arguments=arguments,
+            expected_answer=str(raw["expected_answer"]),
+            seed_ids=(seed.seed_id,),
+            generation_lineage=dict(generation_lineage),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise LLMProviderError(
+            cause="llm_response_schema_error",
+            error_class=type(exc).__name__,
+            retryable=False,
+            retry_count=_lineage_retry_count(generation_lineage),
+        ) from exc
 
 
 def _normalize_difficulty(raw_difficulty: Any) -> dict[str, object]:
@@ -174,3 +199,10 @@ def _normalize_tool_name(raw_tool_name: str) -> str:
         "contact_lookup": "lookup_contact_email",
     }
     return aliases.get(raw_tool_name, raw_tool_name)
+
+
+def _lineage_retry_count(lineage: dict[str, object]) -> int:
+    retry_count = lineage.get("retry_count", 0)
+    if isinstance(retry_count, int) and not isinstance(retry_count, bool):
+        return retry_count
+    return 0

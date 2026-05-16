@@ -15,6 +15,7 @@ EXECUTABLE_REJECTION_CAUSES = {
 RETRYABLE_REJECTION_CAUSES = {
     "tool_runtime_error",
     "infrastructure_error",
+    "llm_provider_error",
 }
 
 REVIEWABLE_REJECTION_CAUSES = {

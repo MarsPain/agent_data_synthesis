@@ -244,6 +244,44 @@ class FoundationPipelineTest(unittest.TestCase):
             self.assertEqual(rejection["cause"], "infrastructure_error")
             self.assertEqual(rejection["details"]["error_class"], "FoundationGateError")
 
+    def test_generation_stage_provider_failure_writes_inspectable_artifacts(self) -> None:
+        from synthesis.llm import LLMProviderError
+        from synthesis.pipeline import run_foundation_pipeline
+
+        def failing_generator(seed) -> list[CandidateTask]:
+            raise LLMProviderError(
+                cause="llm_provider_error",
+                error_class="HTTPStatusError",
+                retryable=True,
+                retry_count=2,
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_foundation_pipeline(
+                Path(tmpdir),
+                dataset_version="dataset_generation_failure_test",
+                candidate_generator=failing_generator,
+            )
+
+            self.assertEqual(result.accepted_count, 0)
+            self.assertEqual(result.rejected_count, 1)
+            self.assertTrue(result.manifest_path.exists())
+            self.assertTrue(result.quality_report_path.exists())
+
+            rejection = json.loads(result.rejections_path.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(rejection["candidate_id"], "generation_stage")
+            self.assertEqual(rejection["cause"], "llm_provider_error")
+            self.assertEqual(rejection["details"]["error_class"], "HTTPStatusError")
+            self.assertEqual(rejection["details"]["retry_count"], 2)
+            self.assertTrue(rejection["details"]["retry_eligible"])
+
+            manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["rejection_causes"], {"llm_provider_error": 1})
+
+            quality_report = json.loads(result.quality_report_path.read_text(encoding="utf-8"))
+            self.assertEqual(quality_report["counts"]["rejected"], 1)
+            self.assertEqual(quality_report["rejection_causes"], {"llm_provider_error": 1})
+
 
 if __name__ == "__main__":
     unittest.main()

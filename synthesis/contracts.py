@@ -17,6 +17,8 @@ REJECTION_CAUSES = {
     "tool_runtime_error",
     "verification_failed",
     "infrastructure_error",
+    "llm_provider_error",
+    "llm_response_schema_error",
     "quality_duplicate",
     "solution_logic_error",
 }

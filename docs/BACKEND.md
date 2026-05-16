@@ -9,15 +9,18 @@ The first backend should be a local Python pipeline with explicit modules and du
 - `synthesis.seeds`: source registration and normalized seed records.
 - `synthesis.environments`: environment builders, reset/checkpoint operations, and state adapters.
 - `synthesis.tools`: tool definitions, schema generation, registry, and dependency graph.
-- `synthesis.tasks`: task generation, difficulty scoring, and curriculum policies.
+- `synthesis.tasks`: task generation, difficulty scoring, curriculum policies,
+  and candidate-level generation lineage attachment.
 - `synthesis.execution`: trajectory runner, retry policy, and event capture.
 - `synthesis.verification`: executable, logical, and judge-based validators.
 - `synthesis.quality`: quality reports, metric slices, duplicate signatures,
   logical consistency checks, human-review records, and parent-version comparison.
-- `synthesis.datasets`: sample assembly, manifests, artifact exports, and quality
-  report path plumbing.
+- `synthesis.datasets`: sample assembly, manifests, artifact exports, generation
+  failure rejection records, and quality report path plumbing.
 - `synthesis.orchestration`: jobs, workers, queues, cancellation, and metrics.
-- `synthesis.llm`: remote provider adapter, request/response capture, retry policy, cost metadata, and model configuration.
+- `synthesis.llm`: remote provider adapter, request/response capture, bounded
+  retry policy, sanitized provider error classification, prompt hashing, cost
+  metadata, and model configuration.
 
 ## LLM Provider Boundary
 
@@ -29,7 +32,11 @@ Minimum runtime configuration:
 - `AGENT_DATA_API_KEY`: secret key for the selected provider.
 - `AGENT_DATA_LLM_MODEL`: model id used for generation, solution policy, refinement, or judge calls.
 
-Provider calls should record model id, base URL host, prompt or config hash, token and cost metadata when available, retry count, and error class. Secrets must never be written to manifests, trajectories, exports, or logs.
+Provider calls should record model id, base URL host, prompt or config hash, token
+and cost metadata when available, retry count, and error class. Transient
+transport failures, timeouts, HTTP 429, and HTTP 5xx responses may be retried
+within a bounded local budget. Secrets must never be written to manifests,
+trajectories, exports, or logs.
 
 ## Job Lifecycle
 
@@ -37,12 +44,14 @@ Provider calls should record model id, base URL host, prompt or config hash, tok
 2. Build or load an environment version.
 3. Build or load a tool registry version.
 4. Generate candidate tasks by curriculum policy.
-5. Execute candidate solutions against the environment.
-6. Verify outputs independently.
-7. Apply dataset-quality gates such as exact duplicate detection and logical
+5. If remote generation fails after configuration, write a classified generation
+   rejection plus manifest and quality report artifacts.
+6. Execute candidate solutions against the environment.
+7. Verify outputs independently.
+8. Apply dataset-quality gates such as exact duplicate detection and logical
    consistency checks.
-8. Route failed samples by error class and optional review policy.
-9. Export accepted samples, rejections, quality reports, and lineage.
+9. Route failed samples by error class and optional review policy.
+10. Export accepted samples, rejections, quality reports, and lineage.
 
 ## Scaling Direction
 
