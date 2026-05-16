@@ -54,6 +54,7 @@ def build_quality_report(
             "executable_rate": _rate(executable_count, total_count),
         },
         "rejection_causes": rejection_causes,
+        "role_outcomes": _build_role_outcomes(samples, rejections),
         "slices": slices,
     }
 
@@ -173,6 +174,8 @@ def _build_slices(
         "rejection_cause": {},
         "curriculum_level": {},
         "refinement_status": {},
+        "role_name": {},
+        "role_output_type": {},
     }
     for sample in samples:
         _add_slice(dimensions["dataset_version"], str(sample.get("dataset_version", dataset_version)), accepted=True)
@@ -184,6 +187,9 @@ def _build_slices(
         _add_slice(dimensions["generator_role"], _generator_role(sample), accepted=True)
         _add_slice(dimensions["verifier_type"], _verifier_type(sample), accepted=True)
         _add_slice(dimensions["refinement_status"], _sample_refinement_status(sample), accepted=True)
+        for lineage in _sample_role_lineages(sample):
+            _add_slice(dimensions["role_name"], _role_name(lineage), accepted=True)
+            _add_slice(dimensions["role_output_type"], _role_output_type(lineage), accepted=True)
 
     for rejection in rejections:
         task = _mapping(rejection.get("task"))
@@ -199,11 +205,79 @@ def _build_slices(
             _rejection_refinement_status(rejection),
             accepted=False,
         )
+        for lineage in _rejection_role_lineages(rejection):
+            _add_slice(dimensions["role_name"], _role_name(lineage), accepted=False)
+            _add_slice(dimensions["role_output_type"], _role_output_type(lineage), accepted=False)
 
     return {
         dimension: {key: _with_rates(counts) for key, counts in sorted(values.items())}
         for dimension, values in sorted(dimensions.items())
     }
+
+
+def _build_role_outcomes(
+    samples: list[dict[str, object]],
+    rejections: list[dict[str, object]],
+) -> dict[str, object]:
+    outcomes: dict[str, dict[str, Any]] = {}
+    for sample in samples:
+        for lineage in _sample_role_lineages(sample):
+            _add_role_outcome(outcomes, lineage, accepted=True)
+    for rejection in rejections:
+        for lineage in _rejection_role_lineages(rejection):
+            _add_role_outcome(outcomes, lineage, accepted=False)
+    return {
+        role: {
+            "attempted": values["attempted"],
+            "accepted": values["accepted"],
+            "rejected": values["rejected"],
+            "retry_count": values["retry_count"],
+            "tokens": dict(sorted(values["tokens"].items())),
+            "cost": dict(sorted(values["cost"].items())),
+            "output_types": sorted(values["output_types"]),
+        }
+        for role, values in sorted(outcomes.items())
+    }
+
+
+def _add_role_outcome(
+    outcomes: dict[str, dict[str, Any]],
+    lineage: Mapping[str, Any],
+    *,
+    accepted: bool,
+) -> None:
+    role = _role_name(lineage)
+    values = outcomes.setdefault(
+        role,
+        {
+            "attempted": 0,
+            "accepted": 0,
+            "rejected": 0,
+            "retry_count": 0,
+            "tokens": {},
+            "cost": {},
+            "output_types": set(),
+        },
+    )
+    values["attempted"] += 1
+    if accepted:
+        values["accepted"] += 1
+    else:
+        values["rejected"] += 1
+    retry_count = lineage.get("retry_count", 0)
+    if isinstance(retry_count, int) and not isinstance(retry_count, bool):
+        values["retry_count"] += retry_count
+    values["output_types"].add(_role_output_type(lineage))
+    _add_numeric_mapping(values["tokens"], _mapping(lineage.get("tokens")))
+    _add_numeric_mapping(values["cost"], _mapping(lineage.get("cost")))
+
+
+def _add_numeric_mapping(target: dict[str, int | float], source: Mapping[str, Any]) -> None:
+    for key, value in source.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        name = str(key)
+        target[name] = target.get(name, 0) + value
 
 
 def _add_slice(
@@ -299,6 +373,40 @@ def _generator_role(sample: Mapping[str, Any]) -> str:
     lineage = _mapping(sample.get("lineage"))
     generator = _mapping(lineage.get("generator"))
     return str(generator.get("role", "unknown"))
+
+
+def _sample_role_lineages(sample: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    lineage = _mapping(sample.get("lineage"))
+    return [
+        role_lineage
+        for role_lineage in (
+            _mapping(lineage.get("generator")),
+            _mapping(lineage.get("solution_policy")),
+            _mapping(lineage.get("refinement")),
+        )
+        if role_lineage
+    ]
+
+
+def _rejection_role_lineages(rejection: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    details = _mapping(rejection.get("details"))
+    lineages: list[Mapping[str, Any]] = []
+    direct_lineage = _mapping(details.get("lineage"))
+    if direct_lineage:
+        lineages.append(direct_lineage)
+    refinement = _mapping(details.get("refinement"))
+    refinement_lineage = _mapping(refinement.get("lineage"))
+    if refinement_lineage:
+        lineages.append(refinement_lineage)
+    return lineages
+
+
+def _role_name(lineage: Mapping[str, Any]) -> str:
+    return str(lineage.get("role", "unknown"))
+
+
+def _role_output_type(lineage: Mapping[str, Any]) -> str:
+    return str(lineage.get("output_type", "unknown"))
 
 
 def _verifier_type(sample: Mapping[str, Any]) -> str:

@@ -5,6 +5,7 @@ from string import Formatter
 from typing import Any
 
 from synthesis.llm import LLMProviderError
+from synthesis.roles import RoleRegistry, SOLUTION_POLICY_ROLE, default_role_registry
 from synthesis.tasks import CandidateTask
 from synthesis.tools import ToolRegistry
 
@@ -114,8 +115,18 @@ def scripted_solution_policy(task: CandidateTask) -> SolutionPolicy:
     )
 
 
-def generate_llm_backed_solution_policy(task: CandidateTask, client: Any) -> SolutionPolicy:
-    result = client.generate_json(_solution_policy_prompt(task), role="solution_policy")
+def generate_llm_backed_solution_policy(
+    task: CandidateTask,
+    client: Any,
+    *,
+    role_registry: RoleRegistry | None = None,
+) -> SolutionPolicy:
+    registry = role_registry or default_role_registry()
+    result = registry.invoke_json(
+        SOLUTION_POLICY_ROLE,
+        client,
+        _solution_policy_prompt(task),
+    )
     raw_policy = result.content.get("policy")
     if not isinstance(raw_policy, dict):
         raise LLMProviderError(
@@ -213,6 +224,10 @@ def _scalar_observation_values(observation: dict[str, object]) -> dict[str, obje
 def _local_policy_lineage() -> dict[str, object]:
     return {
         "role": "scripted_solution_policy",
+        "role_version": "role_scripted_solution_policy_v1",
+        "output_type": "solution_policy",
+        "owner_module": "synthesis.execution",
+        "retry_policy": "local_deterministic",
         "provider_host": "local",
         "model": "scripted",
         "config_hash": "scripted_solution_policy_v1",

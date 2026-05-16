@@ -29,6 +29,7 @@ from synthesis.quality import (
 )
 from synthesis.refinement import Refiner, RefinementAttempt, RefinementContext, repairable
 from synthesis.refinement import generate_llm_backed_refinement
+from synthesis.roles import RoleRegistry, default_role_registry
 from synthesis.seeds import foundation_seed
 from synthesis.seeds import DomainSeed
 from synthesis.tasks import (
@@ -73,13 +74,23 @@ class FoundationGateError(RuntimeError):
     pass
 
 
-def build_llm_candidate_generator(http_client: httpx.Client | None = None) -> CandidateGenerator:
+def build_llm_candidate_generator(
+    http_client: httpx.Client | None = None,
+    *,
+    role_registry: RoleRegistry | None = None,
+) -> CandidateGenerator:
     client = OpenAICompatibleClient(LLMConfig.from_env(), http_client=http_client)
-    return lambda seed: generate_llm_backed_candidates(seed, client)
+    registry = role_registry or default_role_registry()
+    return lambda seed: generate_llm_backed_candidates(seed, client, role_registry=registry)
 
 
-def build_llm_refiner(http_client: httpx.Client | None = None) -> Refiner:
+def build_llm_refiner(
+    http_client: httpx.Client | None = None,
+    *,
+    role_registry: RoleRegistry | None = None,
+) -> Refiner:
     client = OpenAICompatibleClient(LLMConfig.from_env(), http_client=http_client)
+    registry = role_registry or default_role_registry()
 
     def refine(context: RefinementContext) -> RefinementAttempt | None:
         return generate_llm_backed_refinement(
@@ -89,6 +100,7 @@ def build_llm_refiner(http_client: httpx.Client | None = None) -> Refiner:
             attempt_number=context.attempt_number,
             client=client,
             source_policy=context.source_policy,
+            role_registry=registry,
         )
 
     return refine

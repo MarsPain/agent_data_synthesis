@@ -131,6 +131,8 @@ class OpenAICompatibleProviderTest(unittest.TestCase):
         self.assertIsInstance(candidates[0], CandidateTask)
         self.assertEqual(candidates[0].candidate_id, "candidate_llm_alice")
         self.assertEqual(candidates[0].seed_ids, ("seed_contacts_v1",))
+        self.assertEqual(candidates[0].generation_lineage["role_version"], "role_task_generation_v1")
+        self.assertEqual(candidates[0].generation_lineage["output_type"], "candidate_tasks")
 
     def test_llm_candidate_generator_normalizes_scalar_difficulty(self) -> None:
         from synthesis.tasks import generate_llm_backed_candidates
@@ -366,6 +368,11 @@ class OpenAICompatibleProviderTest(unittest.TestCase):
             self.assertEqual(sample["lineage"]["generator"]["provider_host"], "llm.example.test")
             self.assertEqual(sample["lineage"]["generator"]["tokens"]["total_tokens"], 20)
             self.assertEqual(sample["lineage"]["generator"]["retry_count"], 0)
+            self.assertEqual(
+                sample["lineage"]["generator"]["role_version"],
+                "role_task_generation_v1",
+            )
+            self.assertEqual(sample["lineage"]["generator"]["output_type"], "candidate_tasks")
             self.assertIn("prompt_hash", sample["lineage"]["generator"])
             self.assertNotIn("secret-test-key", json.dumps(sample))
 
@@ -546,6 +553,8 @@ class OpenAICompatibleProviderTest(unittest.TestCase):
         self.assertEqual(policy.policy_id, "policy_llm_followup")
         self.assertEqual([step.tool_name for step in policy.steps], ["lookup_contact_email", "record_contact_followup"])
         self.assertEqual(policy.lineage["provider_host"], "llm.example.test")
+        self.assertEqual(policy.lineage["role_version"], "role_solution_policy_v1")
+        self.assertEqual(policy.lineage["output_type"], "solution_policy")
 
     def test_remote_critic_refinement_uses_openai_boundary_and_sanitized_lineage(self) -> None:
         from synthesis.llm import LLMConfig, OpenAICompatibleClient
@@ -625,6 +634,8 @@ class OpenAICompatibleProviderTest(unittest.TestCase):
         self.assertEqual(attempt.lineage["model"], "test-generator")
         self.assertEqual(attempt.lineage["retry_count"], 0)
         self.assertEqual(attempt.lineage["tokens"]["total_tokens"], 31)
+        self.assertEqual(attempt.lineage["role_version"], "role_critic_refinement_v1")
+        self.assertEqual(attempt.lineage["output_type"], "refinement_attempt")
         self.assertIn("prompt_hash", attempt.lineage)
         self.assertNotIn("secret-test-key", json.dumps(attempt.export()))
 

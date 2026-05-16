@@ -16,6 +16,7 @@ from synthesis.execution import ExecutionResult
 from synthesis.llm import LLMConfig, LLMProviderError
 from synthesis.quality import build_parent_comparison, build_quality_report, retry_eligible
 from synthesis.refinement import RefinementAttempt
+from synthesis.roles import TASK_GENERATION_ROLE, default_role_registry
 from synthesis.tasks import CandidateTask
 from synthesis.verification import VerificationResult
 
@@ -47,7 +48,7 @@ def assemble_sample(
     stateful = any(event.get("type") == "state_change" for event in execution.trajectory)
     lineage = {
         "seed_ids": list(task.seed_ids),
-        "generator": task.generation_lineage or llm_config.lineage("task_generation"),
+        "generator": task.generation_lineage or _default_task_generation_lineage(llm_config),
         "verifier": {
             "id": verification.verifier_id,
             "version": verification.version,
@@ -365,3 +366,9 @@ def _lineage_config_hashes(samples: list[dict[str, object]]) -> list[object]:
         if isinstance(refinement, dict):
             values.append(refinement.get("config_hash"))
     return _unique_values(value for value in values if value)
+
+
+def _default_task_generation_lineage(llm_config: LLMConfig) -> dict[str, object]:
+    lineage = llm_config.lineage(TASK_GENERATION_ROLE)
+    lineage.update(default_role_registry().require_enabled(TASK_GENERATION_ROLE).lineage_metadata())
+    return lineage

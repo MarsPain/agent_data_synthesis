@@ -34,5 +34,5 @@
 - [exec-plans/active/README.md](exec-plans/active/README.md): active plan bucket.
 - No active execution plan.
 - [exec-plans/completed/README.md](exec-plans/completed/README.md): completed plan bucket.
-- [exec-plans/completed/0006-critic-refinement-and-regeneration-loop.md](exec-plans/completed/0006-critic-refinement-and-regeneration-loop.md): latest completed critic/refinement and one-shot regeneration loop slice.
+- [exec-plans/completed/0007-role-contracts-and-generator-orchestration.md](exec-plans/completed/0007-role-contracts-and-generator-orchestration.md): latest completed role contracts, registry-backed LLM routing, role lineage, disabled future-role guardrails, and role-level quality reporting slice.
 - [exec-plans/tech-debt/README.md](exec-plans/tech-debt/README.md): technical debt bucket.

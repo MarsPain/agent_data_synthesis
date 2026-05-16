@@ -34,6 +34,72 @@ class QualityReportingTest(unittest.TestCase):
         self.assertIn("exact_answer_verifier", report["slices"]["verifier_type"])
         self.assertIn("verification_failed", report["slices"]["rejection_cause"])
 
+    def test_report_summarizes_role_outcomes_tokens_cost_and_role_slices(self) -> None:
+        from synthesis.quality import build_quality_report
+
+        sample = _sample()
+        sample["lineage"]["generator"] = {
+            "role": "task_generation",
+            "role_version": "role_task_generation_v1",
+            "output_type": "candidate_tasks",
+            "provider_host": "llm.example.test",
+            "model": "test-generator",
+            "config_hash": "task-hash",
+            "retry_count": 1,
+            "tokens": {"prompt_tokens": 7, "completion_tokens": 5, "total_tokens": 12},
+            "cost": {"total_usd": 0.03},
+        }
+        sample["lineage"]["solution_policy"] = {
+            "role": "solution_policy",
+            "role_version": "role_solution_policy_v1",
+            "output_type": "solution_policy",
+            "provider_host": "llm.example.test",
+            "model": "test-generator",
+            "config_hash": "policy-hash",
+            "retry_count": 0,
+            "tokens": {"total_tokens": 4},
+        }
+        rejection = _rejection()
+        rejection["details"]["refinement"] = {
+            "outcome": "rejected",
+            "lineage": {
+                "role": "critic_refinement",
+                "role_version": "role_critic_refinement_v1",
+                "output_type": "refinement_attempt",
+                "provider_host": "llm.example.test",
+                "model": "test-generator",
+                "config_hash": "critic-hash",
+                "retry_count": 2,
+                "tokens": {"total_tokens": 9},
+            },
+        }
+
+        report = build_quality_report(
+            dataset_version="dataset_test",
+            samples=[sample],
+            rejections=[rejection],
+        )
+
+        self.assertEqual(
+            report["role_outcomes"]["task_generation"],
+            {
+                "attempted": 1,
+                "accepted": 1,
+                "rejected": 0,
+                "retry_count": 1,
+                "tokens": {"completion_tokens": 5, "prompt_tokens": 7, "total_tokens": 12},
+                "cost": {"total_usd": 0.03},
+                "output_types": ["candidate_tasks"],
+            },
+        )
+        self.assertEqual(report["role_outcomes"]["solution_policy"]["accepted"], 1)
+        self.assertEqual(report["role_outcomes"]["solution_policy"]["tokens"], {"total_tokens": 4})
+        self.assertEqual(report["role_outcomes"]["critic_refinement"]["rejected"], 1)
+        self.assertEqual(report["role_outcomes"]["critic_refinement"]["retry_count"], 2)
+        self.assertIn("task_generation", report["slices"]["role_name"])
+        self.assertIn("solution_policy", report["slices"]["role_output_type"])
+        self.assertIn("refinement_attempt", report["slices"]["role_output_type"])
+
     def test_duplicate_signature_uses_normalized_instruction_and_ordered_actions(self) -> None:
         from synthesis.quality import duplicate_signature
 

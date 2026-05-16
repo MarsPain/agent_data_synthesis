@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from synthesis.llm import LLMProviderError
+from synthesis.roles import RoleRegistry, TASK_GENERATION_ROLE, default_role_registry
 from synthesis.seeds import DomainSeed
 
 
@@ -91,8 +92,18 @@ def generate_foundation_candidates(seed: DomainSeed) -> list[CandidateTask]:
     ])
 
 
-def generate_llm_backed_candidates(seed: DomainSeed, client: Any) -> list[CandidateTask]:
-    result = client.generate_json(_candidate_generation_prompt(seed), role="task_generation")
+def generate_llm_backed_candidates(
+    seed: DomainSeed,
+    client: Any,
+    *,
+    role_registry: RoleRegistry | None = None,
+) -> list[CandidateTask]:
+    registry = role_registry or default_role_registry()
+    result = registry.invoke_json(
+        TASK_GENERATION_ROLE,
+        client,
+        _candidate_generation_prompt(seed),
+    )
     raw_candidates = result.content.get("candidates")
     if not isinstance(raw_candidates, list):
         raise LLMProviderError(

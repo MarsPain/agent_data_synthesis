@@ -10,6 +10,7 @@ from synthesis.execution import (
     validate_solution_policy,
 )
 from synthesis.llm import LLMProviderError
+from synthesis.roles import CRITIC_REFINEMENT_ROLE, RoleRegistry, default_role_registry
 from synthesis.tasks import CandidateTask, candidate_from_mapping
 
 
@@ -136,15 +137,18 @@ def generate_llm_backed_refinement(
     attempt_number: int,
     client: Any,
     source_policy: SolutionPolicy | None = None,
+    role_registry: RoleRegistry | None = None,
 ) -> RefinementAttempt:
-    result = client.generate_json(
+    registry = role_registry or default_role_registry()
+    result = registry.invoke_json(
+        CRITIC_REFINEMENT_ROLE,
+        client,
         _refinement_prompt(
             task=task,
             source_failure_cause=source_failure_cause,
             source_failure_details=source_failure_details,
             source_policy=source_policy,
         ),
-        role="critic_refinement",
     )
     try:
         return _attempt_from_remote_content(
@@ -232,7 +236,7 @@ def _policy_from_mapping(raw_policy: dict[str, Any], *, lineage: dict[str, objec
         raise TypeError("policy steps must be a list")
     policy = SolutionPolicy(
         policy_id=str(raw_policy["policy_id"]),
-        role="critic_refinement",
+        role=CRITIC_REFINEMENT_ROLE,
         steps=tuple(_tool_step_from_mapping(step) for step in raw_steps),
         final_response_template=str(raw_policy["final_response_template"]),
         lineage=lineage,
@@ -309,6 +313,10 @@ def _is_missing_followup_mutation(context: RefinementContext) -> bool:
 def _local_lineage() -> dict[str, object]:
     return {
         "role": "local_critic_refinement",
+        "role_version": "role_local_critic_refinement_v1",
+        "output_type": "refinement_attempt",
+        "owner_module": "synthesis.refinement",
+        "retry_policy": "local_deterministic",
         "provider_host": "local",
         "model": "deterministic",
         "config_hash": "deterministic_refinement_v1",

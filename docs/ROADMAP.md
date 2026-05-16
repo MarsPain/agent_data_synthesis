@@ -33,7 +33,9 @@
 - Add a bounded critic/refinement loop that diagnoses failed trajectories, reruns
   one repaired attempt, and reports refined outcomes separately. Completed in
   plan 0006.
-- Add generator roles for environment, tool, task, solution, verifier, and critic.
+- Add generator role contracts, registry-backed routing, role lineage, disabled
+  future-role guardrails, and role-level quality visibility. Completed in plan
+  0007.
 - Add tool expansion when failures indicate missing capability.
 - Add multi-path trajectory generation and branching behavior-tree tasks.
 - Add AgentInstruct-style seed transformation, taxonomy-driven task expansion, and suggester/editor refinement.

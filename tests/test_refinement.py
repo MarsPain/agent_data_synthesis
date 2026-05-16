@@ -87,6 +87,14 @@ class DeterministicRefinementPipelineTest(unittest.TestCase):
                 "verification_failed",
             )
             self.assertEqual(ben_sample["lineage"]["refinement"]["attempt_number"], 1)
+            self.assertEqual(
+                ben_sample["lineage"]["refinement"]["role_version"],
+                "role_local_critic_refinement_v1",
+            )
+            self.assertEqual(
+                ben_sample["lineage"]["refinement"]["output_type"],
+                "refinement_attempt",
+            )
 
             report = json.loads(result.quality_report_path.read_text(encoding="utf-8"))
             self.assertEqual(report["counts"]["refined_attempted"], 1)
@@ -287,6 +295,8 @@ class RemoteRefinementTest(unittest.TestCase):
         self.assertEqual(attempt.lineage["provider_host"], "llm.example.test")
         self.assertEqual(attempt.lineage["retry_count"], 1)
         self.assertEqual(attempt.lineage["tokens"]["total_tokens"], 25)
+        self.assertEqual(attempt.lineage["role_version"], "role_critic_refinement_v1")
+        self.assertEqual(attempt.lineage["output_type"], "refinement_attempt")
 
 
 def _valid_candidate_refinement_attempt() -> dict[str, object]:

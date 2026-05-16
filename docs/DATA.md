@@ -13,6 +13,9 @@
 - **Verifier:** independent checks that decide whether a trajectory satisfies the task.
 - **Refinement Attempt:** bounded critic diagnosis plus one revised candidate or
   solution policy used to rerun a failed candidate.
+- **Role Definition:** registry entry that names a generation or verification
+  role, owner module, output type, enabled state, retry policy, and lineage
+  fields.
 - **Sample:** accepted training record assembled from the above entities.
 - **Dataset Version:** manifest that groups samples, schemas, generator configs, and quality reports.
 
@@ -31,7 +34,10 @@ Track metrics at sample, batch, and dataset levels:
 - Transfer gain: downstream improvement on held-out Agent tasks after training or evaluating with a dataset version.
 - Cost: model calls, tokens, wall time, CPU/GPU time, and human review minutes.
 
-Metrics must be sliceable by domain, task type, difficulty level, tool combination, generator role, verifier type, and dataset version. Dataset reports should preserve trends over time so regressions are visible instead of hidden inside aggregate averages.
+Metrics must be sliceable by domain, task type, difficulty level, tool
+combination, generator role, verifier type, role name, role output type, and
+dataset version. Dataset reports should preserve trends over time so regressions
+are visible instead of hidden inside aggregate averages.
 
 ## Dataset Output Contract
 
@@ -92,10 +98,13 @@ preserving the original source failure details.
   `counts.refined_rejected`.
 - `rates.success_rate` and `rates.executable_rate`.
 - `rejection_causes`, keyed by classified cause.
+- `role_outcomes`, keyed by role name, with attempted, accepted, rejected,
+  aggregate retry count, output types, token totals, and cost totals when lineage
+  provides them.
 - `slices`, keyed by deterministic dimensions currently available in foundation
   records: dataset version, domain, task type, difficulty level, curriculum level,
-  tool combination, generator role, verifier type, rejection cause, and
-  refinement status.
+  tool combination, generator role, verifier type, rejection cause, refinement
+  status, role name, and role output type.
 
 Exact duplicate candidates are rejected with `quality_duplicate` when a later
 accepted candidate repeats the normalized task instruction and ordered action tool
@@ -150,6 +159,7 @@ New dataset versions should be compared to their parent version using distributi
 
 For every LLM-backed generation, solution, refinement, or judge step, lineage should preserve the provider boundary without leaking secrets:
 
+- Role name, role version, output type, owner module, and retry policy.
 - Remote provider base URL host or provider alias.
 - `AGENT_DATA_LLM_MODEL` value.
 - Prompt, template, and runtime config hashes.
@@ -162,5 +172,12 @@ audited independently. The local deterministic fixture path may still build
 stable local lineage from runtime configuration, but remote samples should use the
 candidate-level and policy-level provider lineage rather than reconstructing it
 later.
+
+The default role registry currently enables `task_generation`, `solution_policy`,
+and `critic_refinement`. It also defines disabled guardrails for
+`environment_generation`, `tool_generation`, `verifier_generation`,
+`judge_verification`, `task_suggester`, and `task_editor`; these roles must fail
+before any provider call until a later plan explicitly enables and validates
+their output contracts.
 
 Do not store `AGENT_DATA_API_KEY` or raw provider credentials in manifests, samples, trajectory logs, or rejected-candidate diagnostics.

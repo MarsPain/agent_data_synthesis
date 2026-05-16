@@ -18,6 +18,9 @@ The first backend should be a local Python pipeline with explicit modules and du
 - `synthesis.refinement`: repairability decisions, critic/refiner attempt
   values, deterministic fixture repairs, remote critic/refinement parsing, and
   sanitized refinement lineage.
+- `synthesis.roles`: role definitions, enabled/disabled role registry,
+  role-owned output types, invocation metadata, and guardrails that prevent
+  future roles from making provider calls before an explicit enabling plan.
 - `synthesis.quality`: quality reports, metric slices, duplicate signatures,
   logical consistency checks, human-review records, and parent-version comparison.
 - `synthesis.datasets`: sample assembly, manifests, artifact exports, generation
@@ -37,27 +40,34 @@ Minimum runtime configuration:
 - `AGENT_DATA_API_KEY`: secret key for the selected provider.
 - `AGENT_DATA_LLM_MODEL`: model id used for generation, solution policy, refinement, or judge calls.
 
-Provider calls should record model id, base URL host, prompt or config hash, token
-and cost metadata when available, retry count, and error class. Transient
-transport failures, timeouts, HTTP 429, and HTTP 5xx responses may be retried
-within a bounded local budget. Secrets must never be written to manifests,
-trajectories, exports, or logs.
+Provider calls should go through the role registry for role-backed generation
+steps. Enabled roles currently include `task_generation`, `solution_policy`, and
+`critic_refinement`; future environment, tool, verifier, judge, suggester, and
+editor roles are present as disabled guardrails. Provider lineage should record
+role name, role version, output type, owner module, retry policy, model id, base
+URL host, prompt or config hash, token and cost metadata when available, retry
+count, and error class. Transient transport failures, timeouts, HTTP 429, and
+HTTP 5xx responses may be retried within a bounded local budget. Secrets must
+never be written to manifests, trajectories, exports, or logs.
 
 ## Job Lifecycle
 
 1. Register seeds and target domain.
 2. Build or load an environment version.
 3. Build or load a tool registry version.
-4. Generate candidate tasks by curriculum policy.
+4. Resolve the role registry and generate candidate tasks by curriculum policy
+   through the `task_generation` role when remote generation is enabled.
 5. If remote generation fails after configuration, write a classified generation
    rejection plus manifest and quality report artifacts.
-6. Generate or select a solution policy for each valid task.
+6. Generate or select a solution policy for each valid task, using the
+   `solution_policy` role for remote policies and deterministic local lineage for
+   scripted policies.
 7. Execute policy steps against the environment and record action, observation,
    state-change, and final-response events.
 8. Verify outputs and expected state changes independently.
 9. For repairable verification or logical-support failures, optionally run one
-   critic/refinement attempt and rerun validation, execution, verification, and
-   quality gates through the normal path.
+   `critic_refinement` attempt and rerun validation, execution, verification,
+   and quality gates through the normal path.
 10. Apply dataset-quality gates such as exact duplicate detection and logical
    consistency checks.
 11. Route failed samples by error class and optional review policy.

@@ -49,6 +49,8 @@ class FoundationPipelineTest(unittest.TestCase):
             self.assertTrue(sample["verification"]["passed"])
             self.assertIn("provider_host", sample["lineage"]["generator"])
             self.assertEqual(sample["lineage"]["generator"]["model"], "test-generator")
+            self.assertEqual(sample["lineage"]["generator"]["role_version"], "role_task_generation_v1")
+            self.assertEqual(sample["lineage"]["generator"]["output_type"], "candidate_tasks")
             self.assertNotIn("secret-test-key", json.dumps(sample))
 
             stateful_sample = next(
@@ -71,6 +73,14 @@ class FoundationPipelineTest(unittest.TestCase):
             self.assertEqual(
                 stateful_sample["lineage"]["solution_policy"]["role"],
                 "scripted_solution_policy",
+            )
+            self.assertEqual(
+                stateful_sample["lineage"]["solution_policy"]["role_version"],
+                "role_scripted_solution_policy_v1",
+            )
+            self.assertEqual(
+                stateful_sample["lineage"]["solution_policy"]["output_type"],
+                "solution_policy",
             )
             self.assertEqual(stateful_sample["quality"]["tags"], ["foundation", "sqlite_fixture", "multi_step", "stateful"])
 
