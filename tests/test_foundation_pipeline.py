@@ -31,6 +31,7 @@ class FoundationPipelineTest(unittest.TestCase):
             self.assertTrue(result.samples_path.exists())
             self.assertTrue(result.manifest_path.exists())
             self.assertTrue(result.rejections_path.exists())
+            self.assertTrue(result.quality_report_path.exists())
 
             sample = json.loads(result.samples_path.read_text(encoding="utf-8").splitlines()[0])
             self.assertEqual(sample["dataset_version"], "dataset_test")
@@ -52,6 +53,7 @@ class FoundationPipelineTest(unittest.TestCase):
             self.assertEqual(manifest["quality"]["success_rate"], 0.5)
             self.assertEqual(manifest["schema_version"], "dataset_manifest_v1")
             self.assertIsNone(manifest["parent_dataset_version"])
+            self.assertEqual(manifest["artifacts"]["quality_report"], "quality_report.json")
             self.assertEqual(manifest["environment_versions"], ["env_contacts_v1"])
             self.assertEqual(manifest["tool_versions"], ["tool_lookup_contact_email_v1"])
             self.assertEqual(manifest["verifier_versions"], ["verifier_exact_answer_v1"])
@@ -60,6 +62,12 @@ class FoundationPipelineTest(unittest.TestCase):
             rejection = json.loads(result.rejections_path.read_text(encoding="utf-8").splitlines()[0])
             self.assertEqual(rejection["cause"], "verification_failed")
             self.assertIn("expected", rejection["details"])
+
+            quality_report = json.loads(result.quality_report_path.read_text(encoding="utf-8"))
+            self.assertEqual(quality_report["schema_version"], "quality_report_v1")
+            self.assertEqual(quality_report["counts"]["accepted"], 1)
+            self.assertEqual(quality_report["counts"]["rejected"], 1)
+            self.assertIn("difficulty_level", quality_report["slices"])
 
     def test_rejects_candidate_when_tool_execution_fails(self) -> None:
         from synthesis.pipeline import run_foundation_pipeline

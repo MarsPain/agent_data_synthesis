@@ -11,6 +11,7 @@ from synthesis.datasets import (
     assemble_candidate_schema_rejection,
     assemble_execution_rejection,
     assemble_pipeline_gate_rejection,
+    assemble_quality_gate_rejection,
     assemble_rejection,
     assemble_sample,
     write_dataset_artifacts,
@@ -18,6 +19,12 @@ from synthesis.datasets import (
 from synthesis.environments import ContactEnvironment
 from synthesis.execution import execute_candidate
 from synthesis.llm import LLMConfig, OpenAICompatibleClient
+from synthesis.quality import (
+    build_review_record,
+    candidate_duplicate_signature,
+    final_answer_is_logically_supported,
+    reviewable,
+)
 from synthesis.seeds import foundation_seed
 from synthesis.seeds import DomainSeed
 from synthesis.tasks import (
@@ -39,6 +46,9 @@ class PipelineResult:
     samples_path: Path
     manifest_path: Path
     rejections_path: Path
+    quality_report_path: Path
+    parent_comparison_path: Path | None
+    review_queue_path: Path | None
     accepted_count: int
     rejected_count: int
 
@@ -60,6 +70,8 @@ def run_foundation_pipeline(
     *,
     dataset_version: str = "dataset_foundation_v1",
     candidate_generator: CandidateGenerator | None = None,
+    parent_artifact_path: Path | None = None,
+    route_reviewable_failures: bool = False,
 ) -> PipelineResult:
     seed = foundation_seed()
     environment = ContactEnvironment.create_fixture(output_dir / "environment")
@@ -70,6 +82,8 @@ def run_foundation_pipeline(
 
     samples: list[dict[str, object]] = []
     rejections: list[dict[str, object]] = []
+    review_records: list[dict[str, object]] = []
+    accepted_signatures: set[tuple[str, tuple[str, ...]]] = set()
     try:
         _run_foundation_quality_gates(environment, registry)
     except FoundationGateError as exc:
@@ -79,11 +93,16 @@ def run_foundation_pipeline(
             dataset_version=dataset_version,
             samples=samples,
             rejections=rejections,
+            parent_artifact_path=parent_artifact_path,
+            review_records=review_records,
         )
         return PipelineResult(
             samples_path=artifacts.samples_path,
             manifest_path=artifacts.manifest_path,
             rejections_path=artifacts.rejections_path,
+            quality_report_path=artifacts.quality_report_path,
+            parent_comparison_path=artifacts.parent_comparison_path,
+            review_queue_path=artifacts.review_queue_path,
             accepted_count=artifacts.accepted_count,
             rejected_count=artifacts.rejected_count,
         )
@@ -111,17 +130,49 @@ def run_foundation_pipeline(
             continue
         verification = verifier.verify(task, execution)
         if verification.passed:
-            samples.append(
-                assemble_sample(
-                    dataset_version=dataset_version,
-                    environment=environment.metadata(),
-                    tools=registry.export(),
-                    task=task,
-                    execution=execution,
-                    verification=verification,
-                    llm_config=llm_config,
-                )
+            sample = assemble_sample(
+                dataset_version=dataset_version,
+                environment=environment.metadata(),
+                tools=registry.export(),
+                task=task,
+                execution=execution,
+                verification=verification,
+                llm_config=llm_config,
             )
+            signature = candidate_duplicate_signature(
+                instruction=task.instruction,
+                trajectory=execution.trajectory,
+            )
+            if signature in accepted_signatures:
+                rejection = assemble_quality_gate_rejection(
+                    task=task,
+                    cause="quality_duplicate",
+                    message="Accepted candidate duplicates a prior task instruction and tool sequence.",
+                    details={"signature": list(signature)},
+                )
+                rejections.append(rejection)
+                _maybe_route_review(
+                    review_records,
+                    rejection,
+                    route_reviewable_failures=route_reviewable_failures,
+                )
+                continue
+            if not final_answer_is_logically_supported(sample):
+                rejection = assemble_quality_gate_rejection(
+                    task=task,
+                    cause="solution_logic_error",
+                    message="Final answer is not supported by observations and verifier expectation.",
+                )
+                rejections.append(rejection)
+                _maybe_route_review(
+                    review_records,
+                    rejection,
+                    route_reviewable_failures=route_reviewable_failures,
+                )
+                continue
+
+            accepted_signatures.add(signature)
+            samples.append(sample)
             continue
 
         rejections.append(assemble_rejection(task=task, verification=verification))
@@ -131,13 +182,38 @@ def run_foundation_pipeline(
         dataset_version=dataset_version,
         samples=samples,
         rejections=rejections,
+        parent_artifact_path=parent_artifact_path,
+        review_records=review_records,
     )
     return PipelineResult(
         samples_path=artifacts.samples_path,
         manifest_path=artifacts.manifest_path,
         rejections_path=artifacts.rejections_path,
+        quality_report_path=artifacts.quality_report_path,
+        parent_comparison_path=artifacts.parent_comparison_path,
+        review_queue_path=artifacts.review_queue_path,
         accepted_count=artifacts.accepted_count,
         rejected_count=artifacts.rejected_count,
+    )
+
+
+def _maybe_route_review(
+    review_records: list[dict[str, object]],
+    rejection: dict[str, object],
+    *,
+    route_reviewable_failures: bool,
+) -> None:
+    cause = str(rejection.get("cause", ""))
+    if not route_reviewable_failures or not reviewable(cause):
+        return
+    review_records.append(
+        build_review_record(
+            candidate_id=str(rejection.get("candidate_id", "unknown_candidate")),
+            cause=cause,
+            task=rejection.get("task", {}),
+            uncertainty_reason=str(rejection.get("details", {}).get("message", cause)),
+            source_artifact="rejections.jsonl",
+        )
     )
 
 

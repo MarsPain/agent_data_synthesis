@@ -30,7 +30,16 @@ Metrics must be sliceable by domain, task type, difficulty level, tool combinati
 
 ## Dataset Output Contract
 
-The default training export should be JSONL plus a manifest:
+The default training export writes accepted samples, rejected candidates, a manifest,
+and a quality report:
+
+- `samples.jsonl`: accepted training records.
+- `rejections.jsonl`: rejected candidate records with classified causes and retry
+  eligibility in `details.retry_eligible`.
+- `manifest.json`: dataset counts, artifact names, lineage/version summaries, and
+  aggregate quality rates.
+- `quality_report.json`: dataset-level counts, rates, rejection-cause counts, and
+  deterministic metric slices.
 
 ```json
 {
@@ -46,6 +55,41 @@ The default training export should be JSONL plus a manifest:
   "lineage": {"seed_ids": [], "generator": {}, "verifier": {}}
 }
 ```
+
+`manifest.json` must include artifact references for `samples`, `rejections`, and
+`quality_report`. When parent comparison or review routing is enabled, it also
+references `parent_comparison` and `review_queue`.
+
+### Quality Report Contract
+
+`quality_report.json` uses `schema_version: quality_report_v1` and records:
+
+- `dataset_version`.
+- `counts.total`, `counts.accepted`, `counts.rejected`, and `counts.executable`.
+- `rates.success_rate` and `rates.executable_rate`.
+- `rejection_causes`, keyed by classified cause.
+- `slices`, keyed by deterministic dimensions currently available in foundation
+  records: dataset version, domain, task type, difficulty level, curriculum level,
+  tool combination, generator role, verifier type, and rejection cause.
+
+Exact duplicate candidates are rejected with `quality_duplicate` when a later
+accepted candidate repeats the normalized task instruction and ordered action tool
+sequence. Logical consistency failures are rejected with `solution_logic_error`
+when a final answer is not supported by observations and verifier expectations.
+
+### Parent Comparison Contract
+
+When a local parent manifest or quality report path is supplied, the pipeline writes
+`parent_comparison.json` with `schema_version: parent_comparison_v1`. The comparison
+records accepted-count delta, rejected-count delta, success-rate delta,
+executable-rate delta, new and removed slice keys, and rejection-cause deltas.
+
+### Human Review Queue Contract
+
+When review routing is enabled for reviewable failures, the pipeline writes
+`review_queue.jsonl`. Each record uses `schema_version: human_review_record_v1` and
+contains `candidate_id`, `cause`, `task`, `uncertainty_reason`, `source_artifact`,
+and `created_at`. The default foundation run keeps review routing disabled.
 
 ## Versioning Rules
 

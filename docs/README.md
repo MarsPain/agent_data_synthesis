@@ -31,6 +31,7 @@
 
 ## Execution Plans
 
-- [exec-plans/active/0002-data-contracts-and-quality-gates.md](exec-plans/active/0002-data-contracts-and-quality-gates.md): current active plan.
+- No active execution plan.
 - [exec-plans/completed/README.md](exec-plans/completed/README.md): completed plan bucket.
+- [exec-plans/completed/0003-quality-reporting-and-curriculum-foundation.md](exec-plans/completed/0003-quality-reporting-and-curriculum-foundation.md): latest completed Stage 2 quality reporting slice.
 - [exec-plans/tech-debt/README.md](exec-plans/tech-debt/README.md): technical debt bucket.

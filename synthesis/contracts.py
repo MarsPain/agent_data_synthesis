@@ -17,6 +17,8 @@ REJECTION_CAUSES = {
     "tool_runtime_error",
     "verification_failed",
     "infrastructure_error",
+    "quality_duplicate",
+    "solution_logic_error",
 }
 
 
@@ -81,6 +83,20 @@ def validate_manifest_record(record: Mapping[str, Any]) -> None:
     _require_sequence(record.get("verifier_versions"), "verifier_versions")
     _require_sequence(record.get("generator_config_hashes"), "generator_config_hashes")
     _require_mapping(record.get("rejection_causes"), "rejection_causes")
+
+
+def validate_review_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "review_record")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    _require_non_empty_string(record.get("candidate_id"), "candidate_id")
+    cause = record.get("cause")
+    _require_non_empty_string(cause, "cause")
+    if cause not in REJECTION_CAUSES:
+        raise ContractValidationError(f"cause must be one of {sorted(REJECTION_CAUSES)}")
+    _validate_task(record.get("task"))
+    _require_non_empty_string(record.get("uncertainty_reason"), "uncertainty_reason")
+    _require_non_empty_string(record.get("source_artifact"), "source_artifact")
+    _require_non_empty_string(record.get("created_at"), "created_at")
 
 
 def _validate_environment(raw: object) -> None:

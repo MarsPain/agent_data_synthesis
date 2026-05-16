@@ -24,6 +24,12 @@ def parse_args() -> argparse.Namespace:
         help="Dataset version id written into samples and manifest.",
     )
     parser.add_argument(
+        "--parent-artifact",
+        type=Path,
+        default=None,
+        help="Optional parent manifest or quality report JSON for local version comparison.",
+    )
+    parser.add_argument(
         "--use-llm",
         action="store_true",
         help="Generate candidate tasks through the configured remote OpenAI-compatible API.",
@@ -39,6 +45,7 @@ def main() -> int:
             args.output_dir,
             dataset_version=args.dataset_version,
             candidate_generator=candidate_generator,
+            parent_artifact_path=args.parent_artifact,
         )
     except (LLMConfigurationError, LLMProviderError) as exc:
         print(str(exc), file=sys.stderr)

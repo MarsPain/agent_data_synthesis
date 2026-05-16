@@ -5,4 +5,4 @@ Known debt should be recorded here with impact, owner if known, and target resol
 ## Current Items
 
 - Generated code sandboxing is not yet implemented.
-- Dataset schema is documented but not enforced by code.
+- Semantic duplicate detection is not yet implemented; current quality planning only targets exact task and tool-sequence duplicates.

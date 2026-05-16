@@ -33,7 +33,7 @@ Build the first local-runner version of the Agent data synthesis framework with 
 - Completion commit: `0262162 feat: add foundation synthesis pipeline`.
 - Default local run result: `accepted=1 rejected=1`.
 - The LLM-backed smoke path was exercised during implementation and produced accepted samples after prompt grounding and candidate normalization.
-- Follow-up work belongs in [../active/0002-data-contracts-and-quality-gates.md](../active/0002-data-contracts-and-quality-gates.md), not by extending this completed foundation slice.
+- Follow-up contract work continued in [0002-data-contracts-and-quality-gates.md](0002-data-contracts-and-quality-gates.md), not by extending this completed foundation slice.
 
 ## Acceptance Criteria
 

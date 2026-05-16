@@ -30,11 +30,12 @@ def generate_foundation_candidates(seed: DomainSeed) -> list[CandidateTask]:
     common_difficulty = {
         "level": "easy",
         "tool_count": 1,
+        "constraint_count": 1,
         "state_changes": 0,
         "ambiguity": "none",
         "recovery_paths": 0,
     }
-    return [
+    return order_candidates_by_curriculum([
         CandidateTask(
             candidate_id="candidate_contacts_alice",
             instruction="Find Alice Zhang's email address using the contact database.",
@@ -55,7 +56,7 @@ def generate_foundation_candidates(seed: DomainSeed) -> list[CandidateTask]:
             expected_answer="ben@example.test",
             seed_ids=(seed.seed_id,),
         ),
-    ]
+    ])
 
 
 def generate_llm_backed_candidates(seed: DomainSeed, client: Any) -> list[CandidateTask]:
@@ -86,7 +87,8 @@ def _candidate_generation_prompt(seed: DomainSeed) -> str:
         "Return JSON with a candidates array. Each candidate must include "
         "candidate_id, instruction, constraints, difficulty, tool_name, "
         "arguments, and expected_answer. difficulty must be an object with "
-        "level, tool_count, state_changes, ambiguity, and recovery_paths. "
+        "level, tool_count, constraint_count, state_changes, ambiguity, "
+        "and recovery_paths. "
         "constraints and arguments must be JSON objects. tool_name must be "
         "lookup_contact_email. arguments.name must be one of the full contact "
         "names above. expected_answer must be the exact matching email above."
@@ -114,16 +116,47 @@ def _candidate_from_mapping(seed: DomainSeed, raw: dict[str, Any]) -> CandidateT
 
 def _normalize_difficulty(raw_difficulty: Any) -> dict[str, object]:
     if isinstance(raw_difficulty, dict):
-        return raw_difficulty
+        difficulty = dict(raw_difficulty)
+        difficulty.setdefault("level", "unspecified")
+        difficulty.setdefault("tool_count", 1)
+        difficulty.setdefault("constraint_count", 0)
+        difficulty.setdefault("state_changes", 0)
+        difficulty.setdefault("ambiguity", "unspecified")
+        difficulty.setdefault("recovery_paths", 0)
+        return difficulty
     if isinstance(raw_difficulty, str):
         return {
             "level": raw_difficulty,
             "tool_count": 1,
+            "constraint_count": 0,
             "state_changes": 0,
             "ambiguity": "unspecified",
             "recovery_paths": 0,
         }
     raise ValueError("candidate difficulty must be an object")
+
+
+def order_candidates_by_curriculum(candidates: list[CandidateTask]) -> list[CandidateTask]:
+    return sorted(candidates, key=_curriculum_sort_key)
+
+
+def _curriculum_sort_key(candidate: CandidateTask) -> tuple[int, int, int, int, int, str]:
+    difficulty = candidate.difficulty
+    level_rank = {"easy": 0, "medium": 1, "hard": 2}.get(str(difficulty.get("level")), 99)
+    return (
+        level_rank,
+        _int_difficulty(difficulty.get("tool_count")),
+        _int_difficulty(difficulty.get("constraint_count")),
+        _int_difficulty(difficulty.get("state_changes")),
+        _int_difficulty(difficulty.get("recovery_paths")),
+        candidate.candidate_id,
+    )
+
+
+def _int_difficulty(value: object) -> int:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return 0
 
 
 def _normalize_constraints(raw_constraints: Any) -> dict[str, object]:

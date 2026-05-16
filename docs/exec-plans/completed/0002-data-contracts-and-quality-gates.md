@@ -2,7 +2,7 @@
 
 ## Status
 
-Active.
+Completed on 2026-05-16.
 
 ## Goal
 
@@ -30,6 +30,22 @@ This plan is the next step after [0001-foundation](../completed/0001-foundation.
 - Add quality-gate tests that fail on malformed samples, malformed rejections, missing lineage fields, and unclassified execution errors.
 - Keep the implementation local and fixture-backed; do not add distributed orchestration, MCP adapters, generated-code execution, or LLM-as-judge in this plan.
 
+## Implementation Progress
+
+- `synthesis.contracts` validates candidate tasks, accepted samples, rejection records, manifests, trajectory events, quality blocks, and lineage blocks.
+- `synthesis.datasets.write_dataset_artifacts` validates accepted samples and rejections before writing JSONL, then validates `manifest.json` before writing it to disk.
+- The manifest now records schema version, parent dataset version, accepted and rejected counts, artifact names, quality rates, environment versions, tool versions, verifier versions, generator config hashes, and rejection cause counts.
+- The foundation pipeline classifies candidate schema errors, missing tools, tool schema errors, tool runtime errors, verification failures, and foundation infrastructure gate failures.
+- The foundation pipeline runs environment reset metadata and registered-tool smoke gates before candidate execution.
+- Contract and pipeline tests cover representative malformed records and classified quality-gate failures.
+
+## Completion Notes
+
+- Default local run result: `accepted=1 rejected=1`.
+- The accepted sample contract now requires complete seed, generator, and verifier lineage.
+- Rejection records now require a known cause from the implemented failure taxonomy subset.
+- Follow-up work was completed in [0003-quality-reporting-and-curriculum-foundation.md](0003-quality-reporting-and-curriculum-foundation.md), which built the next Stage 2 quality and curriculum layer on top of these contracts.
+
 ## Acceptance Criteria
 
 - `uv run python main.py` still generates at least one accepted sample and one classified rejection from the foundation fixture.
@@ -40,6 +56,12 @@ This plan is the next step after [0001-foundation](../completed/0001-foundation.
 - Tests cover both valid foundation outputs and representative invalid contract records.
 - `uv run python scripts/validate_docs.py` passes.
 - `uv run python -m unittest` passes.
+
+## Validation
+
+- `uv run python main.py`
+- `uv run python scripts/validate_docs.py`
+- `uv run python -m unittest`
 
 ## Out of Scope
 

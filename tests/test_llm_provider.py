@@ -167,6 +167,7 @@ class OpenAICompatibleProviderTest(unittest.TestCase):
             {
                 "level": "easy",
                 "tool_count": 1,
+                "constraint_count": 0,
                 "state_changes": 0,
                 "ambiguity": "unspecified",
                 "recovery_paths": 0,

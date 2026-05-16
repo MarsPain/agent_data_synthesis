@@ -8,11 +8,13 @@ from pathlib import Path
 from synthesis.contracts import (
     validate_manifest_record,
     validate_rejection_record,
+    validate_review_record,
     validate_sample_record,
 )
 from synthesis.environments import EnvironmentMetadata
 from synthesis.execution import ExecutionResult
 from synthesis.llm import LLMConfig
+from synthesis.quality import build_parent_comparison, build_quality_report, retry_eligible
 from synthesis.tasks import CandidateTask
 from synthesis.verification import VerificationResult
 
@@ -22,6 +24,9 @@ class DatasetArtifacts:
     samples_path: Path
     manifest_path: Path
     rejections_path: Path
+    quality_report_path: Path
+    parent_comparison_path: Path | None
+    review_queue_path: Path | None
     accepted_count: int
     rejected_count: int
 
@@ -95,7 +100,29 @@ def assemble_rejection(
             "check": failed_check.get("name"),
             "expected": failed_check.get("expected"),
             "actual": failed_check.get("actual"),
+            "retry_eligible": retry_eligible("verification_failed"),
         },
+    }
+
+
+def assemble_quality_gate_rejection(
+    *,
+    task: CandidateTask,
+    cause: str,
+    message: str,
+    details: dict[str, object] | None = None,
+) -> dict[str, object]:
+    rejection_details = {
+        "message": message,
+        "retry_eligible": retry_eligible(cause),
+    }
+    if details:
+        rejection_details.update(details)
+    return {
+        "candidate_id": task.candidate_id,
+        "cause": cause,
+        "task": task.export(),
+        "details": rejection_details,
     }
 
 
@@ -112,6 +139,7 @@ def assemble_execution_rejection(
         "details": {
             "error_class": type(error).__name__,
             "message": str(error),
+            "retry_eligible": retry_eligible(cause),
         },
     }
 
@@ -129,6 +157,7 @@ def assemble_candidate_schema_rejection(*, error: Exception) -> dict[str, object
         "details": {
             "error_class": type(error).__name__,
             "message": str(error),
+            "retry_eligible": retry_eligible("candidate_schema_error"),
         },
     }
 
@@ -146,6 +175,7 @@ def assemble_pipeline_gate_rejection(*, error: Exception) -> dict[str, object]:
         "details": {
             "error_class": type(error).__name__,
             "message": str(error),
+            "retry_eligible": retry_eligible("infrastructure_error"),
         },
     }
 
@@ -156,44 +186,73 @@ def write_dataset_artifacts(
     dataset_version: str,
     samples: list[dict[str, object]],
     rejections: list[dict[str, object]],
+    parent_artifact_path: Path | None = None,
+    review_records: list[dict[str, object]] | None = None,
 ) -> DatasetArtifacts:
     output_dir.mkdir(parents=True, exist_ok=True)
     samples_path = output_dir / "samples.jsonl"
     manifest_path = output_dir / "manifest.json"
     rejections_path = output_dir / "rejections.jsonl"
+    quality_report_path = output_dir / "quality_report.json"
+    parent_comparison_path = output_dir / "parent_comparison.json" if parent_artifact_path else None
+    review_queue_path = output_dir / "review_queue.jsonl" if review_records else None
 
     for sample in samples:
         validate_sample_record(sample)
     for rejection in rejections:
         validate_rejection_record(rejection)
+    for review_record in review_records or []:
+        validate_review_record(review_record)
 
     _write_jsonl(samples_path, samples)
     _write_jsonl(rejections_path, rejections)
+    if review_records:
+        _write_jsonl(output_dir / "review_queue.jsonl", review_records)
 
-    total_count = len(samples) + len(rejections)
-    success_rate = len(samples) / total_count if total_count else 0.0
-    executable_count = sum(
-        1
-        for rejection in rejections
-        if rejection.get("cause") == "verification_failed"
-    ) + len(samples)
-    rejection_causes: dict[str, int] = {}
-    for rejection in rejections:
-        cause = str(rejection.get("cause", "unknown"))
-        rejection_causes[cause] = rejection_causes.get(cause, 0) + 1
+    quality_report = build_quality_report(
+        dataset_version=dataset_version,
+        samples=samples,
+        rejections=rejections,
+    )
+    quality_report_path.write_text(
+        json.dumps(quality_report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    parent_comparison: dict[str, object] | None = None
+    if parent_artifact_path:
+        parent_report = json.loads(parent_artifact_path.read_text(encoding="utf-8"))
+        parent_comparison = build_parent_comparison(
+            current=quality_report,
+            parent=parent_report,
+        )
+        assert parent_comparison_path is not None
+        parent_comparison_path.write_text(
+            json.dumps(parent_comparison, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    artifacts: dict[str, object] = {
+        "samples": samples_path.name,
+        "rejections": rejections_path.name,
+        "quality_report": quality_report_path.name,
+    }
+    if parent_comparison_path:
+        artifacts["parent_comparison"] = parent_comparison_path.name
+    if review_queue_path:
+        artifacts["review_queue"] = review_queue_path.name
+
     manifest = {
         "schema_version": "dataset_manifest_v1",
         "dataset_version": dataset_version,
-        "parent_dataset_version": None,
+        "parent_dataset_version": (
+            parent_comparison["parent_dataset_version"] if parent_comparison else None
+        ),
         "accepted_count": len(samples),
         "rejected_count": len(rejections),
-        "artifacts": {
-            "samples": samples_path.name,
-            "rejections": rejections_path.name,
-        },
+        "artifacts": artifacts,
         "quality": {
-            "success_rate": success_rate,
-            "executable_rate": executable_count / total_count if total_count else 0.0,
+            "success_rate": quality_report["rates"]["success_rate"],
+            "executable_rate": quality_report["rates"]["executable_rate"],
         },
         "environment_versions": _unique_values(
             sample["environment"]["version"] for sample in samples
@@ -207,7 +266,7 @@ def write_dataset_artifacts(
         "generator_config_hashes": _unique_values(
             sample["lineage"]["generator"]["config_hash"] for sample in samples
         ),
-        "rejection_causes": rejection_causes,
+        "rejection_causes": quality_report["rejection_causes"],
     }
     validate_manifest_record(manifest)
     manifest_path.write_text(
@@ -219,6 +278,9 @@ def write_dataset_artifacts(
         samples_path=samples_path,
         manifest_path=manifest_path,
         rejections_path=rejections_path,
+        quality_report_path=quality_report_path,
+        parent_comparison_path=parent_comparison_path,
+        review_queue_path=review_queue_path,
         accepted_count=len(samples),
         rejected_count=len(rejections),
     )

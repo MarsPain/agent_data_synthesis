@@ -34,4 +34,4 @@ uv run python -m unittest
 
 - `main.py` runs the local foundation pipeline and writes runtime outputs to `artifacts/foundation/` by default.
 - The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
-- Current active work is documented in [docs/exec-plans/active/0002-data-contracts-and-quality-gates.md](docs/exec-plans/active/0002-data-contracts-and-quality-gates.md).
+- Latest completed work is documented in [docs/exec-plans/completed/0003-quality-reporting-and-curriculum-foundation.md](docs/exec-plans/completed/0003-quality-reporting-and-curriculum-foundation.md).

@@ -12,7 +12,10 @@ The first backend should be a local Python pipeline with explicit modules and du
 - `synthesis.tasks`: task generation, difficulty scoring, and curriculum policies.
 - `synthesis.execution`: trajectory runner, retry policy, and event capture.
 - `synthesis.verification`: executable, logical, and judge-based validators.
-- `synthesis.datasets`: sample assembly, manifests, exports, and version comparison.
+- `synthesis.quality`: quality reports, metric slices, duplicate signatures,
+  logical consistency checks, human-review records, and parent-version comparison.
+- `synthesis.datasets`: sample assembly, manifests, artifact exports, and quality
+  report path plumbing.
 - `synthesis.orchestration`: jobs, workers, queues, cancellation, and metrics.
 - `synthesis.llm`: remote provider adapter, request/response capture, retry policy, cost metadata, and model configuration.
 
@@ -36,8 +39,10 @@ Provider calls should record model id, base URL host, prompt or config hash, tok
 4. Generate candidate tasks by curriculum policy.
 5. Execute candidate solutions against the environment.
 6. Verify outputs independently.
-7. Route failed samples by error class.
-8. Export accepted samples with metrics and lineage.
+7. Apply dataset-quality gates such as exact duplicate detection and logical
+   consistency checks.
+8. Route failed samples by error class and optional review policy.
+9. Export accepted samples, rejections, quality reports, and lineage.
 
 ## Scaling Direction
 
