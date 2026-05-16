@@ -9,7 +9,7 @@ Agent training data is scarce because real interactions rarely expose complete o
 1. User provides a domain config and optional seed records.
 2. System builds a small executable environment.
 3. System registers typed tools over that environment.
-4. System loads remote LLM configuration from `LLM_BASE_URL`, `API_KEY`, and `LLM_MODEL`.
+4. System loads remote LLM configuration from `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`.
 5. System generates candidate tasks by difficulty level through the remote LLM provider.
 6. System executes candidate solutions and captures trajectories.
 7. System verifies candidates independently.

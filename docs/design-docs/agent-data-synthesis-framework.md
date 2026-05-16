@@ -19,7 +19,7 @@ seed -> environment -> tools -> task -> trajectory -> verifier -> accepted sampl
 The MVP intentionally narrows the PDF architecture so the first implementation can prove local contracts before adding high-risk automation. These are staging choices, not changes to the target architecture:
 
 - **Environment synthesis:** the PDF describes a sandboxed synthesis Agent that can use search and shell tools to gather real-world data and build domain databases. The MVP starts from local configs and fixture data until provenance, licensing, network logging, and sandbox controls are implemented.
-- **LLM execution:** the MVP is LLM-driven, but LLM inference is outside this repository. Generation, refinement, candidate solution policy, and optional judge calls must use a remote OpenAI-compatible API configured by `LLM_BASE_URL`, `API_KEY`, and `LLM_MODEL`; the project will not provision or manage local LLM clusters.
+- **LLM execution:** the MVP is LLM-driven, but LLM inference is outside this repository. Generation, refinement, candidate solution policy, and optional judge calls must use a remote OpenAI-compatible API configured by `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`; the project will not provision or manage local LLM clusters.
 - **Generated code:** the PDF uses executable Python as an intermediate representation for tasks, tools, solutions, and verifiers. The MVP should prefer structured tools and scripted verifiers where possible, then introduce generated code only behind isolation and audit controls.
 - **Distributed orchestration:** the PDF includes Matrix-style distributed workers, row-level scheduling, dynamic control flow, and monitoring. The MVP keeps this local and durable first; later scaling must preserve task state, per-role metrics, and resumability.
 - **Self-evolution:** the PDF points toward models acting as generators and verifiers in a self-improving loop. The MVP should record the failure and quality signals that make this possible later, without trusting self-judged samples as accepted data.
@@ -246,7 +246,7 @@ Generated code and tools are untrusted. Follow [../SECURITY.md](../SECURITY.md).
 
 1. Create package skeleton and typed data models.
 2. Implement local run directory and manifest format.
-3. Implement remote LLM provider adapter from `LLM_BASE_URL`, `API_KEY`, and `LLM_MODEL`.
+3. Implement remote LLM provider adapter from `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`.
 4. Implement a small SQLite environment fixture.
 5. Implement tool registry over that fixture.
 6. Implement LLM-backed task generator for a constrained demo domain.

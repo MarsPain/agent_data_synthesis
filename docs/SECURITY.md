@@ -8,14 +8,14 @@ Agent data synthesis executes generated code, tools, and environment logic. Trea
 
 - Run generated solution and verifier code in a restricted process or container before accepting it.
 - Do not expose host secrets, SSH keys, cloud credentials, browser profiles, or personal files to generated tools.
-- Treat `API_KEY` as a secret and pass it only to the remote LLM provider adapter.
+- Treat `AGENT_DATA_API_KEY` as a secret and pass it only to the remote LLM provider adapter.
 - Prefer offline fixtures for early development. External network access must be explicit and logged.
 - Record all tool side effects in trajectory logs.
 - Make destructive tool actions reversible through environment reset or checkpoint restore.
 
 ## LLM Provider Secrets
 
-The synthesis pipeline may call a remote OpenAI-compatible LLM API configured by `LLM_BASE_URL`, `API_KEY`, and `LLM_MODEL`. The project should not deploy local LLM clusters or expose provider credentials to generated code, tools, environments, fixtures, manifests, trajectory exports, or rejected-candidate diagnostics.
+The synthesis pipeline may call a remote OpenAI-compatible LLM API configured by `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`. The project should not deploy local LLM clusters or expose provider credentials to generated code, tools, environments, fixtures, manifests, trajectory exports, or rejected-candidate diagnostics.
 
 Logs may include provider alias, base URL host, model id, prompt or config hash, token counts, cost metadata, retry count, and error class. Logs must not include API keys, authorization headers, or raw secrets.
 

@@ -72,8 +72,8 @@ New dataset versions should be compared to their parent version using distributi
 For every LLM-backed generation, solution, refinement, or judge step, lineage should preserve the provider boundary without leaking secrets:
 
 - Remote provider base URL host or provider alias.
-- `LLM_MODEL` value.
+- `AGENT_DATA_LLM_MODEL` value.
 - Prompt, template, and runtime config hashes.
 - Request role, retry count, error class, token counts, and cost metadata when available.
 
-Do not store `API_KEY` or raw provider credentials in manifests, samples, trajectory logs, or rejected-candidate diagnostics.
+Do not store `AGENT_DATA_API_KEY` or raw provider credentials in manifests, samples, trajectory logs, or rejected-candidate diagnostics.

@@ -16,3 +16,5 @@ venv/
 
 # Project-specific
 *.pdf
+artifacts/*
+!artifacts/README.md

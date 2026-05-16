@@ -17,7 +17,8 @@ This repository is an early-stage Agent data synthesis framework. Root files are
 
 - Do not put long specifications in this file.
 - Treat `docs/` as the source of truth for architecture, data contracts, security rules, and implementation plans.
-- Keep generated or derived artifacts under `docs/generated/` or `docs/references/`.
+- Keep runtime pipeline outputs under `artifacts/`.
+- Keep generated documentation assets, schemas, diagrams, reports, or source analyses under `docs/generated/` or `docs/references/`.
 - Preserve links when moving documents.
 - Update tests or validation when changing documentation structure.
 
@@ -31,6 +32,6 @@ uv run python -m unittest
 
 ## Current Implementation Shape
 
-- `main.py` is a placeholder entrypoint.
-- The next implementation should follow the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
+- `main.py` runs the local foundation pipeline and writes runtime outputs to `artifacts/foundation/` by default.
+- The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
 - The initial milestone is documented in [docs/exec-plans/active/0001-foundation.md](docs/exec-plans/active/0001-foundation.md).

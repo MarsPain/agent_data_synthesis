@@ -22,9 +22,9 @@ The backend should treat the LLM as an external dependency reached through an Op
 
 Minimum runtime configuration:
 
-- `LLM_BASE_URL`: remote OpenAI-compatible API base URL.
-- `API_KEY`: secret key for the selected provider.
-- `LLM_MODEL`: model id used for generation, solution policy, refinement, or judge calls.
+- `AGENT_DATA_LLM_BASE_URL`: remote OpenAI-compatible API base URL.
+- `AGENT_DATA_API_KEY`: secret key for the selected provider.
+- `AGENT_DATA_LLM_MODEL`: model id used for generation, solution policy, refinement, or judge calls.
 
 Provider calls should record model id, base URL host, prompt or config hash, token and cost metadata when available, retry count, and error class. Secrets must never be written to manifests, trajectories, exports, or logs.
 

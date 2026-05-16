@@ -67,7 +67,7 @@ Start local and deterministic:
 - SQLite-backed environments.
 - Python callable tools with explicit schemas.
 - Local job runner with resumable manifests.
-- Remote LLM provider adapter configured by `LLM_BASE_URL`, `API_KEY`, and `LLM_MODEL`.
+- Remote LLM provider adapter configured by `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`.
 - Executable verification before LLM-as-judge verification.
 - JSONL output plus a dataset manifest.
 

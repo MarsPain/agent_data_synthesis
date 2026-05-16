@@ -9,7 +9,7 @@
 ## Stage 1: Local Executable Prototype
 
 - Implement seed intake and domain config.
-- Add remote OpenAI-compatible LLM provider configuration with `LLM_BASE_URL`, `API_KEY`, and `LLM_MODEL`.
+- Add remote OpenAI-compatible LLM provider configuration with `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`.
 - Build SQLite-backed environment generation.
 - Define Python tool registry and schema contracts.
 - Generate simple tasks through the remote LLM provider with executable verifiers.

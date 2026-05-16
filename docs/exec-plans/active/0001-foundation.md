@@ -11,15 +11,22 @@ Build the first local-runner version of the Agent data synthesis framework with 
 ## Scope
 
 - Rename project metadata from the template name to the framework name.
-- Create package boundaries matching [../../BACKEND.md](../../BACKEND.md).
-- Implement seed/domain config loading.
-- Implement remote LLM provider configuration from `LLM_BASE_URL`, `API_KEY`, and `LLM_MODEL`.
-- Implement SQLite environment fixture generation.
-- Implement tool registry with typed schemas.
-- Implement candidate task records and difficulty metadata.
-- Implement trajectory event capture.
-- Implement independent verifier execution.
-- Implement accepted sample assembly and manifest export.
+- Create package boundaries matching [../../BACKEND.md](../../BACKEND.md). Initial modules now exist under `synthesis/`.
+- Implement seed/domain config loading. Initial deterministic seed fixture exists.
+- Implement remote LLM provider configuration from `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`. The pipeline now includes an OpenAI-compatible `/chat/completions` client for LLM-backed candidate generation and records provider host, model, token metadata, and config hash without writing secrets.
+- Implement SQLite environment fixture generation. Initial contact fixture exists.
+- Implement tool registry with typed schemas. Initial read-only contact lookup tool exists.
+- Implement candidate task records and difficulty metadata. Initial accepted and rejected task fixtures exist.
+- Implement trajectory event capture. Initial action, observation, and final-response events are captured.
+- Implement independent verifier execution. Initial exact-answer verifier exists.
+- Implement accepted sample assembly and manifest export. Initial JSONL, rejection, and manifest export exists.
+
+## Implementation Progress
+
+- `uv run python main.py` runs the first local foundation slice and writes runtime artifacts to `artifacts/foundation/`.
+- The default first slice is deterministic so local validation can run without credentials.
+- `uv run python main.py --use-llm` exercises the remote LLM-backed candidate generation path when `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL` are configured.
+- Judge-based verification and generated-code sandboxing remain out of scope for this first foundation slice.
 
 ## Acceptance Criteria
 
