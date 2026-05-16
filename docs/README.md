@@ -31,6 +31,6 @@
 
 ## Execution Plans
 
-- [exec-plans/active/0001-foundation.md](exec-plans/active/0001-foundation.md): foundation plan.
+- [exec-plans/active/0002-data-contracts-and-quality-gates.md](exec-plans/active/0002-data-contracts-and-quality-gates.md): current active plan.
 - [exec-plans/completed/README.md](exec-plans/completed/README.md): completed plan bucket.
 - [exec-plans/tech-debt/README.md](exec-plans/tech-debt/README.md): technical debt bucket.

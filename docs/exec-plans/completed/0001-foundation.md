@@ -2,7 +2,7 @@
 
 ## Status
 
-Active.
+Completed on 2026-05-16.
 
 ## Goal
 
@@ -28,6 +28,13 @@ Build the first local-runner version of the Agent data synthesis framework with 
 - `uv run python main.py --use-llm` exercises the remote LLM-backed candidate generation path when `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL` are configured.
 - Judge-based verification and generated-code sandboxing remain out of scope for this first foundation slice.
 
+## Completion Notes
+
+- Completion commit: `0262162 feat: add foundation synthesis pipeline`.
+- Default local run result: `accepted=1 rejected=1`.
+- The LLM-backed smoke path was exercised during implementation and produced accepted samples after prompt grounding and candidate normalization.
+- Follow-up work belongs in [../active/0002-data-contracts-and-quality-gates.md](../active/0002-data-contracts-and-quality-gates.md), not by extending this completed foundation slice.
+
 ## Acceptance Criteria
 
 - A local command can generate at least one verified sample from a small fixture domain.
@@ -36,6 +43,12 @@ Build the first local-runner version of the Agent data synthesis framework with 
 - Failed candidates are classified by cause.
 - `uv run python scripts/validate_docs.py` passes.
 - `uv run python -m unittest` passes.
+
+## Validation
+
+- `uv run python main.py --output-dir artifacts/foundation --dataset-version dataset_foundation_v1`
+- `uv run python scripts/validate_docs.py`
+- `uv run python -m unittest`
 
 ## Risks
 

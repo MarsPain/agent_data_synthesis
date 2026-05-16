@@ -9,6 +9,18 @@ from synthesis.environments import ContactEnvironment
 ToolHandler = Callable[[dict[str, object]], dict[str, object]]
 
 
+class ToolRegistryError(RuntimeError):
+    pass
+
+
+class ToolMissingError(ToolRegistryError):
+    pass
+
+
+class ToolSchemaError(ToolRegistryError):
+    pass
+
+
 @dataclass(frozen=True)
 class ToolDefinition:
     name: str
@@ -40,8 +52,10 @@ class ToolRegistry:
 
     def execute(self, name: str, arguments: dict[str, object]) -> dict[str, object]:
         if name not in self._tools:
-            raise KeyError(f"Unknown tool: {name}")
-        return self._tools[name].handler(arguments)
+            raise ToolMissingError(f"Unknown tool: {name}")
+        tool = self._tools[name]
+        _validate_arguments(tool.definition, arguments)
+        return tool.handler(arguments)
 
     def export(self) -> list[dict[str, object]]:
         return [tool.definition.export() for tool in self._tools.values()]
@@ -76,3 +90,41 @@ def build_contact_tool_registry(environment: ContactEnvironment) -> ToolRegistry
         lookup_contact_email,
     )
     return registry
+
+
+def _validate_arguments(definition: ToolDefinition, arguments: dict[str, object]) -> None:
+    schema = definition.schema
+    if schema.get("type") != "object":
+        raise ToolSchemaError(f"{definition.name} schema must be an object schema")
+    if not isinstance(arguments, dict):
+        raise ToolSchemaError(f"{definition.name} arguments must be an object")
+
+    properties = schema.get("properties", {})
+    if not isinstance(properties, dict):
+        raise ToolSchemaError(f"{definition.name} schema properties must be an object")
+
+    required = schema.get("required", [])
+    if not isinstance(required, list):
+        raise ToolSchemaError(f"{definition.name} schema required must be a list")
+    for field_name in required:
+        if not isinstance(field_name, str):
+            raise ToolSchemaError(f"{definition.name} schema required entries must be strings")
+        if field_name not in arguments:
+            raise ToolSchemaError(f"{definition.name} missing required argument: {field_name}")
+
+    if schema.get("additionalProperties") is False:
+        allowed = set(properties)
+        extra = set(arguments) - allowed
+        if extra:
+            names = ", ".join(sorted(extra))
+            raise ToolSchemaError(f"{definition.name} has unexpected arguments: {names}")
+
+    for field_name, raw_property_schema in properties.items():
+        if field_name not in arguments:
+            continue
+        if not isinstance(raw_property_schema, dict):
+            raise ToolSchemaError(f"{definition.name}.{field_name} schema must be an object")
+        expected_type = raw_property_schema.get("type")
+        value = arguments[field_name]
+        if expected_type == "string" and not isinstance(value, str):
+            raise ToolSchemaError(f"{definition.name}.{field_name} must be a string")

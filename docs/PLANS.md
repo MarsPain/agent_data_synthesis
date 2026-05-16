@@ -8,11 +8,11 @@
 
 ## Active
 
-- [0001-foundation](exec-plans/active/0001-foundation.md): establish the local executable framework foundation.
+- [0002-data-contracts-and-quality-gates](exec-plans/active/0002-data-contracts-and-quality-gates.md): enforce dataset contracts and quality gates over the local foundation runner.
 
 ## Completed
 
-- No completed implementation plans yet. The completed bucket is initialized at [exec-plans/completed/README.md](exec-plans/completed/README.md).
+- [0001-foundation](exec-plans/completed/0001-foundation.md): established the local executable framework foundation. Completed on 2026-05-16.
 
 ## Technical Debt
 
