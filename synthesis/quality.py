@@ -206,6 +206,7 @@ def _build_slices(
         "license_policy_outcome": {},
         "external_source_eligibility": {},
         "source_rejection_cause": {},
+        "environment_source_admission": {},
     }
     for sample in samples:
         _add_slice(dimensions["dataset_version"], str(sample.get("dataset_version", dataset_version)), accepted=True)
@@ -401,6 +402,12 @@ def _add_source_governance_slices(
     _add_slice(dimensions["external_source_eligibility"], eligibility, accepted=accepted)
     for cause in _sequence(provenance.get("rejection_causes")):
         _add_slice(dimensions["source_rejection_cause"], str(cause), accepted=accepted)
+    if provenance.get("environment_source_admission"):
+        _add_slice(
+            dimensions["environment_source_admission"],
+            str(provenance.get("environment_source_admission")),
+            accepted=accepted,
+        )
 
 
 def _add_role_outcome(

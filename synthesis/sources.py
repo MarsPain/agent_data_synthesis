@@ -3,14 +3,23 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from typing import Protocol
 from urllib.parse import urlparse
 
 from synthesis.contracts import (
+    ContractValidationError,
+    validate_fetched_source_request_record,
+    validate_fetched_source_result_record,
     validate_license_policy_decision,
     validate_network_policy_record,
     validate_sandbox_policy_record,
     validate_source_event_record,
     validate_source_record,
+)
+from synthesis.environments import (
+    ContactFollowupRecord,
+    ContactRecord,
+    ContactsEnvironmentInput,
 )
 
 
@@ -123,12 +132,287 @@ class SourceGovernanceResult:
     rejection_causes: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class FetchedSourceRequest:
+    url: str
+    allowed_hosts: tuple[str, ...]
+    request_budget: int
+    timeout_seconds: float
+    max_bytes: int
+    expected_content_type: str
+    license_label: str
+    require_source_audit: bool
+
+    def export(self) -> dict[str, object]:
+        return {
+            "schema_version": "fetched_source_request_v1",
+            "url": self.url,
+            "allowed_hosts": list(self.allowed_hosts),
+            "request_budget": self.request_budget,
+            "timeout_seconds": self.timeout_seconds,
+            "max_bytes": self.max_bytes,
+            "expected_content_type": self.expected_content_type,
+            "license_label": self.license_label,
+            "require_source_audit": self.require_source_audit,
+        }
+
+
+@dataclass(frozen=True)
+class FetchedSourceResult:
+    source_id: str
+    origin_alias: str
+    retrieval_timestamp: str
+    content_hash: str
+    content_type: str
+    byte_count: int
+    policy_outcome: str
+
+    def export(self) -> dict[str, object]:
+        return {
+            "schema_version": "fetched_source_result_v1",
+            "source_id": self.source_id,
+            "origin_alias": self.origin_alias,
+            "retrieval_timestamp": self.retrieval_timestamp,
+            "content_hash": self.content_hash,
+            "content_type": self.content_type,
+            "byte_count": self.byte_count,
+            "policy_outcome": self.policy_outcome,
+        }
+
+
+@dataclass(frozen=True)
+class NetworkContactsSourceInput:
+    source_bundle: SourceBundle
+    fetch_result: FetchedSourceResult
+    environment_input: ContactsEnvironmentInput
+    events: list[dict[str, object]]
+
+
+class HttpResponse(Protocol):
+    status_code: int
+    headers: dict[str, str]
+    content: bytes
+
+
+class HttpClient(Protocol):
+    def get(
+        self,
+        url: str,
+        *,
+        timeout: float,
+        follow_redirects: bool,
+    ) -> HttpResponse:
+        ...
+
+
 class SourcePolicyError(RuntimeError):
     def __init__(self, result: SourceGovernanceResult) -> None:
         causes = ", ".join(result.rejection_causes) or "unknown"
         message_causes = causes.replace("_", " ")
         super().__init__(f"source policy rejected: {message_causes}")
         self.result = result
+
+
+class ControlledSourceFetchError(RuntimeError):
+    def __init__(self, message: str, *, events: list[dict[str, object]]) -> None:
+        super().__init__(message)
+        self.events = events
+
+
+class _HttpxClientAdapter:
+    def get(
+        self,
+        url: str,
+        *,
+        timeout: float,
+        follow_redirects: bool,
+    ) -> HttpResponse:
+        import httpx
+
+        with httpx.Client(follow_redirects=follow_redirects, timeout=timeout) as client:
+            return client.get(url)
+
+
+def build_network_contacts_source_input(
+    request: FetchedSourceRequest,
+    *,
+    http_client: HttpClient | None = None,
+    retrieval_timestamp: str = "1970-01-01T00:00:00Z",
+) -> NetworkContactsSourceInput:
+    try:
+        validate_fetched_source_request_record(request.export())
+    except ContractValidationError as exc:
+        raise ControlledSourceFetchError(
+            f"fetch request rejected: {exc}",
+            events=[],
+        ) from exc
+
+    source_id = _external_source_id(request.url)
+    origin_alias = _origin_alias(request.url)
+    no_payload_hash = _bytes_content_hash(b"")
+    events: list[dict[str, object]] = []
+
+    if request.request_budget < 1:
+        bundle = _network_source_bundle(
+            request=request,
+            source_id=source_id,
+            content_hash=no_payload_hash,
+            retrieval_timestamp=retrieval_timestamp,
+            license_outcome="rejected",
+            license_cause="request_budget_exceeded",
+        )
+        policy_hash = source_policy_hash(bundle)
+        events.append(
+            _sanitized_source_event(
+                event_type="fetch_rejected",
+                source_id=source_id,
+                source_kind="external",
+                origin_alias=origin_alias,
+                content_hash=no_payload_hash,
+                license_label=request.license_label,
+                license_outcome="rejected",
+                source_policy_hash=policy_hash,
+                policy_outcome="rejected",
+                rejection_causes=["request_budget_exceeded"],
+            )
+        )
+        raise ControlledSourceFetchError("fetch rejected: request budget exceeded", events=events)
+
+    provisional_bundle = _network_source_bundle(
+        request=request,
+        source_id=source_id,
+        content_hash=no_payload_hash,
+        retrieval_timestamp=retrieval_timestamp,
+        license_outcome="allowed",
+    )
+    provisional_policy_hash = source_policy_hash(provisional_bundle)
+    events.append(
+        _sanitized_source_event(
+            event_type="fetch_attempt",
+            source_id=source_id,
+            source_kind="external",
+            origin_alias=origin_alias,
+            content_hash=no_payload_hash,
+            license_label=request.license_label,
+            license_outcome="allowed",
+            source_policy_hash=provisional_policy_hash,
+            policy_outcome="rejected",
+            rejection_causes=[],
+        )
+    )
+
+    client = http_client or _HttpxClientAdapter()
+    try:
+        response = client.get(
+            request.url,
+            timeout=request.timeout_seconds,
+            follow_redirects=False,
+        )
+    except Exception as exc:
+        _append_fetch_rejection_event(
+            events,
+            request=request,
+            source_id=source_id,
+            origin_alias=origin_alias,
+            content_hash=no_payload_hash,
+            cause="network_request_failed",
+            retrieval_timestamp=retrieval_timestamp,
+        )
+        raise ControlledSourceFetchError("fetch rejected: network request failed", events=events) from exc
+
+    if 300 <= int(response.status_code) < 400:
+        _append_fetch_rejection_event(
+            events,
+            request=request,
+            source_id=source_id,
+            origin_alias=origin_alias,
+            content_hash=no_payload_hash,
+            cause="redirect_rejected",
+            retrieval_timestamp=retrieval_timestamp,
+        )
+        raise ControlledSourceFetchError("fetch rejected: redirect rejected", events=events)
+    if int(response.status_code) != 200:
+        _append_fetch_rejection_event(
+            events,
+            request=request,
+            source_id=source_id,
+            origin_alias=origin_alias,
+            content_hash=no_payload_hash,
+            cause="http_status_rejected",
+            retrieval_timestamp=retrieval_timestamp,
+        )
+        raise ControlledSourceFetchError("fetch rejected: http status rejected", events=events)
+
+    content = bytes(response.content)
+    if len(content) > request.max_bytes:
+        _append_fetch_rejection_event(
+            events,
+            request=request,
+            source_id=source_id,
+            origin_alias=origin_alias,
+            content_hash=no_payload_hash,
+            cause="payload_too_large",
+            retrieval_timestamp=retrieval_timestamp,
+        )
+        raise ControlledSourceFetchError("fetch rejected: payload too large", events=events)
+
+    content_type = _normalized_content_type(response.headers.get("content-type", ""))
+    if content_type != request.expected_content_type:
+        _append_fetch_rejection_event(
+            events,
+            request=request,
+            source_id=source_id,
+            origin_alias=origin_alias,
+            content_hash=no_payload_hash,
+            cause="unsupported_content_type",
+            retrieval_timestamp=retrieval_timestamp,
+        )
+        raise ControlledSourceFetchError("fetch rejected: unsupported content type", events=events)
+
+    content_hash = _bytes_content_hash(content)
+    source_bundle = _network_source_bundle(
+        request=request,
+        source_id=source_id,
+        content_hash=content_hash,
+        retrieval_timestamp=retrieval_timestamp,
+        license_outcome="allowed",
+    )
+    policy_hash = source_policy_hash(source_bundle)
+    fetch_result = FetchedSourceResult(
+        source_id=source_id,
+        origin_alias=origin_alias,
+        retrieval_timestamp=retrieval_timestamp,
+        content_hash=content_hash,
+        content_type=content_type,
+        byte_count=len(content),
+        policy_outcome="allowed",
+    )
+    validate_fetched_source_result_record(fetch_result.export())
+    environment_input = _contacts_environment_input_from_payload(
+        content,
+        source_bundle_id=source_bundle.bundle_id,
+        source_policy_hash=policy_hash,
+    )
+    events.append(
+        _sanitized_source_event(
+            event_type="fetch_accepted",
+            source_id=source_id,
+            source_kind="external",
+            origin_alias=origin_alias,
+            content_hash=content_hash,
+            license_label=request.license_label,
+            license_outcome="allowed",
+            source_policy_hash=policy_hash,
+            policy_outcome="allowed",
+            rejection_causes=[],
+        )
+    )
+    return NetworkContactsSourceInput(
+        source_bundle=source_bundle,
+        fetch_result=fetch_result,
+        environment_input=environment_input,
+        events=events,
+    )
 
 
 def build_fixture_source_bundle() -> SourceBundle:
@@ -199,6 +483,51 @@ def build_external_fixture_source_bundle(*, network_enabled: bool) -> SourceBund
         ),
         sandbox_policy=SandboxPolicy(
             policy_id="sandbox_external_fixture",
+            filesystem_isolation="artifact_subdir",
+            generated_code_allowed=False,
+            secret_redaction=True,
+        ),
+    )
+
+
+def _network_source_bundle(
+    *,
+    request: FetchedSourceRequest,
+    source_id: str,
+    content_hash: str,
+    retrieval_timestamp: str,
+    license_outcome: str,
+    license_cause: str | None = None,
+) -> SourceBundle:
+    source = SourceRecord(
+        source_id=source_id,
+        source_kind="external",
+        origin_reference=request.url,
+        retrieval_timestamp=retrieval_timestamp,
+        content_hash=content_hash,
+        license_label=request.license_label,
+        retention_eligible=license_outcome == "allowed",
+        export_eligible=license_outcome == "allowed",
+    )
+    return SourceBundle(
+        bundle_id=f"bundle_{source_id}",
+        sources=(source,),
+        license_decisions=(
+            LicensePolicyDecision(
+                source_id=source.source_id,
+                license_label=source.license_label,
+                outcome=license_outcome,
+                cause=license_cause,
+            ),
+        ),
+        network_policy=NetworkPolicy(
+            enabled=True,
+            allowed_hosts=request.allowed_hosts,
+            request_budget=request.request_budget,
+            require_source_events=request.require_source_audit,
+        ),
+        sandbox_policy=SandboxPolicy(
+            policy_id="sandbox_network_contacts",
             filesystem_isolation="artifact_subdir",
             generated_code_allowed=False,
             secret_redaction=True,
@@ -363,8 +692,163 @@ def _source_event(
     return event
 
 
+def _append_fetch_rejection_event(
+    events: list[dict[str, object]],
+    *,
+    request: FetchedSourceRequest,
+    source_id: str,
+    origin_alias: str,
+    content_hash: str,
+    cause: str,
+    retrieval_timestamp: str,
+) -> None:
+    bundle = _network_source_bundle(
+        request=request,
+        source_id=source_id,
+        content_hash=content_hash,
+        retrieval_timestamp=retrieval_timestamp,
+        license_outcome="rejected",
+        license_cause=cause,
+    )
+    events.append(
+        _sanitized_source_event(
+            event_type="fetch_rejected",
+            source_id=source_id,
+            source_kind="external",
+            origin_alias=origin_alias,
+            content_hash=content_hash,
+            license_label=request.license_label,
+            license_outcome="rejected",
+            source_policy_hash=source_policy_hash(bundle),
+            policy_outcome="rejected",
+            rejection_causes=[cause],
+        )
+    )
+
+
+def source_environment_admission_event(
+    *,
+    event_type: str,
+    source_bundle: SourceBundle,
+    source_policy_hash: str,
+    rejection_causes: list[str],
+) -> dict[str, object]:
+    source = source_bundle.sources[0]
+    decision = source_bundle.license_decisions[0]
+    return _sanitized_source_event(
+        event_type=event_type,
+        source_id=source.source_id,
+        source_kind=source.source_kind,
+        origin_alias=_origin_alias(source.origin_reference),
+        content_hash=source.content_hash,
+        license_label=source.license_label,
+        license_outcome=decision.outcome,
+        source_policy_hash=source_policy_hash,
+        policy_outcome="rejected" if rejection_causes else "allowed",
+        rejection_causes=rejection_causes,
+    )
+
+
+def _sanitized_source_event(
+    *,
+    event_type: str,
+    source_id: str,
+    source_kind: str,
+    origin_alias: str,
+    content_hash: str,
+    license_label: str,
+    license_outcome: str,
+    source_policy_hash: str,
+    policy_outcome: str,
+    rejection_causes: list[str],
+) -> dict[str, object]:
+    event = {
+        "schema_version": "source_event_v1",
+        "event_type": event_type,
+        "source_id": source_id,
+        "source_kind": source_kind,
+        "policy_outcome": policy_outcome,
+        "origin_alias": origin_alias,
+        "content_hash": content_hash,
+        "license_label": license_label,
+        "license_outcome": license_outcome,
+        "source_policy_hash": source_policy_hash,
+        "rejection_causes": list(dict.fromkeys(rejection_causes)),
+    }
+    validate_source_event_record(event)
+    return event
+
+
+def _contacts_environment_input_from_payload(
+    payload: bytes,
+    *,
+    source_bundle_id: str,
+    source_policy_hash: str,
+) -> ContactsEnvironmentInput:
+    try:
+        document = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return ContactsEnvironmentInput(
+            contacts=(),
+            followups=(),
+            source_bundle_id=source_bundle_id,
+            source_policy_hash=source_policy_hash,
+            validation_errors=(f"payload_json_invalid:{type(exc).__name__}",),
+        )
+
+    if not isinstance(document, dict):
+        return ContactsEnvironmentInput(
+            contacts=(),
+            followups=(),
+            source_bundle_id=source_bundle_id,
+            source_policy_hash=source_policy_hash,
+            validation_errors=("payload_must_be_object",),
+        )
+
+    contacts = tuple(
+        ContactRecord(
+            name=str(contact.get("name", "")) if isinstance(contact, dict) else "",
+            email=str(contact.get("email", "")) if isinstance(contact, dict) else "",
+        )
+        for contact in _list_or_empty(document.get("contacts"))
+    )
+    followups = tuple(
+        ContactFollowupRecord(
+            name=str(followup.get("name", "")) if isinstance(followup, dict) else "",
+            note=str(followup.get("note", "")) if isinstance(followup, dict) else "",
+            created_at=(
+                str(followup.get("created_at", "1970-01-01T00:00:00Z"))
+                if isinstance(followup, dict)
+                else "1970-01-01T00:00:00Z"
+            ),
+        )
+        for followup in _list_or_empty(document.get("followups"))
+    )
+    validation_errors = []
+    if "contacts" not in document:
+        validation_errors.append("contacts_missing")
+    elif not isinstance(document.get("contacts"), list):
+        validation_errors.append("contacts_not_list")
+    if "followups" in document and not isinstance(document.get("followups"), list):
+        validation_errors.append("followups_not_list")
+
+    return ContactsEnvironmentInput(
+        contacts=contacts,
+        followups=followups,
+        source_bundle_id=source_bundle_id,
+        source_policy_hash=source_policy_hash,
+        validation_errors=tuple(validation_errors),
+    )
+
+
+def _list_or_empty(value: object) -> list[object]:
+    return value if isinstance(value, list) else []
+
+
 def _origin_alias(origin_reference: str) -> str:
     parsed = urlparse(origin_reference)
+    if parsed.hostname:
+        return parsed.hostname
     if parsed.netloc:
         return parsed.netloc
     if parsed.scheme:
@@ -374,6 +858,18 @@ def _origin_alias(origin_reference: str) -> str:
 
 def _content_hash(content: str) -> str:
     return "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _bytes_content_hash(content: bytes) -> str:
+    return "sha256:" + hashlib.sha256(content).hexdigest()
+
+
+def _external_source_id(url: str) -> str:
+    return "source_external_" + hashlib.sha256(url.encode("utf-8")).hexdigest()[:12]
+
+
+def _normalized_content_type(content_type: str) -> str:
+    return content_type.split(";", 1)[0].strip().lower()
 
 
 def _unique(values) -> list[str]:

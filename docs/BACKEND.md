@@ -10,9 +10,10 @@ The first backend should be a local Python pipeline with explicit modules and du
   transformation records, and deterministic taxonomy-expansion requests.
 - `synthesis.sources`: source governance records, license decisions, default-deny
   network policy, sandbox policy, source-bundle validation, source-policy hashes,
-  deterministic no-network external-source fixtures, and sanitized source-event
-  records.
-- `synthesis.environments`: environment builders, reset/checkpoint operations, and state adapters.
+  deterministic no-network external-source fixtures, controlled HTTPS fetch
+  contracts, bounded request admission, and sanitized source-event records.
+- `synthesis.environments`: environment builders, typed contacts environment
+  input records, reset/checkpoint operations, and state adapters.
 - `synthesis.tools`: tool definitions, schema generation, registry, dependency
   graph, capability-gap records, bounded tool proposals, and curated local tool
   admission.
@@ -71,39 +72,50 @@ manifests, trajectories, exports, or logs.
 2. Validate the source bundle before environment construction. External-source
    material must pass license, network, and sandbox gates or be rejected with
    `source_policy_rejected`.
-3. Build or load an environment version with source provenance and source-policy
-   hash metadata.
-4. Build or load a tool registry version.
-5. Resolve the role registry and generate candidate tasks by curriculum policy
+3. When controlled network-backed synthesis is explicitly enabled, fetch one
+   allowlisted HTTPS JSON source through the injectable HTTP boundary, enforce
+   timeout, byte, content-type, redirect, and request-budget limits, and convert
+   the payload into a typed contacts environment input. The default pipeline does
+   not fetch external network sources.
+4. Build or load an environment version with source provenance, source-policy
+   hash metadata, and environment-source admission status.
+5. Build or load a tool registry version.
+6. Resolve the role registry and generate candidate tasks by curriculum policy
    through the `task_generation` role when remote generation is enabled.
-6. If remote generation fails after configuration, write a classified generation
+7. If remote generation fails after configuration, write a classified generation
    rejection plus manifest and quality report artifacts.
-7. Optionally expand seeds through deterministic or remote seed transformation,
+8. Optionally expand seeds through deterministic or remote seed transformation,
    task suggestion, and task editing. Edited candidates are admitted only after
    normal candidate-contract validation, and rejected suggestions remain
    inspectable as rejected records.
-8. Generate or select a solution policy for each valid task, using the
+9. Generate or select a solution policy for each valid task, using the
    `solution_policy` role for remote policies and deterministic local lineage for
    scripted policies.
-9. Execute policy steps against the environment and record action, observation,
+10. Execute policy steps against the environment and record action, observation,
    state-change, and final-response events.
-10. When a candidate carries a bounded branch plan, execute branch attempts from a
+11. When a candidate carries a bounded branch plan, execute branch attempts from a
    clean environment checkpoint until one terminal path succeeds, preserving
    rejected branch outcomes separately from the selected trajectory.
-11. Verify outputs and expected state changes independently.
-12. For repairable verification or logical-support failures, optionally run one
+12. Verify outputs and expected state changes independently.
+13. For repairable verification or logical-support failures, optionally run one
    `critic_refinement` attempt and rerun validation, execution, verification,
    and quality gates through the normal path.
-13. When execution exposes a capability gap such as a missing tool or schema
+14. When execution exposes a capability gap such as a missing tool or schema
    mismatch, optionally request one `tool_generation` proposal, admit only a
    matching curated local implementation, and rerun through the normal execution,
    verification, and quality gates.
-14. Apply dataset-quality gates such as exact duplicate detection and logical
+15. Apply dataset-quality gates such as exact duplicate detection and logical
    consistency checks.
-15. Route failed samples by error class and optional review policy.
-16. Export accepted samples, rejections, source-event audits when enabled, tool
+16. Route failed samples by error class and optional review policy.
+17. Export accepted samples, rejections, source-event audits when enabled, tool
    proposal events, branch lineage, task-expansion lineage, quality reports, and
    lineage.
+
+The controlled network path is available from the CLI only with
+`--enable-network-source`, `--source-url`, `--source-license-label`, and at least
+one `--allowed-source-host`. Tests and local validation can exercise the same
+path without external network access by passing `--mock-source-fixture`, which
+injects a fixture-backed HTTP client.
 
 ## Scaling Direction
 

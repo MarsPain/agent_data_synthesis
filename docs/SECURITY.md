@@ -33,6 +33,17 @@ kind, policy outcome, origin alias, hashes, license outcome, and rejection
 causes only. It must not contain raw provider payloads, authorization headers,
 API keys, source text, private user data, or other raw secrets.
 
+The controlled network-backed path is disabled by default and only admits one
+explicit HTTPS source URL when the caller also supplies a license label and exact
+allowed host. The fetch boundary rejects unsafe schemes, non-allowlisted hosts,
+redirects, exhausted request budgets, oversized payloads, unsupported content
+types, and non-200 HTTP responses before environment construction. The first
+adapter only accepts JSON contacts data for the local SQLite contacts
+environment. Fetch audit events record `fetch_attempt`, `fetch_accepted`, or
+`fetch_rejected`; environment-source audit events record
+`environment_source_admitted` or `environment_source_rejected`. These events use
+origin aliases and hashes only.
+
 ## LLM Provider Secrets
 
 The synthesis pipeline may call a remote OpenAI-compatible LLM API configured by `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`. The project should not deploy local LLM clusters or expose provider credentials to generated code, tools, environments, fixtures, manifests, trajectory exports, or rejected-candidate diagnostics.

@@ -50,8 +50,10 @@
   audit gates before controlled network-backed environment synthesis. Completed
   in plan 0011 with source bundles, source-policy hashes, source audit events,
   default-deny external-source gates, and quality slices.
-- Add controlled network-backed environment synthesis only after those gates are
-  enforced.
+- Add controlled network-backed environment synthesis. Implemented in plan 0012
+  with explicit CLI opt-in, allowlisted HTTPS JSON fetches, request and payload
+  limits, contacts environment-source admission, sanitized fetch/admission
+  events, and no-network fixture tests.
 
 ## Stage 4: Interoperability and Scale
 

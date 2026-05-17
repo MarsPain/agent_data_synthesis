@@ -5,4 +5,6 @@ is accepted as complete, move it to `../completed/` and update `../../PLANS.md`.
 
 ## Active
 
-No active implementation plan.
+- [0012-controlled-network-backed-environment-synthesis](0012-controlled-network-backed-environment-synthesis.md):
+  implemented controlled opt-in HTTPS source ingestion for the contacts
+  environment; pending review before completion.
