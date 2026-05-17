@@ -8,7 +8,7 @@
 
 ## Active
 
-- No active execution plan.
+- [0010-agentinstruct-seed-transformation-and-editor-loop](exec-plans/active/0010-agentinstruct-seed-transformation-and-editor-loop.md): next Stage 3 foundation for seed transformation, taxonomy-driven task expansion, and bounded task suggester/editor refinement. Active as of 2026-05-17.
 
 ## Completed
 
