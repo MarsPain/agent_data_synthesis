@@ -8,7 +8,7 @@ from synthesis.contracts import validate_branch_plan_record, validate_branch_out
 from synthesis.llm import LLMProviderError
 from synthesis.roles import RoleRegistry, SOLUTION_POLICY_ROLE, default_role_registry
 from synthesis.tasks import CandidateTask
-from synthesis.tools import ToolRegistry, ToolRegistryError
+from synthesis.tools import ToolMissingError, ToolRegistry, ToolRegistryError, ToolSchemaError
 
 
 @dataclass(frozen=True)
@@ -352,6 +352,10 @@ def _branch_outcome(
 
 
 def _branch_failure_cause(exc: Exception) -> str:
+    if isinstance(exc, ToolMissingError):
+        return "tool_missing"
+    if isinstance(exc, ToolSchemaError):
+        return "tool_schema_error"
     if isinstance(exc, (KeyError, ToolRegistryError)):
         return "tool_runtime_error"
     if isinstance(exc, PolicyValidationError):

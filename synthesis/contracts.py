@@ -170,6 +170,7 @@ def validate_branch_plan_record(record: Mapping[str, Any]) -> None:
     if not branches:
         raise ContractValidationError("branches must contain at least one branch")
     seen: set[str] = set()
+    branch_depths: dict[str, int] = {}
     for index, raw_branch in enumerate(branches):
         branch = _require_mapping(raw_branch, f"branches.{index}")
         branch_id = _require_non_empty_string(
@@ -195,6 +196,12 @@ def validate_branch_plan_record(record: Mapping[str, Any]) -> None:
                 raise ContractValidationError(
                     f"branches.{index}.parent_id must refer to an earlier branch"
                 )
+            branch_depth = branch_depths[parent_id] + 1
+        else:
+            branch_depth = 1
+        if branch_depth > max_depth:
+            raise ContractValidationError("branch depth exceeds max_depth")
+        branch_depths[branch_id] = branch_depth
         _require_non_empty_string(branch.get("condition"), f"branches.{index}.condition")
         _require_non_empty_string(
             branch.get("terminal_outcome"),
@@ -205,9 +212,6 @@ def validate_branch_plan_record(record: Mapping[str, Any]) -> None:
             f"branches.{index}.final_response_template",
         )
         _validate_branch_steps(branch.get("steps"), f"branches.{index}.steps")
-    if len(branches) > max_depth:
-        raise ContractValidationError("branches exceed max_depth")
-
 
 def validate_branch_outcomes(
     records: Sequence[Any],

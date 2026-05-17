@@ -218,9 +218,10 @@ LLM-backed task candidates carry the generation lineage returned by the provider
 call into accepted samples. LLM-backed solution policies carry separate
 `solution_policy` lineage so task generation and execution planning can be
 audited independently. The local deterministic fixture path may still build
-stable local lineage from runtime configuration, but remote samples should use the
-candidate-level and policy-level provider lineage rather than reconstructing it
-later.
+stable local lineage, but it must not infer remote provider lineage from ambient
+LLM environment variables unless the candidate or policy was actually produced by
+that provider. Remote samples should use the candidate-level and policy-level
+provider lineage rather than reconstructing it later.
 
 The default role registry currently enables `task_generation`, `solution_policy`,
 `critic_refinement`, and `tool_generation`. The `tool_generation` role may only

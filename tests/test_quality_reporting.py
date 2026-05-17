@@ -36,6 +36,22 @@ class QualityReportingTest(unittest.TestCase):
         self.assertEqual(report["counts"]["capability_gaps"], 0)
         self.assertEqual(report["counts"]["tool_proposals"], 0)
 
+    def test_success_rate_uses_executable_candidates_as_denominator(self) -> None:
+        from synthesis.quality import build_quality_report
+
+        rejection = _rejection()
+        rejection["cause"] = "tool_missing"
+
+        report = build_quality_report(
+            dataset_version="dataset_test",
+            samples=[_sample()],
+            rejections=[rejection],
+        )
+
+        self.assertEqual(report["counts"]["executable"], 1)
+        self.assertEqual(report["rates"]["success_rate"], 1.0)
+        self.assertEqual(report["rates"]["executable_rate"], 0.5)
+
     def test_report_summarizes_role_outcomes_tokens_cost_and_role_slices(self) -> None:
         from synthesis.quality import build_quality_report
 
@@ -471,6 +487,72 @@ class QualityPipelineTest(unittest.TestCase):
             self.assertIsNotNone(enabled.review_queue_path)
             record = json.loads(enabled.review_queue_path.read_text(encoding="utf-8").splitlines()[0])
             self.assertEqual(record["cause"], "quality_duplicate")
+
+    def test_optional_artifacts_are_removed_when_disabled_on_reused_output_dir(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+
+        def duplicates(seed) -> list[CandidateTask]:
+            base = CandidateTask(
+                candidate_id="candidate_a",
+                instruction="Find Alice Zhang's email address.",
+                constraints={"must_use_tool": "lookup_contact_email"},
+                difficulty=_difficulty(),
+                tool_name="lookup_contact_email",
+                arguments={"name": "Alice Zhang"},
+                expected_answer="alice.zhang@example.test",
+                seed_ids=(seed.seed_id,),
+            )
+            return [
+                base,
+                CandidateTask(
+                    candidate_id="candidate_b",
+                    instruction=base.instruction,
+                    constraints=base.constraints,
+                    difficulty=base.difficulty,
+                    tool_name=base.tool_name,
+                    arguments=base.arguments,
+                    expected_answer=base.expected_answer,
+                    seed_ids=base.seed_ids,
+                ),
+            ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "dataset"
+            parent_path = Path(tmpdir) / "parent_quality_report.json"
+            parent_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "quality_report_v1",
+                        "dataset_version": "dataset_parent",
+                        "counts": {"accepted": 0, "rejected": 1},
+                        "rates": {"success_rate": 0.0, "executable_rate": 1.0},
+                        "slices": {"rejection_cause": {"verification_failed": {}}},
+                        "rejection_causes": {"verification_failed": 1},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            enabled = run_foundation_pipeline(
+                output_dir,
+                dataset_version="dataset_optional_enabled",
+                candidate_generator=duplicates,
+                parent_artifact_path=parent_path,
+                route_reviewable_failures=True,
+            )
+            self.assertTrue(enabled.review_queue_path.exists())
+            self.assertTrue(enabled.parent_comparison_path.exists())
+
+            disabled = run_foundation_pipeline(
+                output_dir,
+                dataset_version="dataset_optional_disabled",
+                candidate_generator=duplicates,
+            )
+
+            self.assertIsNone(disabled.review_queue_path)
+            self.assertIsNone(disabled.parent_comparison_path)
+            self.assertFalse((output_dir / "review_queue.jsonl").exists())
+            self.assertFalse((output_dir / "parent_comparison.json").exists())
 
 
 def _difficulty() -> dict[str, object]:

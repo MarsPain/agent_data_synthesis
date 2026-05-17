@@ -35,13 +35,14 @@ from synthesis.quality import (
 )
 from synthesis.refinement import Refiner, RefinementAttempt, RefinementContext, repairable
 from synthesis.refinement import generate_llm_backed_refinement
-from synthesis.roles import TASK_GENERATION_ROLE, RoleRegistry, default_role_registry
+from synthesis.roles import RoleRegistry, default_role_registry
 from synthesis.seeds import foundation_seed
 from synthesis.seeds import DomainSeed
 from synthesis.tasks import (
     CandidateTask,
     generate_foundation_candidates,
     generate_llm_backed_candidates,
+    local_task_generation_lineage,
 )
 from synthesis.tools import (
     CapabilityGap,
@@ -643,12 +644,10 @@ def _maybe_refine(
     return refinement_attempt
 
 
-def _ensure_generation_lineage(task: CandidateTask, llm_config: LLMConfig) -> CandidateTask:
+def _ensure_generation_lineage(task: CandidateTask, _llm_config: LLMConfig) -> CandidateTask:
     if task.generation_lineage:
         return task
-    lineage = llm_config.lineage(TASK_GENERATION_ROLE)
-    lineage.update(default_role_registry().require_enabled(TASK_GENERATION_ROLE).lineage_metadata())
-    return replace(task, generation_lineage=lineage)
+    return replace(task, generation_lineage=local_task_generation_lineage())
 
 
 def _maybe_route_review(

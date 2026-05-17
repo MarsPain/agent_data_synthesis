@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from synthesis.llm import LLMProviderError
@@ -100,7 +100,7 @@ def generate_foundation_candidates(
     ]
     if include_branching:
         candidates.append(_branching_contact_candidate(seed))
-    return order_candidates_by_curriculum(candidates)
+    return order_candidates_by_curriculum(_attach_local_generation_lineage(candidates))
 
 
 def generate_llm_backed_candidates(
@@ -339,6 +339,28 @@ def _normalize_tool_name(raw_tool_name: str) -> str:
         "contact_lookup": "lookup_contact_email",
     }
     return aliases.get(raw_tool_name, raw_tool_name)
+
+
+def _attach_local_generation_lineage(candidates: list[CandidateTask]) -> list[CandidateTask]:
+    lineage = local_task_generation_lineage()
+    return [
+        candidate if candidate.generation_lineage else replace(candidate, generation_lineage=lineage)
+        for candidate in candidates
+    ]
+
+
+def local_task_generation_lineage() -> dict[str, object]:
+    return {
+        "role": "scripted_task_generation",
+        "role_version": "role_scripted_task_generation_v1",
+        "output_type": "candidate_tasks",
+        "owner_module": "synthesis.tasks",
+        "retry_policy": "local_deterministic",
+        "provider_host": "local",
+        "model": "scripted",
+        "config_hash": "scripted_task_generation_v1",
+        "configured": True,
+    }
 
 
 def _lineage_retry_count(lineage: dict[str, object]) -> int:

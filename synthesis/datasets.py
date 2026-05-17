@@ -18,8 +18,7 @@ from synthesis.execution import ExecutionResult, SolutionPolicy
 from synthesis.llm import LLMConfig, LLMProviderError
 from synthesis.quality import build_parent_comparison, build_quality_report, retry_eligible
 from synthesis.refinement import RefinementAttempt
-from synthesis.roles import TASK_GENERATION_ROLE, default_role_registry
-from synthesis.tasks import CandidateTask
+from synthesis.tasks import CandidateTask, local_task_generation_lineage
 from synthesis.verification import VerificationResult
 
 
@@ -52,7 +51,7 @@ def assemble_sample(
     stateful = any(event.get("type") == "state_change" for event in execution.trajectory)
     lineage = {
         "seed_ids": list(task.seed_ids),
-        "generator": task.generation_lineage or _default_task_generation_lineage(llm_config),
+        "generator": task.generation_lineage or local_task_generation_lineage(),
         "verifier": {
             "id": verification.verifier_id,
             "version": verification.version,
@@ -266,9 +265,12 @@ def write_dataset_artifacts(
     manifest_path = output_dir / "manifest.json"
     rejections_path = output_dir / "rejections.jsonl"
     quality_report_path = output_dir / "quality_report.json"
-    tool_proposals_path = output_dir / "tool_proposals.jsonl" if tool_proposals else None
-    parent_comparison_path = output_dir / "parent_comparison.json" if parent_artifact_path else None
-    review_queue_path = output_dir / "review_queue.jsonl" if review_records else None
+    optional_tool_proposals_path = output_dir / "tool_proposals.jsonl"
+    optional_parent_comparison_path = output_dir / "parent_comparison.json"
+    optional_review_queue_path = output_dir / "review_queue.jsonl"
+    tool_proposals_path = optional_tool_proposals_path if tool_proposals else None
+    parent_comparison_path = optional_parent_comparison_path if parent_artifact_path else None
+    review_queue_path = optional_review_queue_path if review_records else None
 
     for sample in samples:
         validate_sample_record(sample)
@@ -282,9 +284,13 @@ def write_dataset_artifacts(
     _write_jsonl(samples_path, samples)
     _write_jsonl(rejections_path, rejections)
     if review_records:
-        _write_jsonl(output_dir / "review_queue.jsonl", review_records)
+        _write_jsonl(optional_review_queue_path, review_records)
+    else:
+        _remove_if_exists(optional_review_queue_path)
     if tool_proposals:
-        _write_jsonl(output_dir / "tool_proposals.jsonl", tool_proposals)
+        _write_jsonl(optional_tool_proposals_path, tool_proposals)
+    else:
+        _remove_if_exists(optional_tool_proposals_path)
 
     quality_report = build_quality_report(
         dataset_version=dataset_version,
@@ -307,6 +313,8 @@ def write_dataset_artifacts(
             json.dumps(parent_comparison, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+    else:
+        _remove_if_exists(optional_parent_comparison_path)
 
     artifacts: dict[str, object] = {
         "samples": samples_path.name,
@@ -372,6 +380,11 @@ def _write_jsonl(path: Path, records: list[dict[str, object]]) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def _remove_if_exists(path: Path) -> None:
+    if path.exists():
+        path.unlink()
+
+
 def _validate_tool_proposal_event(record: Mapping[str, object]) -> None:
     gap = record.get("gap")
     proposal = record.get("proposal")
@@ -432,12 +445,6 @@ def _lineage_config_hashes(samples: list[dict[str, object]]) -> list[object]:
         if isinstance(refinement, dict):
             values.append(refinement.get("config_hash"))
     return _unique_values(value for value in values if value)
-
-
-def _default_task_generation_lineage(llm_config: LLMConfig) -> dict[str, object]:
-    lineage = llm_config.lineage(TASK_GENERATION_ROLE)
-    lineage.update(default_role_registry().require_enabled(TASK_GENERATION_ROLE).lineage_metadata())
-    return lineage
 
 
 def _branching_lineage(execution: ExecutionResult) -> dict[str, object]:

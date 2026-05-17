@@ -54,7 +54,7 @@ def build_quality_report(
             "branch_selected": _branch_selected_count(samples),
         },
         "rates": {
-            "success_rate": _rate(len(samples), total_count),
+            "success_rate": _rate(len(samples), executable_count),
             "executable_rate": _rate(executable_count, total_count),
         },
         "rejection_causes": rejection_causes,

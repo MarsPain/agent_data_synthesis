@@ -48,8 +48,10 @@ class FoundationPipelineTest(unittest.TestCase):
             self.assertEqual(sample["verifier"]["id"], "exact_answer_verifier")
             self.assertTrue(sample["verification"]["passed"])
             self.assertIn("provider_host", sample["lineage"]["generator"])
-            self.assertEqual(sample["lineage"]["generator"]["model"], "test-generator")
-            self.assertEqual(sample["lineage"]["generator"]["role_version"], "role_task_generation_v1")
+            self.assertEqual(sample["lineage"]["generator"]["provider_host"], "local")
+            self.assertEqual(sample["lineage"]["generator"]["model"], "scripted")
+            self.assertEqual(sample["lineage"]["generator"]["role"], "scripted_task_generation")
+            self.assertEqual(sample["lineage"]["generator"]["role_version"], "role_scripted_task_generation_v1")
             self.assertEqual(sample["lineage"]["generator"]["output_type"], "candidate_tasks")
             self.assertNotIn("secret-test-key", json.dumps(sample))
 
@@ -676,6 +678,62 @@ class FoundationPipelineTest(unittest.TestCase):
             self.assertEqual(quality_report["branch_outcomes"], {"accepted": 1, "rejected": 1})
             self.assertIn("2", quality_report["slices"]["branch_depth"])
             self.assertIn("fallback_full_name", quality_report["slices"]["selected_branch"])
+
+    def test_branch_failure_classifies_missing_tool_cause(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+
+        def branch_missing_tool(seed) -> list[CandidateTask]:
+            return [
+                CandidateTask(
+                    candidate_id="candidate_branch_missing_tool",
+                    instruction="Try a missing branch tool.",
+                    constraints={"task_type": "contact_branch_fallback"},
+                    difficulty={
+                        "level": "medium",
+                        "tool_count": 1,
+                        "constraint_count": 1,
+                        "state_changes": 0,
+                        "ambiguity": "none",
+                        "recovery_paths": 1,
+                    },
+                    tool_name="lookup_contact_email",
+                    arguments={"name": "Alice Zhang"},
+                    expected_answer="alice.zhang@example.test",
+                    seed_ids=(seed.seed_id,),
+                    branch_plan={
+                        "schema_version": "branch_plan_v1",
+                        "plan_id": "branch_plan_missing_tool",
+                        "max_depth": 1,
+                        "branches": [
+                            {
+                                "branch_id": "missing_tool",
+                                "node_type": "attempt",
+                                "parent_id": None,
+                                "condition": "Use a missing tool.",
+                                "steps": [{"tool_name": "missing_tool", "arguments": {}}],
+                                "final_response_template": "{email}",
+                                "terminal_outcome": "accept_on_success",
+                            }
+                        ],
+                    },
+                )
+            ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_foundation_pipeline(
+                Path(tmpdir),
+                dataset_version="dataset_branch_missing_tool",
+                candidate_generator=branch_missing_tool,
+            )
+
+            self.assertEqual(result.accepted_count, 0)
+            rejection = json.loads(result.rejections_path.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(
+                rejection["details"]["branch_outcomes"][0]["failure_cause"],
+                "tool_missing",
+            )
+            quality_report = json.loads(result.quality_report_path.read_text(encoding="utf-8"))
+            self.assertEqual(quality_report["branch_failure_causes"], {"tool_missing": 1})
 
     def test_rejects_candidate_when_candidate_shape_is_invalid(self) -> None:
         from synthesis.pipeline import run_foundation_pipeline

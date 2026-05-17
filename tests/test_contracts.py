@@ -124,6 +124,24 @@ class DatasetContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ContractValidationError, "duplicate branch_id"):
             validate_branch_plan_record(plan)
 
+    def test_branch_plan_max_depth_allows_multiple_sibling_branches(self) -> None:
+        from synthesis.contracts import validate_branch_plan_record
+
+        plan = _valid_branch_plan()
+        plan["max_depth"] = 1
+        plan["branches"][1]["parent_id"] = None
+
+        validate_branch_plan_record(plan)
+
+    def test_branch_plan_max_depth_rejects_deep_parent_chain(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_branch_plan_record
+
+        plan = _valid_branch_plan()
+        plan["max_depth"] = 1
+
+        with self.assertRaisesRegex(ContractValidationError, "branch depth exceeds max_depth"):
+            validate_branch_plan_record(plan)
+
     def test_branch_outcome_contract_requires_selected_terminal_success(self) -> None:
         from synthesis.contracts import ContractValidationError, validate_branch_outcomes
 
