@@ -18,3 +18,4 @@ venv/
 *.pdf
 artifacts/*
 !artifacts/README.md
+.worktrees/

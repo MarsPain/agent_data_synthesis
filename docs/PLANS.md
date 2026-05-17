@@ -8,7 +8,7 @@
 
 ## Active
 
-No active implementation plan.
+- [0012-controlled-network-backed-environment-synthesis](exec-plans/active/0012-controlled-network-backed-environment-synthesis.md): enable the first opt-in, allowlisted, auditable network-backed environment synthesis path while preserving source-governance gates.
 
 ## Completed
 

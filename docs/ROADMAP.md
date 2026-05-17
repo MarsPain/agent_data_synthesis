@@ -51,7 +51,8 @@
   in plan 0011 with source bundles, source-policy hashes, source audit events,
   default-deny external-source gates, and quality slices.
 - Add controlled network-backed environment synthesis only after those gates are
-  enforced.
+  enforced. Active in plan 0012, scoped to an opt-in, allowlisted, auditable
+  source path and a narrow contacts-environment adapter.
 
 ## Stage 4: Interoperability and Scale
 
