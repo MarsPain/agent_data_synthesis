@@ -40,6 +40,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable the deterministic one-shot critic/refinement fixture loop.",
     )
+    parser.add_argument(
+        "--enable-branching",
+        action="store_true",
+        help="Enable the deterministic multi-path branching fixture.",
+    )
     return parser.parse_args()
 
 
@@ -54,6 +59,7 @@ def main() -> int:
             candidate_generator=candidate_generator,
             parent_artifact_path=args.parent_artifact,
             refiner=refiner,
+            enable_branching=args.enable_branching,
         )
     except (LLMConfigurationError, LLMProviderError) as exc:
         print(str(exc), file=sys.stderr)

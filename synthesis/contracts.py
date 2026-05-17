@@ -36,6 +36,9 @@ CAPABILITY_GAP_TYPES = {
     "environment_dependency_mismatch",
 }
 
+BRANCH_NODE_TYPES = {"attempt", "fallback"}
+BRANCH_OUTCOMES = {"accepted", "rejected"}
+
 
 def validate_candidate_task(task: object) -> CandidateTask:
     if not isinstance(task, CandidateTask):
@@ -49,6 +52,8 @@ def validate_candidate_task(task: object) -> CandidateTask:
     _require_non_empty_string(task.expected_answer, "expected_answer")
     if task.expected_state is not None:
         _require_mapping(task.expected_state, "expected_state")
+    if task.branch_plan is not None:
+        validate_branch_plan_record(task.branch_plan)
     if not task.seed_ids:
         raise ContractValidationError("seed_ids must contain at least one seed id")
     for index, seed_id in enumerate(task.seed_ids):
@@ -154,6 +159,104 @@ def validate_tool_proposal_record(record: Mapping[str, Any]) -> None:
     _require_non_empty_string_sequence(record.get("safety_notes"), "safety_notes")
     lineage = _require_mapping(record.get("lineage"), "lineage")
     _validate_lineage_role(lineage, "lineage")
+
+
+def validate_branch_plan_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "branch_plan")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    _require_non_empty_string(record.get("plan_id"), "plan_id")
+    max_depth = _require_positive_int(record.get("max_depth"), "max_depth")
+    branches = _require_sequence(record.get("branches"), "branches")
+    if not branches:
+        raise ContractValidationError("branches must contain at least one branch")
+    seen: set[str] = set()
+    for index, raw_branch in enumerate(branches):
+        branch = _require_mapping(raw_branch, f"branches.{index}")
+        branch_id = _require_non_empty_string(
+            branch.get("branch_id"),
+            f"branches.{index}.branch_id",
+        )
+        if branch_id in seen:
+            raise ContractValidationError(f"duplicate branch_id: {branch_id}")
+        seen.add(branch_id)
+
+        node_type = _require_non_empty_string(
+            branch.get("node_type"),
+            f"branches.{index}.node_type",
+        )
+        if node_type not in BRANCH_NODE_TYPES:
+            raise ContractValidationError(
+                f"branches.{index}.node_type must be one of {sorted(BRANCH_NODE_TYPES)}"
+            )
+        parent_id = branch.get("parent_id")
+        if parent_id is not None:
+            _require_non_empty_string(parent_id, f"branches.{index}.parent_id")
+            if parent_id not in seen:
+                raise ContractValidationError(
+                    f"branches.{index}.parent_id must refer to an earlier branch"
+                )
+        _require_non_empty_string(branch.get("condition"), f"branches.{index}.condition")
+        _require_non_empty_string(
+            branch.get("terminal_outcome"),
+            f"branches.{index}.terminal_outcome",
+        )
+        _require_non_empty_string(
+            branch.get("final_response_template"),
+            f"branches.{index}.final_response_template",
+        )
+        _validate_branch_steps(branch.get("steps"), f"branches.{index}.steps")
+    if len(branches) > max_depth:
+        raise ContractValidationError("branches exceed max_depth")
+
+
+def validate_branch_outcomes(
+    records: Sequence[Any],
+    *,
+    require_selected_terminal: bool = True,
+) -> None:
+    outcomes = _require_sequence(records, "branch_outcomes")
+    if not outcomes:
+        raise ContractValidationError("branch_outcomes must contain at least one outcome")
+    has_selected_terminal = False
+    for index, raw_outcome in enumerate(outcomes):
+        outcome = _require_mapping(raw_outcome, f"branch_outcomes.{index}")
+        _require_non_empty_string(
+            outcome.get("schema_version"),
+            f"branch_outcomes.{index}.schema_version",
+        )
+        _require_non_empty_string(
+            outcome.get("branch_id"),
+            f"branch_outcomes.{index}.branch_id",
+        )
+        if not isinstance(outcome.get("attempted"), bool):
+            raise ContractValidationError(f"branch_outcomes.{index}.attempted must be a bool")
+        if not isinstance(outcome.get("selected"), bool):
+            raise ContractValidationError(f"branch_outcomes.{index}.selected must be a bool")
+        if not isinstance(outcome.get("retry_eligible"), bool):
+            raise ContractValidationError(f"branch_outcomes.{index}.retry_eligible must be a bool")
+        if not isinstance(outcome.get("refinement_eligible"), bool):
+            raise ContractValidationError(
+                f"branch_outcomes.{index}.refinement_eligible must be a bool"
+            )
+        raw_status = outcome.get("outcome")
+        _require_non_empty_string(raw_status, f"branch_outcomes.{index}.outcome")
+        if raw_status not in BRANCH_OUTCOMES:
+            raise ContractValidationError(
+                f"branch_outcomes.{index}.outcome must be one of {sorted(BRANCH_OUTCOMES)}"
+            )
+        failure_cause = outcome.get("failure_cause")
+        if failure_cause is not None:
+            _require_non_empty_string(
+                failure_cause,
+                f"branch_outcomes.{index}.failure_cause",
+            )
+        _require_non_empty_string(outcome.get("message"), f"branch_outcomes.{index}.message")
+        _require_positive_int(outcome.get("depth"), f"branch_outcomes.{index}.depth")
+        _require_sequence(outcome.get("trajectory"), f"branch_outcomes.{index}.trajectory")
+        if outcome.get("selected") and raw_status == "accepted":
+            has_selected_terminal = True
+    if require_selected_terminal and not has_selected_terminal:
+        raise ContractValidationError("branch_outcomes must include a selected terminal branch")
 
 
 def validate_refinement_attempt(record: Mapping[str, Any]) -> None:
@@ -309,6 +412,8 @@ def _validate_lineage(raw: object) -> None:
             "lineage.refinement.repair_decision",
         )
         _validate_lineage_role(refinement, "lineage.refinement")
+    if "branching" in lineage:
+        _validate_branch_lineage(lineage.get("branching"))
 
     verifier = _require_mapping(lineage.get("verifier"), "lineage.verifier")
     _require_non_empty_string(verifier.get("id"), "lineage.verifier.id")
@@ -320,6 +425,29 @@ def _validate_lineage_role(raw: Mapping[str, Any], path: str) -> None:
     _require_non_empty_string(raw.get("provider_host"), f"{path}.provider_host")
     _require_non_empty_string(raw.get("model"), f"{path}.model")
     _require_non_empty_string(raw.get("config_hash"), f"{path}.config_hash")
+
+
+def _validate_branch_steps(raw: object, path: str) -> None:
+    steps = _require_sequence(raw, path)
+    if not steps:
+        raise ContractValidationError(f"{path} must contain at least one step")
+    for index, raw_step in enumerate(steps):
+        step = _require_mapping(raw_step, f"{path}.{index}")
+        _require_non_empty_string(step.get("tool_name"), f"{path}.{index}.tool_name")
+        _require_mapping(step.get("arguments"), f"{path}.{index}.arguments")
+
+
+def _validate_branch_lineage(raw: object) -> None:
+    lineage = _require_mapping(raw, "lineage.branching")
+    _require_non_empty_string(lineage.get("schema_version"), "lineage.branching.schema_version")
+    _require_non_empty_string(lineage.get("plan_id"), "lineage.branching.plan_id")
+    _require_non_empty_string(
+        lineage.get("selected_branch_id"),
+        "lineage.branching.selected_branch_id",
+    )
+    _require_positive_int(lineage.get("branch_depth"), "lineage.branching.branch_depth")
+    _require_int(lineage.get("fallback_count"), "lineage.branching.fallback_count")
+    validate_branch_outcomes(_require_sequence(lineage.get("branch_outcomes"), "lineage.branching.branch_outcomes"))
 
 
 def _require_mapping(raw: object, path: str) -> Mapping[str, Any]:

@@ -115,6 +115,37 @@ class DatasetContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ContractValidationError, "gap_type"):
             validate_capability_gap_record(gap)
 
+    def test_branch_plan_contract_rejects_duplicate_branch_ids(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_branch_plan_record
+
+        plan = _valid_branch_plan()
+        plan["branches"].append(dict(plan["branches"][0]))
+
+        with self.assertRaisesRegex(ContractValidationError, "duplicate branch_id"):
+            validate_branch_plan_record(plan)
+
+    def test_branch_outcome_contract_requires_selected_terminal_success(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_branch_outcomes
+
+        outcomes = [
+            {
+                "schema_version": "branch_outcome_v1",
+                "branch_id": "direct_short_name",
+                "attempted": True,
+                "selected": False,
+                "outcome": "rejected",
+                "failure_cause": "tool_runtime_error",
+                "retry_eligible": True,
+                "refinement_eligible": False,
+                "message": "Unknown contact: Alice",
+                "depth": 1,
+                "trajectory": [],
+            }
+        ]
+
+        with self.assertRaisesRegex(ContractValidationError, "selected terminal branch"):
+            validate_branch_outcomes(outcomes)
+
 
 def _valid_sample() -> dict[str, object]:
     return {
@@ -221,6 +252,44 @@ def _valid_tool_proposal() -> dict[str, object]:
             "model": "test-generator",
             "config_hash": "proposal-hash",
         },
+    }
+
+
+def _valid_branch_plan() -> dict[str, object]:
+    return {
+        "schema_version": "branch_plan_v1",
+        "plan_id": "branch_plan_candidate_contacts_alice_fallback",
+        "max_depth": 2,
+        "branches": [
+            {
+                "branch_id": "direct_short_name",
+                "node_type": "attempt",
+                "parent_id": None,
+                "condition": "Try the abbreviated name first.",
+                "steps": [
+                    {
+                        "tool_name": "lookup_contact_email",
+                        "arguments": {"name": "Alice"},
+                    }
+                ],
+                "final_response_template": "{name}'s email is {email}.",
+                        "terminal_outcome": "fallback_on_failure",
+                    },
+            {
+                "branch_id": "fallback_full_name",
+                "node_type": "fallback",
+                "parent_id": "direct_short_name",
+                "condition": "Use the full name when the abbreviated lookup fails.",
+                "steps": [
+                    {
+                        "tool_name": "lookup_contact_email",
+                        "arguments": {"name": "Alice Zhang"},
+                    }
+                ],
+                "final_response_template": "{name}'s email is {email}.",
+                        "terminal_outcome": "accept_on_success",
+                    },
+        ],
     }
 
 

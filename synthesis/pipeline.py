@@ -19,7 +19,13 @@ from synthesis.datasets import (
     write_dataset_artifacts,
 )
 from synthesis.environments import ContactEnvironment
-from synthesis.execution import PolicyValidationError, SolutionPolicy, execute_candidate, scripted_solution_policy
+from synthesis.execution import (
+    BranchExecutionError,
+    PolicyValidationError,
+    SolutionPolicy,
+    execute_candidate,
+    scripted_solution_policy,
+)
 from synthesis.llm import LLMConfig, LLMProviderError, OpenAICompatibleClient
 from synthesis.quality import (
     build_review_record,
@@ -124,13 +130,20 @@ def run_foundation_pipeline(
     route_reviewable_failures: bool = False,
     refiner: Refiner | None = None,
     tool_proposal_generator: ToolProposalGenerator | None = None,
+    enable_branching: bool = False,
 ) -> PipelineResult:
     seed = foundation_seed()
     environment = ContactEnvironment.create_fixture(output_dir / "environment")
     registry = build_contact_tool_registry(environment)
     verifier = ExactAnswerVerifier()
     llm_config = LLMConfig.from_env()
-    generate_candidates = candidate_generator or generate_foundation_candidates
+    if candidate_generator is None:
+        generate_candidates = lambda current_seed: generate_foundation_candidates(
+            current_seed,
+            include_branching=enable_branching,
+        )
+    else:
+        generate_candidates = candidate_generator
     generate_policy = policy_generator or scripted_solution_policy
 
     samples: list[dict[str, object]] = []
@@ -416,6 +429,20 @@ def _run_candidate_attempt(
                 error=exc,
                 cause="tool_schema_error",
                 policy=policy,
+            ),
+            signature=None,
+            policy=policy,
+            capability_gap=None,
+        )
+    except BranchExecutionError as exc:
+        return CandidateAttemptResult(
+            sample=None,
+            rejection=assemble_execution_rejection(
+                task=task,
+                error=exc,
+                cause="solution_logic_error",
+                policy=policy,
+                branch_outcomes=exc.branch_outcomes,
             ),
             signature=None,
             policy=policy,

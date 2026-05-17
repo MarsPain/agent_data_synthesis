@@ -4,10 +4,11 @@ from dataclasses import dataclass
 from string import Formatter
 from typing import Any
 
+from synthesis.contracts import validate_branch_plan_record, validate_branch_outcomes
 from synthesis.llm import LLMProviderError
 from synthesis.roles import RoleRegistry, SOLUTION_POLICY_ROLE, default_role_registry
 from synthesis.tasks import CandidateTask
-from synthesis.tools import ToolRegistry
+from synthesis.tools import ToolRegistry, ToolRegistryError
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class SolutionPolicy:
     steps: tuple[ToolStep, ...]
     final_response_template: str
     lineage: dict[str, object] | None = None
+    branch_plan: dict[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -30,10 +32,30 @@ class ExecutionResult:
     trajectory: list[dict[str, object]]
     final_response: str
     policy: SolutionPolicy | None = None
+    branch_plan: dict[str, object] | None = None
+    branch_outcomes: list[dict[str, object]] | None = None
 
 
 class PolicyValidationError(ValueError):
     pass
+
+
+class BranchExecutionError(RuntimeError):
+    def __init__(self, message: str, *, branch_outcomes: list[dict[str, object]]) -> None:
+        super().__init__(message)
+        self.branch_outcomes = branch_outcomes
+
+
+class StepExecutionError(RuntimeError):
+    def __init__(
+        self,
+        cause: Exception,
+        *,
+        trajectory: list[dict[str, object]],
+    ) -> None:
+        super().__init__(str(cause))
+        self.cause = cause
+        self.trajectory = trajectory
 
 
 def execute_candidate(
@@ -44,42 +66,13 @@ def execute_candidate(
 ) -> ExecutionResult:
     selected_policy = policy or scripted_solution_policy(task)
     validate_solution_policy(selected_policy)
+    if selected_policy.branch_plan is not None:
+        return _execute_branching_policy(selected_policy, registry)
 
-    trajectory: list[dict[str, object]] = []
-    response_context: dict[str, object] = {}
-    for step in selected_policy.steps:
-        trajectory.append(
-            {
-                "type": "action",
-                "tool": step.tool_name,
-                "arguments": step.arguments,
-            }
-        )
-        observation = registry.execute(step.tool_name, step.arguments)
-        trajectory.append(
-            {
-                "type": "observation",
-                "tool": step.tool_name,
-                "observation": observation,
-            }
-        )
-        response_context.update(_scalar_observation_values(observation))
-        state_change = observation.get("state_change")
-        if isinstance(state_change, dict):
-            trajectory.append(
-                {
-                    "type": "state_change",
-                    "tool": step.tool_name,
-                    "change": state_change,
-                }
-            )
-
-    final_response = _render_final_response(selected_policy, response_context)
-    trajectory.append(
-        {
-            "type": "final_response",
-            "content": final_response,
-        }
+    trajectory, final_response = _execute_steps(
+        selected_policy.steps,
+        selected_policy.final_response_template,
+        registry,
     )
     return ExecutionResult(
         trajectory=trajectory,
@@ -89,6 +82,16 @@ def execute_candidate(
 
 
 def scripted_solution_policy(task: CandidateTask) -> SolutionPolicy:
+    if task.branch_plan is not None:
+        return SolutionPolicy(
+            policy_id=f"policy_{task.candidate_id}",
+            role="scripted_solution_policy",
+            steps=(),
+            final_response_template="branch_plan",
+            lineage=_local_policy_lineage(),
+            branch_plan=task.branch_plan,
+        )
+
     if task.constraints.get("task_type") == "contact_followup":
         name = str(task.arguments.get("name", ""))
         note = f"Send follow-up email to {task.expected_answer}."
@@ -167,7 +170,9 @@ def validate_solution_policy(policy: SolutionPolicy) -> None:
         raise PolicyValidationError("policy_id must be a non-empty string")
     if not policy.role.strip():
         raise PolicyValidationError("role must be a non-empty string")
-    if not policy.steps:
+    if policy.branch_plan is not None:
+        validate_branch_plan_record(policy.branch_plan)
+    if not policy.steps and policy.branch_plan is None:
         raise PolicyValidationError("steps must contain at least one step")
     for index, step in enumerate(policy.steps):
         if not isinstance(step, ToolStep):
@@ -178,6 +183,188 @@ def validate_solution_policy(policy: SolutionPolicy) -> None:
             raise PolicyValidationError(f"steps.{index}.arguments must be an object")
     if not policy.final_response_template.strip():
         raise PolicyValidationError("final_response_template must be a non-empty string")
+
+
+def _execute_branching_policy(
+    policy: SolutionPolicy,
+    registry: ToolRegistry,
+) -> ExecutionResult:
+    assert policy.branch_plan is not None
+    validate_branch_plan_record(policy.branch_plan)
+    baseline = registry.checkpoint_state()
+    outcomes: list[dict[str, object]] = []
+    branches = policy.branch_plan["branches"]
+    assert isinstance(branches, list)
+
+    for depth, raw_branch in enumerate(branches, start=1):
+        assert isinstance(raw_branch, dict)
+        registry.restore_state(baseline)
+        branch_id = str(raw_branch["branch_id"])
+        steps = tuple(_tool_step_from_mapping(step) for step in raw_branch["steps"])
+        template = str(raw_branch["final_response_template"])
+        try:
+            trajectory, final_response = _execute_steps(
+                steps,
+                template,
+                registry,
+                capture_failures=True,
+            )
+        except StepExecutionError as exc:
+            outcomes.append(
+                _branch_outcome(
+                    branch_id=branch_id,
+                    selected=False,
+                    outcome="rejected",
+                    failure_cause=_branch_failure_cause(exc.cause),
+                    message=str(exc.cause),
+                    depth=depth,
+                    trajectory=exc.trajectory,
+                )
+            )
+            continue
+        except Exception as exc:
+            outcomes.append(
+                _branch_outcome(
+                    branch_id=branch_id,
+                    selected=False,
+                    outcome="rejected",
+                    failure_cause=_branch_failure_cause(exc),
+                    message=str(exc),
+                    depth=depth,
+                    trajectory=[],
+                )
+            )
+            continue
+
+        outcomes.append(
+            _branch_outcome(
+                branch_id=branch_id,
+                selected=True,
+                outcome="accepted",
+                failure_cause=None,
+                message="accepted",
+                depth=depth,
+                trajectory=trajectory,
+            )
+        )
+        validate_branch_outcomes(outcomes)
+        return ExecutionResult(
+            trajectory=trajectory,
+            final_response=final_response,
+            policy=policy,
+            branch_plan=dict(policy.branch_plan),
+            branch_outcomes=outcomes,
+        )
+
+    registry.restore_state(baseline)
+    validate_branch_outcomes(outcomes, require_selected_terminal=False)
+    raise BranchExecutionError(
+        "branch_plan produced no selected terminal branch",
+        branch_outcomes=outcomes,
+    )
+
+
+def _execute_steps(
+    steps: tuple[ToolStep, ...],
+    final_response_template: str,
+    registry: ToolRegistry,
+    *,
+    capture_failures: bool = False,
+) -> tuple[list[dict[str, object]], str]:
+    trajectory: list[dict[str, object]] = []
+    response_context: dict[str, object] = {}
+    for step in steps:
+        trajectory.append(
+            {
+                "type": "action",
+                "tool": step.tool_name,
+                "arguments": step.arguments,
+            }
+        )
+        try:
+            observation = registry.execute(step.tool_name, step.arguments)
+        except Exception as exc:
+            if capture_failures:
+                raise StepExecutionError(exc, trajectory=trajectory) from exc
+            raise
+        trajectory.append(
+            {
+                "type": "observation",
+                "tool": step.tool_name,
+                "observation": observation,
+            }
+        )
+        response_context.update(_scalar_observation_values(observation))
+        state_change = observation.get("state_change")
+        if isinstance(state_change, dict):
+            trajectory.append(
+                {
+                    "type": "state_change",
+                    "tool": step.tool_name,
+                    "change": state_change,
+                }
+            )
+
+    branch_policy = SolutionPolicy(
+        policy_id="render_only",
+        role="scripted_solution_policy",
+        steps=steps,
+        final_response_template=final_response_template,
+    )
+    try:
+        final_response = _render_final_response(branch_policy, response_context)
+    except Exception as exc:
+        if capture_failures:
+            raise StepExecutionError(exc, trajectory=trajectory) from exc
+        raise
+    trajectory.append(
+        {
+            "type": "final_response",
+            "content": final_response,
+        }
+    )
+    return trajectory, final_response
+
+
+def _branch_outcome(
+    *,
+    branch_id: str,
+    selected: bool,
+    outcome: str,
+    failure_cause: str | None,
+    message: str,
+    depth: int,
+    trajectory: list[dict[str, object]],
+) -> dict[str, object]:
+    return {
+        "schema_version": "branch_outcome_v1",
+        "branch_id": branch_id,
+        "attempted": True,
+        "selected": selected,
+        "outcome": outcome,
+        "failure_cause": failure_cause,
+        "retry_eligible": _branch_retry_eligible(failure_cause),
+        "refinement_eligible": _branch_refinement_eligible(failure_cause),
+        "message": message,
+        "depth": depth,
+        "trajectory": trajectory,
+    }
+
+
+def _branch_failure_cause(exc: Exception) -> str:
+    if isinstance(exc, (KeyError, ToolRegistryError)):
+        return "tool_runtime_error"
+    if isinstance(exc, PolicyValidationError):
+        return "solution_logic_error"
+    return "infrastructure_error"
+
+
+def _branch_retry_eligible(failure_cause: str | None) -> bool:
+    return failure_cause in {"tool_runtime_error", "infrastructure_error", "llm_provider_error"}
+
+
+def _branch_refinement_eligible(failure_cause: str | None) -> bool:
+    return failure_cause in {"verification_failed", "solution_logic_error"}
 
 
 def _tool_step_from_mapping(raw: object) -> ToolStep:

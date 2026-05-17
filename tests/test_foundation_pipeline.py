@@ -143,6 +143,90 @@ class FoundationPipelineTest(unittest.TestCase):
             with self.assertRaisesRegex(PolicyValidationError, "steps.0.tool_name"):
                 execute_candidate(task, registry, policy=policy)
 
+    def test_branch_execution_preserves_failed_branch_events_without_state_leakage(self) -> None:
+        from synthesis.execution import SolutionPolicy, execute_candidate
+        from synthesis.environments import ContactEnvironment
+        from synthesis.tools import build_contact_tool_registry
+
+        task = CandidateTask(
+            candidate_id="candidate_branch_state_reset",
+            instruction="Try a mutating branch, then fall back to a read-only lookup.",
+            constraints={"task_type": "contact_branch_fallback"},
+            difficulty={
+                "level": "medium",
+                "tool_count": 2,
+                "constraint_count": 2,
+                "state_changes": 1,
+                "ambiguity": "none",
+                "recovery_paths": 1,
+                "branch_depth": 2,
+                "fallback_count": 1,
+            },
+            tool_name="lookup_contact_email",
+            arguments={"name": "Alice Zhang"},
+            expected_answer="alice.zhang@example.test",
+            seed_ids=("seed_contacts_v1",),
+            branch_plan={
+                "schema_version": "branch_plan_v1",
+                "plan_id": "branch_plan_state_reset",
+                "max_depth": 2,
+                "branches": [
+                    {
+                        "branch_id": "mutating_bad_template",
+                        "node_type": "attempt",
+                        "parent_id": None,
+                        "condition": "Record a follow-up but fail response rendering.",
+                        "steps": [
+                            {
+                                "tool_name": "record_contact_followup",
+                                "arguments": {
+                                    "name": "Alice Zhang",
+                                    "note": "temporary note",
+                                },
+                            }
+                        ],
+                        "final_response_template": "{missing_field}",
+                        "terminal_outcome": "fallback_on_failure",
+                    },
+                    {
+                        "branch_id": "read_only_lookup",
+                        "node_type": "fallback",
+                        "parent_id": "mutating_bad_template",
+                        "condition": "Use the read-only lookup after the branch fails.",
+                        "steps": [
+                            {
+                                "tool_name": "lookup_contact_email",
+                                "arguments": {"name": "Alice Zhang"},
+                            }
+                        ],
+                        "final_response_template": "{name}'s email is {email}.",
+                        "terminal_outcome": "accept_on_success",
+                    },
+                ],
+            },
+        )
+        policy = SolutionPolicy(
+            policy_id="policy_branch_state_reset",
+            role="scripted_solution_policy",
+            steps=(),
+            final_response_template="branch_plan",
+            branch_plan=task.branch_plan,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            environment = ContactEnvironment.create_fixture(Path(tmpdir))
+            registry = build_contact_tool_registry(environment)
+
+            execution = execute_candidate(task, registry, policy=policy)
+
+            failed_branch = execution.branch_outcomes[0]
+            self.assertEqual(failed_branch["branch_id"], "mutating_bad_template")
+            self.assertTrue(
+                any(event["type"] == "state_change" for event in failed_branch["trajectory"])
+            )
+            self.assertFalse(environment.has_followup("Alice Zhang", "temporary note"))
+            self.assertEqual(execution.branch_outcomes[1]["branch_id"], "read_only_lookup")
+
     def test_stateful_task_rejects_policy_that_skips_required_mutation(self) -> None:
         from synthesis.pipeline import run_foundation_pipeline
 
@@ -552,6 +636,46 @@ class FoundationPipelineTest(unittest.TestCase):
             self.assertEqual(quality_report["counts"]["tool_proposals"], 1)
             self.assertEqual(quality_report["counts"]["capability_gaps"], 1)
             self.assertIn("list_contact_names", quality_report["slices"]["proposed_tool"])
+
+    def test_branching_fixture_executes_fallback_path_and_reports_lineage(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_foundation_pipeline(
+                Path(tmpdir),
+                dataset_version="dataset_branching_test",
+                enable_branching=True,
+            )
+
+            self.assertEqual(result.accepted_count, 3)
+            self.assertEqual(result.rejected_count, 1)
+            samples = [
+                json.loads(line)
+                for line in result.samples_path.read_text(encoding="utf-8").splitlines()
+            ]
+            branch_sample = next(
+                sample
+                for sample in samples
+                if sample["task"]["constraints"].get("task_type") == "contact_branch_fallback"
+            )
+
+            self.assertEqual(branch_sample["lineage"]["branching"]["selected_branch_id"], "fallback_full_name")
+            self.assertEqual(branch_sample["lineage"]["branching"]["branch_depth"], 2)
+            self.assertEqual(len(branch_sample["lineage"]["branching"]["branch_outcomes"]), 2)
+            self.assertEqual(
+                branch_sample["lineage"]["branching"]["branch_outcomes"][0]["failure_cause"],
+                "tool_runtime_error",
+            )
+            self.assertTrue(branch_sample["lineage"]["branching"]["branch_outcomes"][1]["selected"])
+            self.assertEqual(branch_sample["trajectory"][0]["arguments"], {"name": "Alice Zhang"})
+            self.assertIn("branching", branch_sample["quality"]["tags"])
+
+            quality_report = json.loads(result.quality_report_path.read_text(encoding="utf-8"))
+            self.assertEqual(quality_report["counts"]["branch_attempts"], 2)
+            self.assertEqual(quality_report["counts"]["branch_selected"], 1)
+            self.assertEqual(quality_report["branch_outcomes"], {"accepted": 1, "rejected": 1})
+            self.assertIn("2", quality_report["slices"]["branch_depth"])
+            self.assertIn("fallback_full_name", quality_report["slices"]["selected_branch"])
 
     def test_rejects_candidate_when_candidate_shape_is_invalid(self) -> None:
         from synthesis.pipeline import run_foundation_pipeline

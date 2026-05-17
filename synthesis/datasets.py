@@ -64,6 +64,8 @@ def assemble_sample(
         lineage["refinement"] = refinement_attempt.sample_lineage()
     if tool_expansion is not None:
         lineage["tool_expansion"] = _tool_expansion_lineage(tool_expansion)
+    if execution.branch_outcomes:
+        lineage["branching"] = _branching_lineage(execution)
 
     return {
         "sample_id": f"sample_{task.candidate_id}",
@@ -93,7 +95,11 @@ def assemble_sample(
                 "verified": 1.0,
                 "instruction_clarity": 1.0,
             },
-            "tags": _quality_tags(action_count=action_count, stateful=stateful),
+            "tags": _quality_tags(
+                action_count=action_count,
+                stateful=stateful,
+                branching=bool(execution.branch_outcomes),
+            ),
             "review_status": "auto_accepted",
         },
         "lineage": lineage,
@@ -156,6 +162,7 @@ def assemble_execution_rejection(
     cause: str = "tool_runtime_error",
     policy: SolutionPolicy | None = None,
     capability_gap: dict[str, object] | None = None,
+    branch_outcomes: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     details: dict[str, object] = {
         "error_class": type(error).__name__,
@@ -164,6 +171,8 @@ def assemble_execution_rejection(
     }
     if capability_gap is not None:
         details["capability_gap"] = capability_gap
+    if branch_outcomes is not None:
+        details["branch_outcomes"] = branch_outcomes
     _attach_role_lineages(details, task=task, policy=policy)
     return {
         "candidate_id": task.candidate_id or "unknown_candidate",
@@ -397,11 +406,13 @@ def _unique_values(values: Iterable[object]) -> list[object]:
     return unique
 
 
-def _quality_tags(*, action_count: int, stateful: bool) -> list[str]:
+def _quality_tags(*, action_count: int, stateful: bool, branching: bool = False) -> list[str]:
     tags = ["foundation", "sqlite_fixture"]
     tags.append("multi_step" if action_count > 1 else "single_tool")
     if stateful:
         tags.append("stateful")
+    if branching:
+        tags.append("branching")
     return tags
 
 
@@ -427,6 +438,26 @@ def _default_task_generation_lineage(llm_config: LLMConfig) -> dict[str, object]
     lineage = llm_config.lineage(TASK_GENERATION_ROLE)
     lineage.update(default_role_registry().require_enabled(TASK_GENERATION_ROLE).lineage_metadata())
     return lineage
+
+
+def _branching_lineage(execution: ExecutionResult) -> dict[str, object]:
+    outcomes = execution.branch_outcomes or []
+    selected = next(
+        (outcome for outcome in outcomes if outcome.get("selected")),
+        {},
+    )
+    plan = execution.branch_plan or {}
+    selected_depth = selected.get("depth", 0)
+    branch_depth = selected_depth if isinstance(selected_depth, int) else 0
+    fallback_count = sum(1 for outcome in outcomes if not outcome.get("selected"))
+    return {
+        "schema_version": "branch_lineage_v1",
+        "plan_id": str(plan.get("plan_id", "unknown_branch_plan")),
+        "selected_branch_id": str(selected.get("branch_id", "unknown_branch")),
+        "branch_depth": branch_depth,
+        "fallback_count": fallback_count,
+        "branch_outcomes": outcomes,
+    }
 
 
 def _attach_role_lineages(

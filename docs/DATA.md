@@ -8,6 +8,11 @@
 - **Task:** user-facing goal plus structured constraints and difficulty metadata.
 - **Solution Policy:** selected or generated ordered tool-use plan for satisfying
   a task.
+- **Branch Plan:** bounded behavior-tree-like plan with ordered branch attempts,
+  fallback relationships, terminal outcomes, and per-branch tool steps.
+- **Branch Outcome:** audit record for one branch attempt, including selected
+  status, failure cause, retry/refinement eligibility, depth, and branch-local
+  trajectory events.
 - **Trajectory:** ordered interaction events including tool calls, observations,
   state changes, and final responses.
 - **Verifier:** independent checks that decide whether a trajectory satisfies the task.
@@ -44,8 +49,9 @@ Track metrics at sample, batch, and dataset levels:
 Metrics must be sliceable by domain, task type, difficulty level, tool
 combination, generator role, verifier type, role name, role output type,
 capability-gap type, proposed tool, proposed tool side-effect class, proposal
-outcome, and dataset version. Dataset reports should preserve trends over time
-so regressions are visible instead of hidden inside aggregate averages.
+outcome, branch depth, selected branch, branch outcome, fallback count, and
+dataset version. Dataset reports should preserve trends over time so regressions
+are visible instead of hidden inside aggregate averages.
 
 ## Dataset Output Contract
 
@@ -99,6 +105,16 @@ cause, critic diagnosis, repair decision, and sanitized role metadata. Refined
 rejections store the same attempt metadata under `details.refinement` while
 preserving the original source failure details.
 
+`lineage.branching` is present only for accepted samples produced from a branch
+plan. It uses `schema_version: branch_lineage_v1` and records the plan id,
+selected branch id, selected branch depth, fallback count, and `branch_outcomes`.
+Each branch outcome uses `schema_version: branch_outcome_v1` and records
+`branch_id`, `attempted`, `selected`, `outcome`, `failure_cause`,
+`retry_eligible`, `refinement_eligible`, `message`, `depth`, and a branch-local
+trajectory. The top-level sample `trajectory` remains the selected successful
+path. Failed branching candidates preserve branch outcomes under
+`details.branch_outcomes`.
+
 ### Quality Report Contract
 
 `quality_report.json` uses `schema_version: quality_report_v1` and records:
@@ -113,11 +129,14 @@ preserving the original source failure details.
   aggregate retry count, output types, token totals, and cost totals when lineage
   provides them.
 - `tool_proposal_outcomes`, keyed by admission outcome.
+- `branch_outcomes`, keyed by accepted or rejected branch-attempt outcome.
+- `branch_failure_causes`, keyed by classified branch failure cause.
 - `slices`, keyed by deterministic dimensions currently available in foundation
   records: dataset version, domain, task type, difficulty level, curriculum level,
   tool combination, generator role, verifier type, rejection cause, refinement
   status, role name, role output type, capability-gap type, proposed tool,
-  proposed tool side-effect class, and tool-proposal outcome.
+  proposed tool side-effect class, tool-proposal outcome, branch depth, selected
+  branch, branch outcome, and fallback count.
 
 Capability-gap records use `schema_version: capability_gap_v1` and preserve
 candidate id, policy id, gap type, tool name, rejection cause, message, schema
@@ -128,6 +147,13 @@ and role lineage. Proposal events use `schema_version: tool_proposal_event_v1`
 and bundle the gap, proposal, and admission decision. Accepted reruns preserve
 this bundle under `lineage.tool_expansion`; rejected reruns preserve it under
 `details.tool_proposal`.
+
+Branch plans use `schema_version: branch_plan_v1` and preserve plan id, maximum
+depth, branch ids, node type, parent id, condition, ordered tool steps,
+final-response template, and terminal outcome. The deterministic foundation
+runner currently enables the branching fixture only when requested with
+`--enable-branching` or `enable_branching=True`, keeping default serial exports
+stable.
 
 Exact duplicate candidates are rejected with `quality_duplicate` when a later
 accepted candidate repeats the normalized task instruction and ordered action tool

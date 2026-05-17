@@ -132,8 +132,15 @@ class ToolAdmissionResult:
 
 
 class ToolRegistry:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        checkpoint_state: Callable[[], object] | None = None,
+        restore_state: Callable[[object], None] | None = None,
+    ) -> None:
         self._tools: dict[str, RegisteredTool] = {}
+        self._checkpoint_state = checkpoint_state
+        self._restore_state = restore_state
 
     def register(self, definition: ToolDefinition, handler: ToolHandler) -> None:
         self._tools[definition.name] = RegisteredTool(definition, handler)
@@ -151,9 +158,22 @@ class ToolRegistry:
     def tool_names(self) -> list[str]:
         return sorted(self._tools)
 
+    def checkpoint_state(self) -> object | None:
+        if self._checkpoint_state is None:
+            return None
+        return self._checkpoint_state()
+
+    def restore_state(self, checkpoint: object | None) -> None:
+        if checkpoint is None or self._restore_state is None:
+            return
+        self._restore_state(checkpoint)
+
 
 def build_contact_tool_registry(environment: ContactEnvironment) -> ToolRegistry:
-    registry = ToolRegistry()
+    registry = ToolRegistry(
+        checkpoint_state=environment.checkpoint,
+        restore_state=environment.restore_checkpoint,
+    )
 
     def lookup_contact_email(arguments: dict[str, object]) -> dict[str, object]:
         name = arguments.get("name")

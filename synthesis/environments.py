@@ -60,6 +60,12 @@ class ContactEnvironment:
     def connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.database_path)
 
+    def checkpoint(self) -> bytes:
+        return self.database_path.read_bytes()
+
+    def restore_checkpoint(self, checkpoint: bytes) -> None:
+        self.database_path.write_bytes(checkpoint)
+
     def lookup_email(self, name: str) -> dict[str, str]:
         with closing(self.connect()) as connection:
             row = connection.execute(

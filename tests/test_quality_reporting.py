@@ -147,6 +147,60 @@ class QualityReportingTest(unittest.TestCase):
         self.assertIn("list_contact_names", report["slices"]["proposed_tool"])
         self.assertIn("read_only", report["slices"]["proposed_tool_side_effect"])
 
+    def test_report_summarizes_branch_attempts_and_slices(self) -> None:
+        from synthesis.quality import build_quality_report
+
+        sample = _sample()
+        sample["lineage"]["branching"] = {
+            "schema_version": "branch_lineage_v1",
+            "plan_id": "branch_plan_candidate_contacts_alice_fallback",
+            "selected_branch_id": "fallback_full_name",
+            "branch_depth": 2,
+            "fallback_count": 1,
+            "branch_outcomes": [
+                {
+                    "schema_version": "branch_outcome_v1",
+                    "branch_id": "direct_short_name",
+                    "attempted": True,
+                    "selected": False,
+                    "outcome": "rejected",
+                    "failure_cause": "tool_runtime_error",
+                    "retry_eligible": True,
+                    "refinement_eligible": False,
+                    "message": "Unknown contact: Alice",
+                    "depth": 1,
+                    "trajectory": [],
+                },
+                {
+                    "schema_version": "branch_outcome_v1",
+                    "branch_id": "fallback_full_name",
+                    "attempted": True,
+                    "selected": True,
+                    "outcome": "accepted",
+                    "failure_cause": None,
+                    "retry_eligible": False,
+                    "refinement_eligible": False,
+                    "message": "accepted",
+                    "depth": 2,
+                    "trajectory": [],
+                },
+            ],
+        }
+
+        report = build_quality_report(
+            dataset_version="dataset_test",
+            samples=[sample],
+            rejections=[],
+        )
+
+        self.assertEqual(report["counts"]["branch_attempts"], 2)
+        self.assertEqual(report["counts"]["branch_selected"], 1)
+        self.assertEqual(report["branch_outcomes"], {"accepted": 1, "rejected": 1})
+        self.assertEqual(report["branch_failure_causes"], {"tool_runtime_error": 1})
+        self.assertIn("2", report["slices"]["branch_depth"])
+        self.assertIn("fallback_full_name", report["slices"]["selected_branch"])
+        self.assertIn("1", report["slices"]["fallback_count"])
+
     def test_duplicate_signature_uses_normalized_instruction_and_ordered_actions(self) -> None:
         from synthesis.quality import duplicate_signature
 

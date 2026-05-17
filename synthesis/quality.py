@@ -50,6 +50,8 @@ def build_quality_report(
             "refined_rejected": _refined_rejected_count(rejections),
             "capability_gaps": _capability_gap_count(samples, rejections),
             "tool_proposals": _tool_proposal_count(samples, rejections),
+            "branch_attempts": _branch_attempt_count(samples, rejections),
+            "branch_selected": _branch_selected_count(samples),
         },
         "rates": {
             "success_rate": _rate(len(samples), total_count),
@@ -58,6 +60,8 @@ def build_quality_report(
         "rejection_causes": rejection_causes,
         "role_outcomes": _build_role_outcomes(samples, rejections),
         "tool_proposal_outcomes": _tool_proposal_outcomes(samples, rejections),
+        "branch_outcomes": _branch_outcomes(samples, rejections),
+        "branch_failure_causes": _branch_failure_causes(samples, rejections),
         "slices": slices,
     }
 
@@ -183,6 +187,10 @@ def _build_slices(
         "proposed_tool": {},
         "proposed_tool_side_effect": {},
         "tool_proposal_outcome": {},
+        "branch_depth": {},
+        "selected_branch": {},
+        "branch_outcome": {},
+        "fallback_count": {},
     }
     for sample in samples:
         _add_slice(dimensions["dataset_version"], str(sample.get("dataset_version", dataset_version)), accepted=True)
@@ -199,6 +207,8 @@ def _build_slices(
             _add_slice(dimensions["role_output_type"], _role_output_type(lineage), accepted=True)
         for expansion in _sample_tool_expansions(sample):
             _add_tool_expansion_slices(dimensions, expansion, accepted=True)
+        for branching in _sample_branching(sample):
+            _add_branching_slices(dimensions, branching, accepted=True)
 
     for rejection in rejections:
         task = _mapping(rejection.get("task"))
@@ -219,6 +229,8 @@ def _build_slices(
             _add_slice(dimensions["role_output_type"], _role_output_type(lineage), accepted=False)
         for expansion in _rejection_tool_expansions(rejection):
             _add_tool_expansion_slices(dimensions, expansion, accepted=False)
+        for branching in _rejection_branching(rejection):
+            _add_branching_slices(dimensions, branching, accepted=False)
 
     return {
         dimension: {key: _with_rates(counts) for key, counts in sorted(values.items())}
@@ -271,6 +283,28 @@ def _add_tool_expansion_slices(
         )
     if admission:
         _add_slice(dimensions["tool_proposal_outcome"], str(admission.get("outcome", "unknown")), accepted=accepted)
+
+
+def _add_branching_slices(
+    dimensions: dict[str, dict[str, dict[str, int]]],
+    branching: Mapping[str, Any],
+    *,
+    accepted: bool,
+) -> None:
+    _add_slice(dimensions["branch_depth"], str(branching.get("branch_depth", "unknown")), accepted=accepted)
+    _add_slice(
+        dimensions["selected_branch"],
+        str(branching.get("selected_branch_id", "none")),
+        accepted=accepted,
+    )
+    _add_slice(dimensions["fallback_count"], str(branching.get("fallback_count", "0")), accepted=accepted)
+    for outcome in _sequence(branching.get("branch_outcomes")):
+        if isinstance(outcome, Mapping):
+            _add_slice(
+                dimensions["branch_outcome"],
+                str(outcome.get("outcome", "unknown")),
+                accepted=accepted,
+            )
 
 
 def _add_role_outcome(
@@ -400,6 +434,68 @@ def _tool_proposal_outcomes(
     return dict(sorted(outcomes.items()))
 
 
+def _branch_attempt_count(
+    samples: list[dict[str, object]],
+    rejections: list[dict[str, object]],
+) -> int:
+    return sum(
+        len(_sequence(branching.get("branch_outcomes")))
+        for sample in samples
+        for branching in _sample_branching(sample)
+    ) + sum(
+        len(_sequence(branching.get("branch_outcomes")))
+        for rejection in rejections
+        for branching in _rejection_branching(rejection)
+    )
+
+
+def _branch_selected_count(samples: list[dict[str, object]]) -> int:
+    return sum(
+        1
+        for sample in samples
+        for branching in _sample_branching(sample)
+        for outcome in _sequence(branching.get("branch_outcomes"))
+        if isinstance(outcome, Mapping) and outcome.get("selected")
+    )
+
+
+def _branch_outcomes(
+    samples: list[dict[str, object]],
+    rejections: list[dict[str, object]],
+) -> dict[str, int]:
+    outcomes: dict[str, int] = {}
+    for branching in [
+        *[branching for sample in samples for branching in _sample_branching(sample)],
+        *[branching for rejection in rejections for branching in _rejection_branching(rejection)],
+    ]:
+        for outcome in _sequence(branching.get("branch_outcomes")):
+            if not isinstance(outcome, Mapping):
+                continue
+            name = str(outcome.get("outcome", "unknown"))
+            outcomes[name] = outcomes.get(name, 0) + 1
+    return dict(sorted(outcomes.items()))
+
+
+def _branch_failure_causes(
+    samples: list[dict[str, object]],
+    rejections: list[dict[str, object]],
+) -> dict[str, int]:
+    causes: dict[str, int] = {}
+    for branching in [
+        *[branching for sample in samples for branching in _sample_branching(sample)],
+        *[branching for rejection in rejections for branching in _rejection_branching(rejection)],
+    ]:
+        for outcome in _sequence(branching.get("branch_outcomes")):
+            if not isinstance(outcome, Mapping):
+                continue
+            cause = outcome.get("failure_cause")
+            if not cause:
+                continue
+            name = str(cause)
+            causes[name] = causes.get(name, 0) + 1
+    return dict(sorted(causes.items()))
+
+
 def _normalize_instruction(raw: object) -> str:
     return re.sub(r"\s+", " ", str(raw or "").strip().lower())
 
@@ -496,10 +592,48 @@ def _sample_tool_expansions(sample: Mapping[str, Any]) -> list[Mapping[str, Any]
     return [expansion] if expansion else []
 
 
+def _sample_branching(sample: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    lineage = _mapping(sample.get("lineage"))
+    branching = _mapping(lineage.get("branching"))
+    return [branching] if branching else []
+
+
 def _rejection_tool_expansions(rejection: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     details = _mapping(rejection.get("details"))
     expansion = _mapping(details.get("tool_proposal"))
     return [expansion] if expansion else []
+
+
+def _rejection_branching(rejection: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    details = _mapping(rejection.get("details"))
+    branch_outcomes = _sequence(details.get("branch_outcomes"))
+    if not branch_outcomes:
+        return []
+    selected = next(
+        (outcome for outcome in branch_outcomes if isinstance(outcome, Mapping) and outcome.get("selected")),
+        {},
+    )
+    depth_values = [
+        outcome.get("depth")
+        for outcome in branch_outcomes
+        if isinstance(outcome, Mapping) and isinstance(outcome.get("depth"), int)
+    ]
+    selected_depth = selected.get("depth") if isinstance(selected, Mapping) else None
+    branch_depth = selected_depth if isinstance(selected_depth, int) else max(depth_values, default=0)
+    return [
+        {
+            "schema_version": "branch_lineage_v1",
+            "plan_id": "unknown_branch_plan",
+            "selected_branch_id": str(selected.get("branch_id", "none")) if isinstance(selected, Mapping) else "none",
+            "branch_depth": branch_depth,
+            "fallback_count": sum(
+                1
+                for outcome in branch_outcomes
+                if isinstance(outcome, Mapping) and not outcome.get("selected")
+            ),
+            "branch_outcomes": branch_outcomes,
+        }
+    ]
 
 
 def _role_name(lineage: Mapping[str, Any]) -> str:

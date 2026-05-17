@@ -20,17 +20,25 @@ class CandidateTask:
     seed_ids: tuple[str, ...]
     generation_lineage: dict[str, object] | None = None
     expected_state: dict[str, object] | None = None
+    branch_plan: dict[str, object] | None = None
 
     def export(self) -> dict[str, object]:
-        return {
+        record: dict[str, object] = {
             "candidate_id": self.candidate_id,
             "instruction": self.instruction,
             "constraints": self.constraints,
             "difficulty": self.difficulty,
         }
+        if self.branch_plan is not None:
+            record["branch_plan"] = self.branch_plan
+        return record
 
 
-def generate_foundation_candidates(seed: DomainSeed) -> list[CandidateTask]:
+def generate_foundation_candidates(
+    seed: DomainSeed,
+    *,
+    include_branching: bool = False,
+) -> list[CandidateTask]:
     common_difficulty = {
         "level": "easy",
         "tool_count": 1,
@@ -39,7 +47,7 @@ def generate_foundation_candidates(seed: DomainSeed) -> list[CandidateTask]:
         "ambiguity": "none",
         "recovery_paths": 0,
     }
-    return order_candidates_by_curriculum([
+    candidates = [
         CandidateTask(
             candidate_id="candidate_contacts_alice",
             instruction="Find Alice Zhang's email address using the contact database.",
@@ -89,7 +97,10 @@ def generate_foundation_candidates(seed: DomainSeed) -> list[CandidateTask]:
                 }
             },
         ),
-    ])
+    ]
+    if include_branching:
+        candidates.append(_branching_contact_candidate(seed))
+    return order_candidates_by_curriculum(candidates)
 
 
 def generate_llm_backed_candidates(
@@ -142,6 +153,9 @@ def candidate_from_mapping(
     expected_state = raw.get("expected_state")
     if expected_state is not None and not isinstance(expected_state, dict):
         raise TypeError("candidate expected_state must be an object")
+    branch_plan = raw.get("branch_plan")
+    if branch_plan is not None and not isinstance(branch_plan, dict):
+        raise TypeError("candidate branch_plan must be an object")
 
     return CandidateTask(
         candidate_id=str(raw["candidate_id"]),
@@ -154,6 +168,71 @@ def candidate_from_mapping(
         seed_ids=seed_ids,
         generation_lineage=dict(generation_lineage) if generation_lineage else None,
         expected_state=expected_state,
+        branch_plan=branch_plan,
+    )
+
+
+def _branching_contact_candidate(seed: DomainSeed) -> CandidateTask:
+    return CandidateTask(
+        candidate_id="candidate_contacts_alice_branch_fallback",
+        instruction=(
+            "Find Alice Zhang's email address. If an abbreviated lookup fails, "
+            "fall back to the full contact name."
+        ),
+        constraints={
+            "task_type": "contact_branch_fallback",
+            "required_tools": ["lookup_contact_email"],
+            "expected_branch": "fallback_full_name",
+        },
+        difficulty={
+            "level": "medium",
+            "tool_count": 1,
+            "constraint_count": 2,
+            "state_changes": 0,
+            "ambiguity": "recoverable_short_name",
+            "recovery_paths": 1,
+            "branch_depth": 2,
+            "fallback_count": 1,
+        },
+        tool_name="lookup_contact_email",
+        arguments={"name": "Alice"},
+        expected_answer="alice.zhang@example.test",
+        seed_ids=(seed.seed_id,),
+        branch_plan={
+            "schema_version": "branch_plan_v1",
+            "plan_id": "branch_plan_candidate_contacts_alice_fallback",
+            "max_depth": 2,
+            "branches": [
+                {
+                    "branch_id": "direct_short_name",
+                    "node_type": "attempt",
+                    "parent_id": None,
+                    "condition": "Try the abbreviated name first.",
+                    "steps": [
+                        {
+                            "tool_name": "lookup_contact_email",
+                            "arguments": {"name": "Alice"},
+                        }
+                    ],
+                    "final_response_template": "{name}'s email is {email}.",
+                    "terminal_outcome": "fallback_on_failure",
+                },
+                {
+                    "branch_id": "fallback_full_name",
+                    "node_type": "fallback",
+                    "parent_id": "direct_short_name",
+                    "condition": "Use the full name after the abbreviated lookup fails.",
+                    "steps": [
+                        {
+                            "tool_name": "lookup_contact_email",
+                            "arguments": {"name": "Alice Zhang"},
+                        }
+                    ],
+                    "final_response_template": "{name}'s email is {email}.",
+                    "terminal_outcome": "accept_on_success",
+                },
+            ],
+        },
     )
 
 

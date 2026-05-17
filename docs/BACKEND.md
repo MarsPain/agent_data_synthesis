@@ -8,14 +8,15 @@ The first backend should be a local Python pipeline with explicit modules and du
 
 - `synthesis.seeds`: source registration and normalized seed records.
 - `synthesis.environments`: environment builders, reset/checkpoint operations, and state adapters.
-- `synthesis.tools`: tool definitions, schema generation, registry, and dependency graph.
 - `synthesis.tools`: tool definitions, schema generation, registry, dependency
   graph, capability-gap records, bounded tool proposals, and curated local tool
   admission.
 - `synthesis.tasks`: task generation, difficulty scoring, curriculum policies,
-  expected state declarations, and candidate-level generation lineage attachment.
+  expected state declarations, optional branch-plan records, and candidate-level
+  generation lineage attachment.
 - `synthesis.execution`: solution policy selection/parsing, ordered tool-step
-  execution, trajectory runner, retry policy, and event capture.
+  execution, bounded branch-plan execution, trajectory runner, retry policy,
+  environment checkpoint/restore boundaries, and event capture.
 - `synthesis.verification`: executable, logical, state-change, and judge-based
   validators.
 - `synthesis.refinement`: repairability decisions, critic/refiner attempt
@@ -69,19 +70,22 @@ Secrets must never be written to manifests, trajectories, exports, or logs.
    scripted policies.
 7. Execute policy steps against the environment and record action, observation,
    state-change, and final-response events.
-8. Verify outputs and expected state changes independently.
-9. For repairable verification or logical-support failures, optionally run one
+8. When a candidate carries a bounded branch plan, execute branch attempts from a
+   clean environment checkpoint until one terminal path succeeds, preserving
+   rejected branch outcomes separately from the selected trajectory.
+9. Verify outputs and expected state changes independently.
+10. For repairable verification or logical-support failures, optionally run one
    `critic_refinement` attempt and rerun validation, execution, verification,
    and quality gates through the normal path.
-10. When execution exposes a capability gap such as a missing tool or schema
+11. When execution exposes a capability gap such as a missing tool or schema
    mismatch, optionally request one `tool_generation` proposal, admit only a
    matching curated local implementation, and rerun through the normal execution,
    verification, and quality gates.
-11. Apply dataset-quality gates such as exact duplicate detection and logical
+12. Apply dataset-quality gates such as exact duplicate detection and logical
    consistency checks.
-12. Route failed samples by error class and optional review policy.
-13. Export accepted samples, rejections, tool proposal events, quality reports,
-   and lineage.
+13. Route failed samples by error class and optional review policy.
+14. Export accepted samples, rejections, tool proposal events, branch lineage,
+   quality reports, and lineage.
 
 ## Scaling Direction
 

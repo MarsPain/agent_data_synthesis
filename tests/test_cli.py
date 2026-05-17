@@ -19,6 +19,7 @@ class FoundationCliTest(unittest.TestCase):
 
         self.assertEqual(args.output_dir, Path("artifacts/foundation"))
         self.assertFalse(args.enable_refinement)
+        self.assertFalse(args.enable_branching)
 
     def test_main_writes_requested_output_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -77,6 +78,31 @@ class FoundationCliTest(unittest.TestCase):
             self.assertEqual(manifest["accepted_count"], 3)
             self.assertEqual(manifest["rejected_count"], 0)
             self.assertEqual(report["counts"]["refined_accepted"], 1)
+            self.assertIn("accepted=3", result.stdout)
+
+    def test_main_can_enable_deterministic_branching_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--enable-branching",
+                    "--output-dir",
+                    str(output_dir),
+                    "--dataset-version",
+                    "dataset_cli_branching_test",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            report = json.loads((output_dir / "quality_report.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["counts"]["branch_attempts"], 2)
+            self.assertEqual(report["counts"]["branch_selected"], 1)
             self.assertIn("accepted=3", result.stdout)
 
     def test_use_llm_requires_provider_configuration(self) -> None:

@@ -26,6 +26,7 @@ Agent Data Synthesis is an early-stage Python project for building an automated 
 uv run python main.py
 uv run python main.py --output-dir artifacts/foundation --dataset-version dataset_foundation_v1
 uv run python main.py --enable-refinement --output-dir artifacts/foundation-refined
+uv run python main.py --enable-branching --output-dir artifacts/foundation-branching
 uv run python main.py --use-llm --output-dir artifacts/foundation-llm
 uv run python scripts/validate_docs.py
 uv run python -m unittest
@@ -39,7 +40,7 @@ LLM-backed generation and judge steps should read these environment variables:
 - `AGENT_DATA_API_KEY`: API key for the configured remote LLM provider.
 - `AGENT_DATA_LLM_MODEL`: model id used by the synthesis pipeline.
 
-The default local runner uses deterministic fixture candidates so it can run without provider credentials. Pass `--enable-refinement` to enable the deterministic one-shot critic/refinement fixture loop. Pass `--use-llm` to generate candidates through the configured remote OpenAI-compatible `/chat/completions` API.
+The default local runner uses deterministic fixture candidates so it can run without provider credentials. Pass `--enable-refinement` to enable the deterministic one-shot critic/refinement fixture loop. Pass `--enable-branching` to include the deterministic multi-path branching fixture. Pass `--use-llm` to generate candidates through the configured remote OpenAI-compatible `/chat/completions` API.
 
 ## Repository Rules
 
