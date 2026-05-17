@@ -217,6 +217,66 @@ class QualityReportingTest(unittest.TestCase):
         self.assertIn("fallback_full_name", report["slices"]["selected_branch"])
         self.assertIn("1", report["slices"]["fallback_count"])
 
+    def test_report_summarizes_seed_transformations_suggestions_and_edits(self) -> None:
+        from synthesis.quality import build_quality_report
+
+        sample = _sample()
+        sample["lineage"]["seed_transformation"] = {
+            "schema_version": "seed_transformation_v1",
+            "transformation_id": "transform_seed_contacts_followup",
+            "source_seed_id": "seed_contacts_v1",
+            "transformation_type": "taxonomy_expansion",
+            "target_taxonomy_node": "contact_followup",
+            "capability_target": "stateful_contact_followup",
+            "difficulty_movement": "easy_to_medium",
+            "lineage": {"role": "scripted_seed_transformation"},
+        }
+        sample["lineage"]["task_suggester"] = {
+            "role": "task_suggester",
+            "output_type": "task_suggestion",
+            "provider_host": "local",
+            "model": "scripted",
+            "config_hash": "suggestion-local-v1",
+        }
+        sample["lineage"]["task_editor"] = {
+            "role": "task_editor",
+            "output_type": "edited_task",
+            "provider_host": "local",
+            "model": "scripted",
+            "config_hash": "editor-local-v1",
+            "editor_action": "created_candidate",
+        }
+        rejection = _rejection()
+        rejection["cause"] = "task_suggestion_rejected"
+        rejection["details"]["seed_transformation"] = sample["lineage"]["seed_transformation"]
+        rejection["details"]["task_suggestion"] = {
+            "suggestion_id": "suggestion_network_lookup",
+            "target_taxonomy_node": "network_research",
+            "outcome": "rejected",
+            "rejection_reason": "unsupported_taxonomy_node",
+            "lineage": sample["lineage"]["task_suggester"],
+        }
+        rejection["details"]["role_lineages"] = {
+            "task_suggester": sample["lineage"]["task_suggester"]
+        }
+
+        report = build_quality_report(
+            dataset_version="dataset_test",
+            samples=[sample],
+            rejections=[rejection],
+        )
+
+        self.assertEqual(report["counts"]["seed_transformations"], 2)
+        self.assertEqual(report["counts"]["task_suggestions"], 2)
+        self.assertEqual(report["counts"]["task_edits"], 1)
+        self.assertEqual(report["suggestion_outcomes"], {"rejected": 1})
+        self.assertEqual(report["editor_actions"], {"created_candidate": 1})
+        self.assertEqual(report["edit_rejection_causes"], {"unsupported_taxonomy_node": 1})
+        self.assertIn("taxonomy_expansion", report["slices"]["seed_transformation_type"])
+        self.assertIn("contact_followup", report["slices"]["taxonomy_node"])
+        self.assertIn("task_suggester", report["slices"]["role_name"])
+        self.assertIn("task_editor", report["slices"]["role_name"])
+
     def test_duplicate_signature_uses_normalized_instruction_and_ordered_actions(self) -> None:
         from synthesis.quality import duplicate_signature
 

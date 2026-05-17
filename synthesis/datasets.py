@@ -19,6 +19,7 @@ from synthesis.llm import LLMConfig, LLMProviderError
 from synthesis.quality import build_parent_comparison, build_quality_report, retry_eligible
 from synthesis.refinement import RefinementAttempt
 from synthesis.tasks import CandidateTask, local_task_generation_lineage
+from synthesis.tasks import TaskSuggestion
 from synthesis.verification import VerificationResult
 
 
@@ -65,6 +66,15 @@ def assemble_sample(
         lineage["tool_expansion"] = _tool_expansion_lineage(tool_expansion)
     if execution.branch_outcomes:
         lineage["branching"] = _branching_lineage(execution)
+    if task.seed_transformation is not None:
+        lineage["seed_transformation"] = dict(task.seed_transformation)
+    if task.task_suggester_lineage is not None:
+        lineage["task_suggester"] = dict(task.task_suggester_lineage)
+    if task.task_editor_lineage is not None:
+        editor_lineage = dict(task.task_editor_lineage)
+        if task.editor_action is not None:
+            editor_lineage.setdefault("editor_action", task.editor_action)
+        lineage["task_editor"] = editor_lineage
 
     return {
         "sample_id": f"sample_{task.candidate_id}",
@@ -234,6 +244,34 @@ def assemble_generation_stage_rejection(*, error: LLMProviderError) -> dict[str,
             "instruction": "Remote LLM candidate generation failed before execution.",
             "constraints": {},
             "difficulty": {},
+        },
+        "details": details,
+    }
+
+
+def assemble_task_suggestion_rejection(
+    *,
+    suggestion: TaskSuggestion,
+) -> dict[str, object]:
+    details: dict[str, object] = {
+        "message": suggestion.rejection_reason or "Task suggestion was rejected.",
+        "retry_eligible": retry_eligible("task_suggestion_rejected"),
+        "task_suggestion": suggestion.export(),
+        "role_lineages": {"task_suggester": dict(suggestion.lineage)},
+    }
+    if suggestion.seed_transformation is not None:
+        details["seed_transformation"] = dict(suggestion.seed_transformation)
+    return {
+        "candidate_id": suggestion.suggestion_id,
+        "cause": "task_suggestion_rejected",
+        "task": {
+            "candidate_id": suggestion.suggestion_id,
+            "instruction": suggestion.intent,
+            "constraints": suggestion.constraints,
+            "difficulty": {
+                "level": "unspecified",
+                "taxonomy_node": suggestion.target_taxonomy_node,
+            },
         },
         "details": details,
     }
@@ -492,6 +530,10 @@ def _candidate_role_lineages(
     lineages: dict[str, object] = {}
     if task.generation_lineage:
         lineages["generator"] = dict(task.generation_lineage)
+    if task.task_suggester_lineage:
+        lineages["task_suggester"] = dict(task.task_suggester_lineage)
+    if task.task_editor_lineage:
+        lineages["task_editor"] = dict(task.task_editor_lineage)
     if policy is not None and policy.lineage:
         lineages["solution_policy"] = dict(policy.lineage)
     return lineages

@@ -2,7 +2,7 @@
 
 ## Status
 
-Active as of 2026-05-17.
+Completed on 2026-05-17.
 
 ## Goal
 
@@ -121,68 +121,68 @@ pipeline:
 
 ### Task 1: Define Transformation and Suggestion Contracts
 
-- [ ] Add a seed-transformation record shape with source seed id,
+- [x] Add a seed-transformation record shape with source seed id,
   transformation type, target taxonomy node, capability target, difficulty
   movement, and lineage.
-- [ ] Add task-suggestion records that describe intent, required capabilities,
+- [x] Add task-suggestion records that describe intent, required capabilities,
   target tools, constraints, expected verification mode, and rejection reason.
-- [ ] Add edited-task records that either contain a valid `CandidateTask` mapping
+- [x] Add edited-task records that either contain a valid `CandidateTask` mapping
   or a classified edit rejection.
-- [ ] Add contract tests for malformed transformations, unsupported taxonomy
+- [x] Add contract tests for malformed transformations, unsupported taxonomy
   nodes, missing capability targets, invalid edited candidates, and sanitized
   lineage.
 
 ### Task 2: Add Deterministic Taxonomy Expansion
 
-- [ ] Extend the foundation seed taxonomy beyond the current single-tool and
+- [x] Extend the foundation seed taxonomy beyond the current single-tool and
   verification-failure fixtures to include follow-up state changes and branch
   fallback recovery.
-- [ ] Add deterministic transformation requests for contacts-domain coverage
+- [x] Add deterministic transformation requests for contacts-domain coverage
   without changing default serial behavior unless task expansion is enabled.
-- [ ] Add deterministic task suggestions that exercise at least one accepted
+- [x] Add deterministic task suggestions that exercise at least one accepted
   edited task and one rejected suggestion.
-- [ ] Keep ordering curriculum-aware and stable for unit tests.
+- [x] Keep ordering curriculum-aware and stable for unit tests.
 
 ### Task 3: Enable Suggester and Editor Roles
 
-- [ ] Change `task_suggester` from disabled guardrail to enabled
+- [x] Change `task_suggester` from disabled guardrail to enabled
   `task_suggestion` output role with bounded remote JSON retry policy.
-- [ ] Change `task_editor` from disabled guardrail to enabled `edited_task`
+- [x] Change `task_editor` from disabled guardrail to enabled `edited_task`
   output role with bounded remote JSON retry policy.
-- [ ] Preserve disabled-role tests for roles that remain future work:
+- [x] Preserve disabled-role tests for roles that remain future work:
   environment generation, verifier generation, and judge verification.
-- [ ] Add remote schema-failure tests that classify malformed suggestion or
+- [x] Add remote schema-failure tests that classify malformed suggestion or
   edited-task responses before execution.
 
 ### Task 4: Integrate the Expansion Loop
 
-- [ ] Add an optional pipeline path that runs transformation -> suggestion ->
+- [x] Add an optional pipeline path that runs transformation -> suggestion ->
   editor before candidate execution.
-- [ ] Route edited candidates through the existing validation, execution,
+- [x] Route edited candidates through the existing validation, execution,
   verification, refinement, tool-expansion, branch, duplicate, and review gates.
-- [ ] Ensure suggestion/editor failures become inspectable rejections rather
+- [x] Ensure suggestion/editor failures become inspectable rejections rather
   than infrastructure crashes.
-- [ ] Ensure accepted samples keep task-generation lineage separate from
+- [x] Ensure accepted samples keep task-generation lineage separate from
   suggestion and editor lineage.
 
 ### Task 5: Persist Lineage and Report Quality
 
-- [ ] Persist `lineage.seed_transformation`, `lineage.task_suggester`, and
+- [x] Persist `lineage.seed_transformation`, `lineage.task_suggester`, and
   `lineage.task_editor` when edited candidates are accepted.
-- [ ] Persist rejected suggestion or editor details under sanitized rejection
+- [x] Persist rejected suggestion or editor details under sanitized rejection
   details.
-- [ ] Extend quality reports with transformation counts, taxonomy-node counts,
+- [x] Extend quality reports with transformation counts, taxonomy-node counts,
   suggestion outcomes, editor actions, and edit rejection causes.
-- [ ] Add parent-comparison behavior for new slice keys.
+- [x] Add parent-comparison behavior for new slice keys.
 
 ### Task 6: Docs and Validation
 
-- [ ] Update backend and data docs after implementation defines the final
+- [x] Update backend and data docs after implementation defines the final
   artifact shape.
-- [ ] Update roadmap wording once the foundation is complete.
-- [ ] Run `uv run python scripts/validate_docs.py`.
-- [ ] Run `uv run python -m unittest`.
-- [ ] Run a deterministic foundation command that exercises task expansion.
+- [x] Update roadmap wording once the foundation is complete.
+- [x] Run `uv run python scripts/validate_docs.py`.
+- [x] Run `uv run python -m unittest`.
+- [x] Run a deterministic foundation command that exercises task expansion.
 
 ## Validation
 

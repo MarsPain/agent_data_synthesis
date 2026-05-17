@@ -15,6 +15,7 @@ from synthesis.datasets import (
     assemble_quality_gate_rejection,
     assemble_rejection,
     assemble_sample,
+    assemble_task_suggestion_rejection,
     attach_refinement_to_rejection,
     write_dataset_artifacts,
 )
@@ -40,6 +41,7 @@ from synthesis.seeds import foundation_seed
 from synthesis.seeds import DomainSeed
 from synthesis.tasks import (
     CandidateTask,
+    generate_deterministic_task_expansion,
     generate_foundation_candidates,
     generate_llm_backed_candidates,
     local_task_generation_lineage,
@@ -132,6 +134,7 @@ def run_foundation_pipeline(
     refiner: Refiner | None = None,
     tool_proposal_generator: ToolProposalGenerator | None = None,
     enable_branching: bool = False,
+    enable_task_expansion: bool = False,
 ) -> PipelineResult:
     seed = foundation_seed()
     environment = ContactEnvironment.create_fixture(output_dir / "environment")
@@ -320,6 +323,46 @@ def run_foundation_pipeline(
             rejection,
             route_reviewable_failures=route_reviewable_failures,
         )
+
+    if enable_task_expansion:
+        expansion = generate_deterministic_task_expansion(seed)
+        for rejected_suggestion in expansion.rejected_suggestions:
+            rejection = assemble_task_suggestion_rejection(suggestion=rejected_suggestion)
+            rejections.append(rejection)
+            _maybe_route_review(
+                review_records,
+                rejection,
+                route_reviewable_failures=route_reviewable_failures,
+            )
+        for expanded_task in expansion.candidates:
+            try:
+                task = validate_candidate_task(expanded_task)
+            except ContractValidationError as exc:
+                rejections.append(assemble_candidate_schema_rejection(error=exc))
+                continue
+            task = _ensure_generation_lineage(task, llm_config)
+            attempt_result = _run_candidate_attempt(
+                task=task,
+                dataset_version=dataset_version,
+                environment=environment,
+                registry=registry,
+                verifier=verifier,
+                llm_config=llm_config,
+                generate_policy=generate_policy,
+                accepted_signatures=accepted_signatures,
+            )
+            if attempt_result.sample is not None:
+                assert attempt_result.signature is not None
+                accepted_signatures.add(attempt_result.signature)
+                samples.append(attempt_result.sample)
+                continue
+            assert attempt_result.rejection is not None
+            rejections.append(attempt_result.rejection)
+            _maybe_route_review(
+                review_records,
+                attempt_result.rejection,
+                route_reviewable_failures=route_reviewable_failures,
+            )
 
     artifacts = write_dataset_artifacts(
         output_dir=output_dir,

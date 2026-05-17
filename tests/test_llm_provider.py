@@ -505,6 +505,147 @@ class OpenAICompatibleProviderTest(unittest.TestCase):
 
         self.assertEqual(raised.exception.cause, "llm_response_schema_error")
 
+    def test_llm_task_suggester_and_editor_parse_remote_outputs(self) -> None:
+        from synthesis.tasks import (
+            generate_llm_backed_edited_task,
+            generate_llm_backed_task_suggestions,
+        )
+
+        seed = foundation_seed()
+        transformation = {
+            "schema_version": "seed_transformation_v1",
+            "transformation_id": "transform_seed_contacts_followup",
+            "source_seed_id": "seed_contacts_v1",
+            "transformation_type": "taxonomy_expansion",
+            "target_taxonomy_node": "contact_followup",
+            "capability_target": "stateful_contact_followup",
+            "difficulty_movement": "easy_to_medium",
+            "lineage": {"role": "scripted_seed_transformation"},
+        }
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.roles: list[str] = []
+
+            def generate_json(self, prompt: str, *, role: str) -> object:
+                self.roles.append(role)
+                if role == "task_suggester":
+                    content = {
+                        "suggestions": [
+                            {
+                                "suggestion_id": "suggestion_contact_followup_ben",
+                                "intent": "Find Ben Carter's email and record a follow-up.",
+                                "required_capabilities": [
+                                    "lookup_contact_email",
+                                    "record_contact_followup",
+                                ],
+                                "target_tools": [
+                                    "lookup_contact_email",
+                                    "record_contact_followup",
+                                ],
+                                "constraints": {"task_type": "contact_followup"},
+                                "expected_verification": "exact_answer_and_state_change",
+                                "outcome": "accepted",
+                            }
+                        ]
+                    }
+                else:
+                    content = {
+                        "edited_task": {
+                            "suggestion_id": "suggestion_contact_followup_ben",
+                            "editor_action": "created_candidate",
+                            "candidate": {
+                                "candidate_id": "candidate_expanded_ben_followup",
+                                "instruction": "Find Ben Carter's email and record a follow-up note.",
+                                "constraints": {"task_type": "contact_followup"},
+                                "difficulty": {
+                                    "level": "medium",
+                                    "tool_count": 2,
+                                    "constraint_count": 2,
+                                    "state_changes": 1,
+                                    "ambiguity": "none",
+                                    "recovery_paths": 0,
+                                },
+                                "tool_name": "lookup_contact_email",
+                                "arguments": {"name": "Ben Carter"},
+                                "expected_answer": "ben.carter@example.test",
+                            },
+                        }
+                    }
+                return type(
+                    "FakeResult",
+                    (),
+                    {
+                        "content": content,
+                        "lineage": {
+                            "role": role,
+                            "provider_host": "llm.example.test",
+                            "model": "test-generator",
+                            "config_hash": f"{role}-hash",
+                        },
+                    },
+                )()
+
+        fake_client = FakeClient()
+        suggestions = generate_llm_backed_task_suggestions(seed, transformation, fake_client)
+        edited = generate_llm_backed_edited_task(
+            seed,
+            transformation,
+            suggestions[0],
+            fake_client,
+        )
+
+        self.assertEqual(fake_client.roles, ["task_suggester", "task_editor"])
+        self.assertEqual(suggestions[0].lineage["role_version"], "role_task_suggester_v1")
+        self.assertEqual(edited.lineage["role_version"], "role_task_editor_v1")
+        self.assertEqual(edited.candidate.candidate_id, "candidate_expanded_ben_followup")
+        self.assertEqual(edited.candidate.task_suggester_lineage["role"], "task_suggester")
+        self.assertEqual(edited.candidate.task_editor_lineage["role"], "task_editor")
+
+    def test_llm_task_editor_classifies_malformed_remote_output(self) -> None:
+        from synthesis.llm import LLMProviderError
+        from synthesis.tasks import TaskSuggestion, generate_llm_backed_edited_task
+
+        seed = foundation_seed()
+        transformation = {
+            "schema_version": "seed_transformation_v1",
+            "transformation_id": "transform_seed_contacts_followup",
+            "source_seed_id": "seed_contacts_v1",
+            "transformation_type": "taxonomy_expansion",
+            "target_taxonomy_node": "contact_followup",
+            "capability_target": "stateful_contact_followup",
+            "difficulty_movement": "easy_to_medium",
+            "lineage": {"role": "scripted_seed_transformation"},
+        }
+        suggestion = TaskSuggestion(
+            suggestion_id="suggestion_contact_followup_ben",
+            transformation_id="transform_seed_contacts_followup",
+            target_taxonomy_node="contact_followup",
+            intent="Find Ben Carter's email and record a follow-up.",
+            required_capabilities=("lookup_contact_email",),
+            target_tools=("lookup_contact_email",),
+            constraints={"task_type": "contact_followup"},
+            expected_verification="exact_answer_and_state_change",
+            outcome="accepted",
+            lineage={"role": "task_suggester"},
+        )
+
+        class FakeClient:
+            def generate_json(self, prompt: str, *, role: str) -> object:
+                return type(
+                    "FakeResult",
+                    (),
+                    {
+                        "content": {"edited_task": {"suggestion_id": "missing_candidate"}},
+                        "lineage": {"role": role, "provider_host": "llm.example.test"},
+                    },
+                )()
+
+        with self.assertRaises(LLMProviderError) as raised:
+            generate_llm_backed_edited_task(seed, transformation, suggestion, FakeClient())
+
+        self.assertEqual(raised.exception.cause, "llm_response_schema_error")
+
     def test_llm_solution_policy_generator_parses_remote_policy(self) -> None:
         from synthesis.execution import SolutionPolicy, generate_llm_backed_solution_policy
 

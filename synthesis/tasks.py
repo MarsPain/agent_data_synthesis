@@ -4,8 +4,76 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from synthesis.llm import LLMProviderError
-from synthesis.roles import RoleRegistry, TASK_GENERATION_ROLE, default_role_registry
-from synthesis.seeds import DomainSeed
+from synthesis.roles import (
+    RoleRegistry,
+    TASK_EDITOR_ROLE,
+    TASK_GENERATION_ROLE,
+    TASK_SUGGESTER_ROLE,
+    default_role_registry,
+)
+from synthesis.seeds import DomainSeed, deterministic_seed_transformations
+
+
+@dataclass(frozen=True)
+class TaskSuggestion:
+    suggestion_id: str
+    transformation_id: str
+    target_taxonomy_node: str
+    intent: str
+    required_capabilities: tuple[str, ...]
+    target_tools: tuple[str, ...]
+    constraints: dict[str, object]
+    expected_verification: str
+    outcome: str
+    lineage: dict[str, object]
+    rejection_reason: str | None = None
+    seed_transformation: dict[str, object] | None = None
+
+    def export(self) -> dict[str, object]:
+        record: dict[str, object] = {
+            "schema_version": "task_suggestion_v1",
+            "suggestion_id": self.suggestion_id,
+            "transformation_id": self.transformation_id,
+            "target_taxonomy_node": self.target_taxonomy_node,
+            "intent": self.intent,
+            "required_capabilities": list(self.required_capabilities),
+            "target_tools": list(self.target_tools),
+            "constraints": self.constraints,
+            "expected_verification": self.expected_verification,
+            "outcome": self.outcome,
+            "lineage": dict(self.lineage),
+        }
+        if self.rejection_reason is not None:
+            record["rejection_reason"] = self.rejection_reason
+        return record
+
+
+@dataclass(frozen=True)
+class EditedTask:
+    suggestion_id: str
+    editor_action: str
+    lineage: dict[str, object]
+    candidate: CandidateTask | None = None
+    rejection: dict[str, object] | None = None
+
+    def export(self) -> dict[str, object]:
+        record: dict[str, object] = {
+            "schema_version": "edited_task_v1",
+            "suggestion_id": self.suggestion_id,
+            "editor_action": self.editor_action,
+            "lineage": dict(self.lineage),
+        }
+        if self.candidate is not None:
+            record["candidate"] = _candidate_mapping(self.candidate)
+        if self.rejection is not None:
+            record["rejection"] = dict(self.rejection)
+        return record
+
+
+@dataclass(frozen=True)
+class TaskExpansionResult:
+    candidates: list[CandidateTask]
+    rejected_suggestions: list[TaskSuggestion]
 
 
 @dataclass(frozen=True)
@@ -21,6 +89,10 @@ class CandidateTask:
     generation_lineage: dict[str, object] | None = None
     expected_state: dict[str, object] | None = None
     branch_plan: dict[str, object] | None = None
+    seed_transformation: dict[str, object] | None = None
+    task_suggester_lineage: dict[str, object] | None = None
+    task_editor_lineage: dict[str, object] | None = None
+    editor_action: str | None = None
 
     def export(self) -> dict[str, object]:
         record: dict[str, object] = {
@@ -139,11 +211,87 @@ def generate_llm_backed_candidates(
     return candidates
 
 
+def generate_deterministic_task_expansion(seed: DomainSeed) -> TaskExpansionResult:
+    candidates: list[CandidateTask] = []
+    rejected_suggestions: list[TaskSuggestion] = []
+    for transformation in deterministic_seed_transformations(seed):
+        transformation_record = transformation.export()
+        suggestion = _deterministic_suggestion_for_transformation(transformation_record)
+        if suggestion.outcome == "rejected":
+            rejected_suggestions.append(suggestion)
+            continue
+        edited = _deterministic_edit_suggestion(seed, transformation_record, suggestion)
+        if edited.candidate is not None:
+            candidates.append(edited.candidate)
+    return TaskExpansionResult(
+        candidates=order_candidates_by_curriculum(candidates),
+        rejected_suggestions=rejected_suggestions,
+    )
+
+
+def generate_llm_backed_task_suggestions(
+    seed: DomainSeed,
+    transformation: dict[str, object],
+    client: Any,
+    *,
+    role_registry: RoleRegistry | None = None,
+) -> list[TaskSuggestion]:
+    registry = role_registry or default_role_registry()
+    result = registry.invoke_json(
+        TASK_SUGGESTER_ROLE,
+        client,
+        _task_suggestion_prompt(seed, transformation),
+    )
+    raw_suggestions = result.content.get("suggestions")
+    if not isinstance(raw_suggestions, list):
+        raise _llm_schema_error(result.lineage, TypeError("suggestions must be a list"))
+    try:
+        return [
+            _suggestion_from_mapping(transformation, raw_suggestion, result.lineage)
+            for raw_suggestion in raw_suggestions
+        ]
+    except (TypeError, ValueError, KeyError) as exc:
+        raise _llm_schema_error(result.lineage, exc) from exc
+
+
+def generate_llm_backed_edited_task(
+    seed: DomainSeed,
+    transformation: dict[str, object],
+    suggestion: TaskSuggestion,
+    client: Any,
+    *,
+    role_registry: RoleRegistry | None = None,
+) -> EditedTask:
+    registry = role_registry or default_role_registry()
+    result = registry.invoke_json(
+        TASK_EDITOR_ROLE,
+        client,
+        _task_editor_prompt(seed, transformation, suggestion),
+    )
+    raw_edited = result.content.get("edited_task")
+    if not isinstance(raw_edited, dict):
+        raise _llm_schema_error(result.lineage, TypeError("edited_task must be an object"))
+    try:
+        return _edited_task_from_mapping(
+            seed=seed,
+            transformation=transformation,
+            suggestion=suggestion,
+            raw=raw_edited,
+            lineage=result.lineage,
+        )
+    except (TypeError, ValueError, KeyError) as exc:
+        raise _llm_schema_error(result.lineage, exc) from exc
+
+
 def candidate_from_mapping(
     raw: dict[str, Any],
     *,
     seed_ids: tuple[str, ...],
     generation_lineage: dict[str, object] | None = None,
+    seed_transformation: dict[str, object] | None = None,
+    task_suggester_lineage: dict[str, object] | None = None,
+    task_editor_lineage: dict[str, object] | None = None,
+    editor_action: str | None = None,
 ) -> CandidateTask:
     difficulty = _normalize_difficulty(raw["difficulty"])
     constraints = _normalize_constraints(raw["constraints"])
@@ -169,6 +317,97 @@ def candidate_from_mapping(
         generation_lineage=dict(generation_lineage) if generation_lineage else None,
         expected_state=expected_state,
         branch_plan=branch_plan,
+        seed_transformation=dict(seed_transformation) if seed_transformation else None,
+        task_suggester_lineage=(
+            dict(task_suggester_lineage) if task_suggester_lineage else None
+        ),
+        task_editor_lineage=dict(task_editor_lineage) if task_editor_lineage else None,
+        editor_action=editor_action,
+    )
+
+
+def _deterministic_suggestion_for_transformation(
+    transformation: dict[str, object],
+) -> TaskSuggestion:
+    target = str(transformation["target_taxonomy_node"])
+    lineage = local_task_suggester_lineage()
+    if target == "contact_followup":
+        return TaskSuggestion(
+            suggestion_id="suggestion_contact_followup_ben",
+            transformation_id=str(transformation["transformation_id"]),
+            target_taxonomy_node=target,
+            intent="Find Ben Carter's email and record a follow-up.",
+            required_capabilities=("lookup_contact_email", "record_contact_followup"),
+            target_tools=("lookup_contact_email", "record_contact_followup"),
+            constraints={"task_type": "contact_followup"},
+            expected_verification="exact_answer_and_state_change",
+            outcome="accepted",
+            lineage=lineage,
+            seed_transformation=transformation,
+        )
+    return TaskSuggestion(
+        suggestion_id="suggestion_contacts_unsupported_network",
+        transformation_id=str(transformation["transformation_id"]),
+        target_taxonomy_node=target,
+        intent="Research a missing contact from the network.",
+        required_capabilities=("network_contact_research",),
+        target_tools=("network_search",),
+        constraints={"task_type": "network_contact_research"},
+        expected_verification="not_supported_by_contacts_fixture",
+        outcome="rejected",
+        lineage=lineage,
+        rejection_reason="unsupported_taxonomy_node",
+        seed_transformation=transformation,
+    )
+
+
+def _deterministic_edit_suggestion(
+    seed: DomainSeed,
+    transformation: dict[str, object],
+    suggestion: TaskSuggestion,
+) -> EditedTask:
+    lineage = local_task_editor_lineage(editor_action="created_candidate")
+    raw_candidate = {
+        "candidate_id": "candidate_expanded_ben_followup",
+        "instruction": "Find Ben Carter's email address and record a follow-up note.",
+        "constraints": {
+            "task_type": "contact_followup",
+            "required_tools": ["lookup_contact_email", "record_contact_followup"],
+            "taxonomy_node": suggestion.target_taxonomy_node,
+            "source": "task_expansion",
+        },
+        "difficulty": {
+            "level": "medium",
+            "tool_count": 2,
+            "constraint_count": 2,
+            "state_changes": 1,
+            "ambiguity": "none",
+            "recovery_paths": 0,
+        },
+        "tool_name": "lookup_contact_email",
+        "arguments": {"name": "Ben Carter"},
+        "expected_answer": "ben.carter@example.test",
+        "expected_state": {
+            "contact_followup": {
+                "name": "Ben Carter",
+                "note": "Send follow-up email to ben.carter@example.test.",
+            }
+        },
+    }
+    candidate = candidate_from_mapping(
+        raw_candidate,
+        seed_ids=(seed.seed_id,),
+        generation_lineage=local_task_generation_lineage(),
+        seed_transformation=transformation,
+        task_suggester_lineage=suggestion.lineage,
+        task_editor_lineage=lineage,
+        editor_action="created_candidate",
+    )
+    return EditedTask(
+        suggestion_id=suggestion.suggestion_id,
+        editor_action="created_candidate",
+        lineage=lineage,
+        candidate=candidate,
     )
 
 
@@ -361,6 +600,167 @@ def local_task_generation_lineage() -> dict[str, object]:
         "config_hash": "scripted_task_generation_v1",
         "configured": True,
     }
+
+
+def local_task_suggester_lineage() -> dict[str, object]:
+    return {
+        "role": "task_suggester",
+        "role_version": "role_task_suggester_v1",
+        "output_type": "task_suggestion",
+        "owner_module": "synthesis.tasks",
+        "retry_policy": "local_deterministic",
+        "provider_host": "local",
+        "model": "scripted",
+        "config_hash": "task_suggester_local_v1",
+        "configured": False,
+    }
+
+
+def local_task_editor_lineage(*, editor_action: str) -> dict[str, object]:
+    return {
+        "role": "task_editor",
+        "role_version": "role_task_editor_v1",
+        "output_type": "edited_task",
+        "owner_module": "synthesis.tasks",
+        "retry_policy": "local_deterministic",
+        "provider_host": "local",
+        "model": "scripted",
+        "config_hash": "task_editor_local_v1",
+        "configured": False,
+        "editor_action": editor_action,
+    }
+
+
+def _suggestion_from_mapping(
+    transformation: dict[str, object],
+    raw: Any,
+    lineage: dict[str, object],
+) -> TaskSuggestion:
+    if not isinstance(raw, dict):
+        raise TypeError("suggestion must be an object")
+    return TaskSuggestion(
+        suggestion_id=str(raw["suggestion_id"]),
+        transformation_id=str(raw.get("transformation_id", transformation["transformation_id"])),
+        target_taxonomy_node=str(
+            raw.get("target_taxonomy_node", transformation["target_taxonomy_node"])
+        ),
+        intent=str(raw["intent"]),
+        required_capabilities=_string_tuple(raw["required_capabilities"]),
+        target_tools=_string_tuple(raw["target_tools"]),
+        constraints=_normalize_constraints(raw["constraints"]),
+        expected_verification=str(raw["expected_verification"]),
+        outcome=str(raw.get("outcome", "accepted")),
+        lineage=dict(lineage),
+        rejection_reason=(
+            str(raw["rejection_reason"]) if raw.get("rejection_reason") is not None else None
+        ),
+        seed_transformation=dict(transformation),
+    )
+
+
+def _edited_task_from_mapping(
+    *,
+    seed: DomainSeed,
+    transformation: dict[str, object],
+    suggestion: TaskSuggestion,
+    raw: dict[str, Any],
+    lineage: dict[str, object],
+) -> EditedTask:
+    editor_action = str(raw["editor_action"])
+    if "candidate" in raw and "rejection" in raw:
+        raise ValueError("edited_task cannot contain both candidate and rejection")
+    if "candidate" in raw:
+        candidate = candidate_from_mapping(
+            raw["candidate"],
+            seed_ids=(seed.seed_id,),
+            generation_lineage=local_task_generation_lineage(),
+            seed_transformation=transformation,
+            task_suggester_lineage=suggestion.lineage,
+            task_editor_lineage=lineage,
+            editor_action=editor_action,
+        )
+        return EditedTask(
+            suggestion_id=str(raw.get("suggestion_id", suggestion.suggestion_id)),
+            editor_action=editor_action,
+            lineage=dict(lineage),
+            candidate=candidate,
+        )
+    if "rejection" in raw:
+        rejection = raw["rejection"]
+        if not isinstance(rejection, dict):
+            raise TypeError("edited_task rejection must be an object")
+        return EditedTask(
+            suggestion_id=str(raw.get("suggestion_id", suggestion.suggestion_id)),
+            editor_action=editor_action,
+            lineage=dict(lineage),
+            rejection=dict(rejection),
+        )
+    raise ValueError("edited_task must contain a candidate or rejection")
+
+
+def _candidate_mapping(candidate: CandidateTask) -> dict[str, object]:
+    record = candidate.export()
+    record.update(
+        {
+            "tool_name": candidate.tool_name,
+            "arguments": candidate.arguments,
+            "expected_answer": candidate.expected_answer,
+        }
+    )
+    if candidate.expected_state is not None:
+        record["expected_state"] = candidate.expected_state
+    return record
+
+
+def _string_tuple(raw: object) -> tuple[str, ...]:
+    if isinstance(raw, str) or not isinstance(raw, list):
+        raise TypeError("expected a list of strings")
+    values = tuple(str(value) for value in raw)
+    if not values or any(not value.strip() for value in values):
+        raise ValueError("expected at least one non-empty string")
+    return values
+
+
+def _task_suggestion_prompt(seed: DomainSeed, transformation: dict[str, object]) -> str:
+    return (
+        "Suggest executable task intents for a seed transformation.\n"
+        f"Domain: {seed.domain}\n"
+        f"Seed: {seed.seed_id}\n"
+        f"Transformation: {transformation}\n"
+        "Return JSON with a suggestions array. Each suggestion must include "
+        "suggestion_id, intent, required_capabilities, target_tools, constraints, "
+        "expected_verification, and outcome."
+    )
+
+
+def _task_editor_prompt(
+    seed: DomainSeed,
+    transformation: dict[str, object],
+    suggestion: TaskSuggestion,
+) -> str:
+    return (
+        "Edit a task suggestion into an executable CandidateTask mapping.\n"
+        f"Domain: {seed.domain}\n"
+        f"Transformation: {transformation}\n"
+        f"Suggestion: {suggestion.export()}\n"
+        "Return JSON with edited_task. A successful edit must include "
+        "suggestion_id, editor_action, and candidate with candidate_id, instruction, "
+        "constraints, difficulty, tool_name, arguments, and expected_answer. "
+        "Use only lookup_contact_email and record_contact_followup."
+    )
+
+
+def _llm_schema_error(
+    lineage: dict[str, object],
+    exc: Exception,
+) -> LLMProviderError:
+    return LLMProviderError(
+        cause="llm_response_schema_error",
+        error_class=type(exc).__name__,
+        retryable=False,
+        retry_count=_lineage_retry_count(lineage),
+        lineage=lineage,
+    )
 
 
 def _lineage_retry_count(lineage: dict[str, object]) -> int:

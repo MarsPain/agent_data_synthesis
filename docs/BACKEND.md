@@ -6,12 +6,14 @@ The first backend should be a local Python pipeline with explicit modules and du
 
 ## Proposed Module Boundaries
 
-- `synthesis.seeds`: source registration and normalized seed records.
+- `synthesis.seeds`: source registration, normalized seed records, seed
+  transformation records, and deterministic taxonomy-expansion requests.
 - `synthesis.environments`: environment builders, reset/checkpoint operations, and state adapters.
 - `synthesis.tools`: tool definitions, schema generation, registry, dependency
   graph, capability-gap records, bounded tool proposals, and curated local tool
   admission.
-- `synthesis.tasks`: task generation, difficulty scoring, curriculum policies,
+- `synthesis.tasks`: task generation, seed-transformation expansion, task
+  suggestion, edited-task assembly, difficulty scoring, curriculum policies,
   expected state declarations, optional branch-plan records, and candidate-level
   generation lineage attachment.
 - `synthesis.execution`: solution policy selection/parsing, ordered tool-step
@@ -46,15 +48,18 @@ Minimum runtime configuration:
 
 Provider calls should go through the role registry for role-backed generation
 steps. Enabled roles currently include `task_generation`, `solution_policy`,
-`critic_refinement`, and the bounded `tool_generation` proposal role. Future
-environment, verifier, judge, suggester, and editor roles are present as disabled
-guardrails. `tool_generation` may only produce structured tool proposal records;
-it does not produce executable code or installable packages. Provider lineage
-should record role name, role version, output type, owner module, retry policy,
-model id, base URL host, prompt or config hash, token and cost metadata when
-available, retry count, and error class. Transient transport failures, timeouts,
-HTTP 429, and HTTP 5xx responses may be retried within a bounded local budget.
-Secrets must never be written to manifests, trajectories, exports, or logs.
+`critic_refinement`, `task_suggester`, `task_editor`, and the bounded
+`tool_generation` proposal role. Future environment, verifier, and judge roles
+remain disabled guardrails. `task_suggester` may only produce intent-level
+`task_suggestion` records, and `task_editor` may only produce `edited_task`
+records that are validated before execution. `tool_generation` may only produce
+structured tool proposal records; it does not produce executable code or
+installable packages. Provider lineage should record role name, role version,
+output type, owner module, retry policy, model id, base URL host, prompt or
+config hash, token and cost metadata when available, retry count, and error
+class. Transient transport failures, timeouts, HTTP 429, and HTTP 5xx responses
+may be retried within a bounded local budget. Secrets must never be written to
+manifests, trajectories, exports, or logs.
 
 ## Job Lifecycle
 
@@ -65,27 +70,31 @@ Secrets must never be written to manifests, trajectories, exports, or logs.
    through the `task_generation` role when remote generation is enabled.
 5. If remote generation fails after configuration, write a classified generation
    rejection plus manifest and quality report artifacts.
-6. Generate or select a solution policy for each valid task, using the
+6. Optionally expand seeds through deterministic or remote seed transformation,
+   task suggestion, and task editing. Edited candidates are admitted only after
+   normal candidate-contract validation, and rejected suggestions remain
+   inspectable as rejected records.
+7. Generate or select a solution policy for each valid task, using the
    `solution_policy` role for remote policies and deterministic local lineage for
    scripted policies.
-7. Execute policy steps against the environment and record action, observation,
+8. Execute policy steps against the environment and record action, observation,
    state-change, and final-response events.
-8. When a candidate carries a bounded branch plan, execute branch attempts from a
+9. When a candidate carries a bounded branch plan, execute branch attempts from a
    clean environment checkpoint until one terminal path succeeds, preserving
    rejected branch outcomes separately from the selected trajectory.
-9. Verify outputs and expected state changes independently.
-10. For repairable verification or logical-support failures, optionally run one
+10. Verify outputs and expected state changes independently.
+11. For repairable verification or logical-support failures, optionally run one
    `critic_refinement` attempt and rerun validation, execution, verification,
    and quality gates through the normal path.
-11. When execution exposes a capability gap such as a missing tool or schema
+12. When execution exposes a capability gap such as a missing tool or schema
    mismatch, optionally request one `tool_generation` proposal, admit only a
    matching curated local implementation, and rerun through the normal execution,
    verification, and quality gates.
-12. Apply dataset-quality gates such as exact duplicate detection and logical
+13. Apply dataset-quality gates such as exact duplicate detection and logical
    consistency checks.
-13. Route failed samples by error class and optional review policy.
-14. Export accepted samples, rejections, tool proposal events, branch lineage,
-   quality reports, and lineage.
+14. Route failed samples by error class and optional review policy.
+15. Export accepted samples, rejections, tool proposal events, branch lineage,
+   task-expansion lineage, quality reports, and lineage.
 
 ## Scaling Direction
 

@@ -42,7 +42,10 @@
 - Add multi-path trajectory generation and branching behavior-tree tasks.
   Completed in plan 0009 with bounded branch plans, checkpointed local branch
   execution, selected-branch lineage, and branch-level quality reporting.
-- Add AgentInstruct-style seed transformation, taxonomy-driven task expansion, and suggester/editor refinement. Active in plan 0010.
+- Add AgentInstruct-style seed transformation, taxonomy-driven task expansion, and suggester/editor refinement.
+  Completed in plan 0010 with deterministic seed transformations, task
+  suggester/editor roles, edited-candidate lineage, inspectable suggestion
+  rejections, and reporting slices.
 - Add controlled network-backed environment synthesis only after provenance, licensing, and sandbox rules are enforced.
 
 ## Stage 4: Interoperability and Scale

@@ -14,7 +14,14 @@ class RoleRegistryTests(unittest.TestCase):
 
         self.assertEqual(
             [role.name for role in registry.enabled_roles()],
-            ["critic_refinement", "solution_policy", "task_generation", "tool_generation"],
+            [
+                "critic_refinement",
+                "solution_policy",
+                "task_editor",
+                "task_generation",
+                "task_suggester",
+                "tool_generation",
+            ],
         )
         task_role = registry.require_enabled("task_generation")
         self.assertEqual(task_role.version, "role_task_generation_v1")
@@ -32,6 +39,19 @@ class RoleRegistryTests(unittest.TestCase):
         self.assertEqual(role.owner_module, "synthesis.tools")
         self.assertEqual(role.output_type, "tool_proposal")
 
+    def test_default_registry_enables_task_suggester_and_editor_contract_roles(self) -> None:
+        registry = default_role_registry()
+
+        suggester = registry.require_enabled("task_suggester")
+        editor = registry.require_enabled("task_editor")
+
+        self.assertEqual(suggester.version, "role_task_suggester_v1")
+        self.assertEqual(suggester.owner_module, "synthesis.tasks")
+        self.assertEqual(suggester.output_type, "task_suggestion")
+        self.assertEqual(editor.version, "role_task_editor_v1")
+        self.assertEqual(editor.owner_module, "synthesis.tasks")
+        self.assertEqual(editor.output_type, "edited_task")
+
     def test_default_registry_keeps_other_future_roles_disabled(self) -> None:
         registry = default_role_registry()
 
@@ -47,6 +67,10 @@ class RoleRegistryTests(unittest.TestCase):
             )]).require_enabled("tool_generation")
         with self.assertRaisesRegex(DisabledRoleError, "environment_generation"):
             registry.require_enabled("environment_generation")
+        with self.assertRaisesRegex(DisabledRoleError, "verifier_generation"):
+            registry.require_enabled("verifier_generation")
+        with self.assertRaisesRegex(DisabledRoleError, "judge_verification"):
+            registry.require_enabled("judge_verification")
 
     def test_registry_rejects_duplicate_and_invalid_role_names(self) -> None:
         role = RoleDefinition(

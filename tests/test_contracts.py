@@ -164,6 +164,33 @@ class DatasetContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ContractValidationError, "selected terminal branch"):
             validate_branch_outcomes(outcomes)
 
+    def test_seed_transformation_contract_requires_capability_target(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_seed_transformation_record
+
+        transformation = _valid_seed_transformation()
+        transformation.pop("capability_target")
+
+        with self.assertRaisesRegex(ContractValidationError, "capability_target"):
+            validate_seed_transformation_record(transformation)
+
+    def test_task_suggestion_contract_rejects_unsupported_taxonomy_node(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_task_suggestion_record
+
+        suggestion = _valid_task_suggestion()
+        suggestion["target_taxonomy_node"] = "network_research"
+
+        with self.assertRaisesRegex(ContractValidationError, "target_taxonomy_node"):
+            validate_task_suggestion_record(suggestion)
+
+    def test_edited_task_contract_requires_candidate_or_rejection(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_edited_task_record
+
+        edited = _valid_edited_task()
+        edited.pop("candidate")
+
+        with self.assertRaisesRegex(ContractValidationError, "candidate or rejection"):
+            validate_edited_task_record(edited)
+
 
 def _valid_sample() -> dict[str, object]:
     return {
@@ -308,6 +335,78 @@ def _valid_branch_plan() -> dict[str, object]:
                         "terminal_outcome": "accept_on_success",
                     },
         ],
+    }
+
+
+def _valid_seed_transformation() -> dict[str, object]:
+    return {
+        "schema_version": "seed_transformation_v1",
+        "transformation_id": "transform_seed_contacts_followup",
+        "source_seed_id": "seed_contacts_v1",
+        "transformation_type": "taxonomy_expansion",
+        "target_taxonomy_node": "contact_followup",
+        "capability_target": "stateful_contact_followup",
+        "difficulty_movement": "easy_to_medium",
+        "lineage": {
+            "role": "scripted_seed_transformation",
+            "provider_host": "local",
+            "model": "scripted",
+            "config_hash": "seed-transform-local-v1",
+        },
+    }
+
+
+def _valid_task_suggestion() -> dict[str, object]:
+    return {
+        "schema_version": "task_suggestion_v1",
+        "suggestion_id": "suggestion_contact_followup_ben",
+        "transformation_id": "transform_seed_contacts_followup",
+        "target_taxonomy_node": "contact_followup",
+        "intent": "Find Ben Carter's email and record a follow-up.",
+        "required_capabilities": ["lookup_contact_email", "record_contact_followup"],
+        "target_tools": ["lookup_contact_email", "record_contact_followup"],
+        "constraints": {"task_type": "contact_followup"},
+        "expected_verification": "exact_answer_and_state_change",
+        "outcome": "accepted",
+        "lineage": {
+            "role": "task_suggester",
+            "provider_host": "local",
+            "model": "scripted",
+            "config_hash": "suggestion-local-v1",
+        },
+    }
+
+
+def _valid_edited_task() -> dict[str, object]:
+    return {
+        "schema_version": "edited_task_v1",
+        "suggestion_id": "suggestion_contact_followup_ben",
+        "editor_action": "created_candidate",
+        "candidate": {
+            "candidate_id": "candidate_expanded_ben_followup",
+            "instruction": "Find Ben Carter's email and record a follow-up note.",
+            "constraints": {
+                "task_type": "contact_followup",
+                "required_tools": ["lookup_contact_email", "record_contact_followup"],
+            },
+            "difficulty": {
+                "level": "medium",
+                "tool_count": 2,
+                "constraint_count": 2,
+                "state_changes": 1,
+                "ambiguity": "none",
+                "recovery_paths": 0,
+            },
+            "tool_name": "lookup_contact_email",
+            "arguments": {"name": "Ben Carter"},
+            "expected_answer": "ben.carter@example.test",
+        },
+        "lineage": {
+            "role": "task_editor",
+            "provider_host": "local",
+            "model": "scripted",
+            "config_hash": "editor-local-v1",
+        },
     }
 
 

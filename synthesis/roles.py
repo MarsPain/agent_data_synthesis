@@ -111,6 +111,12 @@ def default_role_registry() -> RoleRegistry:
                 output_type="solution_policy",
             ),
             _enabled_role(
+                name=TASK_EDITOR_ROLE,
+                version="role_task_editor_v1",
+                owner_module="synthesis.tasks",
+                output_type="edited_task",
+            ),
+            _enabled_role(
                 name=CRITIC_REFINEMENT_ROLE,
                 version="role_critic_refinement_v1",
                 owner_module="synthesis.refinement",
@@ -140,17 +146,11 @@ def default_role_registry() -> RoleRegistry:
                 owner_module="synthesis.verification",
                 output_type="judge_verdict",
             ),
-            _disabled_role(
+            _enabled_role(
                 name=TASK_SUGGESTER_ROLE,
-                version="role_task_suggester_v0",
+                version="role_task_suggester_v1",
                 owner_module="synthesis.tasks",
                 output_type="task_suggestion",
-            ),
-            _disabled_role(
-                name=TASK_EDITOR_ROLE,
-                version="role_task_editor_v0",
-                owner_module="synthesis.tasks",
-                output_type="edited_task",
             ),
         ]
     )
