@@ -14,6 +14,7 @@ from synthesis.datasets import (
     assemble_pipeline_gate_rejection,
     assemble_quality_gate_rejection,
     assemble_rejection,
+    assemble_task_editor_rejection,
     assemble_sample,
     assemble_task_suggestion_rejection,
     attach_refinement_to_rejection,
@@ -39,11 +40,15 @@ from synthesis.refinement import generate_llm_backed_refinement
 from synthesis.roles import RoleRegistry, default_role_registry
 from synthesis.seeds import foundation_seed
 from synthesis.seeds import DomainSeed
+from synthesis.seeds import deterministic_seed_transformations
 from synthesis.tasks import (
     CandidateTask,
+    TaskExpansionResult,
     generate_deterministic_task_expansion,
+    generate_llm_backed_edited_task,
     generate_foundation_candidates,
     generate_llm_backed_candidates,
+    generate_llm_backed_task_suggestions,
     local_task_generation_lineage,
 )
 from synthesis.tools import (
@@ -83,6 +88,7 @@ class CandidateAttemptResult:
 
 
 CandidateGenerator = Callable[[DomainSeed], list[CandidateTask]]
+TaskExpansionGenerator = Callable[[DomainSeed], TaskExpansionResult]
 PolicyGenerator = Callable[[CandidateTask], SolutionPolicy]
 ToolProposalGenerator = Callable[[CapabilityGap], ToolProposal]
 
@@ -123,6 +129,50 @@ def build_llm_refiner(
     return refine
 
 
+def build_llm_task_expansion_generator(
+    http_client: httpx.Client | None = None,
+    *,
+    role_registry: RoleRegistry | None = None,
+) -> TaskExpansionGenerator:
+    client = OpenAICompatibleClient(LLMConfig.from_env(), http_client=http_client)
+    registry = role_registry or default_role_registry()
+
+    def expand(seed: DomainSeed) -> TaskExpansionResult:
+        candidates: list[CandidateTask] = []
+        rejected_suggestions = []
+        rejected_edits = []
+        for seed_transformation in deterministic_seed_transformations(seed):
+            transformation = seed_transformation.export()
+            suggestions = generate_llm_backed_task_suggestions(
+                seed,
+                transformation,
+                client,
+                role_registry=registry,
+            )
+            for suggestion in suggestions:
+                if suggestion.outcome == "rejected":
+                    rejected_suggestions.append(suggestion)
+                    continue
+                edited = generate_llm_backed_edited_task(
+                    seed,
+                    transformation,
+                    suggestion,
+                    client,
+                    role_registry=registry,
+                )
+                if edited.candidate is not None:
+                    candidates.append(edited.candidate)
+                elif edited.rejection is not None:
+                    rejected_edits.append(edited)
+        return TaskExpansionResult(
+            candidates=candidates,
+            rejected_suggestions=rejected_suggestions,
+            rejected_edits=rejected_edits,
+        )
+
+    return expand
+
+
 def run_foundation_pipeline(
     output_dir: Path,
     *,
@@ -135,6 +185,7 @@ def run_foundation_pipeline(
     tool_proposal_generator: ToolProposalGenerator | None = None,
     enable_branching: bool = False,
     enable_task_expansion: bool = False,
+    task_expansion_generator: TaskExpansionGenerator | None = None,
 ) -> PipelineResult:
     seed = foundation_seed()
     environment = ContactEnvironment.create_fixture(output_dir / "environment")
@@ -148,6 +199,7 @@ def run_foundation_pipeline(
         )
     else:
         generate_candidates = candidate_generator
+    generate_task_expansion = task_expansion_generator or generate_deterministic_task_expansion
     generate_policy = policy_generator or scripted_solution_policy
 
     samples: list[dict[str, object]] = []
@@ -206,15 +258,8 @@ def run_foundation_pipeline(
         )
 
     for raw_task in raw_tasks:
-        try:
-            task = validate_candidate_task(raw_task)
-        except ContractValidationError as exc:
-            rejections.append(assemble_candidate_schema_rejection(error=exc))
-            continue
-        task = _ensure_generation_lineage(task, llm_config)
-
-        attempt_result = _run_candidate_attempt(
-            task=task,
+        _process_candidate_through_gates(
+            raw_task=raw_task,
             dataset_version=dataset_version,
             environment=environment,
             registry=registry,
@@ -222,110 +267,17 @@ def run_foundation_pipeline(
             llm_config=llm_config,
             generate_policy=generate_policy,
             accepted_signatures=accepted_signatures,
-        )
-        if attempt_result.sample is not None:
-            assert attempt_result.signature is not None
-            accepted_signatures.add(attempt_result.signature)
-            samples.append(attempt_result.sample)
-            continue
-
-        assert attempt_result.rejection is not None
-        tool_expanded = _maybe_expand_tool_and_rerun(
-            attempt_result=attempt_result,
-            task=task,
-            dataset_version=dataset_version,
-            environment=environment,
-            registry=registry,
-            verifier=verifier,
-            llm_config=llm_config,
-            generate_policy=generate_policy,
-            accepted_signatures=accepted_signatures,
-            tool_proposal_generator=tool_proposal_generator,
+            samples=samples,
+            rejections=rejections,
+            review_records=review_records,
             tool_proposal_records=tool_proposal_records,
-        )
-        if tool_expanded is not None:
-            if tool_expanded.sample is not None:
-                assert tool_expanded.signature is not None
-                accepted_signatures.add(tool_expanded.signature)
-                samples.append(tool_expanded.sample)
-                continue
-            assert tool_expanded.rejection is not None
-            rejections.append(tool_expanded.rejection)
-            _maybe_route_review(
-                review_records,
-                tool_expanded.rejection,
-                route_reviewable_failures=route_reviewable_failures,
-            )
-            continue
-
-        try:
-            refinement_attempt = _maybe_refine(
-                refiner=refiner,
-                task=task,
-                rejection=attempt_result.rejection,
-                source_policy=attempt_result.policy,
-            )
-        except LLMProviderError as exc:
-            rejections.append(
-                assemble_quality_gate_rejection(
-                    task=task,
-                    cause=exc.cause,
-                    message="Remote critic/refinement failed before rerun.",
-                    details={
-                        "error_class": exc.error_class,
-                        "retry_count": exc.retry_count,
-                        "lineage": dict(exc.lineage) if exc.lineage else {},
-                        "source_failure": {
-                            "cause": attempt_result.rejection.get("cause"),
-                            "details": attempt_result.rejection.get("details", {}),
-                        },
-                    },
-                    policy=attempt_result.policy,
-                )
-            )
-            continue
-        if refinement_attempt is None:
-            rejections.append(attempt_result.rejection)
-            _maybe_route_review(
-                review_records,
-                attempt_result.rejection,
-                route_reviewable_failures=route_reviewable_failures,
-            )
-            continue
-
-        refined_task = refinement_attempt.revised_candidate or task
-        refined_result = _run_candidate_attempt(
-            task=refined_task,
-            dataset_version=dataset_version,
-            environment=environment,
-            registry=registry,
-            verifier=verifier,
-            llm_config=llm_config,
-            generate_policy=generate_policy,
-            accepted_signatures=accepted_signatures,
-            policy_override=refinement_attempt.revised_policy,
-            refinement_attempt=refinement_attempt,
-        )
-        if refined_result.sample is not None:
-            assert refined_result.signature is not None
-            accepted_signatures.add(refined_result.signature)
-            samples.append(refined_result.sample)
-            continue
-
-        assert refined_result.rejection is not None
-        rejection = attach_refinement_to_rejection(
-            refined_result.rejection,
-            refinement_attempt,
-        )
-        rejections.append(rejection)
-        _maybe_route_review(
-            review_records,
-            rejection,
             route_reviewable_failures=route_reviewable_failures,
+            refiner=refiner,
+            tool_proposal_generator=tool_proposal_generator,
         )
 
     if enable_task_expansion:
-        expansion = generate_deterministic_task_expansion(seed)
+        expansion = generate_task_expansion(seed)
         for rejected_suggestion in expansion.rejected_suggestions:
             rejection = assemble_task_suggestion_rejection(suggestion=rejected_suggestion)
             rejections.append(rejection)
@@ -334,15 +286,17 @@ def run_foundation_pipeline(
                 rejection,
                 route_reviewable_failures=route_reviewable_failures,
             )
+        for rejected_edit in expansion.rejected_edits:
+            rejection = assemble_task_editor_rejection(edited_task=rejected_edit)
+            rejections.append(rejection)
+            _maybe_route_review(
+                review_records,
+                rejection,
+                route_reviewable_failures=route_reviewable_failures,
+            )
         for expanded_task in expansion.candidates:
-            try:
-                task = validate_candidate_task(expanded_task)
-            except ContractValidationError as exc:
-                rejections.append(assemble_candidate_schema_rejection(error=exc))
-                continue
-            task = _ensure_generation_lineage(task, llm_config)
-            attempt_result = _run_candidate_attempt(
-                task=task,
+            _process_candidate_through_gates(
+                raw_task=expanded_task,
                 dataset_version=dataset_version,
                 environment=environment,
                 registry=registry,
@@ -350,18 +304,13 @@ def run_foundation_pipeline(
                 llm_config=llm_config,
                 generate_policy=generate_policy,
                 accepted_signatures=accepted_signatures,
-            )
-            if attempt_result.sample is not None:
-                assert attempt_result.signature is not None
-                accepted_signatures.add(attempt_result.signature)
-                samples.append(attempt_result.sample)
-                continue
-            assert attempt_result.rejection is not None
-            rejections.append(attempt_result.rejection)
-            _maybe_route_review(
-                review_records,
-                attempt_result.rejection,
+                samples=samples,
+                rejections=rejections,
+                review_records=review_records,
+                tool_proposal_records=tool_proposal_records,
                 route_reviewable_failures=route_reviewable_failures,
+                refiner=refiner,
+                tool_proposal_generator=tool_proposal_generator,
             )
 
     artifacts = write_dataset_artifacts(
@@ -384,6 +333,147 @@ def run_foundation_pipeline(
         accepted_count=artifacts.accepted_count,
         rejected_count=artifacts.rejected_count,
     )
+
+
+def _process_candidate_through_gates(
+    *,
+    raw_task: CandidateTask,
+    dataset_version: str,
+    environment: ContactEnvironment,
+    registry: ToolRegistry,
+    verifier: ExactAnswerVerifier,
+    llm_config: LLMConfig,
+    generate_policy: PolicyGenerator,
+    accepted_signatures: set[tuple[str, tuple[str, ...]]],
+    samples: list[dict[str, object]],
+    rejections: list[dict[str, object]],
+    review_records: list[dict[str, object]],
+    tool_proposal_records: list[dict[str, object]],
+    route_reviewable_failures: bool,
+    refiner: Refiner | None,
+    tool_proposal_generator: ToolProposalGenerator | None,
+) -> None:
+    try:
+        task = validate_candidate_task(raw_task)
+    except ContractValidationError as exc:
+        rejections.append(assemble_candidate_schema_rejection(error=exc))
+        return
+    task = _ensure_generation_lineage(task, llm_config)
+
+    attempt_result = _run_candidate_attempt(
+        task=task,
+        dataset_version=dataset_version,
+        environment=environment,
+        registry=registry,
+        verifier=verifier,
+        llm_config=llm_config,
+        generate_policy=generate_policy,
+        accepted_signatures=accepted_signatures,
+    )
+    if _record_sample_if_present(attempt_result, samples, accepted_signatures):
+        return
+
+    assert attempt_result.rejection is not None
+    tool_expanded = _maybe_expand_tool_and_rerun(
+        attempt_result=attempt_result,
+        task=task,
+        dataset_version=dataset_version,
+        environment=environment,
+        registry=registry,
+        verifier=verifier,
+        llm_config=llm_config,
+        generate_policy=generate_policy,
+        accepted_signatures=accepted_signatures,
+        tool_proposal_generator=tool_proposal_generator,
+        tool_proposal_records=tool_proposal_records,
+    )
+    if tool_expanded is not None:
+        if _record_sample_if_present(tool_expanded, samples, accepted_signatures):
+            return
+        assert tool_expanded.rejection is not None
+        rejections.append(tool_expanded.rejection)
+        _maybe_route_review(
+            review_records,
+            tool_expanded.rejection,
+            route_reviewable_failures=route_reviewable_failures,
+        )
+        return
+
+    try:
+        refinement_attempt = _maybe_refine(
+            refiner=refiner,
+            task=task,
+            rejection=attempt_result.rejection,
+            source_policy=attempt_result.policy,
+        )
+    except LLMProviderError as exc:
+        rejections.append(
+            assemble_quality_gate_rejection(
+                task=task,
+                cause=exc.cause,
+                message="Remote critic/refinement failed before rerun.",
+                details={
+                    "error_class": exc.error_class,
+                    "retry_count": exc.retry_count,
+                    "lineage": dict(exc.lineage) if exc.lineage else {},
+                    "source_failure": {
+                        "cause": attempt_result.rejection.get("cause"),
+                        "details": attempt_result.rejection.get("details", {}),
+                    },
+                },
+                policy=attempt_result.policy,
+            )
+        )
+        return
+    if refinement_attempt is None:
+        rejections.append(attempt_result.rejection)
+        _maybe_route_review(
+            review_records,
+            attempt_result.rejection,
+            route_reviewable_failures=route_reviewable_failures,
+        )
+        return
+
+    refined_task = refinement_attempt.revised_candidate or task
+    refined_result = _run_candidate_attempt(
+        task=refined_task,
+        dataset_version=dataset_version,
+        environment=environment,
+        registry=registry,
+        verifier=verifier,
+        llm_config=llm_config,
+        generate_policy=generate_policy,
+        accepted_signatures=accepted_signatures,
+        policy_override=refinement_attempt.revised_policy,
+        refinement_attempt=refinement_attempt,
+    )
+    if _record_sample_if_present(refined_result, samples, accepted_signatures):
+        return
+
+    assert refined_result.rejection is not None
+    rejection = attach_refinement_to_rejection(
+        refined_result.rejection,
+        refinement_attempt,
+    )
+    rejections.append(rejection)
+    _maybe_route_review(
+        review_records,
+        rejection,
+        route_reviewable_failures=route_reviewable_failures,
+    )
+
+
+def _record_sample_if_present(
+    attempt_result: CandidateAttemptResult,
+    samples: list[dict[str, object]],
+    accepted_signatures: set[tuple[str, tuple[str, ...]]],
+) -> bool:
+    if attempt_result.sample is None:
+        return False
+    assert attempt_result.signature is not None
+    accepted_signatures.add(attempt_result.signature)
+    samples.append(attempt_result.sample)
+    return True
 
 
 def _run_candidate_attempt(

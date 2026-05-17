@@ -44,6 +44,7 @@ def foundation_seed() -> DomainSeed:
             "verification_failure_fixture",
             "contact_followup",
             "branch_fallback",
+            "unsupported_network_research",
         ),
     )
 

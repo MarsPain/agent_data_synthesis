@@ -45,6 +45,7 @@ TASK_TAXONOMY_NODES = {
     "verification_failure_fixture",
     "contact_followup",
     "branch_fallback",
+    "unsupported_network_research",
 }
 TASK_SUGGESTION_OUTCOMES = {"accepted", "rejected"}
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from synthesis.execution import SolutionPolicy, ToolStep
-from synthesis.tasks import CandidateTask
+from synthesis.tasks import CandidateTask, EditedTask, TaskExpansionResult
 
 
 class FoundationPipelineTest(unittest.TestCase):
@@ -290,6 +290,158 @@ class FoundationPipelineTest(unittest.TestCase):
             self.assertIn("accepted", quality_report["slices"]["suggestion_outcome"])
             self.assertIn("rejected", quality_report["slices"]["suggestion_outcome"])
             self.assertIn("created_candidate", quality_report["slices"]["editor_action"])
+
+    def test_task_expansion_uses_normal_tool_expansion_rerun_gate(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+        from synthesis.tools import CapabilityGap, ToolProposal
+
+        def no_initial_candidates(seed) -> list[CandidateTask]:
+            return []
+
+        def expansion_generator(seed) -> TaskExpansionResult:
+            return TaskExpansionResult(
+                candidates=[
+                    CandidateTask(
+                        candidate_id="candidate_expanded_list_contacts",
+                        instruction="List the known contact names.",
+                        constraints={"must_use_tool": "list_contact_names"},
+                        difficulty={
+                            "level": "easy",
+                            "tool_count": 1,
+                            "constraint_count": 1,
+                            "state_changes": 0,
+                            "ambiguity": "none",
+                            "recovery_paths": 0,
+                        },
+                        tool_name="list_contact_names",
+                        arguments={},
+                        expected_answer="Alice Zhang",
+                        seed_ids=(seed.seed_id,),
+                    )
+                ],
+                rejected_suggestions=[],
+            )
+
+        def proposal_generator(gap: CapabilityGap) -> ToolProposal:
+            self.assertEqual(gap.tool_name, "list_contact_names")
+            return ToolProposal(
+                tool_name="list_contact_names",
+                description="List known contact names.",
+                schema={"type": "object", "properties": {}, "required": [], "additionalProperties": False},
+                side_effects="read_only",
+                required_environment={"environment_id": "contacts_fixture", "tables": ["contacts"]},
+                verifier_implications=["final response can cite returned contact names"],
+                safety_notes=["read-only curated contacts fixture tool"],
+                lineage={
+                    "role": "tool_generation",
+                    "role_version": "role_tool_generation_v1",
+                    "output_type": "tool_proposal",
+                    "provider_host": "llm.example.test",
+                    "model": "test-generator",
+                    "config_hash": "proposal-hash",
+                },
+            )
+
+        def policy_generator(task: CandidateTask) -> SolutionPolicy:
+            return SolutionPolicy(
+                policy_id="policy_list_contacts",
+                role="solution_policy",
+                steps=(ToolStep(tool_name="list_contact_names", arguments={}),),
+                final_response_template="Known contacts: {contacts}",
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_foundation_pipeline(
+                Path(tmpdir),
+                dataset_version="dataset_expansion_tool_gate",
+                candidate_generator=no_initial_candidates,
+                policy_generator=policy_generator,
+                enable_task_expansion=True,
+                task_expansion_generator=expansion_generator,
+                tool_proposal_generator=proposal_generator,
+            )
+
+            self.assertEqual(result.accepted_count, 1)
+            self.assertEqual(result.rejected_count, 0)
+            sample = json.loads(result.samples_path.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(sample["trajectory"][0]["tool"], "list_contact_names")
+            self.assertEqual(sample["lineage"]["tool_expansion"]["admission"]["outcome"], "accepted")
+
+    def test_task_expansion_rejections_preserve_valid_nested_contracts(self) -> None:
+        from synthesis.contracts import (
+            validate_seed_transformation_record,
+            validate_task_suggestion_record,
+        )
+        from synthesis.pipeline import run_foundation_pipeline
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_foundation_pipeline(
+                Path(tmpdir),
+                dataset_version="dataset_task_expansion_contracts",
+                enable_task_expansion=True,
+            )
+
+            rejections = [
+                json.loads(line)
+                for line in result.rejections_path.read_text(encoding="utf-8").splitlines()
+            ]
+            suggestion_rejection = next(
+                rejection
+                for rejection in rejections
+                if rejection["cause"] == "task_suggestion_rejected"
+            )
+
+            validate_seed_transformation_record(suggestion_rejection["details"]["seed_transformation"])
+            validate_task_suggestion_record(suggestion_rejection["details"]["task_suggestion"])
+
+    def test_task_expansion_persists_editor_rejection_details(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+
+        def no_initial_candidates(seed) -> list[CandidateTask]:
+            return []
+
+        def expansion_generator(seed) -> TaskExpansionResult:
+            return TaskExpansionResult(
+                candidates=[],
+                rejected_suggestions=[],
+                rejected_edits=[
+                    EditedTask(
+                        suggestion_id="suggestion_editor_rejected",
+                        editor_action="rejected",
+                        lineage={
+                            "role": "task_editor",
+                            "role_version": "role_task_editor_v1",
+                            "output_type": "edited_task",
+                            "provider_host": "local",
+                            "model": "scripted",
+                            "config_hash": "task_editor_local_v1",
+                        },
+                        rejection={
+                            "cause": "unsupported_tool",
+                            "message": "Edited task requested an unsupported executable tool.",
+                        },
+                    )
+                ],
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_foundation_pipeline(
+                Path(tmpdir),
+                dataset_version="dataset_editor_rejection",
+                candidate_generator=no_initial_candidates,
+                enable_task_expansion=True,
+                task_expansion_generator=expansion_generator,
+            )
+
+            self.assertEqual(result.accepted_count, 0)
+            self.assertEqual(result.rejected_count, 1)
+            rejection = json.loads(result.rejections_path.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(rejection["cause"], "task_editor_rejected")
+            self.assertEqual(rejection["details"]["task_editor"]["editor_action"], "rejected")
+            self.assertEqual(
+                rejection["details"]["role_lineages"]["task_editor"]["role"],
+                "task_editor",
+            )
 
     def test_stateful_task_rejects_policy_that_skips_required_mutation(self) -> None:
         from synthesis.pipeline import run_foundation_pipeline

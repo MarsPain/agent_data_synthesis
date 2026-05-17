@@ -7,10 +7,13 @@ from pathlib import Path
 
 from synthesis.contracts import (
     validate_capability_gap_record,
+    validate_edited_task_record,
     validate_manifest_record,
     validate_rejection_record,
     validate_review_record,
     validate_sample_record,
+    validate_seed_transformation_record,
+    validate_task_suggestion_record,
     validate_tool_proposal_record,
 )
 from synthesis.environments import EnvironmentMetadata
@@ -18,7 +21,7 @@ from synthesis.execution import ExecutionResult, SolutionPolicy
 from synthesis.llm import LLMConfig, LLMProviderError
 from synthesis.quality import build_parent_comparison, build_quality_report, retry_eligible
 from synthesis.refinement import RefinementAttempt
-from synthesis.tasks import CandidateTask, local_task_generation_lineage
+from synthesis.tasks import CandidateTask, EditedTask, local_task_generation_lineage
 from synthesis.tasks import TaskSuggestion
 from synthesis.verification import VerificationResult
 
@@ -277,6 +280,31 @@ def assemble_task_suggestion_rejection(
     }
 
 
+def assemble_task_editor_rejection(
+    *,
+    edited_task: EditedTask,
+) -> dict[str, object]:
+    rejection = dict(edited_task.rejection or {})
+    message = str(rejection.get("message", "Task editor rejected the suggestion."))
+    details: dict[str, object] = {
+        "message": message,
+        "retry_eligible": retry_eligible("task_editor_rejected"),
+        "task_editor": edited_task.export(),
+        "role_lineages": {"task_editor": dict(edited_task.lineage)},
+    }
+    return {
+        "candidate_id": edited_task.suggestion_id,
+        "cause": "task_editor_rejected",
+        "task": {
+            "candidate_id": edited_task.suggestion_id,
+            "instruction": message,
+            "constraints": {},
+            "difficulty": {"level": "unspecified"},
+        },
+        "details": details,
+    }
+
+
 def attach_refinement_to_rejection(
     rejection: dict[str, object],
     refinement_attempt: RefinementAttempt,
@@ -314,6 +342,7 @@ def write_dataset_artifacts(
         validate_sample_record(sample)
     for rejection in rejections:
         validate_rejection_record(rejection)
+        _validate_rejection_nested_records(rejection)
     for review_record in review_records or []:
         validate_review_record(review_record)
     for proposal_record in tool_proposals or []:
@@ -436,6 +465,21 @@ def _validate_tool_proposal_event(record: Mapping[str, object]) -> None:
         raise ValueError("tool proposal event proposal must be an object")
     if not isinstance(record.get("admission"), Mapping):
         raise ValueError("tool proposal event admission must be an object")
+
+
+def _validate_rejection_nested_records(record: Mapping[str, object]) -> None:
+    details = record.get("details")
+    if not isinstance(details, Mapping):
+        return
+    seed_transformation = details.get("seed_transformation")
+    if isinstance(seed_transformation, Mapping):
+        validate_seed_transformation_record(seed_transformation)
+    task_suggestion = details.get("task_suggestion")
+    if isinstance(task_suggestion, Mapping):
+        validate_task_suggestion_record(task_suggestion)
+    task_editor = details.get("task_editor")
+    if isinstance(task_editor, Mapping):
+        validate_edited_task_record(task_editor)
 
 
 def _tool_expansion_lineage(record: Mapping[str, object]) -> dict[str, object]:

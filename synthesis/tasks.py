@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from synthesis.llm import LLMProviderError
@@ -74,6 +74,7 @@ class EditedTask:
 class TaskExpansionResult:
     candidates: list[CandidateTask]
     rejected_suggestions: list[TaskSuggestion]
+    rejected_edits: list[EditedTask] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

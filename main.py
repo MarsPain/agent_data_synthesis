@@ -5,7 +5,11 @@ import sys
 from pathlib import Path
 
 from synthesis.llm import LLMConfigurationError, LLMProviderError
-from synthesis.pipeline import build_llm_candidate_generator, run_foundation_pipeline
+from synthesis.pipeline import (
+    build_llm_candidate_generator,
+    build_llm_task_expansion_generator,
+    run_foundation_pipeline,
+)
 from synthesis.refinement import deterministic_fixture_refiner
 
 
@@ -56,6 +60,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     candidate_generator = build_llm_candidate_generator() if args.use_llm else None
+    task_expansion_generator = (
+        build_llm_task_expansion_generator()
+        if args.use_llm and args.enable_task_expansion
+        else None
+    )
     refiner = deterministic_fixture_refiner if args.enable_refinement else None
     try:
         result = run_foundation_pipeline(
@@ -66,6 +75,7 @@ def main() -> int:
             refiner=refiner,
             enable_branching=args.enable_branching,
             enable_task_expansion=args.enable_task_expansion,
+            task_expansion_generator=task_expansion_generator,
         )
     except (LLMConfigurationError, LLMProviderError) as exc:
         print(str(exc), file=sys.stderr)

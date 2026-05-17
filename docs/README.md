@@ -32,7 +32,7 @@
 ## Execution Plans
 
 - [exec-plans/active/README.md](exec-plans/active/README.md): active plan bucket.
-- [exec-plans/active/0010-agentinstruct-seed-transformation-and-editor-loop.md](exec-plans/active/0010-agentinstruct-seed-transformation-and-editor-loop.md): active seed transformation, taxonomy-driven task expansion, and task suggester/editor refinement plan.
+- No active execution plan.
 - [exec-plans/completed/README.md](exec-plans/completed/README.md): completed plan bucket.
 - [exec-plans/completed/0010-agentinstruct-seed-transformation-and-editor-loop.md](exec-plans/completed/0010-agentinstruct-seed-transformation-and-editor-loop.md): latest completed seed transformation, taxonomy-driven task expansion, enabled task suggester/editor roles, expansion lineage, and reporting slices.
 - [exec-plans/tech-debt/README.md](exec-plans/tech-debt/README.md): technical debt bucket.
