@@ -46,7 +46,12 @@
   Completed in plan 0010 with deterministic seed transformations, task
   suggester/editor roles, edited-candidate lineage, inspectable suggestion
   rejections, and reporting slices.
-- Add controlled network-backed environment synthesis only after provenance, licensing, and sandbox rules are enforced.
+- Add provenance, licensing, network-policy, sandbox-policy, and source-event
+  audit gates before controlled network-backed environment synthesis. Completed
+  in plan 0011 with source bundles, source-policy hashes, source audit events,
+  default-deny external-source gates, and quality slices.
+- Add controlled network-backed environment synthesis only after those gates are
+  enforced.
 
 ## Stage 4: Interoperability and Scale
 

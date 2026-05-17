@@ -8,7 +8,7 @@ The framework should be developed as a pipeline for executable Agent training da
    Normalizes source materials, target domains, task taxonomies, and generation goals.
 
 2. **Environment Synthesis**
-   Builds executable stateful environments from domain requirements. Early versions should use SQLite-backed Python environments; later versions can expose environments through MCP-compatible tool servers.
+   Builds executable stateful environments from validated source bundles and domain requirements. Early versions should use SQLite-backed Python environments; later versions can expose environments through MCP-compatible tool servers.
 
 3. **Tool Synthesis and Registry**
    Defines typed tools, schemas, dependency graphs, execution contracts, and versioned tool metadata.
@@ -25,7 +25,10 @@ The framework should be developed as a pipeline for executable Agent training da
 7. **Dataset Assembly and Lineage**
    Emits versioned training examples with environment, tool, task, trajectory, verifier, quality metrics, and provenance metadata.
 
-8. **Orchestration and Scaling**
+8. **Source Governance**
+   Validates source provenance, license policy, network policy, sandbox policy, and sanitized source-event auditing before external-like material can affect environments or dataset exports.
+
+9. **Orchestration and Scaling**
    Starts with local async orchestration and evolves toward distributed actor-based execution when throughput demands justify it. Scaling orchestration does not imply deploying a local LLM cluster.
 
 ## Canonical Design Docs

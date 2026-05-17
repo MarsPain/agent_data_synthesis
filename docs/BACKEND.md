@@ -8,6 +8,10 @@ The first backend should be a local Python pipeline with explicit modules and du
 
 - `synthesis.seeds`: source registration, normalized seed records, seed
   transformation records, and deterministic taxonomy-expansion requests.
+- `synthesis.sources`: source governance records, license decisions, default-deny
+  network policy, sandbox policy, source-bundle validation, source-policy hashes,
+  deterministic no-network external-source fixtures, and sanitized source-event
+  records.
 - `synthesis.environments`: environment builders, reset/checkpoint operations, and state adapters.
 - `synthesis.tools`: tool definitions, schema generation, registry, dependency
   graph, capability-gap records, bounded tool proposals, and curated local tool
@@ -64,37 +68,42 @@ manifests, trajectories, exports, or logs.
 ## Job Lifecycle
 
 1. Register seeds and target domain.
-2. Build or load an environment version.
-3. Build or load a tool registry version.
-4. Resolve the role registry and generate candidate tasks by curriculum policy
+2. Validate the source bundle before environment construction. External-source
+   material must pass license, network, and sandbox gates or be rejected with
+   `source_policy_rejected`.
+3. Build or load an environment version with source provenance and source-policy
+   hash metadata.
+4. Build or load a tool registry version.
+5. Resolve the role registry and generate candidate tasks by curriculum policy
    through the `task_generation` role when remote generation is enabled.
-5. If remote generation fails after configuration, write a classified generation
+6. If remote generation fails after configuration, write a classified generation
    rejection plus manifest and quality report artifacts.
-6. Optionally expand seeds through deterministic or remote seed transformation,
+7. Optionally expand seeds through deterministic or remote seed transformation,
    task suggestion, and task editing. Edited candidates are admitted only after
    normal candidate-contract validation, and rejected suggestions remain
    inspectable as rejected records.
-7. Generate or select a solution policy for each valid task, using the
+8. Generate or select a solution policy for each valid task, using the
    `solution_policy` role for remote policies and deterministic local lineage for
    scripted policies.
-8. Execute policy steps against the environment and record action, observation,
+9. Execute policy steps against the environment and record action, observation,
    state-change, and final-response events.
-9. When a candidate carries a bounded branch plan, execute branch attempts from a
+10. When a candidate carries a bounded branch plan, execute branch attempts from a
    clean environment checkpoint until one terminal path succeeds, preserving
    rejected branch outcomes separately from the selected trajectory.
-10. Verify outputs and expected state changes independently.
-11. For repairable verification or logical-support failures, optionally run one
+11. Verify outputs and expected state changes independently.
+12. For repairable verification or logical-support failures, optionally run one
    `critic_refinement` attempt and rerun validation, execution, verification,
    and quality gates through the normal path.
-12. When execution exposes a capability gap such as a missing tool or schema
+13. When execution exposes a capability gap such as a missing tool or schema
    mismatch, optionally request one `tool_generation` proposal, admit only a
    matching curated local implementation, and rerun through the normal execution,
    verification, and quality gates.
-13. Apply dataset-quality gates such as exact duplicate detection and logical
+14. Apply dataset-quality gates such as exact duplicate detection and logical
    consistency checks.
-14. Route failed samples by error class and optional review policy.
-15. Export accepted samples, rejections, tool proposal events, branch lineage,
-   task-expansion lineage, quality reports, and lineage.
+15. Route failed samples by error class and optional review policy.
+16. Export accepted samples, rejections, source-event audits when enabled, tool
+   proposal events, branch lineage, task-expansion lineage, quality reports, and
+   lineage.
 
 ## Scaling Direction
 

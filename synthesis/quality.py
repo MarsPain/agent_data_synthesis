@@ -202,6 +202,10 @@ def _build_slices(
         "suggestion_outcome": {},
         "editor_action": {},
         "edit_rejection_cause": {},
+        "source_kind": {},
+        "license_policy_outcome": {},
+        "external_source_eligibility": {},
+        "source_rejection_cause": {},
     }
     for sample in samples:
         _add_slice(dimensions["dataset_version"], str(sample.get("dataset_version", dataset_version)), accepted=True)
@@ -230,6 +234,11 @@ def _build_slices(
                 str(editor.get("editor_action", "unknown")),
                 accepted=True,
             )
+        _add_source_governance_slices(
+            dimensions,
+            _sample_source_provenance(sample),
+            accepted=True,
+        )
 
     for rejection in rejections:
         task = _mapping(rejection.get("task"))
@@ -277,6 +286,11 @@ def _build_slices(
                 str(editor.get("editor_action", "unknown")),
                 accepted=False,
             )
+        _add_source_governance_slices(
+            dimensions,
+            _rejection_source_governance(rejection),
+            accepted=False,
+        )
 
     return {
         dimension: {key: _with_rates(counts) for key, counts in sorted(values.items())}
@@ -369,6 +383,24 @@ def _add_seed_transformation_slices(
         str(transformation.get("target_taxonomy_node", "unknown")),
         accepted=accepted,
     )
+
+
+def _add_source_governance_slices(
+    dimensions: dict[str, dict[str, dict[str, int]]],
+    provenance: Mapping[str, Any],
+    *,
+    accepted: bool,
+) -> None:
+    if not provenance:
+        return
+    for source_kind in _sequence(provenance.get("source_kinds")):
+        _add_slice(dimensions["source_kind"], str(source_kind), accepted=accepted)
+    for outcome in _sequence(provenance.get("license_outcomes")):
+        _add_slice(dimensions["license_policy_outcome"], str(outcome), accepted=accepted)
+    eligibility = "eligible" if provenance.get("external_source_eligible") else "ineligible"
+    _add_slice(dimensions["external_source_eligibility"], eligibility, accepted=accepted)
+    for cause in _sequence(provenance.get("rejection_causes")):
+        _add_slice(dimensions["source_rejection_cause"], str(cause), accepted=accepted)
 
 
 def _add_role_outcome(
@@ -763,6 +795,11 @@ def _sample_task_editors(sample: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return [editor] if editor else []
 
 
+def _sample_source_provenance(sample: Mapping[str, Any]) -> Mapping[str, Any]:
+    lineage = _mapping(sample.get("lineage"))
+    return _mapping(lineage.get("source_provenance"))
+
+
 def _rejection_tool_expansions(rejection: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     details = _mapping(rejection.get("details"))
     expansion = _mapping(details.get("tool_proposal"))
@@ -817,6 +854,11 @@ def _rejection_task_editors(rejection: Mapping[str, Any]) -> list[Mapping[str, A
     details = _mapping(rejection.get("details"))
     editor = _mapping(details.get("task_editor"))
     return [editor] if editor else []
+
+
+def _rejection_source_governance(rejection: Mapping[str, Any]) -> Mapping[str, Any]:
+    details = _mapping(rejection.get("details"))
+    return _mapping(details.get("source_governance"))
 
 
 def _role_name(lineage: Mapping[str, Any]) -> str:

@@ -3,6 +3,18 @@
 ## Canonical Entities
 
 - **Seed:** source material, domain description, task taxonomy, or prior accepted sample used to start generation.
+- **Source Record:** provenance contract for fixture, synthetic, transformed, or
+  external material, including source id, origin reference, content hash, license
+  label, retrieval timestamp when applicable, and retention/export eligibility.
+- **License Policy Decision:** explicit allow, reject, or review-required
+  decision for a source record.
+- **Network Policy:** default-deny external-source access policy with explicit
+  enablement, host allowlist, request budget, and source-event requirement.
+- **Sandbox Policy:** external-source handling policy that records filesystem
+  isolation, generated-code exclusion, and secret-redaction expectations.
+- **Source Event:** sanitized audit record for accepted or rejected source
+  material. It stores hashes, aliases, outcomes, and rejection causes, never raw
+  payloads or credentials.
 - **Seed Transformation:** bounded expansion record that maps a source seed to a
   target taxonomy node, capability target, and intended difficulty movement.
 - **Environment:** executable stateful world with reset/checkpoint behavior.
@@ -59,9 +71,10 @@ combination, generator role, verifier type, role name, role output type,
 capability-gap type, proposed tool, proposed tool side-effect class, proposal
 outcome, branch depth, selected branch, branch outcome, fallback count, and
 seed-transformation type, taxonomy node, suggestion outcome, editor action, edit
-rejection cause, and dataset version. Dataset reports should preserve trends
-over time so regressions are visible instead of hidden inside aggregate
-averages.
+rejection cause, source kind, license policy outcome, external-source
+eligibility, source rejection cause, and dataset version. Dataset reports should
+preserve trends over time so regressions are visible instead of hidden inside
+aggregate averages.
 
 ## Dataset Output Contract
 
@@ -77,26 +90,38 @@ and a quality report:
   deterministic metric slices.
 - `tool_proposals.jsonl`: optional proposal-event records with the original
   capability gap, structured proposal, and local admission decision.
+- `source_events.jsonl`: optional source-audit records written when source
+  auditing is enabled.
 
 ```json
 {
   "sample_id": "sample_...",
   "dataset_version": "dataset_...",
-  "environment": {"id": "...", "version": "..."},
+  "environment": {"id": "...", "version": "...", "source_provenance": {}},
   "tools": [{"name": "...", "schema": {}, "version": "..."}],
   "task": {"instruction": "...", "constraints": {}, "difficulty": {}},
   "trajectory": [{"type": "action", "tool": "...", "arguments": {}}],
   "final_response": "...",
   "verification": {"passed": true, "checks": []},
   "quality": {"scores": {}, "tags": []},
-  "lineage": {"seed_ids": [], "generator": {}, "solution_policy": {}, "refinement": {}, "verifier": {}}
+  "lineage": {"seed_ids": [], "generator": {}, "source_provenance": {}, "solution_policy": {}, "refinement": {}, "verifier": {}}
 }
 ```
 
 `manifest.json` must include artifact references for `samples`, `rejections`, and
 `quality_report`. When tool proposal, parent comparison, or review routing is
 enabled, it also references `tool_proposals`, `parent_comparison`, and
-`review_queue`.
+`review_queue`. When source auditing is enabled, it references
+`source_events`; manifests also include `source_policy_hashes` when samples or
+source-gated rejections carry source provenance.
+
+`lineage.source_provenance` records the source bundle id, source policy hash,
+source ids, source kinds, license labels, license outcomes, retention/export
+eligibility, and `external_source_eligible`. Environment metadata carries the
+same source provenance so environment versions can be traced back to the policy
+hash that admitted their source bundle. Rejected external source material uses
+`source_policy_rejected` and stores sanitized source governance details under
+`details.source_governance`.
 
 Trajectory events currently supported by the contract are:
 
@@ -160,7 +185,9 @@ suggester and editor metadata do not overwrite those fields.
   status, role name, role output type, capability-gap type, proposed tool,
   proposed tool side-effect class, tool-proposal outcome, branch depth, selected
   branch, branch outcome, fallback count, seed-transformation type, taxonomy
-  node, suggestion outcome, editor action, and edit rejection cause.
+  node, suggestion outcome, editor action, edit rejection cause, source kind,
+  license policy outcome, external-source eligibility, and source rejection
+  cause.
 
 Capability-gap records use `schema_version: capability_gap_v1` and preserve
 candidate id, policy id, gap type, tool name, rejection cause, message, schema

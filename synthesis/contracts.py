@@ -23,6 +23,7 @@ REJECTION_CAUSES = {
     "solution_logic_error",
     "task_editor_rejected",
     "task_suggestion_rejected",
+    "source_policy_rejected",
 }
 
 REFINEMENT_DECISIONS = {
@@ -48,6 +49,17 @@ TASK_TAXONOMY_NODES = {
     "unsupported_network_research",
 }
 TASK_SUGGESTION_OUTCOMES = {"accepted", "rejected"}
+SOURCE_KINDS = {"fixture", "synthetic", "transformed", "external"}
+SOURCE_LICENSE_LABELS = {
+    "fixture_internal",
+    "synthetic_internal",
+    "transformed_internal",
+    "cc-by-4.0",
+    "cc0-1.0",
+    "public_domain",
+}
+LICENSE_POLICY_OUTCOMES = {"allowed", "rejected", "review_required"}
+SOURCE_EVENT_TYPES = {"source_accepted", "source_rejected"}
 
 
 def validate_candidate_task(task: object) -> CandidateTask:
@@ -115,6 +127,111 @@ def validate_manifest_record(record: Mapping[str, Any]) -> None:
     _require_sequence(record.get("verifier_versions"), "verifier_versions")
     _require_sequence(record.get("generator_config_hashes"), "generator_config_hashes")
     _require_mapping(record.get("rejection_causes"), "rejection_causes")
+    if "source_policy_hashes" in record:
+        _require_non_empty_string_sequence(
+            record.get("source_policy_hashes"),
+            "source_policy_hashes",
+        )
+
+
+def validate_source_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "source_record")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    _require_non_empty_string(record.get("source_id"), "source_id")
+    source_kind = _require_non_empty_string(record.get("source_kind"), "source_kind")
+    if source_kind not in SOURCE_KINDS:
+        raise ContractValidationError(f"source_kind must be one of {sorted(SOURCE_KINDS)}")
+    _require_non_empty_string(record.get("origin_reference"), "origin_reference")
+    if source_kind == "external":
+        _require_non_empty_string(record.get("retrieval_timestamp"), "retrieval_timestamp")
+    elif record.get("retrieval_timestamp") is not None:
+        _require_non_empty_string(record.get("retrieval_timestamp"), "retrieval_timestamp")
+    _validate_content_hash(record.get("content_hash"), "content_hash")
+    license_label = _require_non_empty_string(record.get("license_label"), "license_label")
+    if license_label not in SOURCE_LICENSE_LABELS:
+        raise ContractValidationError(
+            f"license_label must be one of {sorted(SOURCE_LICENSE_LABELS)}"
+        )
+    if not isinstance(record.get("retention_eligible"), bool):
+        raise ContractValidationError("retention_eligible must be a bool")
+    if not isinstance(record.get("export_eligible"), bool):
+        raise ContractValidationError("export_eligible must be a bool")
+
+
+def validate_license_policy_decision(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "license_policy_decision")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    _require_non_empty_string(record.get("source_id"), "source_id")
+    license_label = _require_non_empty_string(record.get("license_label"), "license_label")
+    if license_label not in SOURCE_LICENSE_LABELS:
+        raise ContractValidationError(
+            f"license_label must be one of {sorted(SOURCE_LICENSE_LABELS)}"
+        )
+    outcome = _require_non_empty_string(record.get("outcome"), "outcome")
+    if outcome not in LICENSE_POLICY_OUTCOMES:
+        raise ContractValidationError(
+            f"outcome must be one of {sorted(LICENSE_POLICY_OUTCOMES)}"
+        )
+    if outcome != "allowed":
+        _require_non_empty_string(record.get("cause"), "cause")
+    _require_non_empty_string(record.get("reviewed_by"), "reviewed_by")
+
+
+def validate_network_policy_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "network_policy")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    if not isinstance(record.get("enabled"), bool):
+        raise ContractValidationError("enabled must be a bool")
+    allowed_hosts = _require_sequence(record.get("allowed_hosts"), "allowed_hosts")
+    for index, host in enumerate(allowed_hosts):
+        _require_non_empty_string(host, f"allowed_hosts.{index}")
+    _require_int(record.get("request_budget"), "request_budget")
+    if not isinstance(record.get("require_source_events"), bool):
+        raise ContractValidationError("require_source_events must be a bool")
+
+
+def validate_sandbox_policy_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "sandbox_policy")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    _require_non_empty_string(record.get("policy_id"), "policy_id")
+    _require_non_empty_string(record.get("filesystem_isolation"), "filesystem_isolation")
+    if not isinstance(record.get("generated_code_allowed"), bool):
+        raise ContractValidationError("generated_code_allowed must be a bool")
+    if not isinstance(record.get("secret_redaction"), bool):
+        raise ContractValidationError("secret_redaction must be a bool")
+
+
+def validate_source_event_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "source_event")
+    if _contains_raw_secret(record):
+        raise ContractValidationError("source_event contains raw secret material")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    event_type = _require_non_empty_string(record.get("event_type"), "event_type")
+    if event_type not in SOURCE_EVENT_TYPES:
+        raise ContractValidationError(
+            f"event_type must be one of {sorted(SOURCE_EVENT_TYPES)}"
+        )
+    _require_non_empty_string(record.get("source_id"), "source_id")
+    source_kind = _require_non_empty_string(record.get("source_kind"), "source_kind")
+    if source_kind not in SOURCE_KINDS:
+        raise ContractValidationError(f"source_kind must be one of {sorted(SOURCE_KINDS)}")
+    outcome = _require_non_empty_string(record.get("policy_outcome"), "policy_outcome")
+    if outcome not in {"allowed", "rejected"}:
+        raise ContractValidationError("policy_outcome must be allowed or rejected")
+    _require_non_empty_string(record.get("origin_alias"), "origin_alias")
+    _validate_content_hash(record.get("content_hash"), "content_hash")
+    license_label = _require_non_empty_string(record.get("license_label"), "license_label")
+    if license_label not in SOURCE_LICENSE_LABELS:
+        raise ContractValidationError(
+            f"license_label must be one of {sorted(SOURCE_LICENSE_LABELS)}"
+        )
+    license_outcome = _require_non_empty_string(record.get("license_outcome"), "license_outcome")
+    if license_outcome not in LICENSE_POLICY_OUTCOMES and license_outcome != "missing":
+        raise ContractValidationError("license_outcome is unsupported")
+    _validate_content_hash(record.get("source_policy_hash"), "source_policy_hash")
+    causes = _require_sequence(record.get("rejection_causes"), "rejection_causes")
+    for index, cause in enumerate(causes):
+        _require_non_empty_string(cause, f"rejection_causes.{index}")
 
 
 def validate_review_record(record: Mapping[str, Any]) -> None:
@@ -380,6 +497,11 @@ def _validate_environment(raw: object) -> None:
     _require_non_empty_string(environment.get("version"), "environment.version")
     if "reset_recipe" in environment:
         _require_mapping(environment.get("reset_recipe"), "environment.reset_recipe")
+    if "source_provenance" in environment:
+        _validate_source_provenance(
+            environment.get("source_provenance"),
+            "environment.source_provenance",
+        )
 
 
 def _validate_tools(raw: object) -> None:
@@ -507,6 +629,11 @@ def _validate_lineage(raw: object) -> None:
     if "task_editor" in lineage:
         task_editor = _require_mapping(lineage.get("task_editor"), "lineage.task_editor")
         _validate_lineage_role(task_editor, "lineage.task_editor")
+    if "source_provenance" in lineage:
+        _validate_source_provenance(
+            lineage.get("source_provenance"),
+            "lineage.source_provenance",
+        )
 
     verifier = _require_mapping(lineage.get("verifier"), "lineage.verifier")
     _require_non_empty_string(verifier.get("id"), "lineage.verifier.id")
@@ -518,6 +645,50 @@ def _validate_lineage_role(raw: Mapping[str, Any], path: str) -> None:
     _require_non_empty_string(raw.get("provider_host"), f"{path}.provider_host")
     _require_non_empty_string(raw.get("model"), f"{path}.model")
     _require_non_empty_string(raw.get("config_hash"), f"{path}.config_hash")
+
+
+def _validate_source_provenance(raw: object, path: str) -> None:
+    provenance = _require_mapping(raw, path)
+    _require_non_empty_string(
+        provenance.get("source_bundle_id"),
+        f"{path}.source_bundle_id",
+    )
+    _validate_content_hash(
+        provenance.get("source_policy_hash"),
+        f"{path}.source_policy_hash",
+    )
+    _require_non_empty_string_sequence(provenance.get("source_ids"), f"{path}.source_ids")
+    source_kinds = _require_non_empty_string_sequence(
+        provenance.get("source_kinds"),
+        f"{path}.source_kinds",
+    )
+    for index, source_kind in enumerate(source_kinds):
+        if source_kind not in SOURCE_KINDS:
+            raise ContractValidationError(
+                f"{path}.source_kinds.{index} must be one of {sorted(SOURCE_KINDS)}"
+            )
+    license_labels = _require_non_empty_string_sequence(
+        provenance.get("license_labels"),
+        f"{path}.license_labels",
+    )
+    for index, label in enumerate(license_labels):
+        if label not in SOURCE_LICENSE_LABELS:
+            raise ContractValidationError(
+                f"{path}.license_labels.{index} must be one of {sorted(SOURCE_LICENSE_LABELS)}"
+            )
+    outcomes = _require_non_empty_string_sequence(
+        provenance.get("license_outcomes"),
+        f"{path}.license_outcomes",
+    )
+    for index, outcome in enumerate(outcomes):
+        if outcome not in LICENSE_POLICY_OUTCOMES and outcome != "missing":
+            raise ContractValidationError(f"{path}.license_outcomes.{index} is unsupported")
+    if not isinstance(provenance.get("external_source_eligible"), bool):
+        raise ContractValidationError(f"{path}.external_source_eligible must be a bool")
+    if "rejection_causes" in provenance:
+        causes = _require_sequence(provenance.get("rejection_causes"), f"{path}.rejection_causes")
+        for index, cause in enumerate(causes):
+            _require_non_empty_string(cause, f"{path}.rejection_causes.{index}")
 
 
 def _validate_branch_steps(raw: object, path: str) -> None:
@@ -634,6 +805,38 @@ def _require_number(raw: object, path: str) -> float:
     if not isinstance(raw, (int, float)) or isinstance(raw, bool):
         raise ContractValidationError(f"{path} must be a number")
     return float(raw)
+
+
+def _validate_content_hash(raw: object, path: str) -> None:
+    value = _require_non_empty_string(raw, path)
+    if not value.startswith("sha256:") or len(value) != 71:
+        raise ContractValidationError(f"{path} must be a sha256 content hash")
+    digest = value.removeprefix("sha256:")
+    if any(character not in "0123456789abcdef" for character in digest):
+        raise ContractValidationError(f"{path} must be a sha256 content hash")
+
+
+def _contains_raw_secret(value: object) -> bool:
+    if isinstance(value, Mapping):
+        for key, nested in value.items():
+            lowered_key = str(key).lower()
+            if lowered_key in {"raw_payload", "raw_content", "credentials", "authorization"}:
+                return True
+            if "api_key" in lowered_key or "secret" in lowered_key:
+                return True
+            if _contains_raw_secret(nested):
+                return True
+        return False
+    if isinstance(value, Sequence) and not isinstance(value, str):
+        return any(_contains_raw_secret(item) for item in value)
+    if isinstance(value, str):
+        lowered = value.lower()
+        return (
+            "agent_data_api_key" in lowered
+            or "authorization:" in lowered
+            or "secret-test-key" in lowered
+        )
+    return False
 
 
 def _validate_revised_policy(raw: object) -> None:

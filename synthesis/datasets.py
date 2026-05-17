@@ -12,6 +12,7 @@ from synthesis.contracts import (
     validate_rejection_record,
     validate_review_record,
     validate_sample_record,
+    validate_source_event_record,
     validate_seed_transformation_record,
     validate_task_suggestion_record,
     validate_tool_proposal_record,
@@ -33,6 +34,7 @@ class DatasetArtifacts:
     rejections_path: Path
     quality_report_path: Path
     tool_proposals_path: Path | None
+    source_events_path: Path | None
     parent_comparison_path: Path | None
     review_queue_path: Path | None
     accepted_count: int
@@ -69,6 +71,8 @@ def assemble_sample(
         lineage["tool_expansion"] = _tool_expansion_lineage(tool_expansion)
     if execution.branch_outcomes:
         lineage["branching"] = _branching_lineage(execution)
+    if environment.source_provenance is not None:
+        lineage["source_provenance"] = dict(environment.source_provenance)
     if task.seed_transformation is not None:
         lineage["seed_transformation"] = dict(task.seed_transformation)
     if task.task_suggester_lineage is not None:
@@ -79,14 +83,18 @@ def assemble_sample(
             editor_lineage.setdefault("editor_action", task.editor_action)
         lineage["task_editor"] = editor_lineage
 
+    environment_record: dict[str, object] = {
+        "id": environment.environment_id,
+        "version": environment.version,
+        "reset_recipe": environment.reset_recipe,
+    }
+    if environment.source_provenance is not None:
+        environment_record["source_provenance"] = dict(environment.source_provenance)
+
     return {
         "sample_id": f"sample_{task.candidate_id}",
         "dataset_version": dataset_version,
-        "environment": {
-            "id": environment.environment_id,
-            "version": environment.version,
-            "reset_recipe": environment.reset_recipe,
-        },
+        "environment": environment_record,
         "tools": tools,
         "task": {
             "instruction": task.instruction,
@@ -230,6 +238,28 @@ def assemble_pipeline_gate_rejection(*, error: Exception) -> dict[str, object]:
     }
 
 
+def assemble_source_policy_rejection(
+    *,
+    source_governance: dict[str, object],
+    message: str,
+) -> dict[str, object]:
+    return {
+        "candidate_id": "source_policy_gate",
+        "cause": "source_policy_rejected",
+        "task": {
+            "candidate_id": "source_policy_gate",
+            "instruction": "Source governance gate rejected material before environment construction.",
+            "constraints": {},
+            "difficulty": {},
+        },
+        "details": {
+            "message": message,
+            "retry_eligible": retry_eligible("source_policy_rejected"),
+            "source_governance": dict(source_governance),
+        },
+    }
+
+
 def assemble_generation_stage_rejection(*, error: LLMProviderError) -> dict[str, object]:
     details: dict[str, object] = {
         "error_class": error.error_class,
@@ -325,6 +355,7 @@ def write_dataset_artifacts(
     parent_artifact_path: Path | None = None,
     review_records: list[dict[str, object]] | None = None,
     tool_proposals: list[dict[str, object]] | None = None,
+    source_events: list[dict[str, object]] | None = None,
 ) -> DatasetArtifacts:
     output_dir.mkdir(parents=True, exist_ok=True)
     samples_path = output_dir / "samples.jsonl"
@@ -332,9 +363,11 @@ def write_dataset_artifacts(
     rejections_path = output_dir / "rejections.jsonl"
     quality_report_path = output_dir / "quality_report.json"
     optional_tool_proposals_path = output_dir / "tool_proposals.jsonl"
+    optional_source_events_path = output_dir / "source_events.jsonl"
     optional_parent_comparison_path = output_dir / "parent_comparison.json"
     optional_review_queue_path = output_dir / "review_queue.jsonl"
     tool_proposals_path = optional_tool_proposals_path if tool_proposals else None
+    source_events_path = optional_source_events_path if source_events else None
     parent_comparison_path = optional_parent_comparison_path if parent_artifact_path else None
     review_queue_path = optional_review_queue_path if review_records else None
 
@@ -347,6 +380,8 @@ def write_dataset_artifacts(
         validate_review_record(review_record)
     for proposal_record in tool_proposals or []:
         _validate_tool_proposal_event(proposal_record)
+    for source_event in source_events or []:
+        validate_source_event_record(source_event)
 
     _write_jsonl(samples_path, samples)
     _write_jsonl(rejections_path, rejections)
@@ -358,6 +393,10 @@ def write_dataset_artifacts(
         _write_jsonl(optional_tool_proposals_path, tool_proposals)
     else:
         _remove_if_exists(optional_tool_proposals_path)
+    if source_events:
+        _write_jsonl(optional_source_events_path, source_events)
+    else:
+        _remove_if_exists(optional_source_events_path)
 
     quality_report = build_quality_report(
         dataset_version=dataset_version,
@@ -394,6 +433,10 @@ def write_dataset_artifacts(
         artifacts["review_queue"] = review_queue_path.name
     if tool_proposals_path:
         artifacts["tool_proposals"] = tool_proposals_path.name
+    if source_events_path:
+        artifacts["source_events"] = source_events_path.name
+
+    source_policy_hashes = _source_policy_hashes(samples, rejections)
 
     manifest = {
         "schema_version": "dataset_manifest_v1",
@@ -420,6 +463,8 @@ def write_dataset_artifacts(
         "generator_config_hashes": _lineage_config_hashes(samples),
         "rejection_causes": quality_report["rejection_causes"],
     }
+    if source_policy_hashes:
+        manifest["source_policy_hashes"] = source_policy_hashes
     validate_manifest_record(manifest)
     manifest_path.write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -432,6 +477,7 @@ def write_dataset_artifacts(
         rejections_path=rejections_path,
         quality_report_path=quality_report_path,
         tool_proposals_path=tool_proposals_path,
+        source_events_path=source_events_path,
         parent_comparison_path=parent_comparison_path,
         review_queue_path=review_queue_path,
         accepted_count=len(samples),
@@ -526,6 +572,26 @@ def _lineage_config_hashes(samples: list[dict[str, object]]) -> list[object]:
         refinement = lineage.get("refinement")
         if isinstance(refinement, dict):
             values.append(refinement.get("config_hash"))
+    return _unique_values(value for value in values if value)
+
+
+def _source_policy_hashes(
+    samples: list[dict[str, object]],
+    rejections: list[dict[str, object]],
+) -> list[object]:
+    values: list[object] = []
+    for sample in samples:
+        lineage = sample.get("lineage")
+        if isinstance(lineage, Mapping):
+            provenance = lineage.get("source_provenance")
+            if isinstance(provenance, Mapping):
+                values.append(provenance.get("source_policy_hash"))
+    for rejection in rejections:
+        details = rejection.get("details")
+        if isinstance(details, Mapping):
+            governance = details.get("source_governance")
+            if isinstance(governance, Mapping):
+                values.append(governance.get("source_policy_hash"))
     return _unique_values(value for value in values if value)
 
 

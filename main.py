@@ -11,6 +11,7 @@ from synthesis.pipeline import (
     run_foundation_pipeline,
 )
 from synthesis.refinement import deterministic_fixture_refiner
+from synthesis.sources import build_external_fixture_source_bundle
 
 
 def parse_args() -> argparse.Namespace:
@@ -54,6 +55,14 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable deterministic seed transformation and task suggester/editor expansion.",
     )
+    parser.add_argument(
+        "--enable-source-governance-fixture",
+        action="store_true",
+        help=(
+            "Enable deterministic no-network external-source governance fixture "
+            "and source event auditing."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -66,6 +75,11 @@ def main() -> int:
         else None
     )
     refiner = deterministic_fixture_refiner if args.enable_refinement else None
+    source_bundle = (
+        build_external_fixture_source_bundle(network_enabled=True)
+        if args.enable_source_governance_fixture
+        else None
+    )
     try:
         result = run_foundation_pipeline(
             args.output_dir,
@@ -76,6 +90,8 @@ def main() -> int:
             enable_branching=args.enable_branching,
             enable_task_expansion=args.enable_task_expansion,
             task_expansion_generator=task_expansion_generator,
+            source_bundle=source_bundle,
+            enable_source_audit=args.enable_source_governance_fixture,
         )
     except (LLMConfigurationError, LLMProviderError) as exc:
         print(str(exc), file=sys.stderr)

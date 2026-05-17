@@ -277,6 +277,46 @@ class QualityReportingTest(unittest.TestCase):
         self.assertIn("task_suggester", report["slices"]["role_name"])
         self.assertIn("task_editor", report["slices"]["role_name"])
 
+    def test_report_summarizes_source_governance_slices(self) -> None:
+        from synthesis.quality import build_quality_report
+
+        sample = _sample()
+        sample["lineage"]["source_provenance"] = {
+            "source_bundle_id": "bundle_allowed_external_fixture",
+            "source_policy_hash": "source-policy-hash",
+            "source_ids": ["source_external_contacts"],
+            "source_kinds": ["external"],
+            "license_outcomes": ["allowed"],
+            "license_labels": ["cc-by-4.0"],
+            "external_source_eligible": True,
+        }
+        rejection = _rejection()
+        rejection["cause"] = "source_policy_rejected"
+        rejection["details"]["source_governance"] = {
+            "source_bundle_id": "bundle_rejected_external_fixture",
+            "source_policy_hash": "source-policy-rejected",
+            "source_ids": ["source_external_contacts"],
+            "source_kinds": ["external"],
+            "license_outcomes": ["rejected"],
+            "license_labels": ["unknown"],
+            "external_source_eligible": False,
+            "rejection_causes": ["license_unknown"],
+        }
+
+        report = build_quality_report(
+            dataset_version="dataset_test",
+            samples=[sample],
+            rejections=[rejection],
+        )
+
+        self.assertIn("external", report["slices"]["source_kind"])
+        self.assertIn("allowed", report["slices"]["license_policy_outcome"])
+        self.assertIn("rejected", report["slices"]["license_policy_outcome"])
+        self.assertIn("eligible", report["slices"]["external_source_eligibility"])
+        self.assertIn("ineligible", report["slices"]["external_source_eligibility"])
+        self.assertIn("license_unknown", report["slices"]["source_rejection_cause"])
+        self.assertEqual(report["counts"]["executable"], 1)
+
     def test_duplicate_signature_uses_normalized_instruction_and_ordered_actions(self) -> None:
         from synthesis.quality import duplicate_signature
 

@@ -32,7 +32,6 @@
 ## Execution Plans
 
 - [exec-plans/active/README.md](exec-plans/active/README.md): active plan bucket.
-- No active execution plan.
 - [exec-plans/completed/README.md](exec-plans/completed/README.md): completed plan bucket.
-- [exec-plans/completed/0010-agentinstruct-seed-transformation-and-editor-loop.md](exec-plans/completed/0010-agentinstruct-seed-transformation-and-editor-loop.md): latest completed seed transformation, taxonomy-driven task expansion, enabled task suggester/editor roles, expansion lineage, and reporting slices.
+- [exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md](exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md): latest completed source provenance, license eligibility, default-deny network policy, sandbox policy, source-event audit artifacts, and reporting slices.
 - [exec-plans/tech-debt/README.md](exec-plans/tech-debt/README.md): technical debt bucket.

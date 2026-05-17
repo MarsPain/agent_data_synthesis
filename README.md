@@ -28,6 +28,7 @@ uv run python main.py --output-dir artifacts/foundation --dataset-version datase
 uv run python main.py --enable-refinement --output-dir artifacts/foundation-refined
 uv run python main.py --enable-branching --output-dir artifacts/foundation-branching
 uv run python main.py --enable-task-expansion --output-dir artifacts/foundation-task-expansion
+uv run python main.py --enable-source-governance-fixture --output-dir artifacts/foundation-source-governance
 uv run python main.py --use-llm --output-dir artifacts/foundation-llm
 uv run python scripts/validate_docs.py
 uv run python -m unittest
@@ -41,7 +42,7 @@ LLM-backed generation and judge steps should read these environment variables:
 - `AGENT_DATA_API_KEY`: API key for the configured remote LLM provider.
 - `AGENT_DATA_LLM_MODEL`: model id used by the synthesis pipeline.
 
-The default local runner uses deterministic fixture candidates so it can run without provider credentials. Pass `--enable-refinement` to enable the deterministic one-shot critic/refinement fixture loop. Pass `--enable-branching` to include the deterministic multi-path branching fixture. Pass `--enable-task-expansion` to include deterministic seed transformation and task suggester/editor expansion. Pass `--use-llm` to generate candidates through the configured remote OpenAI-compatible `/chat/completions` API.
+The default local runner uses deterministic fixture candidates so it can run without provider credentials. Pass `--enable-refinement` to enable the deterministic one-shot critic/refinement fixture loop. Pass `--enable-branching` to include the deterministic multi-path branching fixture. Pass `--enable-task-expansion` to include deterministic seed transformation and task suggester/editor expansion. Pass `--enable-source-governance-fixture` to exercise deterministic no-network external-source governance and write `source_events.jsonl`. Pass `--use-llm` to generate candidates through the configured remote OpenAI-compatible `/chat/completions` API.
 
 ## Repository Rules
 

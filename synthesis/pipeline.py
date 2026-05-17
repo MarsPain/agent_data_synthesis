@@ -14,6 +14,7 @@ from synthesis.datasets import (
     assemble_pipeline_gate_rejection,
     assemble_quality_gate_rejection,
     assemble_rejection,
+    assemble_source_policy_rejection,
     assemble_task_editor_rejection,
     assemble_sample,
     assemble_task_suggestion_rejection,
@@ -41,6 +42,12 @@ from synthesis.roles import RoleRegistry, default_role_registry
 from synthesis.seeds import foundation_seed
 from synthesis.seeds import DomainSeed
 from synthesis.seeds import deterministic_seed_transformations
+from synthesis.sources import (
+    SourceBundle,
+    SourcePolicyError,
+    build_fixture_source_bundle,
+    validate_source_bundle,
+)
 from synthesis.tasks import (
     CandidateTask,
     TaskExpansionResult,
@@ -72,6 +79,7 @@ class PipelineResult:
     rejections_path: Path
     quality_report_path: Path
     tool_proposals_path: Path | None
+    source_events_path: Path | None
     parent_comparison_path: Path | None
     review_queue_path: Path | None
     accepted_count: int
@@ -186,9 +194,52 @@ def run_foundation_pipeline(
     enable_branching: bool = False,
     enable_task_expansion: bool = False,
     task_expansion_generator: TaskExpansionGenerator | None = None,
+    source_bundle: SourceBundle | None = None,
+    enable_source_audit: bool = False,
 ) -> PipelineResult:
     seed = foundation_seed()
-    environment = ContactEnvironment.create_fixture(output_dir / "environment")
+    source_events: list[dict[str, object]] = []
+    selected_source_bundle = source_bundle or build_fixture_source_bundle()
+    try:
+        source_result = validate_source_bundle(selected_source_bundle)
+    except SourcePolicyError as exc:
+        if enable_source_audit:
+            source_events.extend(exc.result.events)
+        rejections = [
+            assemble_source_policy_rejection(
+                source_governance=exc.result.provenance,
+                message=str(exc),
+            )
+        ]
+        artifacts = write_dataset_artifacts(
+            output_dir=output_dir,
+            dataset_version=dataset_version,
+            samples=[],
+            rejections=rejections,
+            parent_artifact_path=parent_artifact_path,
+            review_records=[],
+            tool_proposals=[],
+            source_events=source_events,
+        )
+        return PipelineResult(
+            samples_path=artifacts.samples_path,
+            manifest_path=artifacts.manifest_path,
+            rejections_path=artifacts.rejections_path,
+            quality_report_path=artifacts.quality_report_path,
+            tool_proposals_path=artifacts.tool_proposals_path,
+            source_events_path=artifacts.source_events_path,
+            parent_comparison_path=artifacts.parent_comparison_path,
+            review_queue_path=artifacts.review_queue_path,
+            accepted_count=artifacts.accepted_count,
+            rejected_count=artifacts.rejected_count,
+        )
+    if enable_source_audit:
+        source_events.extend(source_result.events)
+
+    environment = ContactEnvironment.create_fixture(
+        output_dir / "environment",
+        source_provenance=source_result.provenance,
+    )
     registry = build_contact_tool_registry(environment)
     verifier = ExactAnswerVerifier()
     llm_config = LLMConfig.from_env()
@@ -211,6 +262,7 @@ def run_foundation_pipeline(
         _run_foundation_quality_gates(environment, registry)
     except FoundationGateError as exc:
         rejections.append(assemble_pipeline_gate_rejection(error=exc))
+        _attach_source_governance_to_rejections(rejections, source_result.provenance)
         artifacts = write_dataset_artifacts(
             output_dir=output_dir,
             dataset_version=dataset_version,
@@ -219,6 +271,7 @@ def run_foundation_pipeline(
             parent_artifact_path=parent_artifact_path,
             review_records=review_records,
             tool_proposals=tool_proposal_records,
+            source_events=source_events,
         )
         return PipelineResult(
             samples_path=artifacts.samples_path,
@@ -226,6 +279,7 @@ def run_foundation_pipeline(
             rejections_path=artifacts.rejections_path,
             quality_report_path=artifacts.quality_report_path,
             tool_proposals_path=artifacts.tool_proposals_path,
+            source_events_path=artifacts.source_events_path,
             parent_comparison_path=artifacts.parent_comparison_path,
             review_queue_path=artifacts.review_queue_path,
             accepted_count=artifacts.accepted_count,
@@ -236,6 +290,7 @@ def run_foundation_pipeline(
         raw_tasks = generate_candidates(seed)
     except LLMProviderError as exc:
         rejections.append(assemble_generation_stage_rejection(error=exc))
+        _attach_source_governance_to_rejections(rejections, source_result.provenance)
         artifacts = write_dataset_artifacts(
             output_dir=output_dir,
             dataset_version=dataset_version,
@@ -244,6 +299,7 @@ def run_foundation_pipeline(
             parent_artifact_path=parent_artifact_path,
             review_records=review_records,
             tool_proposals=tool_proposal_records,
+            source_events=source_events,
         )
         return PipelineResult(
             samples_path=artifacts.samples_path,
@@ -251,6 +307,7 @@ def run_foundation_pipeline(
             rejections_path=artifacts.rejections_path,
             quality_report_path=artifacts.quality_report_path,
             tool_proposals_path=artifacts.tool_proposals_path,
+            source_events_path=artifacts.source_events_path,
             parent_comparison_path=artifacts.parent_comparison_path,
             review_queue_path=artifacts.review_queue_path,
             accepted_count=artifacts.accepted_count,
@@ -313,6 +370,7 @@ def run_foundation_pipeline(
                 tool_proposal_generator=tool_proposal_generator,
             )
 
+    _attach_source_governance_to_rejections(rejections, source_result.provenance)
     artifacts = write_dataset_artifacts(
         output_dir=output_dir,
         dataset_version=dataset_version,
@@ -321,6 +379,7 @@ def run_foundation_pipeline(
         parent_artifact_path=parent_artifact_path,
         review_records=review_records,
         tool_proposals=tool_proposal_records,
+        source_events=source_events,
     )
     return PipelineResult(
         samples_path=artifacts.samples_path,
@@ -328,6 +387,7 @@ def run_foundation_pipeline(
         rejections_path=artifacts.rejections_path,
         quality_report_path=artifacts.quality_report_path,
         tool_proposals_path=artifacts.tool_proposals_path,
+        source_events_path=artifacts.source_events_path,
         parent_comparison_path=artifacts.parent_comparison_path,
         review_queue_path=artifacts.review_queue_path,
         accepted_count=artifacts.accepted_count,
@@ -474,6 +534,17 @@ def _record_sample_if_present(
     accepted_signatures.add(attempt_result.signature)
     samples.append(attempt_result.sample)
     return True
+
+
+def _attach_source_governance_to_rejections(
+    rejections: list[dict[str, object]],
+    source_provenance: dict[str, object],
+) -> None:
+    for rejection in rejections:
+        details = rejection.get("details")
+        if not isinstance(details, dict):
+            continue
+        details.setdefault("source_governance", dict(source_provenance))
 
 
 def _run_candidate_attempt(

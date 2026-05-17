@@ -13,6 +13,26 @@ Agent data synthesis executes generated code, tools, and environment logic. Trea
 - Record all tool side effects in trajectory logs.
 - Make destructive tool actions reversible through environment reset or checkpoint restore.
 
+## Source Governance Gates
+
+External source material is rejected before environment construction unless a
+validated source bundle includes all of the following:
+
+- Source records with content hashes, license labels, retrieval timestamps for
+  external material, and retention/export eligibility.
+- Explicit license policy decisions. Unknown, incompatible, review-required, or
+  missing decisions do not admit external material.
+- A network policy with external access enabled, an allowlisted host, sufficient
+  request budget, and source-event auditing required.
+- A sandbox policy that keeps generated executable code disabled, requires
+  artifact-subdirectory filesystem isolation, and enables secret redaction.
+
+The deterministic source-governance fixture simulates external material without
+performing real network access. `source_events.jsonl` records source id, source
+kind, policy outcome, origin alias, hashes, license outcome, and rejection
+causes only. It must not contain raw provider payloads, authorization headers,
+API keys, source text, private user data, or other raw secrets.
+
 ## LLM Provider Secrets
 
 The synthesis pipeline may call a remote OpenAI-compatible LLM API configured by `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`. The project should not deploy local LLM clusters or expose provider credentials to generated code, tools, environments, fixtures, manifests, trajectory exports, or rejected-candidate diagnostics.

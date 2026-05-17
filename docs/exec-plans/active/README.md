@@ -5,4 +5,4 @@ is accepted as complete, move it to `../completed/` and update `../../PLANS.md`.
 
 ## Active
 
-- No active execution plan.
+No active implementation plan.

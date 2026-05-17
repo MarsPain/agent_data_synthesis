@@ -28,6 +28,7 @@ This repository is an early-stage Agent data synthesis framework. Root files are
 uv run python main.py
 uv run python main.py --enable-branching --output-dir artifacts/foundation-branching
 uv run python main.py --enable-task-expansion --output-dir artifacts/foundation-task-expansion
+uv run python main.py --enable-source-governance-fixture --output-dir artifacts/foundation-source-governance
 uv run python scripts/validate_docs.py
 uv run python -m unittest
 ```
@@ -36,4 +37,4 @@ uv run python -m unittest
 
 - `main.py` runs the local foundation pipeline and writes runtime outputs to `artifacts/foundation/` by default.
 - The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
-- Latest completed work is documented in [docs/exec-plans/completed/0010-agentinstruct-seed-transformation-and-editor-loop.md](docs/exec-plans/completed/0010-agentinstruct-seed-transformation-and-editor-loop.md).
+- Latest completed work is documented in [docs/exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md](docs/exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md).

@@ -105,6 +105,33 @@ class FoundationCliTest(unittest.TestCase):
             self.assertEqual(report["counts"]["branch_selected"], 1)
             self.assertIn("accepted=3", result.stdout)
 
+    def test_main_can_enable_no_network_source_governance_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--enable-source-governance-fixture",
+                    "--output-dir",
+                    str(output_dir),
+                    "--dataset-version",
+                    "dataset_cli_source_governance_test",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((output_dir / "source_events.jsonl").exists(), result.stdout)
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["artifacts"]["source_events"], "source_events.jsonl")
+            report = json.loads((output_dir / "quality_report.json").read_text(encoding="utf-8"))
+            self.assertIn("external", report["slices"]["source_kind"])
+            self.assertIn("accepted=2", result.stdout)
+
     def test_use_llm_requires_provider_configuration(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             env = dict(os.environ)
