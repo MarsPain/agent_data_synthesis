@@ -13,8 +13,18 @@
 - **Sandbox Policy:** external-source handling policy that records filesystem
   isolation, generated-code exclusion, and secret-redaction expectations.
 - **Source Event:** sanitized audit record for accepted or rejected source
-  material. It stores hashes, aliases, outcomes, and rejection causes, never raw
-  payloads or credentials.
+  material, fetch attempts, fetch outcomes, and environment-source admission. It
+  stores hashes, aliases, outcomes, and rejection causes, never raw payloads or
+  credentials.
+- **Fetched Source Request:** opt-in HTTPS request contract with URL, exact host
+  allowlist, request budget, timeout, maximum bytes, expected content type,
+  license label, and source-audit requirement.
+- **Fetched Source Result:** sanitized fetch result with source id, origin alias,
+  retrieval timestamp, content hash, content type, byte count, and policy
+  outcome.
+- **Contacts Environment Input:** typed contacts rows and optional follow-up rows
+  derived from an admitted source bundle, plus source bundle id, source policy
+  hash, and validation errors.
 - **Seed Transformation:** bounded expansion record that maps a source seed to a
   target taxonomy node, capability target, and intended difficulty movement.
 - **Environment:** executable stateful world with reset/checkpoint behavior.
@@ -72,9 +82,9 @@ capability-gap type, proposed tool, proposed tool side-effect class, proposal
 outcome, branch depth, selected branch, branch outcome, fallback count, and
 seed-transformation type, taxonomy node, suggestion outcome, editor action, edit
 rejection cause, source kind, license policy outcome, external-source
-eligibility, source rejection cause, and dataset version. Dataset reports should
-preserve trends over time so regressions are visible instead of hidden inside
-aggregate averages.
+eligibility, source rejection cause, environment-source admission outcome, and
+dataset version. Dataset reports should preserve trends over time so regressions
+are visible instead of hidden inside aggregate averages.
 
 ## Dataset Output Contract
 
@@ -117,11 +127,14 @@ source-gated rejections carry source provenance.
 
 `lineage.source_provenance` records the source bundle id, source policy hash,
 source ids, source kinds, license labels, license outcomes, retention/export
-eligibility, and `external_source_eligible`. Environment metadata carries the
-same source provenance so environment versions can be traced back to the policy
-hash that admitted their source bundle. Rejected external source material uses
-`source_policy_rejected` and stores sanitized source governance details under
-`details.source_governance`.
+eligibility, `external_source_eligible`, and, for network-backed contacts
+inputs, `environment_source_admission`. Environment metadata carries the same
+source provenance so environment versions can be traced back to the policy hash
+that admitted their source bundle. Network-backed environment reset recipes also
+record source bundle id, source policy hash, contact count, and follow-up count;
+they do not record raw source URLs or payload text. Rejected external source
+material and rejected environment-source inputs use `source_policy_rejected` and
+store sanitized source governance details under `details.source_governance`.
 
 Trajectory events currently supported by the contract are:
 
@@ -186,8 +199,8 @@ suggester and editor metadata do not overwrite those fields.
   proposed tool side-effect class, tool-proposal outcome, branch depth, selected
   branch, branch outcome, fallback count, seed-transformation type, taxonomy
   node, suggestion outcome, editor action, edit rejection cause, source kind,
-  license policy outcome, external-source eligibility, and source rejection
-  cause.
+  license policy outcome, external-source eligibility, source rejection cause,
+  and environment-source admission outcome.
 
 Capability-gap records use `schema_version: capability_gap_v1` and preserve
 candidate id, policy id, gap type, tool name, rejection cause, message, schema

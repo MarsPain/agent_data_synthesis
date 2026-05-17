@@ -8,7 +8,9 @@
 
 ## Active
 
-- [0012-controlled-network-backed-environment-synthesis](exec-plans/active/0012-controlled-network-backed-environment-synthesis.md): enable the first opt-in, allowlisted, auditable network-backed environment synthesis path while preserving source-governance gates.
+- [0012-controlled-network-backed-environment-synthesis](exec-plans/active/0012-controlled-network-backed-environment-synthesis.md):
+  controlled opt-in HTTPS source ingestion for contacts environment synthesis;
+  implemented in branch `plan-0012-network-env-synthesis` and pending review.
 
 ## Completed
 

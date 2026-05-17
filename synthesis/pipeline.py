@@ -22,6 +22,7 @@ from synthesis.datasets import (
     write_dataset_artifacts,
 )
 from synthesis.environments import ContactEnvironment
+from synthesis.environments import ContactsEnvironmentInput
 from synthesis.execution import (
     BranchExecutionError,
     PolicyValidationError,
@@ -46,6 +47,7 @@ from synthesis.sources import (
     SourceBundle,
     SourcePolicyError,
     build_fixture_source_bundle,
+    source_environment_admission_event,
     validate_source_bundle,
 )
 from synthesis.tasks import (
@@ -196,15 +198,17 @@ def run_foundation_pipeline(
     task_expansion_generator: TaskExpansionGenerator | None = None,
     source_bundle: SourceBundle | None = None,
     enable_source_audit: bool = False,
+    contacts_environment_input: ContactsEnvironmentInput | None = None,
+    source_events: list[dict[str, object]] | None = None,
 ) -> PipelineResult:
     seed = foundation_seed()
-    source_events: list[dict[str, object]] = []
+    source_event_records: list[dict[str, object]] = list(source_events or [])
     selected_source_bundle = source_bundle or build_fixture_source_bundle()
     try:
         source_result = validate_source_bundle(selected_source_bundle)
     except SourcePolicyError as exc:
         if enable_source_audit:
-            source_events.extend(exc.result.events)
+            source_event_records.extend(exc.result.events)
         rejections = [
             assemble_source_policy_rejection(
                 source_governance=exc.result.provenance,
@@ -219,7 +223,7 @@ def run_foundation_pipeline(
             parent_artifact_path=parent_artifact_path,
             review_records=[],
             tool_proposals=[],
-            source_events=source_events,
+            source_events=source_event_records,
         )
         return PipelineResult(
             samples_path=artifacts.samples_path,
@@ -234,12 +238,73 @@ def run_foundation_pipeline(
             rejected_count=artifacts.rejected_count,
         )
     if enable_source_audit:
-        source_events.extend(source_result.events)
+        source_event_records.extend(source_result.events)
 
-    environment = ContactEnvironment.create_fixture(
-        output_dir / "environment",
-        source_provenance=source_result.provenance,
-    )
+    source_provenance = dict(source_result.provenance)
+    if contacts_environment_input is not None:
+        source_provenance["environment_source_admission"] = "accepted"
+        try:
+            environment = ContactEnvironment.create_from_input(
+                output_dir / "environment",
+                contacts_environment_input,
+                source_provenance=source_provenance,
+            )
+        except Exception as exc:
+            rejected_provenance = dict(source_result.provenance)
+            rejected_provenance["policy_outcome"] = "rejected"
+            rejected_provenance["environment_source_admission"] = "rejected"
+            rejected_provenance["rejection_causes"] = ["environment_source_rejected"]
+            if enable_source_audit:
+                source_event_records.append(
+                    source_environment_admission_event(
+                        event_type="environment_source_rejected",
+                        source_bundle=selected_source_bundle,
+                        source_policy_hash=source_result.source_policy_hash,
+                        rejection_causes=["environment_source_rejected"],
+                    )
+                )
+            rejections = [
+                assemble_source_policy_rejection(
+                    source_governance=rejected_provenance,
+                    message=f"environment source rejected: {type(exc).__name__}",
+                )
+            ]
+            artifacts = write_dataset_artifacts(
+                output_dir=output_dir,
+                dataset_version=dataset_version,
+                samples=[],
+                rejections=rejections,
+                parent_artifact_path=parent_artifact_path,
+                review_records=[],
+                tool_proposals=[],
+                source_events=source_event_records,
+            )
+            return PipelineResult(
+                samples_path=artifacts.samples_path,
+                manifest_path=artifacts.manifest_path,
+                rejections_path=artifacts.rejections_path,
+                quality_report_path=artifacts.quality_report_path,
+                tool_proposals_path=artifacts.tool_proposals_path,
+                source_events_path=artifacts.source_events_path,
+                parent_comparison_path=artifacts.parent_comparison_path,
+                review_queue_path=artifacts.review_queue_path,
+                accepted_count=artifacts.accepted_count,
+                rejected_count=artifacts.rejected_count,
+            )
+        if enable_source_audit:
+            source_event_records.append(
+                source_environment_admission_event(
+                    event_type="environment_source_admitted",
+                    source_bundle=selected_source_bundle,
+                    source_policy_hash=source_result.source_policy_hash,
+                    rejection_causes=[],
+                )
+            )
+    else:
+        environment = ContactEnvironment.create_fixture(
+            output_dir / "environment",
+            source_provenance=source_provenance,
+        )
     registry = build_contact_tool_registry(environment)
     verifier = ExactAnswerVerifier()
     llm_config = LLMConfig.from_env()
@@ -262,7 +327,7 @@ def run_foundation_pipeline(
         _run_foundation_quality_gates(environment, registry)
     except FoundationGateError as exc:
         rejections.append(assemble_pipeline_gate_rejection(error=exc))
-        _attach_source_governance_to_rejections(rejections, source_result.provenance)
+        _attach_source_governance_to_rejections(rejections, source_provenance)
         artifacts = write_dataset_artifacts(
             output_dir=output_dir,
             dataset_version=dataset_version,
@@ -271,7 +336,7 @@ def run_foundation_pipeline(
             parent_artifact_path=parent_artifact_path,
             review_records=review_records,
             tool_proposals=tool_proposal_records,
-            source_events=source_events,
+            source_events=source_event_records,
         )
         return PipelineResult(
             samples_path=artifacts.samples_path,
@@ -290,7 +355,7 @@ def run_foundation_pipeline(
         raw_tasks = generate_candidates(seed)
     except LLMProviderError as exc:
         rejections.append(assemble_generation_stage_rejection(error=exc))
-        _attach_source_governance_to_rejections(rejections, source_result.provenance)
+        _attach_source_governance_to_rejections(rejections, source_provenance)
         artifacts = write_dataset_artifacts(
             output_dir=output_dir,
             dataset_version=dataset_version,
@@ -299,7 +364,7 @@ def run_foundation_pipeline(
             parent_artifact_path=parent_artifact_path,
             review_records=review_records,
             tool_proposals=tool_proposal_records,
-            source_events=source_events,
+            source_events=source_event_records,
         )
         return PipelineResult(
             samples_path=artifacts.samples_path,
@@ -370,7 +435,7 @@ def run_foundation_pipeline(
                 tool_proposal_generator=tool_proposal_generator,
             )
 
-    _attach_source_governance_to_rejections(rejections, source_result.provenance)
+    _attach_source_governance_to_rejections(rejections, source_provenance)
     artifacts = write_dataset_artifacts(
         output_dir=output_dir,
         dataset_version=dataset_version,
@@ -379,7 +444,7 @@ def run_foundation_pipeline(
         parent_artifact_path=parent_artifact_path,
         review_records=review_records,
         tool_proposals=tool_proposal_records,
-        source_events=source_events,
+        source_events=source_event_records,
     )
     return PipelineResult(
         samples_path=artifacts.samples_path,

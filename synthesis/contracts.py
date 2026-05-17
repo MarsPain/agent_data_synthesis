@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from typing import Any
+from urllib.parse import urlparse
 
 from synthesis.tasks import CandidateTask
 
@@ -59,7 +60,16 @@ SOURCE_LICENSE_LABELS = {
     "public_domain",
 }
 LICENSE_POLICY_OUTCOMES = {"allowed", "rejected", "review_required"}
-SOURCE_EVENT_TYPES = {"source_accepted", "source_rejected"}
+SOURCE_EVENT_TYPES = {
+    "source_accepted",
+    "source_rejected",
+    "fetch_attempt",
+    "fetch_accepted",
+    "fetch_rejected",
+    "environment_source_admitted",
+    "environment_source_rejected",
+}
+SAFE_FETCH_CONTENT_TYPES = {"application/json"}
 
 
 def validate_candidate_task(task: object) -> CandidateTask:
@@ -190,6 +200,55 @@ def validate_network_policy_record(record: Mapping[str, Any]) -> None:
         raise ContractValidationError("require_source_events must be a bool")
 
 
+def validate_fetched_source_request_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "fetched_source_request")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    url = _require_non_empty_string(record.get("url"), "url")
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise ContractValidationError("url must use https")
+    allowed_hosts = _require_non_empty_string_sequence(
+        record.get("allowed_hosts"),
+        "allowed_hosts",
+    )
+    if parsed.hostname not in set(str(host) for host in allowed_hosts):
+        raise ContractValidationError("url host must be allowlisted")
+    _require_positive_int(record.get("request_budget"), "request_budget")
+    timeout_seconds = _require_number(record.get("timeout_seconds"), "timeout_seconds")
+    if timeout_seconds <= 0:
+        raise ContractValidationError("timeout_seconds must be positive")
+    _require_positive_int(record.get("max_bytes"), "max_bytes")
+    expected_content_type = _require_non_empty_string(
+        record.get("expected_content_type"),
+        "expected_content_type",
+    )
+    if expected_content_type not in SAFE_FETCH_CONTENT_TYPES:
+        raise ContractValidationError("expected_content_type is unsupported")
+    license_label = _require_non_empty_string(record.get("license_label"), "license_label")
+    if license_label not in SOURCE_LICENSE_LABELS:
+        raise ContractValidationError(
+            f"license_label must be one of {sorted(SOURCE_LICENSE_LABELS)}"
+        )
+    if not isinstance(record.get("require_source_audit"), bool):
+        raise ContractValidationError("require_source_audit must be a bool")
+
+
+def validate_fetched_source_result_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "fetched_source_result")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    _require_non_empty_string(record.get("source_id"), "source_id")
+    _require_non_empty_string(record.get("origin_alias"), "origin_alias")
+    _require_non_empty_string(record.get("retrieval_timestamp"), "retrieval_timestamp")
+    _validate_content_hash(record.get("content_hash"), "content_hash")
+    content_type = _require_non_empty_string(record.get("content_type"), "content_type")
+    if content_type not in SAFE_FETCH_CONTENT_TYPES:
+        raise ContractValidationError("content_type is unsupported")
+    _require_int(record.get("byte_count"), "byte_count")
+    outcome = _require_non_empty_string(record.get("policy_outcome"), "policy_outcome")
+    if outcome not in {"allowed", "rejected"}:
+        raise ContractValidationError("policy_outcome must be allowed or rejected")
+
+
 def validate_sandbox_policy_record(record: Mapping[str, Any]) -> None:
     _require_mapping(record, "sandbox_policy")
     _require_non_empty_string(record.get("schema_version"), "schema_version")
@@ -232,6 +291,37 @@ def validate_source_event_record(record: Mapping[str, Any]) -> None:
     causes = _require_sequence(record.get("rejection_causes"), "rejection_causes")
     for index, cause in enumerate(causes):
         _require_non_empty_string(cause, f"rejection_causes.{index}")
+
+
+def validate_contacts_environment_input_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "contacts_environment_input")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    contacts = _require_sequence(record.get("contacts"), "contacts")
+    if not contacts:
+        raise ContractValidationError("contacts must contain at least one contact")
+    seen_names: set[str] = set()
+    for index, raw_contact in enumerate(contacts):
+        contact = _require_mapping(raw_contact, f"contacts.{index}")
+        name = _require_non_empty_string(contact.get("name"), f"contacts.{index}.name")
+        if name in seen_names:
+            raise ContractValidationError(f"contacts.{index}.name must be unique")
+        seen_names.add(name)
+        email = _require_non_empty_string(contact.get("email"), f"contacts.{index}.email")
+        if "@" not in email:
+            raise ContractValidationError(f"contacts.{index}.email must contain @")
+    followups = _require_sequence(record.get("followups"), "followups")
+    for index, raw_followup in enumerate(followups):
+        followup = _require_mapping(raw_followup, f"followups.{index}")
+        name = _require_non_empty_string(followup.get("name"), f"followups.{index}.name")
+        if name not in seen_names:
+            raise ContractValidationError(f"followups.{index}.name must reference a contact")
+        _require_non_empty_string(followup.get("note"), f"followups.{index}.note")
+        _require_non_empty_string(followup.get("created_at"), f"followups.{index}.created_at")
+    _require_non_empty_string(record.get("source_bundle_id"), "source_bundle_id")
+    _validate_content_hash(record.get("source_policy_hash"), "source_policy_hash")
+    errors = _require_sequence(record.get("validation_errors"), "validation_errors")
+    for index, error in enumerate(errors):
+        _require_non_empty_string(error, f"validation_errors.{index}")
 
 
 def validate_review_record(record: Mapping[str, Any]) -> None:

@@ -132,6 +132,78 @@ class FoundationCliTest(unittest.TestCase):
             self.assertIn("external", report["slices"]["source_kind"])
             self.assertIn("accepted=2", result.stdout)
 
+    def test_network_source_requires_allowlisted_host(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--enable-network-source",
+                    "--source-url",
+                    "https://allowed.example.test/contacts.json",
+                    "--source-license-label",
+                    "cc-by-4.0",
+                    "--output-dir",
+                    str(Path(tmpdir) / "foundation"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("--allowed-source-host", result.stderr)
+
+    def test_main_can_enable_mocked_network_contacts_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_fixture = Path(tmpdir) / "contacts.json"
+            source_fixture.write_text(
+                json.dumps(
+                    {
+                        "contacts": [
+                            {"name": "Alice Zhang", "email": "alice.zhang@example.test"},
+                            {"name": "Ben Carter", "email": "ben.carter@example.test"},
+                        ],
+                        "followups": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            output_dir = Path(tmpdir) / "foundation"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--enable-network-source",
+                    "--source-url",
+                    "https://allowed.example.test/contacts.json",
+                    "--source-license-label",
+                    "cc-by-4.0",
+                    "--allowed-source-host",
+                    "allowed.example.test",
+                    "--mock-source-fixture",
+                    str(source_fixture),
+                    "--output-dir",
+                    str(output_dir),
+                    "--dataset-version",
+                    "dataset_cli_network_source_test",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((output_dir / "source_events.jsonl").exists(), result.stdout)
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["dataset_version"], "dataset_cli_network_source_test")
+            report = json.loads((output_dir / "quality_report.json").read_text(encoding="utf-8"))
+            self.assertIn("external", report["slices"]["source_kind"])
+            self.assertIn("accepted", report["slices"]["environment_source_admission"])
+            self.assertNotIn("Alice Zhang", (output_dir / "source_events.jsonl").read_text(encoding="utf-8"))
+            self.assertIn("accepted=2", result.stdout)
+
     def test_use_llm_requires_provider_configuration(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             env = dict(os.environ)

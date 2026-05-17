@@ -2,7 +2,8 @@
 
 ## Status
 
-Active as of 2026-05-17.
+Implemented in branch `plan-0012-network-env-synthesis` as of 2026-05-17.
+Pending human review before moving to `completed/`.
 
 ## Goal
 
@@ -105,71 +106,71 @@ The network-backed path should stay behind the source-governance boundary:
 
 ### Task 1: Define Fetch and Environment Input Contracts
 
-- [ ] Add a fetched-source request record with URL, allowlisted host, request
+- [x] Add a fetched-source request record with URL, allowlisted host, request
   budget, timeout, maximum bytes, expected content type, license label, and
   source audit requirement.
-- [ ] Add a fetched-source result record with source id, origin alias, retrieval
+- [x] Add a fetched-source result record with source id, origin alias, retrieval
   timestamp, content hash, content type, byte count, and sanitized policy
   outcome.
-- [ ] Add a contacts environment input record with contact rows, optional
+- [x] Add a contacts environment input record with contact rows, optional
   follow-up rows, source bundle id, source policy hash, and validation errors.
-- [ ] Add contract tests for missing hashes, unsafe schemes, non-allowlisted
+- [x] Add contract tests for missing hashes, unsafe schemes, non-allowlisted
   hosts, over-budget fetches, oversize payloads, unsupported content types, and
   malformed contact records.
 
 ### Task 2: Add Controlled Source Fetching
 
-- [ ] Implement an HTTP client boundary that can be injected in tests and uses
+- [x] Implement an HTTP client boundary that can be injected in tests and uses
   default timeouts and byte limits.
-- [ ] Enforce HTTPS-only URLs, exact host allowlists, redirect rejection or
+- [x] Enforce HTTPS-only URLs, exact host allowlists, redirect rejection or
   explicit redirect accounting, and request-budget decrementing before payload
   admission.
-- [ ] Convert successful payloads into source records and license policy
+- [x] Convert successful payloads into source records and license policy
   decisions before environment construction.
-- [ ] Convert rejected fetches into source-policy rejections with sanitized
+- [x] Convert rejected fetches into source-policy rejections with sanitized
   details and source events.
 
 ### Task 3: Build Environments From Validated Source Inputs
 
-- [ ] Add a contacts-environment builder that accepts validated contact records
+- [x] Add a contacts-environment builder that accepts validated contact records
   rather than hard-coded fixture rows.
-- [ ] Preserve the existing deterministic fixture builder and default CLI
+- [x] Preserve the existing deterministic fixture builder and default CLI
   behavior.
-- [ ] Attach source provenance and source-policy hash metadata to network-backed
+- [x] Attach source provenance and source-policy hash metadata to network-backed
   environment versions.
-- [ ] Add tests proving accepted samples and rejections carry the correct source
+- [x] Add tests proving accepted samples and rejections carry the correct source
   lineage without raw payload content.
 
 ### Task 4: Persist Audit and Reporting Artifacts
 
-- [ ] Write sanitized source events for fetch attempt, fetch accepted, fetch
+- [x] Write sanitized source events for fetch attempt, fetch accepted, fetch
   rejected, environment-source admitted, and environment-source rejected cases.
-- [ ] Keep manifest references to `source_events.jsonl` when source auditing is
+- [x] Keep manifest references to `source_events.jsonl` when source auditing is
   enabled.
-- [ ] Add or preserve quality slices for source kind, license policy outcome,
+- [x] Add or preserve quality slices for source kind, license policy outcome,
   external-source eligibility, source rejection cause, and environment-source
   admission outcome.
-- [ ] Confirm fetch-stage and environment-source rejections do not inflate
+- [x] Confirm fetch-stage and environment-source rejections do not inflate
   executable-rate or trajectory-verification metrics.
 
 ### Task 5: Add CLI and No-Network Tests
 
-- [ ] Add explicit CLI flags for controlled network-backed synthesis, including
+- [x] Add explicit CLI flags for controlled network-backed synthesis, including
   source URL, source license label, allowed host, and output directory.
-- [ ] Keep normal `uv run python main.py` no-network and deterministic.
-- [ ] Add mocked-client tests for successful source ingestion and each rejection
+- [x] Keep normal `uv run python main.py` no-network and deterministic.
+- [x] Add mocked-client tests for successful source ingestion and each rejection
   class.
-- [ ] Add CLI tests for missing opt-in flags, missing allowlist, and successful
+- [x] Add CLI tests for missing opt-in flags, missing allowlist, and successful
   mocked configuration where possible without real network access.
 
 ### Task 6: Docs and Validation
 
-- [ ] Update backend, data, and security docs with final network-backed
+- [x] Update backend, data, and security docs with final network-backed
   environment synthesis contracts and artifact names.
-- [ ] Update roadmap wording once the controlled path exists.
-- [ ] Run `uv run python scripts/validate_docs.py`.
-- [ ] Run `uv run python -m unittest`.
-- [ ] Run a deterministic mocked or fixture-backed command that exercises the
+- [x] Update roadmap wording once the controlled path exists.
+- [x] Run `uv run python scripts/validate_docs.py`.
+- [x] Run `uv run python -m unittest`.
+- [x] Run a deterministic mocked or fixture-backed command that exercises the
   new path without real external network access.
 
 ## Validation
