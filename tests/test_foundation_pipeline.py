@@ -229,6 +229,68 @@ class FoundationPipelineTest(unittest.TestCase):
             self.assertFalse(environment.has_followup("Alice Zhang", "temporary note"))
             self.assertEqual(execution.branch_outcomes[1]["branch_id"], "read_only_lookup")
 
+    def test_task_expansion_adds_edited_candidate_and_inspectable_rejection(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_foundation_pipeline(
+                Path(tmpdir),
+                dataset_version="dataset_task_expansion",
+                enable_task_expansion=True,
+            )
+
+            self.assertEqual(result.accepted_count, 3)
+            self.assertEqual(result.rejected_count, 2)
+
+            samples = [
+                json.loads(line)
+                for line in result.samples_path.read_text(encoding="utf-8").splitlines()
+            ]
+            expanded = next(
+                sample
+                for sample in samples
+                if sample["task"]["constraints"].get("taxonomy_node") == "contact_followup"
+                and sample["task"]["constraints"].get("source") == "task_expansion"
+            )
+            self.assertEqual(
+                expanded["lineage"]["seed_transformation"]["target_taxonomy_node"],
+                "contact_followup",
+            )
+            self.assertEqual(expanded["lineage"]["task_suggester"]["role"], "task_suggester")
+            self.assertEqual(expanded["lineage"]["task_editor"]["role"], "task_editor")
+            self.assertEqual(expanded["lineage"]["task_editor"]["output_type"], "edited_task")
+            self.assertEqual(
+                [event["tool"] for event in expanded["trajectory"] if event["type"] == "action"],
+                ["lookup_contact_email", "record_contact_followup"],
+            )
+
+            rejections = [
+                json.loads(line)
+                for line in result.rejections_path.read_text(encoding="utf-8").splitlines()
+            ]
+            suggestion_rejection = next(
+                rejection
+                for rejection in rejections
+                if rejection["cause"] == "task_suggestion_rejected"
+            )
+            self.assertEqual(
+                suggestion_rejection["details"]["task_suggestion"]["outcome"],
+                "rejected",
+            )
+            self.assertEqual(
+                suggestion_rejection["details"]["role_lineages"]["task_suggester"]["role"],
+                "task_suggester",
+            )
+
+            quality_report = json.loads(result.quality_report_path.read_text(encoding="utf-8"))
+            self.assertEqual(quality_report["counts"]["seed_transformations"], 2)
+            self.assertEqual(quality_report["counts"]["task_suggestions"], 2)
+            self.assertEqual(quality_report["counts"]["task_edits"], 1)
+            self.assertIn("contact_followup", quality_report["slices"]["taxonomy_node"])
+            self.assertIn("accepted", quality_report["slices"]["suggestion_outcome"])
+            self.assertIn("rejected", quality_report["slices"]["suggestion_outcome"])
+            self.assertIn("created_candidate", quality_report["slices"]["editor_action"])
+
     def test_stateful_task_rejects_policy_that_skips_required_mutation(self) -> None:
         from synthesis.pipeline import run_foundation_pipeline
 

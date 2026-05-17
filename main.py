@@ -45,6 +45,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable the deterministic multi-path branching fixture.",
     )
+    parser.add_argument(
+        "--enable-task-expansion",
+        action="store_true",
+        help="Enable deterministic seed transformation and task suggester/editor expansion.",
+    )
     return parser.parse_args()
 
 
@@ -60,6 +65,7 @@ def main() -> int:
             parent_artifact_path=args.parent_artifact,
             refiner=refiner,
             enable_branching=args.enable_branching,
+            enable_task_expansion=args.enable_task_expansion,
         )
     except (LLMConfigurationError, LLMProviderError) as exc:
         print(str(exc), file=sys.stderr)

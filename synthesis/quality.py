@@ -52,6 +52,9 @@ def build_quality_report(
             "tool_proposals": _tool_proposal_count(samples, rejections),
             "branch_attempts": _branch_attempt_count(samples, rejections),
             "branch_selected": _branch_selected_count(samples),
+            "seed_transformations": _seed_transformation_count(samples, rejections),
+            "task_suggestions": _task_suggestion_count(samples, rejections),
+            "task_edits": _task_edit_count(samples, rejections),
         },
         "rates": {
             "success_rate": _rate(len(samples), executable_count),
@@ -62,6 +65,9 @@ def build_quality_report(
         "tool_proposal_outcomes": _tool_proposal_outcomes(samples, rejections),
         "branch_outcomes": _branch_outcomes(samples, rejections),
         "branch_failure_causes": _branch_failure_causes(samples, rejections),
+        "suggestion_outcomes": _suggestion_outcomes(rejections),
+        "editor_actions": _editor_actions(samples, rejections),
+        "edit_rejection_causes": _edit_rejection_causes(rejections),
         "slices": slices,
     }
 
@@ -191,6 +197,11 @@ def _build_slices(
         "selected_branch": {},
         "branch_outcome": {},
         "fallback_count": {},
+        "seed_transformation_type": {},
+        "taxonomy_node": {},
+        "suggestion_outcome": {},
+        "editor_action": {},
+        "edit_rejection_cause": {},
     }
     for sample in samples:
         _add_slice(dimensions["dataset_version"], str(sample.get("dataset_version", dataset_version)), accepted=True)
@@ -209,6 +220,16 @@ def _build_slices(
             _add_tool_expansion_slices(dimensions, expansion, accepted=True)
         for branching in _sample_branching(sample):
             _add_branching_slices(dimensions, branching, accepted=True)
+        for transformation in _sample_seed_transformations(sample):
+            _add_seed_transformation_slices(dimensions, transformation, accepted=True)
+        if _mapping(_mapping(sample.get("lineage")).get("task_suggester")):
+            _add_slice(dimensions["suggestion_outcome"], "accepted", accepted=True)
+        for editor in _sample_task_editors(sample):
+            _add_slice(
+                dimensions["editor_action"],
+                str(editor.get("editor_action", "unknown")),
+                accepted=True,
+            )
 
     for rejection in rejections:
         task = _mapping(rejection.get("task"))
@@ -231,6 +252,31 @@ def _build_slices(
             _add_tool_expansion_slices(dimensions, expansion, accepted=False)
         for branching in _rejection_branching(rejection):
             _add_branching_slices(dimensions, branching, accepted=False)
+        for transformation in _rejection_seed_transformations(rejection):
+            _add_seed_transformation_slices(dimensions, transformation, accepted=False)
+        for suggestion in _rejection_task_suggestions(rejection):
+            _add_slice(
+                dimensions["taxonomy_node"],
+                str(suggestion.get("target_taxonomy_node", "unknown")),
+                accepted=False,
+            )
+            _add_slice(
+                dimensions["suggestion_outcome"],
+                str(suggestion.get("outcome", "unknown")),
+                accepted=False,
+            )
+            if suggestion.get("rejection_reason"):
+                _add_slice(
+                    dimensions["edit_rejection_cause"],
+                    str(suggestion["rejection_reason"]),
+                    accepted=False,
+                )
+        for editor in _rejection_task_editors(rejection):
+            _add_slice(
+                dimensions["editor_action"],
+                str(editor.get("editor_action", "unknown")),
+                accepted=False,
+            )
 
     return {
         dimension: {key: _with_rates(counts) for key, counts in sorted(values.items())}
@@ -305,6 +351,24 @@ def _add_branching_slices(
                 str(outcome.get("outcome", "unknown")),
                 accepted=accepted,
             )
+
+
+def _add_seed_transformation_slices(
+    dimensions: dict[str, dict[str, dict[str, int]]],
+    transformation: Mapping[str, Any],
+    *,
+    accepted: bool,
+) -> None:
+    _add_slice(
+        dimensions["seed_transformation_type"],
+        str(transformation.get("transformation_type", "unknown")),
+        accepted=accepted,
+    )
+    _add_slice(
+        dimensions["taxonomy_node"],
+        str(transformation.get("target_taxonomy_node", "unknown")),
+        accepted=accepted,
+    )
 
 
 def _add_role_outcome(
@@ -496,6 +560,93 @@ def _branch_failure_causes(
     return dict(sorted(causes.items()))
 
 
+def _seed_transformation_count(
+    samples: list[dict[str, object]],
+    rejections: list[dict[str, object]],
+) -> int:
+    return sum(
+        1 for sample in samples for _ in _sample_seed_transformations(sample)
+    ) + sum(
+        1 for rejection in rejections for _ in _rejection_seed_transformations(rejection)
+    )
+
+
+def _task_suggestion_count(
+    samples: list[dict[str, object]],
+    rejections: list[dict[str, object]],
+) -> int:
+    accepted = sum(
+        1
+        for sample in samples
+        if _mapping(_mapping(sample.get("lineage")).get("task_suggester"))
+    )
+    rejected = sum(
+        1 for rejection in rejections for _ in _rejection_task_suggestions(rejection)
+    )
+    return accepted + rejected
+
+
+def _task_edit_count(
+    samples: list[dict[str, object]],
+    rejections: list[dict[str, object]],
+) -> int:
+    return sum(1 for sample in samples for _ in _sample_task_editors(sample)) + sum(
+        1 for rejection in rejections for _ in _rejection_task_editors(rejection)
+    )
+
+
+def _suggestion_outcomes(rejections: list[dict[str, object]]) -> dict[str, int]:
+    outcomes: dict[str, int] = {}
+    for suggestion in [
+        suggestion
+        for rejection in rejections
+        for suggestion in _rejection_task_suggestions(rejection)
+    ]:
+        outcome = str(suggestion.get("outcome", "unknown"))
+        outcomes[outcome] = outcomes.get(outcome, 0) + 1
+    return dict(sorted(outcomes.items()))
+
+
+def _editor_actions(
+    samples: list[dict[str, object]],
+    rejections: list[dict[str, object]],
+) -> dict[str, int]:
+    actions: dict[str, int] = {}
+    for editor in [
+        *[editor for sample in samples for editor in _sample_task_editors(sample)],
+        *[editor for rejection in rejections for editor in _rejection_task_editors(rejection)],
+    ]:
+        action = str(editor.get("editor_action", "unknown"))
+        actions[action] = actions.get(action, 0) + 1
+    return dict(sorted(actions.items()))
+
+
+def _edit_rejection_causes(rejections: list[dict[str, object]]) -> dict[str, int]:
+    causes: dict[str, int] = {}
+    for suggestion in [
+        suggestion
+        for rejection in rejections
+        for suggestion in _rejection_task_suggestions(rejection)
+    ]:
+        reason = suggestion.get("rejection_reason")
+        if not reason:
+            continue
+        name = str(reason)
+        causes[name] = causes.get(name, 0) + 1
+    for editor in [
+        editor
+        for rejection in rejections
+        for editor in _rejection_task_editors(rejection)
+    ]:
+        rejection = _mapping(editor.get("rejection"))
+        cause = rejection.get("cause")
+        if not cause:
+            continue
+        name = str(cause)
+        causes[name] = causes.get(name, 0) + 1
+    return dict(sorted(causes.items()))
+
+
 def _normalize_instruction(raw: object) -> str:
     return re.sub(r"\s+", " ", str(raw or "").strip().lower())
 
@@ -548,6 +699,8 @@ def _sample_role_lineages(sample: Mapping[str, Any]) -> list[Mapping[str, Any]]:
             _mapping(lineage.get("generator")),
             _mapping(lineage.get("solution_policy")),
             _mapping(lineage.get("refinement")),
+            _mapping(lineage.get("task_suggester")),
+            _mapping(lineage.get("task_editor")),
         )
         if role_lineage
     ]
@@ -598,6 +751,18 @@ def _sample_branching(sample: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return [branching] if branching else []
 
 
+def _sample_seed_transformations(sample: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    lineage = _mapping(sample.get("lineage"))
+    transformation = _mapping(lineage.get("seed_transformation"))
+    return [transformation] if transformation else []
+
+
+def _sample_task_editors(sample: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    lineage = _mapping(sample.get("lineage"))
+    editor = _mapping(lineage.get("task_editor"))
+    return [editor] if editor else []
+
+
 def _rejection_tool_expansions(rejection: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     details = _mapping(rejection.get("details"))
     expansion = _mapping(details.get("tool_proposal"))
@@ -634,6 +799,24 @@ def _rejection_branching(rejection: Mapping[str, Any]) -> list[Mapping[str, Any]
             "branch_outcomes": branch_outcomes,
         }
     ]
+
+
+def _rejection_seed_transformations(rejection: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    details = _mapping(rejection.get("details"))
+    transformation = _mapping(details.get("seed_transformation"))
+    return [transformation] if transformation else []
+
+
+def _rejection_task_suggestions(rejection: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    details = _mapping(rejection.get("details"))
+    suggestion = _mapping(details.get("task_suggestion"))
+    return [suggestion] if suggestion else []
+
+
+def _rejection_task_editors(rejection: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    details = _mapping(rejection.get("details"))
+    editor = _mapping(details.get("task_editor"))
+    return [editor] if editor else []
 
 
 def _role_name(lineage: Mapping[str, Any]) -> str:

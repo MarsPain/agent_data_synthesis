@@ -21,6 +21,8 @@ REJECTION_CAUSES = {
     "llm_response_schema_error",
     "quality_duplicate",
     "solution_logic_error",
+    "task_editor_rejected",
+    "task_suggestion_rejected",
 }
 
 REFINEMENT_DECISIONS = {
@@ -38,6 +40,13 @@ CAPABILITY_GAP_TYPES = {
 
 BRANCH_NODE_TYPES = {"attempt", "fallback"}
 BRANCH_OUTCOMES = {"accepted", "rejected"}
+TASK_TAXONOMY_NODES = {
+    "single_tool_lookup",
+    "verification_failure_fixture",
+    "contact_followup",
+    "branch_fallback",
+}
+TASK_SUGGESTION_OUTCOMES = {"accepted", "rejected"}
 
 
 def validate_candidate_task(task: object) -> CandidateTask:
@@ -263,6 +272,77 @@ def validate_branch_outcomes(
         raise ContractValidationError("branch_outcomes must include a selected terminal branch")
 
 
+def validate_seed_transformation_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "seed_transformation")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    _require_non_empty_string(record.get("transformation_id"), "transformation_id")
+    _require_non_empty_string(record.get("source_seed_id"), "source_seed_id")
+    _require_non_empty_string(record.get("transformation_type"), "transformation_type")
+    target = _require_non_empty_string(
+        record.get("target_taxonomy_node"),
+        "target_taxonomy_node",
+    )
+    if target not in TASK_TAXONOMY_NODES:
+        raise ContractValidationError(
+            f"target_taxonomy_node must be one of {sorted(TASK_TAXONOMY_NODES)}"
+        )
+    _require_non_empty_string(record.get("capability_target"), "capability_target")
+    _require_non_empty_string(record.get("difficulty_movement"), "difficulty_movement")
+    lineage = _require_mapping(record.get("lineage"), "lineage")
+    _validate_lineage_role(lineage, "lineage")
+
+
+def validate_task_suggestion_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "task_suggestion")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    _require_non_empty_string(record.get("suggestion_id"), "suggestion_id")
+    _require_non_empty_string(record.get("transformation_id"), "transformation_id")
+    target = _require_non_empty_string(
+        record.get("target_taxonomy_node"),
+        "target_taxonomy_node",
+    )
+    if target not in TASK_TAXONOMY_NODES:
+        raise ContractValidationError(
+            f"target_taxonomy_node must be one of {sorted(TASK_TAXONOMY_NODES)}"
+        )
+    _require_non_empty_string(record.get("intent"), "intent")
+    _require_non_empty_string_sequence(
+        record.get("required_capabilities"),
+        "required_capabilities",
+    )
+    _require_non_empty_string_sequence(record.get("target_tools"), "target_tools")
+    _require_mapping(record.get("constraints"), "constraints")
+    _require_non_empty_string(record.get("expected_verification"), "expected_verification")
+    outcome = _require_non_empty_string(record.get("outcome"), "outcome")
+    if outcome not in TASK_SUGGESTION_OUTCOMES:
+        raise ContractValidationError(
+            f"outcome must be one of {sorted(TASK_SUGGESTION_OUTCOMES)}"
+        )
+    if outcome == "rejected":
+        _require_non_empty_string(record.get("rejection_reason"), "rejection_reason")
+    lineage = _require_mapping(record.get("lineage"), "lineage")
+    _validate_lineage_role(lineage, "lineage")
+
+
+def validate_edited_task_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "edited_task")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    _require_non_empty_string(record.get("suggestion_id"), "suggestion_id")
+    _require_non_empty_string(record.get("editor_action"), "editor_action")
+    has_candidate = "candidate" in record
+    has_rejection = "rejection" in record
+    if has_candidate == has_rejection:
+        raise ContractValidationError("edited_task must contain exactly one candidate or rejection")
+    if has_candidate:
+        _validate_edited_candidate(record.get("candidate"))
+    if has_rejection:
+        rejection = _require_mapping(record.get("rejection"), "rejection")
+        _require_non_empty_string(rejection.get("cause"), "rejection.cause")
+        _require_non_empty_string(rejection.get("message"), "rejection.message")
+    lineage = _require_mapping(record.get("lineage"), "lineage")
+    _validate_lineage_role(lineage, "lineage")
+
+
 def validate_refinement_attempt(record: Mapping[str, Any]) -> None:
     _require_mapping(record, "refinement_attempt")
     _require_non_empty_string(record.get("original_candidate_id"), "original_candidate_id")
@@ -418,6 +498,14 @@ def _validate_lineage(raw: object) -> None:
         _validate_lineage_role(refinement, "lineage.refinement")
     if "branching" in lineage:
         _validate_branch_lineage(lineage.get("branching"))
+    if "seed_transformation" in lineage:
+        _validate_seed_transformation_lineage(lineage.get("seed_transformation"))
+    if "task_suggester" in lineage:
+        task_suggester = _require_mapping(lineage.get("task_suggester"), "lineage.task_suggester")
+        _validate_lineage_role(task_suggester, "lineage.task_suggester")
+    if "task_editor" in lineage:
+        task_editor = _require_mapping(lineage.get("task_editor"), "lineage.task_editor")
+        _validate_lineage_role(task_editor, "lineage.task_editor")
 
     verifier = _require_mapping(lineage.get("verifier"), "lineage.verifier")
     _require_non_empty_string(verifier.get("id"), "lineage.verifier.id")
@@ -439,6 +527,54 @@ def _validate_branch_steps(raw: object, path: str) -> None:
         step = _require_mapping(raw_step, f"{path}.{index}")
         _require_non_empty_string(step.get("tool_name"), f"{path}.{index}.tool_name")
         _require_mapping(step.get("arguments"), f"{path}.{index}.arguments")
+
+
+def _validate_edited_candidate(raw: object) -> None:
+    candidate = _require_mapping(raw, "candidate")
+    _require_non_empty_string(candidate.get("candidate_id"), "candidate.candidate_id")
+    _require_non_empty_string(candidate.get("instruction"), "candidate.instruction")
+    _require_mapping(candidate.get("constraints"), "candidate.constraints")
+    _require_mapping(candidate.get("difficulty"), "candidate.difficulty")
+    _require_non_empty_string(candidate.get("tool_name"), "candidate.tool_name")
+    _require_mapping(candidate.get("arguments"), "candidate.arguments")
+    _require_non_empty_string(candidate.get("expected_answer"), "candidate.expected_answer")
+
+
+def _validate_seed_transformation_lineage(raw: object) -> None:
+    transformation = _require_mapping(raw, "lineage.seed_transformation")
+    _require_non_empty_string(
+        transformation.get("schema_version"),
+        "lineage.seed_transformation.schema_version",
+    )
+    _require_non_empty_string(
+        transformation.get("transformation_id"),
+        "lineage.seed_transformation.transformation_id",
+    )
+    _require_non_empty_string(
+        transformation.get("source_seed_id"),
+        "lineage.seed_transformation.source_seed_id",
+    )
+    _require_non_empty_string(
+        transformation.get("transformation_type"),
+        "lineage.seed_transformation.transformation_type",
+    )
+    _require_non_empty_string(
+        transformation.get("target_taxonomy_node"),
+        "lineage.seed_transformation.target_taxonomy_node",
+    )
+    _require_non_empty_string(
+        transformation.get("capability_target"),
+        "lineage.seed_transformation.capability_target",
+    )
+    _require_non_empty_string(
+        transformation.get("difficulty_movement"),
+        "lineage.seed_transformation.difficulty_movement",
+    )
+    lineage = _require_mapping(
+        transformation.get("lineage"),
+        "lineage.seed_transformation.lineage",
+    )
+    _validate_lineage_role(lineage, "lineage.seed_transformation.lineage")
 
 
 def _validate_branch_lineage(raw: object) -> None:

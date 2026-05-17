@@ -21,6 +21,7 @@
 - [0007-role-contracts-and-generator-orchestration](exec-plans/completed/0007-role-contracts-and-generator-orchestration.md): formalized role contracts, registry-backed LLM routing, role lineage, disabled future-role guardrails, and role-level quality visibility. Completed on 2026-05-16.
 - [0008-failure-driven-tool-expansion-and-capability-gap-routing](exec-plans/completed/0008-failure-driven-tool-expansion-and-capability-gap-routing.md): added capability-gap diagnostics, bounded tool proposals, curated local tool admission, proposal artifacts, and tool-expansion quality reporting. Completed on 2026-05-17.
 - [0009-multi-path-branching-trajectory-foundation](exec-plans/completed/0009-multi-path-branching-trajectory-foundation.md): added bounded branch plans, checkpointed local branch execution, selected-branch lineage, and branch-level quality reporting. Completed on 2026-05-17.
+- [0010-agentinstruct-seed-transformation-and-editor-loop](exec-plans/completed/0010-agentinstruct-seed-transformation-and-editor-loop.md): added seed transformation, taxonomy-driven task expansion, enabled task suggester/editor roles, expansion lineage, and reporting slices. Completed on 2026-05-17.
 
 ## Technical Debt
 

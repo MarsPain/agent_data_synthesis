@@ -3,9 +3,17 @@
 ## Canonical Entities
 
 - **Seed:** source material, domain description, task taxonomy, or prior accepted sample used to start generation.
+- **Seed Transformation:** bounded expansion record that maps a source seed to a
+  target taxonomy node, capability target, and intended difficulty movement.
 - **Environment:** executable stateful world with reset/checkpoint behavior.
 - **Tool:** typed callable action exposed to the Agent.
 - **Task:** user-facing goal plus structured constraints and difficulty metadata.
+- **Task Suggestion:** intent-level task proposal with required capabilities,
+  target tools, constraints, verification expectation, suggestion outcome, and
+  role lineage.
+- **Edited Task:** task-editor output that either contains a valid
+  `CandidateTask` mapping ready for normal validation or a classified edit
+  rejection.
 - **Solution Policy:** selected or generated ordered tool-use plan for satisfying
   a task.
 - **Branch Plan:** bounded behavior-tree-like plan with ordered branch attempts,
@@ -50,8 +58,10 @@ Metrics must be sliceable by domain, task type, difficulty level, tool
 combination, generator role, verifier type, role name, role output type,
 capability-gap type, proposed tool, proposed tool side-effect class, proposal
 outcome, branch depth, selected branch, branch outcome, fallback count, and
-dataset version. Dataset reports should preserve trends over time so regressions
-are visible instead of hidden inside aggregate averages.
+seed-transformation type, taxonomy node, suggestion outcome, editor action, edit
+rejection cause, and dataset version. Dataset reports should preserve trends
+over time so regressions are visible instead of hidden inside aggregate
+averages.
 
 ## Dataset Output Contract
 
@@ -115,6 +125,16 @@ trajectory. The top-level sample `trajectory` remains the selected successful
 path. Failed branching candidates preserve branch outcomes under
 `details.branch_outcomes`.
 
+`lineage.seed_transformation`, `lineage.task_suggester`, and
+`lineage.task_editor` are present only for accepted samples produced through the
+task-expansion loop. The seed-transformation record uses
+`schema_version: seed_transformation_v1` and records the transformation id,
+source seed id, transformation type, target taxonomy node, capability target,
+difficulty movement, and sanitized lineage. `task_suggester` and `task_editor`
+use the same sanitized role-lineage shape as other remote-capable roles. Edited
+task candidates still carry normal task-generation and solution-policy lineage;
+suggester and editor metadata do not overwrite those fields.
+
 ### Quality Report Contract
 
 `quality_report.json` uses `schema_version: quality_report_v1` and records:
@@ -131,12 +151,16 @@ path. Failed branching candidates preserve branch outcomes under
 - `tool_proposal_outcomes`, keyed by admission outcome.
 - `branch_outcomes`, keyed by accepted or rejected branch-attempt outcome.
 - `branch_failure_causes`, keyed by classified branch failure cause.
+- `suggestion_outcomes`, keyed by rejected suggestion outcome.
+- `editor_actions`, keyed by task editor action.
+- `edit_rejection_causes`, keyed by suggestion or editor rejection cause.
 - `slices`, keyed by deterministic dimensions currently available in foundation
   records: dataset version, domain, task type, difficulty level, curriculum level,
   tool combination, generator role, verifier type, rejection cause, refinement
   status, role name, role output type, capability-gap type, proposed tool,
   proposed tool side-effect class, tool-proposal outcome, branch depth, selected
-  branch, branch outcome, and fallback count.
+  branch, branch outcome, fallback count, seed-transformation type, taxonomy
+  node, suggestion outcome, editor action, and edit rejection cause.
 
 Capability-gap records use `schema_version: capability_gap_v1` and preserve
 candidate id, policy id, gap type, tool name, rejection cause, message, schema
@@ -224,11 +248,15 @@ that provider. Remote samples should use the candidate-level and policy-level
 provider lineage rather than reconstructing it later.
 
 The default role registry currently enables `task_generation`, `solution_policy`,
-`critic_refinement`, and `tool_generation`. The `tool_generation` role may only
-return structured `tool_proposal` records; executable tool code remains a local
-curated implementation concern. The registry also defines disabled guardrails for
-`environment_generation`, `verifier_generation`, `judge_verification`,
-`task_suggester`, and `task_editor`; these roles must fail before any provider
-call until a later plan explicitly enables and validates their output contracts.
+`critic_refinement`, `task_suggester`, `task_editor`, and `tool_generation`.
+`task_suggester` may only return structured `task_suggestion` records.
+`task_editor` may only return structured `edited_task` records, and edited
+candidates must pass normal candidate validation before execution. The
+`tool_generation` role may only return structured `tool_proposal` records;
+executable tool code remains a local curated implementation concern. The
+registry also defines disabled guardrails for `environment_generation`,
+`verifier_generation`, and `judge_verification`; these roles must fail before
+any provider call until a later plan explicitly enables and validates their
+output contracts.
 
 Do not store `AGENT_DATA_API_KEY` or raw provider credentials in manifests, samples, trajectory logs, or rejected-candidate diagnostics.

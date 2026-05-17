@@ -34,5 +34,5 @@
 - [exec-plans/active/README.md](exec-plans/active/README.md): active plan bucket.
 - No active execution plan.
 - [exec-plans/completed/README.md](exec-plans/completed/README.md): completed plan bucket.
-- [exec-plans/completed/0009-multi-path-branching-trajectory-foundation.md](exec-plans/completed/0009-multi-path-branching-trajectory-foundation.md): latest completed bounded branch plans, checkpointed local branch execution, selected-branch lineage, and branch-level quality reporting.
+- [exec-plans/completed/0010-agentinstruct-seed-transformation-and-editor-loop.md](exec-plans/completed/0010-agentinstruct-seed-transformation-and-editor-loop.md): latest completed seed transformation, taxonomy-driven task expansion, enabled task suggester/editor roles, expansion lineage, and reporting slices.
 - [exec-plans/tech-debt/README.md](exec-plans/tech-debt/README.md): technical debt bucket.
