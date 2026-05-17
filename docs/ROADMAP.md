@@ -36,7 +36,9 @@
 - Add generator role contracts, registry-backed routing, role lineage, disabled
   future-role guardrails, and role-level quality visibility. Completed in plan
   0007.
-- Add tool expansion when failures indicate missing capability.
+- Add tool expansion when failures indicate missing capability. Completed in
+  plan 0008 with capability-gap diagnostics, bounded tool proposals, curated
+  local tool admission, proposal artifacts, and reporting.
 - Add multi-path trajectory generation and branching behavior-tree tasks.
 - Add AgentInstruct-style seed transformation, taxonomy-driven task expansion, and suggester/editor refinement.
 - Add controlled network-backed environment synthesis only after provenance, licensing, and sandbox rules are enforced.

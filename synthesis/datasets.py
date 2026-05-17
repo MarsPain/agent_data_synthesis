@@ -6,10 +6,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from synthesis.contracts import (
+    validate_capability_gap_record,
     validate_manifest_record,
     validate_rejection_record,
     validate_review_record,
     validate_sample_record,
+    validate_tool_proposal_record,
 )
 from synthesis.environments import EnvironmentMetadata
 from synthesis.execution import ExecutionResult, SolutionPolicy
@@ -27,6 +29,7 @@ class DatasetArtifacts:
     manifest_path: Path
     rejections_path: Path
     quality_report_path: Path
+    tool_proposals_path: Path | None
     parent_comparison_path: Path | None
     review_queue_path: Path | None
     accepted_count: int
@@ -43,6 +46,7 @@ def assemble_sample(
     verification: VerificationResult,
     llm_config: LLMConfig,
     refinement_attempt: RefinementAttempt | None = None,
+    tool_expansion: dict[str, object] | None = None,
 ) -> dict[str, object]:
     action_count = sum(1 for event in execution.trajectory if event.get("type") == "action")
     stateful = any(event.get("type") == "state_change" for event in execution.trajectory)
@@ -58,6 +62,8 @@ def assemble_sample(
         lineage["solution_policy"] = execution.policy.lineage
     if refinement_attempt is not None:
         lineage["refinement"] = refinement_attempt.sample_lineage()
+    if tool_expansion is not None:
+        lineage["tool_expansion"] = _tool_expansion_lineage(tool_expansion)
 
     return {
         "sample_id": f"sample_{task.candidate_id}",
@@ -149,12 +155,15 @@ def assemble_execution_rejection(
     error: Exception,
     cause: str = "tool_runtime_error",
     policy: SolutionPolicy | None = None,
+    capability_gap: dict[str, object] | None = None,
 ) -> dict[str, object]:
     details: dict[str, object] = {
         "error_class": type(error).__name__,
         "message": str(error),
         "retry_eligible": retry_eligible(cause),
     }
+    if capability_gap is not None:
+        details["capability_gap"] = capability_gap
     _attach_role_lineages(details, task=task, policy=policy)
     return {
         "candidate_id": task.candidate_id or "unknown_candidate",
@@ -241,12 +250,14 @@ def write_dataset_artifacts(
     rejections: list[dict[str, object]],
     parent_artifact_path: Path | None = None,
     review_records: list[dict[str, object]] | None = None,
+    tool_proposals: list[dict[str, object]] | None = None,
 ) -> DatasetArtifacts:
     output_dir.mkdir(parents=True, exist_ok=True)
     samples_path = output_dir / "samples.jsonl"
     manifest_path = output_dir / "manifest.json"
     rejections_path = output_dir / "rejections.jsonl"
     quality_report_path = output_dir / "quality_report.json"
+    tool_proposals_path = output_dir / "tool_proposals.jsonl" if tool_proposals else None
     parent_comparison_path = output_dir / "parent_comparison.json" if parent_artifact_path else None
     review_queue_path = output_dir / "review_queue.jsonl" if review_records else None
 
@@ -256,11 +267,15 @@ def write_dataset_artifacts(
         validate_rejection_record(rejection)
     for review_record in review_records or []:
         validate_review_record(review_record)
+    for proposal_record in tool_proposals or []:
+        _validate_tool_proposal_event(proposal_record)
 
     _write_jsonl(samples_path, samples)
     _write_jsonl(rejections_path, rejections)
     if review_records:
         _write_jsonl(output_dir / "review_queue.jsonl", review_records)
+    if tool_proposals:
+        _write_jsonl(output_dir / "tool_proposals.jsonl", tool_proposals)
 
     quality_report = build_quality_report(
         dataset_version=dataset_version,
@@ -293,6 +308,8 @@ def write_dataset_artifacts(
         artifacts["parent_comparison"] = parent_comparison_path.name
     if review_queue_path:
         artifacts["review_queue"] = review_queue_path.name
+    if tool_proposals_path:
+        artifacts["tool_proposals"] = tool_proposals_path.name
 
     manifest = {
         "schema_version": "dataset_manifest_v1",
@@ -330,6 +347,7 @@ def write_dataset_artifacts(
         manifest_path=manifest_path,
         rejections_path=rejections_path,
         quality_report_path=quality_report_path,
+        tool_proposals_path=tool_proposals_path,
         parent_comparison_path=parent_comparison_path,
         review_queue_path=review_queue_path,
         accepted_count=len(samples),
@@ -343,6 +361,32 @@ def _write_jsonl(path: Path, records: list[dict[str, object]]) -> None:
         for record in records
     )
     path.write_text(content, encoding="utf-8")
+
+
+def _validate_tool_proposal_event(record: Mapping[str, object]) -> None:
+    gap = record.get("gap")
+    proposal = record.get("proposal")
+    if isinstance(gap, Mapping):
+        validate_capability_gap_record(gap)
+    else:
+        raise ValueError("tool proposal event gap must be an object")
+    if isinstance(proposal, Mapping):
+        validate_tool_proposal_record(proposal)
+    else:
+        raise ValueError("tool proposal event proposal must be an object")
+    if not isinstance(record.get("admission"), Mapping):
+        raise ValueError("tool proposal event admission must be an object")
+
+
+def _tool_expansion_lineage(record: Mapping[str, object]) -> dict[str, object]:
+    gap = record.get("gap") if isinstance(record.get("gap"), Mapping) else {}
+    proposal = record.get("proposal") if isinstance(record.get("proposal"), Mapping) else {}
+    admission = record.get("admission") if isinstance(record.get("admission"), Mapping) else {}
+    return {
+        "gap": dict(gap),
+        "proposal": dict(proposal),
+        "admission": dict(admission),
+    }
 
 
 def _unique_values(values: Iterable[object]) -> list[object]:

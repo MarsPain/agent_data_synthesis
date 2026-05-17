@@ -9,6 +9,9 @@ The first backend should be a local Python pipeline with explicit modules and du
 - `synthesis.seeds`: source registration and normalized seed records.
 - `synthesis.environments`: environment builders, reset/checkpoint operations, and state adapters.
 - `synthesis.tools`: tool definitions, schema generation, registry, and dependency graph.
+- `synthesis.tools`: tool definitions, schema generation, registry, dependency
+  graph, capability-gap records, bounded tool proposals, and curated local tool
+  admission.
 - `synthesis.tasks`: task generation, difficulty scoring, curriculum policies,
   expected state declarations, and candidate-level generation lineage attachment.
 - `synthesis.execution`: solution policy selection/parsing, ordered tool-step
@@ -41,14 +44,16 @@ Minimum runtime configuration:
 - `AGENT_DATA_LLM_MODEL`: model id used for generation, solution policy, refinement, or judge calls.
 
 Provider calls should go through the role registry for role-backed generation
-steps. Enabled roles currently include `task_generation`, `solution_policy`, and
-`critic_refinement`; future environment, tool, verifier, judge, suggester, and
-editor roles are present as disabled guardrails. Provider lineage should record
-role name, role version, output type, owner module, retry policy, model id, base
-URL host, prompt or config hash, token and cost metadata when available, retry
-count, and error class. Transient transport failures, timeouts, HTTP 429, and
-HTTP 5xx responses may be retried within a bounded local budget. Secrets must
-never be written to manifests, trajectories, exports, or logs.
+steps. Enabled roles currently include `task_generation`, `solution_policy`,
+`critic_refinement`, and the bounded `tool_generation` proposal role. Future
+environment, verifier, judge, suggester, and editor roles are present as disabled
+guardrails. `tool_generation` may only produce structured tool proposal records;
+it does not produce executable code or installable packages. Provider lineage
+should record role name, role version, output type, owner module, retry policy,
+model id, base URL host, prompt or config hash, token and cost metadata when
+available, retry count, and error class. Transient transport failures, timeouts,
+HTTP 429, and HTTP 5xx responses may be retried within a bounded local budget.
+Secrets must never be written to manifests, trajectories, exports, or logs.
 
 ## Job Lifecycle
 
@@ -68,10 +73,15 @@ never be written to manifests, trajectories, exports, or logs.
 9. For repairable verification or logical-support failures, optionally run one
    `critic_refinement` attempt and rerun validation, execution, verification,
    and quality gates through the normal path.
-10. Apply dataset-quality gates such as exact duplicate detection and logical
+10. When execution exposes a capability gap such as a missing tool or schema
+   mismatch, optionally request one `tool_generation` proposal, admit only a
+   matching curated local implementation, and rerun through the normal execution,
+   verification, and quality gates.
+11. Apply dataset-quality gates such as exact duplicate detection and logical
    consistency checks.
-11. Route failed samples by error class and optional review policy.
-12. Export accepted samples, rejections, quality reports, and lineage.
+12. Route failed samples by error class and optional review policy.
+13. Export accepted samples, rejections, tool proposal events, quality reports,
+   and lineage.
 
 ## Scaling Direction
 

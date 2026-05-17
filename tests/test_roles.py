@@ -14,7 +14,7 @@ class RoleRegistryTests(unittest.TestCase):
 
         self.assertEqual(
             [role.name for role in registry.enabled_roles()],
-            ["critic_refinement", "solution_policy", "task_generation"],
+            ["critic_refinement", "solution_policy", "task_generation", "tool_generation"],
         )
         task_role = registry.require_enabled("task_generation")
         self.assertEqual(task_role.version, "role_task_generation_v1")
@@ -24,12 +24,29 @@ class RoleRegistryTests(unittest.TestCase):
         self.assertIn("role_version", task_role.lineage_fields)
         self.assertIn("output_type", task_role.lineage_fields)
 
-    def test_default_registry_contains_disabled_future_roles(self) -> None:
+    def test_default_registry_enables_tool_generation_only_for_proposals(self) -> None:
         registry = default_role_registry()
 
-        self.assertEqual(registry.get("tool_generation").enabled, False)
+        role = registry.require_enabled("tool_generation")
+        self.assertEqual(role.version, "role_tool_generation_v1")
+        self.assertEqual(role.owner_module, "synthesis.tools")
+        self.assertEqual(role.output_type, "tool_proposal")
+
+    def test_default_registry_keeps_other_future_roles_disabled(self) -> None:
+        registry = default_role_registry()
+
         with self.assertRaisesRegex(DisabledRoleError, "tool_generation"):
-            registry.require_enabled("tool_generation")
+            RoleRegistry([registry.get("tool_generation").__class__(
+                name="tool_generation",
+                version="role_tool_generation_v0",
+                owner_module="synthesis.tools",
+                output_type="tool_definition",
+                enabled=False,
+                retry_policy="not_enabled",
+                lineage_fields=("role",),
+            )]).require_enabled("tool_generation")
+        with self.assertRaisesRegex(DisabledRoleError, "environment_generation"):
+            registry.require_enabled("environment_generation")
 
     def test_registry_rejects_duplicate_and_invalid_role_names(self) -> None:
         role = RoleDefinition(

@@ -38,10 +38,15 @@ from synthesis.tasks import (
     generate_llm_backed_candidates,
 )
 from synthesis.tools import (
+    CapabilityGap,
+    ToolProposal,
     ToolMissingError,
     ToolRegistry,
     ToolSchemaError,
+    admit_curated_tool,
+    build_capability_gap,
     build_contact_tool_registry,
+    build_tool_proposal_record,
 )
 from synthesis.verification import ExactAnswerVerifier
 
@@ -52,6 +57,7 @@ class PipelineResult:
     manifest_path: Path
     rejections_path: Path
     quality_report_path: Path
+    tool_proposals_path: Path | None
     parent_comparison_path: Path | None
     review_queue_path: Path | None
     accepted_count: int
@@ -64,10 +70,12 @@ class CandidateAttemptResult:
     rejection: dict[str, object] | None
     signature: tuple[str, tuple[str, ...]] | None
     policy: SolutionPolicy | None
+    capability_gap: CapabilityGap | None = None
 
 
 CandidateGenerator = Callable[[DomainSeed], list[CandidateTask]]
 PolicyGenerator = Callable[[CandidateTask], SolutionPolicy]
+ToolProposalGenerator = Callable[[CapabilityGap], ToolProposal]
 
 
 class FoundationGateError(RuntimeError):
@@ -115,6 +123,7 @@ def run_foundation_pipeline(
     parent_artifact_path: Path | None = None,
     route_reviewable_failures: bool = False,
     refiner: Refiner | None = None,
+    tool_proposal_generator: ToolProposalGenerator | None = None,
 ) -> PipelineResult:
     seed = foundation_seed()
     environment = ContactEnvironment.create_fixture(output_dir / "environment")
@@ -127,6 +136,7 @@ def run_foundation_pipeline(
     samples: list[dict[str, object]] = []
     rejections: list[dict[str, object]] = []
     review_records: list[dict[str, object]] = []
+    tool_proposal_records: list[dict[str, object]] = []
     accepted_signatures: set[tuple[str, tuple[str, ...]]] = set()
     try:
         _run_foundation_quality_gates(environment, registry)
@@ -139,12 +149,14 @@ def run_foundation_pipeline(
             rejections=rejections,
             parent_artifact_path=parent_artifact_path,
             review_records=review_records,
+            tool_proposals=tool_proposal_records,
         )
         return PipelineResult(
             samples_path=artifacts.samples_path,
             manifest_path=artifacts.manifest_path,
             rejections_path=artifacts.rejections_path,
             quality_report_path=artifacts.quality_report_path,
+            tool_proposals_path=artifacts.tool_proposals_path,
             parent_comparison_path=artifacts.parent_comparison_path,
             review_queue_path=artifacts.review_queue_path,
             accepted_count=artifacts.accepted_count,
@@ -162,12 +174,14 @@ def run_foundation_pipeline(
             rejections=rejections,
             parent_artifact_path=parent_artifact_path,
             review_records=review_records,
+            tool_proposals=tool_proposal_records,
         )
         return PipelineResult(
             samples_path=artifacts.samples_path,
             manifest_path=artifacts.manifest_path,
             rejections_path=artifacts.rejections_path,
             quality_report_path=artifacts.quality_report_path,
+            tool_proposals_path=artifacts.tool_proposals_path,
             parent_comparison_path=artifacts.parent_comparison_path,
             review_queue_path=artifacts.review_queue_path,
             accepted_count=artifacts.accepted_count,
@@ -199,6 +213,34 @@ def run_foundation_pipeline(
             continue
 
         assert attempt_result.rejection is not None
+        tool_expanded = _maybe_expand_tool_and_rerun(
+            attempt_result=attempt_result,
+            task=task,
+            dataset_version=dataset_version,
+            environment=environment,
+            registry=registry,
+            verifier=verifier,
+            llm_config=llm_config,
+            generate_policy=generate_policy,
+            accepted_signatures=accepted_signatures,
+            tool_proposal_generator=tool_proposal_generator,
+            tool_proposal_records=tool_proposal_records,
+        )
+        if tool_expanded is not None:
+            if tool_expanded.sample is not None:
+                assert tool_expanded.signature is not None
+                accepted_signatures.add(tool_expanded.signature)
+                samples.append(tool_expanded.sample)
+                continue
+            assert tool_expanded.rejection is not None
+            rejections.append(tool_expanded.rejection)
+            _maybe_route_review(
+                review_records,
+                tool_expanded.rejection,
+                route_reviewable_failures=route_reviewable_failures,
+            )
+            continue
+
         try:
             refinement_attempt = _maybe_refine(
                 refiner=refiner,
@@ -272,12 +314,14 @@ def run_foundation_pipeline(
         rejections=rejections,
         parent_artifact_path=parent_artifact_path,
         review_records=review_records,
+        tool_proposals=tool_proposal_records,
     )
     return PipelineResult(
         samples_path=artifacts.samples_path,
         manifest_path=artifacts.manifest_path,
         rejections_path=artifacts.rejections_path,
         quality_report_path=artifacts.quality_report_path,
+        tool_proposals_path=artifacts.tool_proposals_path,
         parent_comparison_path=artifacts.parent_comparison_path,
         review_queue_path=artifacts.review_queue_path,
         accepted_count=artifacts.accepted_count,
@@ -297,6 +341,7 @@ def _run_candidate_attempt(
     accepted_signatures: set[tuple[str, tuple[str, ...]]],
     policy_override: SolutionPolicy | None = None,
     refinement_attempt: RefinementAttempt | None = None,
+    tool_expansion: dict[str, object] | None = None,
 ) -> CandidateAttemptResult:
     policy: SolutionPolicy | None = policy_override
     if policy is None:
@@ -317,10 +362,18 @@ def _run_candidate_attempt(
                 ),
                 signature=None,
                 policy=None,
+                capability_gap=None,
             )
     try:
         execution = execute_candidate(task, registry, policy=policy)
     except ToolMissingError as exc:
+        gap = build_capability_gap(
+            task=task,
+            policy=policy,
+            error=exc,
+            cause="tool_missing",
+            registry=registry,
+        )
         return CandidateAttemptResult(
             sample=None,
             rejection=assemble_execution_rejection(
@@ -328,11 +381,20 @@ def _run_candidate_attempt(
                 error=exc,
                 cause="tool_missing",
                 policy=policy,
+                capability_gap=gap.export(),
             ),
             signature=None,
             policy=policy,
+            capability_gap=gap,
         )
     except ToolSchemaError as exc:
+        gap = build_capability_gap(
+            task=task,
+            policy=policy,
+            error=exc,
+            cause="tool_schema_error",
+            registry=registry,
+        )
         return CandidateAttemptResult(
             sample=None,
             rejection=assemble_execution_rejection(
@@ -340,9 +402,11 @@ def _run_candidate_attempt(
                 error=exc,
                 cause="tool_schema_error",
                 policy=policy,
+                capability_gap=gap.export(),
             ),
             signature=None,
             policy=policy,
+            capability_gap=gap,
         )
     except PolicyValidationError as exc:
         return CandidateAttemptResult(
@@ -355,6 +419,7 @@ def _run_candidate_attempt(
             ),
             signature=None,
             policy=policy,
+            capability_gap=None,
         )
     except Exception as exc:
         return CandidateAttemptResult(
@@ -362,6 +427,7 @@ def _run_candidate_attempt(
             rejection=assemble_execution_rejection(task=task, error=exc, policy=policy),
             signature=None,
             policy=policy,
+            capability_gap=None,
         )
 
     verification = verifier.verify(task, execution, environment=environment)
@@ -371,6 +437,7 @@ def _run_candidate_attempt(
             rejection=assemble_rejection(task=task, verification=verification, policy=policy),
             signature=None,
             policy=policy,
+            capability_gap=None,
         )
 
     sample = assemble_sample(
@@ -382,6 +449,7 @@ def _run_candidate_attempt(
         verification=verification,
         llm_config=llm_config,
         refinement_attempt=refinement_attempt,
+        tool_expansion=tool_expansion,
     )
     signature = candidate_duplicate_signature(
         instruction=task.instruction,
@@ -399,6 +467,7 @@ def _run_candidate_attempt(
             ),
             signature=None,
             policy=policy,
+            capability_gap=None,
         )
     if not final_answer_is_logically_supported(sample):
         return CandidateAttemptResult(
@@ -411,13 +480,111 @@ def _run_candidate_attempt(
             ),
             signature=None,
             policy=policy,
+            capability_gap=None,
         )
     return CandidateAttemptResult(
         sample=sample,
         rejection=None,
         signature=signature,
         policy=policy,
+        capability_gap=None,
     )
+
+
+def _maybe_expand_tool_and_rerun(
+    *,
+    attempt_result: CandidateAttemptResult,
+    task: CandidateTask,
+    dataset_version: str,
+    environment: ContactEnvironment,
+    registry: ToolRegistry,
+    verifier: ExactAnswerVerifier,
+    llm_config: LLMConfig,
+    generate_policy: PolicyGenerator,
+    accepted_signatures: set[tuple[str, tuple[str, ...]]],
+    tool_proposal_generator: ToolProposalGenerator | None,
+    tool_proposal_records: list[dict[str, object]],
+) -> CandidateAttemptResult | None:
+    if tool_proposal_generator is None or attempt_result.capability_gap is None:
+        return None
+
+    gap = attempt_result.capability_gap
+    try:
+        proposal = tool_proposal_generator(gap)
+    except LLMProviderError as exc:
+        return CandidateAttemptResult(
+            sample=None,
+            rejection=assemble_quality_gate_rejection(
+                task=task,
+                cause=exc.cause,
+                message="Remote tool proposal generation failed before admission.",
+                details={
+                    "error_class": exc.error_class,
+                    "retry_count": exc.retry_count,
+                    "lineage": dict(exc.lineage) if exc.lineage else {},
+                    "capability_gap": gap.export(),
+                },
+                policy=attempt_result.policy,
+            ),
+            signature=None,
+            policy=attempt_result.policy,
+            capability_gap=gap,
+        )
+
+    admission = admit_curated_tool(proposal, registry, environment)
+    proposal_record = build_tool_proposal_record(
+        candidate_id=task.candidate_id,
+        gap=gap,
+        proposal=proposal,
+        admission=admission,
+    )
+    tool_proposal_records.append(proposal_record)
+    if not admission.accepted:
+        assert attempt_result.rejection is not None
+        rejection = _attach_tool_proposal_to_rejection(
+            attempt_result.rejection,
+            proposal_record,
+        )
+        return CandidateAttemptResult(
+            sample=None,
+            rejection=rejection,
+            signature=None,
+            policy=attempt_result.policy,
+            capability_gap=gap,
+        )
+
+    rerun = _run_candidate_attempt(
+        task=task,
+        dataset_version=dataset_version,
+        environment=environment,
+        registry=registry,
+        verifier=verifier,
+        llm_config=llm_config,
+        generate_policy=generate_policy,
+        accepted_signatures=accepted_signatures,
+        policy_override=attempt_result.policy,
+        tool_expansion=proposal_record,
+    )
+    if rerun.rejection is not None:
+        rerun = CandidateAttemptResult(
+            sample=None,
+            rejection=_attach_tool_proposal_to_rejection(rerun.rejection, proposal_record),
+            signature=None,
+            policy=rerun.policy,
+            capability_gap=rerun.capability_gap,
+        )
+    return rerun
+
+
+def _attach_tool_proposal_to_rejection(
+    rejection: dict[str, object],
+    proposal_record: dict[str, object],
+) -> dict[str, object]:
+    updated = dict(rejection)
+    details = dict(updated.get("details", {}))
+    details["tool_proposal"] = proposal_record
+    updated["details"] = details
+    return updated
 
 
 def _maybe_refine(

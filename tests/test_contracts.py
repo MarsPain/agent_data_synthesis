@@ -97,6 +97,24 @@ class DatasetContractTest(unittest.TestCase):
                     rejections=[],
                 )
 
+    def test_tool_proposal_contract_requires_safety_notes(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_tool_proposal_record
+
+        proposal = _valid_tool_proposal()
+        proposal.pop("safety_notes")
+
+        with self.assertRaisesRegex(ContractValidationError, "safety_notes"):
+            validate_tool_proposal_record(proposal)
+
+    def test_capability_gap_contract_rejects_unknown_gap_type(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_capability_gap_record
+
+        gap = _valid_capability_gap()
+        gap["gap_type"] = "mystery"
+
+        with self.assertRaisesRegex(ContractValidationError, "gap_type"):
+            validate_capability_gap_record(gap)
+
 
 def _valid_sample() -> dict[str, object]:
     return {
@@ -168,6 +186,40 @@ def _valid_sample() -> dict[str, object]:
                 "id": "exact_answer_verifier",
                 "version": "verifier_exact_answer_v1",
             },
+        },
+    }
+
+
+def _valid_capability_gap() -> dict[str, object]:
+    return {
+        "schema_version": "capability_gap_v1",
+        "candidate_id": "candidate_needs_contacts",
+        "policy_id": "policy_needs_contacts",
+        "gap_type": "unknown_tool",
+        "tool_name": "list_contact_names",
+        "cause": "tool_missing",
+        "message": "Unknown tool: list_contact_names",
+        "schema_details": {"available_tools": ["lookup_contact_email"]},
+        "retry_eligible": True,
+        "source_role_lineage": {},
+    }
+
+
+def _valid_tool_proposal() -> dict[str, object]:
+    return {
+        "schema_version": "tool_proposal_v1",
+        "tool_name": "list_contact_names",
+        "description": "List known contact names.",
+        "schema": {"type": "object", "properties": {}, "required": [], "additionalProperties": False},
+        "side_effects": "read_only",
+        "required_environment": {"environment_id": "contacts_fixture", "tables": ["contacts"]},
+        "verifier_implications": ["final response can cite returned contact names"],
+        "safety_notes": ["read-only curated contacts fixture tool"],
+        "lineage": {
+            "role": "tool_generation",
+            "provider_host": "llm.example.test",
+            "model": "test-generator",
+            "config_hash": "proposal-hash",
         },
     }
 

@@ -29,6 +29,13 @@ REFINEMENT_DECISIONS = {
     "repair_policy",
 }
 
+CAPABILITY_GAP_TYPES = {
+    "unknown_tool",
+    "incompatible_arguments",
+    "unavailable_side_effect",
+    "environment_dependency_mismatch",
+}
+
 
 def validate_candidate_task(task: object) -> CandidateTask:
     if not isinstance(task, CandidateTask):
@@ -107,6 +114,46 @@ def validate_review_record(record: Mapping[str, Any]) -> None:
     _require_non_empty_string(record.get("uncertainty_reason"), "uncertainty_reason")
     _require_non_empty_string(record.get("source_artifact"), "source_artifact")
     _require_non_empty_string(record.get("created_at"), "created_at")
+
+
+def validate_capability_gap_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "capability_gap")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    _require_non_empty_string(record.get("candidate_id"), "candidate_id")
+    _require_non_empty_string(record.get("policy_id"), "policy_id")
+    gap_type = record.get("gap_type")
+    _require_non_empty_string(gap_type, "gap_type")
+    if gap_type not in CAPABILITY_GAP_TYPES:
+        raise ContractValidationError(
+            f"gap_type must be one of {sorted(CAPABILITY_GAP_TYPES)}"
+        )
+    _require_non_empty_string(record.get("tool_name"), "tool_name")
+    cause = record.get("cause")
+    _require_non_empty_string(cause, "cause")
+    if cause not in REJECTION_CAUSES:
+        raise ContractValidationError(f"cause must be one of {sorted(REJECTION_CAUSES)}")
+    _require_non_empty_string(record.get("message"), "message")
+    _require_mapping(record.get("schema_details"), "schema_details")
+    if not isinstance(record.get("retry_eligible"), bool):
+        raise ContractValidationError("retry_eligible must be a bool")
+    _require_mapping(record.get("source_role_lineage"), "source_role_lineage")
+
+
+def validate_tool_proposal_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "tool_proposal")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    _require_non_empty_string(record.get("tool_name"), "tool_name")
+    _require_non_empty_string(record.get("description"), "description")
+    _require_mapping(record.get("schema"), "schema")
+    _require_non_empty_string(record.get("side_effects"), "side_effects")
+    _require_mapping(record.get("required_environment"), "required_environment")
+    _require_non_empty_string_sequence(
+        record.get("verifier_implications"),
+        "verifier_implications",
+    )
+    _require_non_empty_string_sequence(record.get("safety_notes"), "safety_notes")
+    lineage = _require_mapping(record.get("lineage"), "lineage")
+    _validate_lineage_role(lineage, "lineage")
 
 
 def validate_refinement_attempt(record: Mapping[str, Any]) -> None:
@@ -285,6 +332,15 @@ def _require_sequence(raw: object, path: str) -> Sequence[Any]:
     if isinstance(raw, str) or not isinstance(raw, Sequence):
         raise ContractValidationError(f"{path} must be a list")
     return raw
+
+
+def _require_non_empty_string_sequence(raw: object, path: str) -> Sequence[Any]:
+    values = _require_sequence(raw, path)
+    if not values:
+        raise ContractValidationError(f"{path} must contain at least one entry")
+    for index, value in enumerate(values):
+        _require_non_empty_string(value, f"{path}.{index}")
+    return values
 
 
 def _require_non_empty_string(raw: object, path: str) -> str:

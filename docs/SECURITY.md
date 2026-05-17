@@ -21,6 +21,12 @@ Logs may include provider alias, base URL host, model id, prompt or config hash,
 
 ## Generated Code Controls
 
+- The current `tool_generation` role is proposal-only. It may describe a tool
+  contract but must not provide Python code, shell commands, package names,
+  executable handlers, or migrations.
+- Only curated local implementations can be admitted into the active tool
+  registry. Admission requires schema, side-effect, and environment compatibility
+  checks.
 - Static scan generated code for forbidden imports, filesystem paths, subprocess usage, network calls, and environment variable access.
 - Execute generated code with timeouts, memory limits, and deterministic seeds where possible.
 - Separate verifier execution from solution execution.

@@ -16,6 +16,13 @@
 - **Role Definition:** registry entry that names a generation or verification
   role, owner module, output type, enabled state, retry policy, and lineage
   fields.
+- **Capability Gap:** structured diagnosis for a task or solution policy that
+  requires a missing, incompatible, or unavailable tool capability.
+- **Tool Proposal:** structured `tool_generation` output that describes a
+  requested tool contract, side-effect class, environment dependency, verifier
+  implication, safety notes, and lineage without executable code.
+- **Tool Admission:** local curated decision that either admits a known tool
+  implementation into the active registry or rejects the proposal with a reason.
 - **Sample:** accepted training record assembled from the above entities.
 - **Dataset Version:** manifest that groups samples, schemas, generator configs, and quality reports.
 
@@ -35,9 +42,10 @@ Track metrics at sample, batch, and dataset levels:
 - Cost: model calls, tokens, wall time, CPU/GPU time, and human review minutes.
 
 Metrics must be sliceable by domain, task type, difficulty level, tool
-combination, generator role, verifier type, role name, role output type, and
-dataset version. Dataset reports should preserve trends over time so regressions
-are visible instead of hidden inside aggregate averages.
+combination, generator role, verifier type, role name, role output type,
+capability-gap type, proposed tool, proposed tool side-effect class, proposal
+outcome, and dataset version. Dataset reports should preserve trends over time
+so regressions are visible instead of hidden inside aggregate averages.
 
 ## Dataset Output Contract
 
@@ -51,6 +59,8 @@ and a quality report:
   aggregate quality rates.
 - `quality_report.json`: dataset-level counts, rates, rejection-cause counts, and
   deterministic metric slices.
+- `tool_proposals.jsonl`: optional proposal-event records with the original
+  capability gap, structured proposal, and local admission decision.
 
 ```json
 {
@@ -68,8 +78,9 @@ and a quality report:
 ```
 
 `manifest.json` must include artifact references for `samples`, `rejections`, and
-`quality_report`. When parent comparison or review routing is enabled, it also
-references `parent_comparison` and `review_queue`.
+`quality_report`. When tool proposal, parent comparison, or review routing is
+enabled, it also references `tool_proposals`, `parent_comparison`, and
+`review_queue`.
 
 Trajectory events currently supported by the contract are:
 
@@ -101,10 +112,22 @@ preserving the original source failure details.
 - `role_outcomes`, keyed by role name, with attempted, accepted, rejected,
   aggregate retry count, output types, token totals, and cost totals when lineage
   provides them.
+- `tool_proposal_outcomes`, keyed by admission outcome.
 - `slices`, keyed by deterministic dimensions currently available in foundation
   records: dataset version, domain, task type, difficulty level, curriculum level,
   tool combination, generator role, verifier type, rejection cause, refinement
-  status, role name, and role output type.
+  status, role name, role output type, capability-gap type, proposed tool,
+  proposed tool side-effect class, and tool-proposal outcome.
+
+Capability-gap records use `schema_version: capability_gap_v1` and preserve
+candidate id, policy id, gap type, tool name, rejection cause, message, schema
+details, retry eligibility, and source role lineage. Tool proposals use
+`schema_version: tool_proposal_v1` and preserve tool name, description, JSON
+schema, side effects, required environment, verifier implications, safety notes,
+and role lineage. Proposal events use `schema_version: tool_proposal_event_v1`
+and bundle the gap, proposal, and admission decision. Accepted reruns preserve
+this bundle under `lineage.tool_expansion`; rejected reruns preserve it under
+`details.tool_proposal`.
 
 Exact duplicate candidates are rejected with `quality_duplicate` when a later
 accepted candidate repeats the normalized task instruction and ordered action tool
@@ -174,10 +197,11 @@ candidate-level and policy-level provider lineage rather than reconstructing it
 later.
 
 The default role registry currently enables `task_generation`, `solution_policy`,
-and `critic_refinement`. It also defines disabled guardrails for
-`environment_generation`, `tool_generation`, `verifier_generation`,
-`judge_verification`, `task_suggester`, and `task_editor`; these roles must fail
-before any provider call until a later plan explicitly enables and validates
-their output contracts.
+`critic_refinement`, and `tool_generation`. The `tool_generation` role may only
+return structured `tool_proposal` records; executable tool code remains a local
+curated implementation concern. The registry also defines disabled guardrails for
+`environment_generation`, `verifier_generation`, `judge_verification`,
+`task_suggester`, and `task_editor`; these roles must fail before any provider
+call until a later plan explicitly enables and validates their output contracts.
 
 Do not store `AGENT_DATA_API_KEY` or raw provider credentials in manifests, samples, trajectory logs, or rejected-candidate diagnostics.

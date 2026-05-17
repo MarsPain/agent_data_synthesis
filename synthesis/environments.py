@@ -70,6 +70,13 @@ class ContactEnvironment:
             raise KeyError(f"Unknown contact: {name}")
         return {"name": name, "email": row[0]}
 
+    def list_contact_names(self) -> dict[str, str]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                "SELECT name FROM contacts ORDER BY name"
+            ).fetchall()
+        return {"contacts": ", ".join(str(row[0]) for row in rows)}
+
     def record_followup(self, name: str, note: str) -> dict[str, object]:
         self.lookup_email(name)
         with closing(self.connect()) as connection:

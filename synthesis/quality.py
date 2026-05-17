@@ -48,6 +48,8 @@ def build_quality_report(
             "refined_attempted": _refined_attempted_count(samples, rejections),
             "refined_accepted": _refined_accepted_count(samples),
             "refined_rejected": _refined_rejected_count(rejections),
+            "capability_gaps": _capability_gap_count(samples, rejections),
+            "tool_proposals": _tool_proposal_count(samples, rejections),
         },
         "rates": {
             "success_rate": _rate(len(samples), total_count),
@@ -55,6 +57,7 @@ def build_quality_report(
         },
         "rejection_causes": rejection_causes,
         "role_outcomes": _build_role_outcomes(samples, rejections),
+        "tool_proposal_outcomes": _tool_proposal_outcomes(samples, rejections),
         "slices": slices,
     }
 
@@ -176,6 +179,10 @@ def _build_slices(
         "refinement_status": {},
         "role_name": {},
         "role_output_type": {},
+        "capability_gap_type": {},
+        "proposed_tool": {},
+        "proposed_tool_side_effect": {},
+        "tool_proposal_outcome": {},
     }
     for sample in samples:
         _add_slice(dimensions["dataset_version"], str(sample.get("dataset_version", dataset_version)), accepted=True)
@@ -190,6 +197,8 @@ def _build_slices(
         for lineage in _sample_role_lineages(sample):
             _add_slice(dimensions["role_name"], _role_name(lineage), accepted=True)
             _add_slice(dimensions["role_output_type"], _role_output_type(lineage), accepted=True)
+        for expansion in _sample_tool_expansions(sample):
+            _add_tool_expansion_slices(dimensions, expansion, accepted=True)
 
     for rejection in rejections:
         task = _mapping(rejection.get("task"))
@@ -208,6 +217,8 @@ def _build_slices(
         for lineage in _rejection_role_lineages(rejection):
             _add_slice(dimensions["role_name"], _role_name(lineage), accepted=False)
             _add_slice(dimensions["role_output_type"], _role_output_type(lineage), accepted=False)
+        for expansion in _rejection_tool_expansions(rejection):
+            _add_tool_expansion_slices(dimensions, expansion, accepted=False)
 
     return {
         dimension: {key: _with_rates(counts) for key, counts in sorted(values.items())}
@@ -238,6 +249,28 @@ def _build_role_outcomes(
         }
         for role, values in sorted(outcomes.items())
     }
+
+
+def _add_tool_expansion_slices(
+    dimensions: dict[str, dict[str, dict[str, int]]],
+    expansion: Mapping[str, Any],
+    *,
+    accepted: bool,
+) -> None:
+    gap = _mapping(expansion.get("gap"))
+    proposal = _mapping(expansion.get("proposal"))
+    admission = _mapping(expansion.get("admission"))
+    if gap:
+        _add_slice(dimensions["capability_gap_type"], str(gap.get("gap_type", "unknown")), accepted=accepted)
+    if proposal:
+        _add_slice(dimensions["proposed_tool"], str(proposal.get("tool_name", "unknown")), accepted=accepted)
+        _add_slice(
+            dimensions["proposed_tool_side_effect"],
+            str(proposal.get("side_effects", "unknown")),
+            accepted=accepted,
+        )
+    if admission:
+        _add_slice(dimensions["tool_proposal_outcome"], str(admission.get("outcome", "unknown")), accepted=accepted)
 
 
 def _add_role_outcome(
@@ -331,6 +364,42 @@ def _refined_attempted_count(
     return _refined_accepted_count(samples) + _refined_rejected_count(rejections)
 
 
+def _capability_gap_count(
+    samples: list[dict[str, object]],
+    rejections: list[dict[str, object]],
+) -> int:
+    return sum(1 for sample in samples for _ in _sample_tool_expansions(sample)) + sum(
+        1
+        for rejection in rejections
+        if _mapping(_mapping(rejection.get("details")).get("capability_gap"))
+    )
+
+
+def _tool_proposal_count(
+    samples: list[dict[str, object]],
+    rejections: list[dict[str, object]],
+) -> int:
+    return sum(1 for sample in samples for _ in _sample_tool_expansions(sample)) + sum(
+        1
+        for rejection in rejections
+        for _ in _rejection_tool_expansions(rejection)
+    )
+
+
+def _tool_proposal_outcomes(
+    samples: list[dict[str, object]],
+    rejections: list[dict[str, object]],
+) -> dict[str, int]:
+    outcomes: dict[str, int] = {}
+    for expansion in [
+        *[expansion for sample in samples for expansion in _sample_tool_expansions(sample)],
+        *[expansion for rejection in rejections for expansion in _rejection_tool_expansions(rejection)],
+    ]:
+        outcome = str(_mapping(expansion.get("admission")).get("outcome", "unknown"))
+        outcomes[outcome] = outcomes.get(outcome, 0) + 1
+    return dict(sorted(outcomes.items()))
+
+
 def _normalize_instruction(raw: object) -> str:
     return re.sub(r"\s+", " ", str(raw or "").strip().lower())
 
@@ -377,7 +446,7 @@ def _generator_role(sample: Mapping[str, Any]) -> str:
 
 def _sample_role_lineages(sample: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     lineage = _mapping(sample.get("lineage"))
-    return [
+    role_lineages = [
         role_lineage
         for role_lineage in (
             _mapping(lineage.get("generator")),
@@ -386,6 +455,11 @@ def _sample_role_lineages(sample: Mapping[str, Any]) -> list[Mapping[str, Any]]:
         )
         if role_lineage
     ]
+    for expansion in _sample_tool_expansions(sample):
+        proposal_lineage = _mapping(_mapping(expansion.get("proposal")).get("lineage"))
+        if proposal_lineage:
+            role_lineages.append(proposal_lineage)
+    return role_lineages
 
 
 def _rejection_role_lineages(rejection: Mapping[str, Any]) -> list[Mapping[str, Any]]:
@@ -409,7 +483,23 @@ def _rejection_role_lineages(rejection: Mapping[str, Any]) -> list[Mapping[str, 
     refinement_lineage = _mapping(refinement.get("lineage"))
     if refinement_lineage:
         lineages.append(refinement_lineage)
+    for expansion in _rejection_tool_expansions(rejection):
+        proposal_lineage = _mapping(_mapping(expansion.get("proposal")).get("lineage"))
+        if proposal_lineage:
+            lineages.append(proposal_lineage)
     return lineages
+
+
+def _sample_tool_expansions(sample: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    lineage = _mapping(sample.get("lineage"))
+    expansion = _mapping(lineage.get("tool_expansion"))
+    return [expansion] if expansion else []
+
+
+def _rejection_tool_expansions(rejection: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    details = _mapping(rejection.get("details"))
+    expansion = _mapping(details.get("tool_proposal"))
+    return [expansion] if expansion else []
 
 
 def _role_name(lineage: Mapping[str, Any]) -> str:

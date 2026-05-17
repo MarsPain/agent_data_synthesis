@@ -458,6 +458,100 @@ class FoundationPipelineTest(unittest.TestCase):
             rejection = json.loads(result.rejections_path.read_text(encoding="utf-8").splitlines()[0])
             self.assertEqual(rejection["cause"], "tool_missing")
             self.assertEqual(rejection["details"]["error_class"], "ToolMissingError")
+            self.assertEqual(rejection["details"]["capability_gap"]["gap_type"], "unknown_tool")
+
+    def test_explicit_tool_expansion_admits_curated_tool_and_reruns_candidate(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+        from synthesis.tools import CapabilityGap, ToolProposal
+
+        def missing_tool_generator(seed) -> list[CandidateTask]:
+            return [
+                CandidateTask(
+                    candidate_id="candidate_list_contacts",
+                    instruction="List the known contact names.",
+                    constraints={"must_use_tool": "list_contact_names"},
+                    difficulty={
+                        "level": "easy",
+                        "tool_count": 1,
+                        "state_changes": 0,
+                        "ambiguity": "none",
+                        "recovery_paths": 0,
+                    },
+                    tool_name="list_contact_names",
+                    arguments={},
+                    expected_answer="Alice Zhang",
+                    seed_ids=(seed.seed_id,),
+                )
+            ]
+
+        def policy_generator(task: CandidateTask) -> SolutionPolicy:
+            return SolutionPolicy(
+                policy_id="policy_list_contacts",
+                role="solution_policy",
+                steps=(ToolStep(tool_name="list_contact_names", arguments={}),),
+                final_response_template="Known contacts: {contacts}",
+                lineage={
+                    "role": "solution_policy",
+                    "role_version": "role_solution_policy_v1",
+                    "output_type": "solution_policy",
+                    "provider_host": "llm.example.test",
+                    "model": "test-generator",
+                    "config_hash": "policy-hash",
+                },
+            )
+
+        def proposal_generator(gap: CapabilityGap) -> ToolProposal:
+            self.assertEqual(gap.tool_name, "list_contact_names")
+            return ToolProposal(
+                tool_name="list_contact_names",
+                description="List known contact names.",
+                schema={"type": "object", "properties": {}, "required": [], "additionalProperties": False},
+                side_effects="read_only",
+                required_environment={"environment_id": "contacts_fixture", "tables": ["contacts"]},
+                verifier_implications=["final response can cite returned contact names"],
+                safety_notes=["read-only curated contacts fixture tool"],
+                lineage={
+                    "role": "tool_generation",
+                    "role_version": "role_tool_generation_v1",
+                    "output_type": "tool_proposal",
+                    "provider_host": "llm.example.test",
+                    "model": "test-generator",
+                    "config_hash": "proposal-hash",
+                },
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_foundation_pipeline(
+                Path(tmpdir),
+                dataset_version="dataset_tool_expansion_test",
+                candidate_generator=missing_tool_generator,
+                policy_generator=policy_generator,
+                tool_proposal_generator=proposal_generator,
+            )
+
+            self.assertEqual(result.accepted_count, 1)
+            self.assertEqual(result.rejected_count, 0)
+            self.assertIsNotNone(result.tool_proposals_path)
+
+            sample = json.loads(result.samples_path.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(sample["trajectory"][0]["tool"], "list_contact_names")
+            self.assertEqual(sample["lineage"]["tool_expansion"]["proposal"]["tool_name"], "list_contact_names")
+            self.assertEqual(sample["lineage"]["tool_expansion"]["admission"]["outcome"], "accepted")
+
+            proposals = [
+                json.loads(line)
+                for line in result.tool_proposals_path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(proposals[0]["proposal"]["tool_name"], "list_contact_names")
+            self.assertEqual(proposals[0]["admission"]["outcome"], "accepted")
+
+            manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["artifacts"]["tool_proposals"], "tool_proposals.jsonl")
+
+            quality_report = json.loads(result.quality_report_path.read_text(encoding="utf-8"))
+            self.assertEqual(quality_report["counts"]["tool_proposals"], 1)
+            self.assertEqual(quality_report["counts"]["capability_gaps"], 1)
+            self.assertIn("list_contact_names", quality_report["slices"]["proposed_tool"])
 
     def test_rejects_candidate_when_candidate_shape_is_invalid(self) -> None:
         from synthesis.pipeline import run_foundation_pipeline

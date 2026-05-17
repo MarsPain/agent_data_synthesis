@@ -122,11 +122,11 @@ def default_role_registry() -> RoleRegistry:
                 owner_module="synthesis.environments",
                 output_type="environment_definition",
             ),
-            _disabled_role(
+            _enabled_role(
                 name=TOOL_GENERATION_ROLE,
-                version="role_tool_generation_v0",
+                version="role_tool_generation_v1",
                 owner_module="synthesis.tools",
-                output_type="tool_definition",
+                output_type="tool_proposal",
             ),
             _disabled_role(
                 name=VERIFIER_GENERATION_ROLE,

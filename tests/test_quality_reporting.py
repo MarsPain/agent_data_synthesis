@@ -33,6 +33,8 @@ class QualityReportingTest(unittest.TestCase):
         self.assertIn("task_generation", report["slices"]["generator_role"])
         self.assertIn("exact_answer_verifier", report["slices"]["verifier_type"])
         self.assertIn("verification_failed", report["slices"]["rejection_cause"])
+        self.assertEqual(report["counts"]["capability_gaps"], 0)
+        self.assertEqual(report["counts"]["tool_proposals"], 0)
 
     def test_report_summarizes_role_outcomes_tokens_cost_and_role_slices(self) -> None:
         from synthesis.quality import build_quality_report
@@ -99,6 +101,51 @@ class QualityReportingTest(unittest.TestCase):
         self.assertIn("task_generation", report["slices"]["role_name"])
         self.assertIn("solution_policy", report["slices"]["role_output_type"])
         self.assertIn("refinement_attempt", report["slices"]["role_output_type"])
+
+    def test_report_summarizes_capability_gaps_and_tool_proposal_outcomes(self) -> None:
+        from synthesis.quality import build_quality_report
+
+        sample = _sample()
+        sample["lineage"]["tool_expansion"] = {
+            "gap": {
+                "gap_type": "unknown_tool",
+                "tool_name": "list_contact_names",
+                "cause": "tool_missing",
+            },
+            "proposal": {
+                "tool_name": "list_contact_names",
+                "side_effects": "read_only",
+                "lineage": {"role": "tool_generation", "output_type": "tool_proposal"},
+            },
+            "admission": {"outcome": "accepted", "tool_name": "list_contact_names"},
+        }
+        rejection = _rejection()
+        rejection["details"]["capability_gap"] = {
+            "gap_type": "incompatible_arguments",
+            "tool_name": "lookup_contact_email",
+            "cause": "tool_schema_error",
+        }
+        rejection["details"]["tool_proposal"] = {
+            "proposal": {
+                "tool_name": "lookup_contact_email",
+                "side_effects": "read_only",
+                "lineage": {"role": "tool_generation", "output_type": "tool_proposal"},
+            },
+            "admission": {"outcome": "rejected", "reason": "schema mismatch"},
+        }
+
+        report = build_quality_report(
+            dataset_version="dataset_test",
+            samples=[sample],
+            rejections=[rejection],
+        )
+
+        self.assertEqual(report["counts"]["capability_gaps"], 2)
+        self.assertEqual(report["counts"]["tool_proposals"], 2)
+        self.assertEqual(report["tool_proposal_outcomes"], {"accepted": 1, "rejected": 1})
+        self.assertIn("unknown_tool", report["slices"]["capability_gap_type"])
+        self.assertIn("list_contact_names", report["slices"]["proposed_tool"])
+        self.assertIn("read_only", report["slices"]["proposed_tool_side_effect"])
 
     def test_duplicate_signature_uses_normalized_instruction_and_ordered_actions(self) -> None:
         from synthesis.quality import duplicate_signature
