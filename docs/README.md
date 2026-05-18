@@ -33,6 +33,7 @@
 
 - [exec-plans/active/README.md](exec-plans/active/README.md): active plan bucket.
 - [exec-plans/active/0012-controlled-network-backed-environment-synthesis.md](exec-plans/active/0012-controlled-network-backed-environment-synthesis.md): current controlled network-backed environment synthesis implementation plan.
+- [exec-plans/active/0013-mcp-compatible-environment-tool-adapters.md](exec-plans/active/0013-mcp-compatible-environment-tool-adapters.md): next MCP-compatible local environment/tool adapter plan.
 - [exec-plans/completed/README.md](exec-plans/completed/README.md): completed plan bucket.
 - [exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md](exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md): latest completed source provenance, license eligibility, default-deny network policy, sandbox policy, source-event audit artifacts, and reporting slices.
 - [exec-plans/tech-debt/README.md](exec-plans/tech-debt/README.md): technical debt bucket.

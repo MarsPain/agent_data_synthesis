@@ -61,6 +61,11 @@ def parse_args() -> argparse.Namespace:
         help="Enable deterministic seed transformation and task suggester/editor expansion.",
     )
     parser.add_argument(
+        "--enable-mcp-adapter",
+        action="store_true",
+        help="Route fixture tool calls through the local in-process MCP-compatible adapter shim.",
+    )
+    parser.add_argument(
         "--enable-source-governance-fixture",
         action="store_true",
         help=(
@@ -175,6 +180,7 @@ def main() -> int:
             ),
             contacts_environment_input=contacts_environment_input,
             source_events=source_events,
+            enable_mcp_adapter=args.enable_mcp_adapter,
         )
     except (LLMConfigurationError, LLMProviderError) as exc:
         print(str(exc), file=sys.stderr)

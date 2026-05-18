@@ -17,6 +17,9 @@ The first backend should be a local Python pipeline with explicit modules and du
 - `synthesis.tools`: tool definitions, schema generation, registry, dependency
   graph, capability-gap records, bounded tool proposals, and curated local tool
   admission.
+- `synthesis.mcp`: local MCP-compatible adapter manifests, tool-call request and
+  result envelopes, adapter lineage records, and the in-process contacts adapter
+  shim. It does not start an MCP server or connect to external tool servers.
 - `synthesis.tasks`: task generation, seed-transformation expansion, task
   suggestion, edited-task assembly, difficulty scoring, curriculum policies,
   expected state declarations, optional branch-plan records, and candidate-level
@@ -91,8 +94,12 @@ manifests, trajectories, exports, or logs.
 9. Generate or select a solution policy for each valid task, using the
    `solution_policy` role for remote policies and deterministic local lineage for
    scripted policies.
-10. Execute policy steps against the environment and record action, observation,
-   state-change, and final-response events.
+10. Execute policy steps directly against the local registry by default. When
+   `--enable-mcp-adapter` or `enable_mcp_adapter=True` is explicitly set, route
+   the same policy steps through the local in-process contacts adapter shim. The
+   top-level trajectory still records the normal action, observation,
+   state-change, and final-response events; adapter call metadata is stored in
+   lineage and rejection details.
 11. When a candidate carries a bounded branch plan, execute branch attempts from a
    clean environment checkpoint until one terminal path succeeds, preserving
    rejected branch outcomes separately from the selected trajectory.
@@ -116,6 +123,15 @@ The controlled network path is available from the CLI only with
 one `--allowed-source-host`. Tests and local validation can exercise the same
 path without external network access by passing `--mock-source-fixture`, which
 injects a fixture-backed HTTP client.
+
+The MCP-compatible adapter path is local and opt-in. `--enable-mcp-adapter`
+builds a manifest for the contacts environment and curated contacts tool
+registry, then executes calls through an in-process shim. The manifest records
+adapter id, protocol label, adapter version, environment id/version,
+source-policy hash, reset/checkpoint support, supported operations, tool schemas,
+side-effect classes, and verifier implications. This path deliberately excludes
+external MCP server discovery, browser automation, credential brokering, remote
+filesystem access, and generated tool handlers.
 
 ## Scaling Direction
 

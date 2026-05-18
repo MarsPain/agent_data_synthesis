@@ -116,6 +116,114 @@ class FoundationPipelineTest(unittest.TestCase):
                 quality_report["slices"]["tool_combination"],
             )
 
+    def test_adapter_fixture_path_records_lineage_without_changing_default_counts(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            direct = run_foundation_pipeline(
+                Path(tmpdir) / "direct",
+                dataset_version="dataset_direct",
+            )
+            adapter = run_foundation_pipeline(
+                Path(tmpdir) / "adapter",
+                dataset_version="dataset_adapter",
+                enable_mcp_adapter=True,
+            )
+
+            self.assertEqual(adapter.accepted_count, direct.accepted_count)
+            self.assertEqual(adapter.rejected_count, direct.rejected_count)
+            direct_samples = [
+                json.loads(line)
+                for line in direct.samples_path.read_text(encoding="utf-8").splitlines()
+            ]
+            adapter_samples = [
+                json.loads(line)
+                for line in adapter.samples_path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(
+                [sample["final_response"] for sample in adapter_samples],
+                [sample["final_response"] for sample in direct_samples],
+            )
+            self.assertNotIn("adapter", direct_samples[0]["lineage"])
+            self.assertEqual(
+                adapter_samples[0]["lineage"]["adapter"][0]["adapter_id"],
+                "contacts_local_mcp_adapter",
+            )
+            self.assertEqual(
+                adapter_samples[0]["lineage"]["adapter"][0]["execution_status"],
+                "succeeded",
+            )
+
+            report = json.loads(adapter.quality_report_path.read_text(encoding="utf-8"))
+            self.assertIn(
+                "contacts_local_mcp_adapter",
+                report["slices"]["adapter_id"],
+            )
+            self.assertIn(
+                "mcp-compatible-local-shim",
+                report["slices"]["adapter_protocol"],
+            )
+            self.assertIn("succeeded", report["slices"]["adapter_execution_outcome"])
+
+    def test_adapter_contract_rejection_is_non_executable(self) -> None:
+        from synthesis.execution import SolutionPolicy, ToolStep
+        from synthesis.pipeline import run_foundation_pipeline
+
+        def one_candidate(seed) -> list[CandidateTask]:
+            return [
+                CandidateTask(
+                    candidate_id="candidate_bad_adapter_args",
+                    instruction="Find Alice Zhang's email address.",
+                    constraints={"must_use_tool": "lookup_contact_email"},
+                    difficulty={
+                        "level": "easy",
+                        "tool_count": 1,
+                        "constraint_count": 1,
+                        "state_changes": 0,
+                        "ambiguity": "none",
+                        "recovery_paths": 0,
+                    },
+                    tool_name="lookup_contact_email",
+                    arguments={"name": "Alice Zhang"},
+                    expected_answer="alice.zhang@example.test",
+                    seed_ids=(seed.seed_id,),
+                )
+            ]
+
+        def bad_policy(task: CandidateTask) -> SolutionPolicy:
+            return SolutionPolicy(
+                policy_id="policy_bad_adapter_args",
+                role="scripted_solution_policy",
+                steps=(
+                    ToolStep(
+                        tool_name="lookup_contact_email",
+                        arguments={"name": 42},
+                    ),
+                ),
+                final_response_template="{email}",
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_foundation_pipeline(
+                Path(tmpdir),
+                dataset_version="dataset_adapter_rejection",
+                candidate_generator=one_candidate,
+                policy_generator=bad_policy,
+                enable_mcp_adapter=True,
+            )
+
+            self.assertEqual(result.accepted_count, 0)
+            self.assertEqual(result.rejected_count, 1)
+            rejection = json.loads(result.rejections_path.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(rejection["cause"], "adapter_contract_rejected")
+            self.assertEqual(
+                rejection["details"]["adapter_rejection"]["rejection_cause"],
+                "tool_schema_error",
+            )
+            report = json.loads(result.quality_report_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["counts"]["executable"], 0)
+            self.assertIn("tool_schema_error", report["slices"]["adapter_rejection_cause"])
+
     def test_execution_rejects_malformed_solution_policy_before_tool_call(self) -> None:
         from synthesis.execution import PolicyValidationError, execute_candidate
         from synthesis.environments import ContactEnvironment

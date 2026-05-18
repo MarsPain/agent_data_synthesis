@@ -11,6 +11,9 @@
 - [0012-controlled-network-backed-environment-synthesis](exec-plans/active/0012-controlled-network-backed-environment-synthesis.md):
   controlled opt-in HTTPS source ingestion for contacts environment synthesis;
   implemented in branch `plan-0012-network-env-synthesis` and pending review.
+- [0013-mcp-compatible-environment-tool-adapters](exec-plans/active/0013-mcp-compatible-environment-tool-adapters.md):
+  implemented local MCP-compatible environment/tool adapter contract and
+  in-process contacts shim; pending review.
 
 ## Completed
 

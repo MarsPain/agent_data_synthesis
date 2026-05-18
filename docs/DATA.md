@@ -58,6 +58,16 @@
   implication, safety notes, and lineage without executable code.
 - **Tool Admission:** local curated decision that either admits a known tool
   implementation into the active registry or rejects the proposal with a reason.
+- **Adapter Manifest:** local MCP-compatible description of an environment/tool
+  bundle, including adapter identity, protocol label, environment metadata,
+  source-policy hash, supported operations, tool schemas, side effects,
+  reset/checkpoint support, and verifier implications.
+- **Adapter Call Envelope:** tool-call request and result records routed through
+  the local adapter boundary. Result envelopes record observation payloads,
+  side-effect summaries, execution status, and classified adapter errors.
+- **Adapter Lineage:** sample or rejection metadata showing which adapter,
+  protocol label, operation, tool, call id, and execution outcome participated in
+  an opt-in adapter run.
 - **Sample:** accepted training record assembled from the above entities.
 - **Dataset Version:** manifest that groups samples, schemas, generator configs, and quality reports.
 
@@ -82,9 +92,10 @@ capability-gap type, proposed tool, proposed tool side-effect class, proposal
 outcome, branch depth, selected branch, branch outcome, fallback count, and
 seed-transformation type, taxonomy node, suggestion outcome, editor action, edit
 rejection cause, source kind, license policy outcome, external-source
-eligibility, source rejection cause, environment-source admission outcome, and
-dataset version. Dataset reports should preserve trends over time so regressions
-are visible instead of hidden inside aggregate averages.
+eligibility, source rejection cause, environment-source admission outcome,
+adapter id, adapter protocol, adapter execution outcome, adapter rejection cause,
+and dataset version. Dataset reports should preserve trends over time so
+regressions are visible instead of hidden inside aggregate averages.
 
 ## Dataset Output Contract
 
@@ -114,7 +125,7 @@ and a quality report:
   "final_response": "...",
   "verification": {"passed": true, "checks": []},
   "quality": {"scores": {}, "tags": []},
-  "lineage": {"seed_ids": [], "generator": {}, "source_provenance": {}, "solution_policy": {}, "refinement": {}, "verifier": {}}
+  "lineage": {"seed_ids": [], "generator": {}, "source_provenance": {}, "solution_policy": {}, "adapter": [], "refinement": {}, "verifier": {}}
 }
 ```
 
@@ -163,6 +174,16 @@ trajectory. The top-level sample `trajectory` remains the selected successful
 path. Failed branching candidates preserve branch outcomes under
 `details.branch_outcomes`.
 
+`lineage.adapter` is present only for samples produced with the opt-in local
+MCP-compatible adapter path. Each record uses `schema_version:
+adapter_lineage_v1` and records adapter id, protocol label, adapter version,
+operation, tool name, call id, execution status, and optional rejection cause.
+Adapter execution preserves the normal trajectory event contract; it does not
+add adapter-specific events to the top-level trajectory. Adapter-contract
+failures are rejected with `adapter_contract_rejected` and store sanitized
+details under `details.adapter_rejection`, including the adapter lineage record
+and the classified result envelope.
+
 `lineage.seed_transformation`, `lineage.task_suggester`, and
 `lineage.task_editor` are present only for accepted samples produced through the
 task-expansion loop. The seed-transformation record uses
@@ -200,7 +221,8 @@ suggester and editor metadata do not overwrite those fields.
   branch, branch outcome, fallback count, seed-transformation type, taxonomy
   node, suggestion outcome, editor action, edit rejection cause, source kind,
   license policy outcome, external-source eligibility, source rejection cause,
-  and environment-source admission outcome.
+  environment-source admission outcome, adapter id, adapter protocol, adapter
+  execution outcome, and adapter rejection cause.
 
 Capability-gap records use `schema_version: capability_gap_v1` and preserve
 candidate id, policy id, gap type, tool name, rejection cause, message, schema
@@ -218,6 +240,14 @@ final-response template, and terminal outcome. The deterministic foundation
 runner currently enables the branching fixture only when requested with
 `--enable-branching` or `enable_branching=True`, keeping default serial exports
 stable.
+
+Adapter manifests use `schema_version: mcp_adapter_manifest_v1`. Tool-call
+requests use `schema_version: mcp_tool_call_request_v1`, and results use
+`schema_version: mcp_tool_call_result_v1`. The first supported operation is
+`tool.call`. Successful results carry `execution_status: succeeded`; contract or
+schema failures carry `rejected`; runtime failures carry `failed`. Adapter
+contract rejections are non-executable for quality-rate purposes and do not
+inflate verifier success metrics.
 
 Exact duplicate candidates are rejected with `quality_duplicate` when a later
 accepted candidate repeats the normalized task instruction and ordered action tool

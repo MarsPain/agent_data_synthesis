@@ -31,6 +31,12 @@ from synthesis.execution import (
     scripted_solution_policy,
 )
 from synthesis.llm import LLMConfig, LLMProviderError, OpenAICompatibleClient
+from synthesis.mcp import (
+    ADAPTER_VERSION,
+    PROTOCOL_LABEL,
+    AdapterExecutionError,
+    LocalContactsAdapterShim,
+)
 from synthesis.quality import (
     build_review_record,
     candidate_duplicate_signature,
@@ -200,6 +206,7 @@ def run_foundation_pipeline(
     enable_source_audit: bool = False,
     contacts_environment_input: ContactsEnvironmentInput | None = None,
     source_events: list[dict[str, object]] | None = None,
+    enable_mcp_adapter: bool = False,
 ) -> PipelineResult:
     seed = foundation_seed()
     source_event_records: list[dict[str, object]] = list(source_events or [])
@@ -306,6 +313,11 @@ def run_foundation_pipeline(
             source_provenance=source_provenance,
         )
     registry = build_contact_tool_registry(environment)
+    adapter_shim = (
+        LocalContactsAdapterShim(environment=environment, registry=registry)
+        if enable_mcp_adapter
+        else None
+    )
     verifier = ExactAnswerVerifier()
     llm_config = LLMConfig.from_env()
     if candidate_generator is None:
@@ -385,6 +397,7 @@ def run_foundation_pipeline(
             dataset_version=dataset_version,
             environment=environment,
             registry=registry,
+            adapter_shim=adapter_shim,
             verifier=verifier,
             llm_config=llm_config,
             generate_policy=generate_policy,
@@ -422,6 +435,7 @@ def run_foundation_pipeline(
                 dataset_version=dataset_version,
                 environment=environment,
                 registry=registry,
+                adapter_shim=adapter_shim,
                 verifier=verifier,
                 llm_config=llm_config,
                 generate_policy=generate_policy,
@@ -466,6 +480,7 @@ def _process_candidate_through_gates(
     dataset_version: str,
     environment: ContactEnvironment,
     registry: ToolRegistry,
+    adapter_shim: LocalContactsAdapterShim | None,
     verifier: ExactAnswerVerifier,
     llm_config: LLMConfig,
     generate_policy: PolicyGenerator,
@@ -490,6 +505,7 @@ def _process_candidate_through_gates(
         dataset_version=dataset_version,
         environment=environment,
         registry=registry,
+        adapter_shim=adapter_shim,
         verifier=verifier,
         llm_config=llm_config,
         generate_policy=generate_policy,
@@ -505,6 +521,7 @@ def _process_candidate_through_gates(
         dataset_version=dataset_version,
         environment=environment,
         registry=registry,
+        adapter_shim=adapter_shim,
         verifier=verifier,
         llm_config=llm_config,
         generate_policy=generate_policy,
@@ -565,6 +582,7 @@ def _process_candidate_through_gates(
         dataset_version=dataset_version,
         environment=environment,
         registry=registry,
+        adapter_shim=adapter_shim,
         verifier=verifier,
         llm_config=llm_config,
         generate_policy=generate_policy,
@@ -618,6 +636,7 @@ def _run_candidate_attempt(
     dataset_version: str,
     environment: ContactEnvironment,
     registry: ToolRegistry,
+    adapter_shim: LocalContactsAdapterShim | None,
     verifier: ExactAnswerVerifier,
     llm_config: LLMConfig,
     generate_policy: PolicyGenerator,
@@ -648,7 +667,27 @@ def _run_candidate_attempt(
                 capability_gap=None,
             )
     try:
-        execution = execute_candidate(task, registry, policy=policy)
+        execution = execute_candidate(
+            task,
+            registry,
+            policy=policy,
+            adapter_shim=adapter_shim,
+        )
+    except AdapterExecutionError as exc:
+        adapter_rejection = _adapter_rejection_record(exc)
+        return CandidateAttemptResult(
+            sample=None,
+            rejection=assemble_execution_rejection(
+                task=task,
+                error=exc,
+                cause="adapter_contract_rejected",
+                policy=policy,
+                adapter_rejection=adapter_rejection,
+            ),
+            signature=None,
+            policy=policy,
+            capability_gap=None,
+        )
     except ToolMissingError as exc:
         gap = build_capability_gap(
             task=task,
@@ -795,6 +834,7 @@ def _maybe_expand_tool_and_rerun(
     dataset_version: str,
     environment: ContactEnvironment,
     registry: ToolRegistry,
+    adapter_shim: LocalContactsAdapterShim | None,
     verifier: ExactAnswerVerifier,
     llm_config: LLMConfig,
     generate_policy: PolicyGenerator,
@@ -855,6 +895,7 @@ def _maybe_expand_tool_and_rerun(
         dataset_version=dataset_version,
         environment=environment,
         registry=registry,
+        adapter_shim=adapter_shim,
         verifier=verifier,
         llm_config=llm_config,
         generate_policy=generate_policy,
@@ -882,6 +923,25 @@ def _attach_tool_proposal_to_rejection(
     details["tool_proposal"] = proposal_record
     updated["details"] = details
     return updated
+
+
+def _adapter_rejection_record(error: AdapterExecutionError) -> dict[str, object]:
+    result = error.result
+    adapter_error = result.error or {}
+    cause = str(adapter_error.get("cause", "adapter_error"))
+    record = {
+        "schema_version": "adapter_lineage_v1",
+        "adapter_id": result.adapter_id,
+        "protocol_label": PROTOCOL_LABEL,
+        "adapter_version": ADAPTER_VERSION,
+        "operation": "tool.call",
+        "tool_name": result.tool_name,
+        "call_id": result.call_id,
+        "execution_status": result.execution_status,
+        "rejection_cause": cause,
+    }
+    record["result"] = result.export()
+    return record
 
 
 def _maybe_refine(

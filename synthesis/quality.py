@@ -207,6 +207,10 @@ def _build_slices(
         "external_source_eligibility": {},
         "source_rejection_cause": {},
         "environment_source_admission": {},
+        "adapter_id": {},
+        "adapter_protocol": {},
+        "adapter_execution_outcome": {},
+        "adapter_rejection_cause": {},
     }
     for sample in samples:
         _add_slice(dimensions["dataset_version"], str(sample.get("dataset_version", dataset_version)), accepted=True)
@@ -240,6 +244,8 @@ def _build_slices(
             _sample_source_provenance(sample),
             accepted=True,
         )
+        for adapter in _sample_adapter_lineages(sample):
+            _add_adapter_slices(dimensions, adapter, accepted=True)
 
     for rejection in rejections:
         task = _mapping(rejection.get("task"))
@@ -292,6 +298,8 @@ def _build_slices(
             _rejection_source_governance(rejection),
             accepted=False,
         )
+        for adapter in _rejection_adapter_lineages(rejection):
+            _add_adapter_slices(dimensions, adapter, accepted=False)
 
     return {
         dimension: {key: _with_rates(counts) for key, counts in sorted(values.items())}
@@ -408,6 +416,28 @@ def _add_source_governance_slices(
             str(provenance.get("environment_source_admission")),
             accepted=accepted,
         )
+
+
+def _add_adapter_slices(
+    dimensions: dict[str, dict[str, dict[str, int]]],
+    adapter: Mapping[str, Any],
+    *,
+    accepted: bool,
+) -> None:
+    _add_slice(dimensions["adapter_id"], str(adapter.get("adapter_id", "unknown")), accepted=accepted)
+    _add_slice(
+        dimensions["adapter_protocol"],
+        str(adapter.get("protocol_label", "unknown")),
+        accepted=accepted,
+    )
+    _add_slice(
+        dimensions["adapter_execution_outcome"],
+        str(adapter.get("execution_status", "unknown")),
+        accepted=accepted,
+    )
+    rejection_cause = adapter.get("rejection_cause")
+    if rejection_cause:
+        _add_slice(dimensions["adapter_rejection_cause"], str(rejection_cause), accepted=accepted)
 
 
 def _add_role_outcome(
@@ -807,6 +837,14 @@ def _sample_source_provenance(sample: Mapping[str, Any]) -> Mapping[str, Any]:
     return _mapping(lineage.get("source_provenance"))
 
 
+def _sample_adapter_lineages(sample: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    lineage = _mapping(sample.get("lineage"))
+    adapters = lineage.get("adapter")
+    if isinstance(adapters, list):
+        return [_mapping(adapter) for adapter in adapters if _mapping(adapter)]
+    return []
+
+
 def _rejection_tool_expansions(rejection: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     details = _mapping(rejection.get("details"))
     expansion = _mapping(details.get("tool_proposal"))
@@ -866,6 +904,12 @@ def _rejection_task_editors(rejection: Mapping[str, Any]) -> list[Mapping[str, A
 def _rejection_source_governance(rejection: Mapping[str, Any]) -> Mapping[str, Any]:
     details = _mapping(rejection.get("details"))
     return _mapping(details.get("source_governance"))
+
+
+def _rejection_adapter_lineages(rejection: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    details = _mapping(rejection.get("details"))
+    adapter = _mapping(details.get("adapter_rejection"))
+    return [adapter] if adapter else []
 
 
 def _role_name(lineage: Mapping[str, Any]) -> str:

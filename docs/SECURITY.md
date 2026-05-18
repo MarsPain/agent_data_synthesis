@@ -44,6 +44,21 @@ environment. Fetch audit events record `fetch_attempt`, `fetch_accepted`, or
 `environment_source_admitted` or `environment_source_rejected`. These events use
 origin aliases and hashes only.
 
+## Local MCP-Compatible Adapter Controls
+
+The MCP-compatible adapter path is disabled by default and enabled only with
+`--enable-mcp-adapter` or `enable_mcp_adapter=True`. The first adapter is an
+in-process contacts shim over the already-curated local tool registry. It does
+not discover or connect to arbitrary MCP servers, start browser automation, read
+credentials, broker secrets, access remote filesystems, or execute generated
+handlers.
+
+Adapter manifests must include environment identity, source-policy hash,
+supported operations, tool schemas, side-effect classes, and verifier
+implications before execution. Adapter request and result envelopes are
+validated locally. Contract failures are rejected as `adapter_contract_rejected`
+with sanitized details; they are not treated as executable verifier failures.
+
 ## LLM Provider Secrets
 
 The synthesis pipeline may call a remote OpenAI-compatible LLM API configured by `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`. The project should not deploy local LLM clusters or expose provider credentials to generated code, tools, environments, fixtures, manifests, trajectory exports, or rejected-candidate diagnostics.

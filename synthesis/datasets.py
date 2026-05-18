@@ -71,6 +71,8 @@ def assemble_sample(
         lineage["tool_expansion"] = _tool_expansion_lineage(tool_expansion)
     if execution.branch_outcomes:
         lineage["branching"] = _branching_lineage(execution)
+    if execution.adapter_lineage:
+        lineage["adapter"] = [dict(record) for record in execution.adapter_lineage]
     if environment.source_provenance is not None:
         lineage["source_provenance"] = dict(environment.source_provenance)
     if task.seed_transformation is not None:
@@ -183,6 +185,7 @@ def assemble_execution_rejection(
     policy: SolutionPolicy | None = None,
     capability_gap: dict[str, object] | None = None,
     branch_outcomes: list[dict[str, object]] | None = None,
+    adapter_rejection: dict[str, object] | None = None,
 ) -> dict[str, object]:
     details: dict[str, object] = {
         "error_class": type(error).__name__,
@@ -193,6 +196,8 @@ def assemble_execution_rejection(
         details["capability_gap"] = capability_gap
     if branch_outcomes is not None:
         details["branch_outcomes"] = branch_outcomes
+    if adapter_rejection is not None:
+        details["adapter_rejection"] = adapter_rejection
     _attach_role_lineages(details, task=task, policy=policy)
     return {
         "candidate_id": task.candidate_id or "unknown_candidate",

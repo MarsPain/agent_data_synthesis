@@ -191,6 +191,42 @@ class DatasetContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ContractValidationError, "candidate or rejection"):
             validate_edited_task_record(edited)
 
+    def test_adapter_manifest_contract_requires_source_policy_hash(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_adapter_manifest_record
+
+        manifest = _valid_adapter_manifest()
+        manifest.pop("source_policy_hash")
+
+        with self.assertRaisesRegex(ContractValidationError, "source_policy_hash"):
+            validate_adapter_manifest_record(manifest)
+
+    def test_adapter_call_request_contract_rejects_unsupported_operation(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_adapter_call_request_record
+
+        request = _valid_adapter_call_request()
+        request["operation"] = "resources/read"
+
+        with self.assertRaisesRegex(ContractValidationError, "operation"):
+            validate_adapter_call_request_record(request)
+
+    def test_adapter_call_result_contract_requires_error_for_rejection(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_adapter_call_result_record
+
+        result = _valid_adapter_call_result()
+        result["execution_status"] = "rejected"
+        result["error"] = None
+
+        with self.assertRaisesRegex(ContractValidationError, "error"):
+            validate_adapter_call_result_record(result)
+
+    def test_sample_contract_accepts_adapter_lineage(self) -> None:
+        from synthesis.contracts import validate_sample_record
+
+        sample = _valid_sample()
+        sample["lineage"]["adapter"] = [_valid_adapter_lineage()]
+
+        validate_sample_record(sample)
+
 
 def _valid_sample() -> dict[str, object]:
     return {
@@ -407,6 +443,72 @@ def _valid_edited_task() -> dict[str, object]:
             "model": "scripted",
             "config_hash": "editor-local-v1",
         },
+    }
+
+
+def _valid_adapter_manifest() -> dict[str, object]:
+    return {
+        "schema_version": "mcp_adapter_manifest_v1",
+        "adapter_id": "contacts_local_mcp_adapter",
+        "protocol_label": "mcp-compatible-local-shim",
+        "adapter_version": "adapter_contacts_local_v1",
+        "environment": {
+            "id": "contacts_fixture",
+            "version": "env_contacts_v2",
+            "reset_recipe": {"type": "sqlite_fixture"},
+        },
+        "source_policy_hash": "sha256:" + "1" * 64,
+        "supported_operations": ["tool.call"],
+        "capabilities": {"reset": True, "checkpoint": True},
+        "tools": [
+            {
+                "name": "lookup_contact_email",
+                "version": "tool_lookup_contact_email_v1",
+                "schema": {"type": "object"},
+                "side_effects": "read_only",
+                "verifier_implications": ["observation must support exact-answer checks"],
+            }
+        ],
+        "side_effect_classes": ["read_only"],
+        "verifier_implications": ["adapter observations preserve local trajectory semantics"],
+    }
+
+
+def _valid_adapter_call_request() -> dict[str, object]:
+    return {
+        "schema_version": "mcp_tool_call_request_v1",
+        "call_id": "call_lookup_alice",
+        "adapter_id": "contacts_local_mcp_adapter",
+        "operation": "tool.call",
+        "tool_name": "lookup_contact_email",
+        "arguments": {"name": "Alice Zhang"},
+    }
+
+
+def _valid_adapter_call_result() -> dict[str, object]:
+    return {
+        "schema_version": "mcp_tool_call_result_v1",
+        "call_id": "call_lookup_alice",
+        "adapter_id": "contacts_local_mcp_adapter",
+        "tool_name": "lookup_contact_email",
+        "execution_status": "succeeded",
+        "observation": {"name": "Alice Zhang", "email": "alice.zhang@example.test"},
+        "side_effect_summary": {"class": "read_only"},
+        "error": None,
+    }
+
+
+def _valid_adapter_lineage() -> dict[str, object]:
+    return {
+        "schema_version": "adapter_lineage_v1",
+        "adapter_id": "contacts_local_mcp_adapter",
+        "protocol_label": "mcp-compatible-local-shim",
+        "adapter_version": "adapter_contacts_local_v1",
+        "operation": "tool.call",
+        "tool_name": "lookup_contact_email",
+        "call_id": "call_lookup_alice",
+        "execution_status": "succeeded",
+        "rejection_cause": None,
     }
 
 

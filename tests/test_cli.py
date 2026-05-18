@@ -20,6 +20,7 @@ class FoundationCliTest(unittest.TestCase):
         self.assertEqual(args.output_dir, Path("artifacts/foundation"))
         self.assertFalse(args.enable_refinement)
         self.assertFalse(args.enable_branching)
+        self.assertFalse(args.enable_mcp_adapter)
 
     def test_main_writes_requested_output_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -104,6 +105,32 @@ class FoundationCliTest(unittest.TestCase):
             self.assertEqual(report["counts"]["branch_attempts"], 2)
             self.assertEqual(report["counts"]["branch_selected"], 1)
             self.assertIn("accepted=3", result.stdout)
+
+    def test_main_can_enable_local_mcp_adapter_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--enable-mcp-adapter",
+                    "--output-dir",
+                    str(output_dir),
+                    "--dataset-version",
+                    "dataset_cli_adapter_test",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            sample = json.loads((output_dir / "samples.jsonl").read_text(encoding="utf-8").splitlines()[0])
+            report = json.loads((output_dir / "quality_report.json").read_text(encoding="utf-8"))
+            self.assertEqual(sample["lineage"]["adapter"][0]["adapter_id"], "contacts_local_mcp_adapter")
+            self.assertIn("contacts_local_mcp_adapter", report["slices"]["adapter_id"])
+            self.assertIn("accepted=2", result.stdout)
 
     def test_main_can_enable_no_network_source_governance_fixture(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

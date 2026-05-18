@@ -57,7 +57,10 @@
 
 ## Stage 4: Interoperability and Scale
 
-- Add MCP-compatible environment/tool adapters.
+- Add MCP-compatible environment/tool adapters. Implemented in plan 0013 as an
+  opt-in local adapter manifest, tool-call envelopes, adapter lineage, quality
+  slices, and in-process contacts shim before any external MCP server
+  integration.
 - Add async orchestration with durable queues.
 - Evaluate Ray-style distributed workers if throughput requires it.
 - Add monitoring dashboards and cost controls.

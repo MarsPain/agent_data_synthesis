@@ -6,6 +6,7 @@ from typing import Any
 
 from synthesis.contracts import validate_branch_plan_record, validate_branch_outcomes
 from synthesis.llm import LLMProviderError
+from synthesis.mcp import AdapterExecutionError, LocalContactsAdapterShim, ToolCallRequest
 from synthesis.roles import RoleRegistry, SOLUTION_POLICY_ROLE, default_role_registry
 from synthesis.tasks import CandidateTask
 from synthesis.tools import ToolMissingError, ToolRegistry, ToolRegistryError, ToolSchemaError
@@ -34,6 +35,7 @@ class ExecutionResult:
     policy: SolutionPolicy | None = None
     branch_plan: dict[str, object] | None = None
     branch_outcomes: list[dict[str, object]] | None = None
+    adapter_lineage: list[dict[str, object]] | None = None
 
 
 class PolicyValidationError(ValueError):
@@ -63,21 +65,24 @@ def execute_candidate(
     registry: ToolRegistry,
     *,
     policy: SolutionPolicy | None = None,
+    adapter_shim: LocalContactsAdapterShim | None = None,
 ) -> ExecutionResult:
     selected_policy = policy or scripted_solution_policy(task)
     validate_solution_policy(selected_policy)
     if selected_policy.branch_plan is not None:
-        return _execute_branching_policy(selected_policy, registry)
+        return _execute_branching_policy(selected_policy, registry, adapter_shim=adapter_shim)
 
-    trajectory, final_response = _execute_steps(
+    trajectory, final_response, adapter_lineage = _execute_steps(
         selected_policy.steps,
         selected_policy.final_response_template,
         registry,
+        adapter_shim=adapter_shim,
     )
     return ExecutionResult(
         trajectory=trajectory,
         final_response=final_response,
         policy=selected_policy,
+        adapter_lineage=adapter_lineage,
     )
 
 
@@ -188,6 +193,8 @@ def validate_solution_policy(policy: SolutionPolicy) -> None:
 def _execute_branching_policy(
     policy: SolutionPolicy,
     registry: ToolRegistry,
+    *,
+    adapter_shim: LocalContactsAdapterShim | None = None,
 ) -> ExecutionResult:
     assert policy.branch_plan is not None
     validate_branch_plan_record(policy.branch_plan)
@@ -203,11 +210,12 @@ def _execute_branching_policy(
         steps = tuple(_tool_step_from_mapping(step) for step in raw_branch["steps"])
         template = str(raw_branch["final_response_template"])
         try:
-            trajectory, final_response = _execute_steps(
+            trajectory, final_response, adapter_lineage = _execute_steps(
                 steps,
                 template,
                 registry,
                 capture_failures=True,
+                adapter_shim=adapter_shim,
             )
         except StepExecutionError as exc:
             outcomes.append(
@@ -254,6 +262,7 @@ def _execute_branching_policy(
             policy=policy,
             branch_plan=dict(policy.branch_plan),
             branch_outcomes=outcomes,
+            adapter_lineage=adapter_lineage,
         )
 
     registry.restore_state(baseline)
@@ -270,10 +279,12 @@ def _execute_steps(
     registry: ToolRegistry,
     *,
     capture_failures: bool = False,
-) -> tuple[list[dict[str, object]], str]:
+    adapter_shim: LocalContactsAdapterShim | None = None,
+) -> tuple[list[dict[str, object]], str, list[dict[str, object]] | None]:
     trajectory: list[dict[str, object]] = []
+    adapter_lineage: list[dict[str, object]] = []
     response_context: dict[str, object] = {}
-    for step in steps:
+    for index, step in enumerate(steps, start=1):
         trajectory.append(
             {
                 "type": "action",
@@ -282,7 +293,11 @@ def _execute_steps(
             }
         )
         try:
-            observation = registry.execute(step.tool_name, step.arguments)
+            if adapter_shim is None:
+                observation = registry.execute(step.tool_name, step.arguments)
+            else:
+                observation, lineage = _execute_adapter_step(adapter_shim, step, index)
+                adapter_lineage.append(lineage)
         except Exception as exc:
             if capture_failures:
                 raise StepExecutionError(exc, trajectory=trajectory) from exc
@@ -323,7 +338,26 @@ def _execute_steps(
             "content": final_response,
         }
     )
-    return trajectory, final_response
+    return trajectory, final_response, adapter_lineage or None
+
+
+def _execute_adapter_step(
+    adapter_shim: LocalContactsAdapterShim,
+    step: ToolStep,
+    index: int,
+) -> tuple[dict[str, object], dict[str, object]]:
+    result = adapter_shim.call_tool(
+        ToolCallRequest(
+            call_id=f"call_{index}_{step.tool_name}",
+            adapter_id=adapter_shim.manifest.adapter_id,
+            tool_name=step.tool_name,
+            arguments=step.arguments,
+        )
+    )
+    lineage = result.lineage(adapter_shim.manifest)
+    if result.execution_status != "succeeded":
+        raise AdapterExecutionError(result)
+    return result.observation, lineage
 
 
 def _branch_outcome(

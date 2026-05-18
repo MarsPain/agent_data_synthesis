@@ -25,6 +25,7 @@ REJECTION_CAUSES = {
     "task_editor_rejected",
     "task_suggestion_rejected",
     "source_policy_rejected",
+    "adapter_contract_rejected",
 }
 
 REFINEMENT_DECISIONS = {
@@ -70,6 +71,8 @@ SOURCE_EVENT_TYPES = {
     "environment_source_rejected",
 }
 SAFE_FETCH_CONTENT_TYPES = {"application/json"}
+ADAPTER_OPERATIONS = {"tool.call"}
+ADAPTER_EXECUTION_STATUSES = {"succeeded", "rejected", "failed"}
 
 
 def validate_candidate_task(task: object) -> CandidateTask:
@@ -322,6 +325,95 @@ def validate_contacts_environment_input_record(record: Mapping[str, Any]) -> Non
     errors = _require_sequence(record.get("validation_errors"), "validation_errors")
     for index, error in enumerate(errors):
         _require_non_empty_string(error, f"validation_errors.{index}")
+
+
+def validate_adapter_manifest_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "adapter_manifest")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    _require_non_empty_string(record.get("adapter_id"), "adapter_id")
+    _require_non_empty_string(record.get("protocol_label"), "protocol_label")
+    _require_non_empty_string(record.get("adapter_version"), "adapter_version")
+    _validate_adapter_environment(record.get("environment"), "environment")
+    _validate_content_hash(record.get("source_policy_hash"), "source_policy_hash")
+    operations = _require_non_empty_string_sequence(
+        record.get("supported_operations"),
+        "supported_operations",
+    )
+    for index, operation in enumerate(operations):
+        if operation not in ADAPTER_OPERATIONS:
+            raise ContractValidationError(
+                f"supported_operations.{index} must be one of {sorted(ADAPTER_OPERATIONS)}"
+            )
+    capabilities = _require_mapping(record.get("capabilities"), "capabilities")
+    if not isinstance(capabilities.get("reset"), bool):
+        raise ContractValidationError("capabilities.reset must be a bool")
+    if not isinstance(capabilities.get("checkpoint"), bool):
+        raise ContractValidationError("capabilities.checkpoint must be a bool")
+    _validate_adapter_tools(record.get("tools"), "tools")
+    _require_non_empty_string_sequence(
+        record.get("side_effect_classes"),
+        "side_effect_classes",
+    )
+    _require_non_empty_string_sequence(
+        record.get("verifier_implications"),
+        "verifier_implications",
+    )
+
+
+def validate_adapter_call_request_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "adapter_call_request")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    _require_non_empty_string(record.get("call_id"), "call_id")
+    _require_non_empty_string(record.get("adapter_id"), "adapter_id")
+    operation = _require_non_empty_string(record.get("operation"), "operation")
+    if operation not in ADAPTER_OPERATIONS:
+        raise ContractValidationError(f"operation must be one of {sorted(ADAPTER_OPERATIONS)}")
+    _require_non_empty_string(record.get("tool_name"), "tool_name")
+    _require_mapping(record.get("arguments"), "arguments")
+
+
+def validate_adapter_call_result_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "adapter_call_result")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    _require_non_empty_string(record.get("call_id"), "call_id")
+    _require_non_empty_string(record.get("adapter_id"), "adapter_id")
+    _require_non_empty_string(record.get("tool_name"), "tool_name")
+    status = _require_non_empty_string(record.get("execution_status"), "execution_status")
+    if status not in ADAPTER_EXECUTION_STATUSES:
+        raise ContractValidationError(
+            f"execution_status must be one of {sorted(ADAPTER_EXECUTION_STATUSES)}"
+        )
+    _require_mapping(record.get("observation"), "observation")
+    _require_mapping(record.get("side_effect_summary"), "side_effect_summary")
+    error = record.get("error")
+    if status == "succeeded":
+        if error is not None:
+            raise ContractValidationError("error must be null for succeeded results")
+        return
+    if error is None:
+        raise ContractValidationError("error is required for rejected or failed results")
+    _validate_adapter_error(error, "error")
+
+
+def validate_adapter_lineage_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "adapter_lineage")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    _require_non_empty_string(record.get("adapter_id"), "adapter_id")
+    _require_non_empty_string(record.get("protocol_label"), "protocol_label")
+    _require_non_empty_string(record.get("adapter_version"), "adapter_version")
+    operation = _require_non_empty_string(record.get("operation"), "operation")
+    if operation not in ADAPTER_OPERATIONS:
+        raise ContractValidationError(f"operation must be one of {sorted(ADAPTER_OPERATIONS)}")
+    _require_non_empty_string(record.get("tool_name"), "tool_name")
+    _require_non_empty_string(record.get("call_id"), "call_id")
+    status = _require_non_empty_string(record.get("execution_status"), "execution_status")
+    if status not in ADAPTER_EXECUTION_STATUSES:
+        raise ContractValidationError(
+            f"execution_status must be one of {sorted(ADAPTER_EXECUTION_STATUSES)}"
+        )
+    rejection_cause = record.get("rejection_cause")
+    if rejection_cause is not None:
+        _require_non_empty_string(rejection_cause, "rejection_cause")
 
 
 def validate_review_record(record: Mapping[str, Any]) -> None:
@@ -724,6 +816,12 @@ def _validate_lineage(raw: object) -> None:
             lineage.get("source_provenance"),
             "lineage.source_provenance",
         )
+    if "adapter" in lineage:
+        adapters = _require_sequence(lineage.get("adapter"), "lineage.adapter")
+        if not adapters:
+            raise ContractValidationError("lineage.adapter must contain at least one record")
+        for index, adapter in enumerate(adapters):
+            _validate_adapter_lineage_record_at_path(adapter, f"lineage.adapter.{index}")
 
     verifier = _require_mapping(lineage.get("verifier"), "lineage.verifier")
     _require_non_empty_string(verifier.get("id"), "lineage.verifier.id")
@@ -779,6 +877,48 @@ def _validate_source_provenance(raw: object, path: str) -> None:
         causes = _require_sequence(provenance.get("rejection_causes"), f"{path}.rejection_causes")
         for index, cause in enumerate(causes):
             _require_non_empty_string(cause, f"{path}.rejection_causes.{index}")
+
+
+def _validate_adapter_environment(raw: object, path: str) -> None:
+    environment = _require_mapping(raw, path)
+    _require_non_empty_string(environment.get("id"), f"{path}.id")
+    _require_non_empty_string(environment.get("version"), f"{path}.version")
+    _require_mapping(environment.get("reset_recipe"), f"{path}.reset_recipe")
+
+
+def _validate_adapter_tools(raw: object, path: str) -> None:
+    tools = _require_sequence(raw, path)
+    if not tools:
+        raise ContractValidationError(f"{path} must contain at least one tool")
+    seen_names: set[str] = set()
+    for index, raw_tool in enumerate(tools):
+        tool = _require_mapping(raw_tool, f"{path}.{index}")
+        name = _require_non_empty_string(tool.get("name"), f"{path}.{index}.name")
+        if name in seen_names:
+            raise ContractValidationError(f"{path}.{index}.name must be unique")
+        seen_names.add(name)
+        _require_non_empty_string(tool.get("version"), f"{path}.{index}.version")
+        _require_mapping(tool.get("schema"), f"{path}.{index}.schema")
+        _require_non_empty_string(tool.get("side_effects"), f"{path}.{index}.side_effects")
+        _require_non_empty_string_sequence(
+            tool.get("verifier_implications"),
+            f"{path}.{index}.verifier_implications",
+        )
+
+
+def _validate_adapter_error(raw: object, path: str) -> None:
+    error = _require_mapping(raw, path)
+    _require_non_empty_string(error.get("cause"), f"{path}.cause")
+    _require_non_empty_string(error.get("message"), f"{path}.message")
+    _require_mapping(error.get("details"), f"{path}.details")
+
+
+def _validate_adapter_lineage_record_at_path(raw: object, path: str) -> None:
+    lineage = _require_mapping(raw, path)
+    try:
+        validate_adapter_lineage_record(lineage)
+    except ContractValidationError as exc:
+        raise ContractValidationError(f"{path}.{exc}") from exc
 
 
 def _validate_branch_steps(raw: object, path: str) -> None:
