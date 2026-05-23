@@ -38,6 +38,7 @@ The framework should be developed as a pipeline for executable Agent training da
 - [docs/DATA.md](docs/DATA.md): data model, lineage, metrics, and output schema.
 - [docs/SECURITY.md](docs/SECURITY.md): sandboxing, secrets, external access, and data handling.
 - [docs/design-docs/agent-data-synthesis-framework.md](docs/design-docs/agent-data-synthesis-framework.md): detailed technical design.
+- [docs/design-docs/algorithm-flow-and-architecture.md](docs/design-docs/algorithm-flow-and-architecture.md): explanatory walkthrough of the current algorithm flow and architecture layers.
 - [docs/design-docs/architecture-explainers.md](docs/design-docs/architecture-explainers.md): detailed explanations of architecture and algorithm concepts.
 
 ## Architectural Position
