@@ -3,11 +3,16 @@
 Active implementation plans live here while they are being executed. When a plan
 is accepted as complete, move it to `../completed/` and update `../../PLANS.md`.
 
-## Active
+## Currently Executing
 
-- [0012-controlled-network-backed-environment-synthesis](0012-controlled-network-backed-environment-synthesis.md):
-  implemented controlled opt-in HTTPS source ingestion for the contacts
-  environment; pending review before completion.
-- [0013-mcp-compatible-environment-tool-adapters](0013-mcp-compatible-environment-tool-adapters.md):
-  implemented MCP-compatible local adapter contract and in-process contacts
-  shim; pending review.
+No plans currently executing.
+
+## Deferred (still in this directory)
+
+- [0014-async-local-orchestration-with-durable-queues](0014-async-local-orchestration-with-durable-queues.md)
+  - Phase: deferred until single runs exceed ~10 minutes or 100+ candidates.
+  - Rationale: the plan's own assessment concludes it is over-engineering for
+    the current workload (3–50 fixture candidates, sub-second runs). See the
+    plan's "补充思考" section.
+
+## Completed (none yet in this directory)

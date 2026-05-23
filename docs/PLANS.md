@@ -5,15 +5,19 @@
 - `active`: work currently intended for implementation.
 - `completed`: accepted plans with completion date.
 - `tech-debt`: known unresolved debt with impact and target stage.
+- `deferred`: planned but postponed until a concrete trigger condition is met.
 
 ## Active
 
-- [0012-controlled-network-backed-environment-synthesis](exec-plans/active/0012-controlled-network-backed-environment-synthesis.md):
-  controlled opt-in HTTPS source ingestion for contacts environment synthesis;
-  implemented in branch `plan-0012-network-env-synthesis` and pending review.
-- [0013-mcp-compatible-environment-tool-adapters](exec-plans/active/0013-mcp-compatible-environment-tool-adapters.md):
-  implemented local MCP-compatible environment/tool adapter contract and
-  in-process contacts shim; pending review.
+No plans currently active.
+
+## Deferred
+
+- [0014-async-local-orchestration-with-durable-queues](exec-plans/active/0014-async-local-orchestration-with-durable-queues.md):
+  async job lifecycle, durable file-backed queues, manifest-based resumption,
+  concurrency limits, cancellation, and per-role cost tracking; **deferred**
+  until single runs exceed ~10 minutes or 100+ candidates. See the plan's
+  "补充思考" section for the full deferral rationale.
 
 ## Completed
 
@@ -28,6 +32,8 @@
 - [0009-multi-path-branching-trajectory-foundation](exec-plans/completed/0009-multi-path-branching-trajectory-foundation.md): added bounded branch plans, checkpointed local branch execution, selected-branch lineage, and branch-level quality reporting. Completed on 2026-05-17.
 - [0010-agentinstruct-seed-transformation-and-editor-loop](exec-plans/completed/0010-agentinstruct-seed-transformation-and-editor-loop.md): added seed transformation, taxonomy-driven task expansion, enabled task suggester/editor roles, expansion lineage, and reporting slices. Completed on 2026-05-17.
 - [0011-provenance-licensing-and-sandbox-gates](exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md): added source provenance, license eligibility, default-deny network policy, sandbox policy, source-event audit artifacts, and source-governance quality slices. Completed on 2026-05-17.
+- [0012-controlled-network-backed-environment-synthesis](exec-plans/completed/0012-controlled-network-backed-environment-synthesis.md): added controlled opt-in HTTPS source ingestion, allowlisted host enforcement, request budgets, payload limits, contacts environment-source admission, and sanitized fetch/admission audit events. Completed on 2026-05-17.
+- [0013-mcp-compatible-environment-tool-adapters](exec-plans/completed/0013-mcp-compatible-environment-tool-adapters.md): added local MCP-compatible adapter manifest, tool-call request/result envelopes, adapter lineage, quality slices, and in-process contacts shim. Completed on 2026-05-18.
 
 ## Technical Debt
 

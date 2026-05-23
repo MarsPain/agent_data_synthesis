@@ -33,8 +33,9 @@
 ## Execution Plans
 
 - [exec-plans/active/README.md](exec-plans/active/README.md): active plan bucket.
-- [exec-plans/active/0012-controlled-network-backed-environment-synthesis.md](exec-plans/active/0012-controlled-network-backed-environment-synthesis.md): current controlled network-backed environment synthesis implementation plan.
-- [exec-plans/active/0013-mcp-compatible-environment-tool-adapters.md](exec-plans/active/0013-mcp-compatible-environment-tool-adapters.md): next MCP-compatible local environment/tool adapter plan.
+- [exec-plans/active/0014-async-local-orchestration-with-durable-queues.md](exec-plans/active/0014-async-local-orchestration-with-durable-queues.md): current async local orchestration with durable queues implementation plan.
 - [exec-plans/completed/README.md](exec-plans/completed/README.md): completed plan bucket.
-- [exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md](exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md): latest completed source provenance, license eligibility, default-deny network policy, sandbox policy, source-event audit artifacts, and reporting slices.
+- [exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md](exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md): source provenance, license eligibility, default-deny network policy, sandbox policy, source-event audit artifacts, and reporting slices.
+- [exec-plans/completed/0012-controlled-network-backed-environment-synthesis.md](exec-plans/completed/0012-controlled-network-backed-environment-synthesis.md): controlled opt-in HTTPS source ingestion, allowlisted host enforcement, request budgets, payload limits, contacts environment-source admission, and sanitized fetch/admission audit events.
+- [exec-plans/completed/0013-mcp-compatible-environment-tool-adapters.md](exec-plans/completed/0013-mcp-compatible-environment-tool-adapters.md): local MCP-compatible adapter manifest, tool-call request/result envelopes, adapter lineage, quality slices, and in-process contacts shim.
 - [exec-plans/tech-debt/README.md](exec-plans/tech-debt/README.md): technical debt bucket.
