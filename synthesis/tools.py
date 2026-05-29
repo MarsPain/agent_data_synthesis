@@ -276,7 +276,19 @@ def parse_tool_proposal(raw: Mapping[str, Any], *, lineage: dict[str, object]) -
         proposal = raw["proposal"]
         if not isinstance(proposal, Mapping):
             raise TypeError("proposal must be an object")
-        forbidden = {"python_code", "code", "handler", "implementation", "package"}
+        forbidden = {
+            "code",
+            "command",
+            "commands",
+            "handler",
+            "implementation",
+            "migration",
+            "migrations",
+            "package",
+            "packages",
+            "python_code",
+            "shell_command",
+        }
         present_forbidden = sorted(forbidden & set(proposal))
         if present_forbidden:
             raise ValueError(f"tool proposal includes executable fields: {present_forbidden}")

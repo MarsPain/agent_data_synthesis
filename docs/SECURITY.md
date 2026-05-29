@@ -73,10 +73,30 @@ Logs may include provider alias, base URL host, model id, prompt or config hash,
 - Only curated local implementations can be admitted into the active tool
   registry. Admission requires schema, side-effect, and environment compatibility
   checks.
-- Static scan generated code for forbidden imports, filesystem paths, subprocess usage, network calls, and environment variable access.
-- Execute generated code with timeouts, memory limits, and deterministic seeds where possible.
-- Separate verifier execution from solution execution.
-- Preserve failure logs for audit and root-cause classification.
+- `synthesis.sandbox` owns the first generated-code admission boundary for
+  Python artifacts emitted by future tool-handler, environment-builder, or
+  verifier roles. These roles remain disabled or proposal-only by default.
+- Generated executable artifacts are scanned before admission. The static
+  scanner rejects syntax errors, forbidden imports or access patterns (`os`,
+  `sys`, `subprocess`, `socket`, `urllib`, `http`, `ftplib`, `pathlib`,
+  `shutil`, `importlib`, dynamic import, `eval`, `exec`, `open`, `compile`,
+  `globals`, `locals`, and environment access), shell/package command markers,
+  filesystem escapes, credential paths, API-key-like strings, and authorization
+  header material.
+- Admission requires an explicit sandbox policy with generated code allowed,
+  artifact-subdirectory filesystem isolation, and redaction enabled. Rejected
+  artifacts use `unsafe_generated_code`.
+- The restricted local helper runs only admitted Python snippets in a temporary
+  artifact directory with sanitized environment variables, deterministic stdin,
+  timeout, hash-only stdout/stderr exports, and best-effort standard-library
+  process limits where available.
+- Sandbox audit artifacts contain hashes, violation categories, policy metadata,
+  role lineage, admission outcomes, and execution status only. They must not
+  contain raw generated code, provider prompts, API keys, authorization headers,
+  environment variables, or host paths.
+- This helper is not a hardened container or VM. It is a local engineering
+  guardrail that keeps unsafe generated code non-executable until a future plan
+  introduces stronger isolation.
 
 ## Data Handling
 

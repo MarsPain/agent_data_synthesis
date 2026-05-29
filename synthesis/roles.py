@@ -29,6 +29,7 @@ class RoleDefinition:
     enabled: bool
     retry_policy: str
     lineage_fields: tuple[str, ...]
+    requires_sandbox_admission: bool = False
 
     def __post_init__(self) -> None:
         if not ROLE_NAME_RE.match(self.name):
@@ -48,6 +49,7 @@ class RoleDefinition:
             "output_type": self.output_type,
             "owner_module": self.owner_module,
             "retry_policy": self.retry_policy,
+            "requires_sandbox_admission": self.requires_sandbox_admission,
         }
 
 
@@ -127,6 +129,7 @@ def default_role_registry() -> RoleRegistry:
                 version="role_environment_generation_v0",
                 owner_module="synthesis.environments",
                 output_type="environment_definition",
+                requires_sandbox_admission=True,
             ),
             _enabled_role(
                 name=TOOL_GENERATION_ROLE,
@@ -139,6 +142,7 @@ def default_role_registry() -> RoleRegistry:
                 version="role_verifier_generation_v0",
                 owner_module="synthesis.verification",
                 output_type="verifier_definition",
+                requires_sandbox_admission=True,
             ),
             _disabled_role(
                 name=JUDGE_VERIFICATION_ROLE,
@@ -180,6 +184,7 @@ def _disabled_role(
     version: str,
     owner_module: str,
     output_type: str,
+    requires_sandbox_admission: bool = False,
 ) -> RoleDefinition:
     return RoleDefinition(
         name=name,
@@ -189,6 +194,7 @@ def _disabled_role(
         enabled=False,
         retry_policy="not_enabled",
         lineage_fields=_standard_lineage_fields(),
+        requires_sandbox_admission=requires_sandbox_admission,
     )
 
 

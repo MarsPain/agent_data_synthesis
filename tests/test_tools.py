@@ -39,23 +39,25 @@ class ToolExpansionContractsTest(unittest.TestCase):
         from synthesis.llm import LLMProviderError
         from synthesis.tools import parse_tool_proposal
 
-        with self.assertRaises(LLMProviderError) as context:
-            parse_tool_proposal(
-                {
-                    "proposal": {
-                        "tool_name": "list_contact_names",
-                        "description": "List known contact names.",
-                        "schema": {"type": "object", "additionalProperties": False},
-                        "side_effects": "read_only",
-                        "required_environment": {"tables": ["contacts"]},
-                        "verifier_implications": ["final answer should mention a known contact"],
-                        "safety_notes": ["read-only contacts lookup"],
-                        "python_code": "def handler(args): return {}",
-                    }
-                },
-                lineage={"role": "tool_generation", "provider_host": "llm.example.test"},
-            )
-        self.assertEqual(context.exception.cause, "llm_response_schema_error")
+        for forbidden_field in ("python_code", "shell_command", "packages", "migration"):
+            with self.subTest(forbidden_field=forbidden_field):
+                with self.assertRaises(LLMProviderError) as context:
+                    parse_tool_proposal(
+                        {
+                            "proposal": {
+                                "tool_name": "list_contact_names",
+                                "description": "List known contact names.",
+                                "schema": {"type": "object", "additionalProperties": False},
+                                "side_effects": "read_only",
+                                "required_environment": {"tables": ["contacts"]},
+                                "verifier_implications": ["final answer should mention a known contact"],
+                                "safety_notes": ["read-only contacts lookup"],
+                                forbidden_field: "def handler(args): return {}",
+                            }
+                        },
+                        lineage={"role": "tool_generation", "provider_host": "llm.example.test"},
+                    )
+                self.assertEqual(context.exception.cause, "llm_response_schema_error")
 
     def test_matching_tool_proposal_can_admit_curated_contact_tool(self) -> None:
         from pathlib import Path

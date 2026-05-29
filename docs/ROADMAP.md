@@ -61,6 +61,11 @@
   opt-in local adapter manifest, tool-call envelopes, adapter lineage, quality
   slices, and in-process contacts shim before any external MCP server
   integration.
+- Add generated-code sandboxing and executable admission controls. Implemented
+  in plan 0015 with typed generated executable records, Python static safety
+  scanning, explicit sandbox admission, restricted local fixture execution,
+  redacted sandbox audits, and quality slices before external MCP servers or
+  generated executable roles are enabled.
 - Add async orchestration with durable queues.
 - Evaluate Ray-style distributed workers if throughput requires it.
 - Add monitoring dashboards and cost controls.

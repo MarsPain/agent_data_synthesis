@@ -317,6 +317,41 @@ class QualityReportingTest(unittest.TestCase):
         self.assertIn("license_unknown", report["slices"]["source_rejection_cause"])
         self.assertEqual(report["counts"]["executable"], 1)
 
+    def test_report_summarizes_sandbox_audit_slices(self) -> None:
+        from synthesis.quality import build_quality_report
+
+        report = build_quality_report(
+            dataset_version="dataset_test",
+            samples=[_sample()],
+            rejections=[],
+            sandbox_audits=[
+                {
+                    "artifact": {"artifact_kind": "tool_handler"},
+                    "scan": {"status": "passed"},
+                    "admission": {"accepted": True},
+                    "execution": {"status": "succeeded"},
+                },
+                {
+                    "artifact": {"artifact_kind": "verifier"},
+                    "scan": {"status": "rejected"},
+                    "admission": {
+                        "accepted": False,
+                        "rejection_cause": "unsafe_generated_code",
+                    },
+                    "execution": None,
+                },
+            ],
+        )
+
+        self.assertEqual(report["sandbox_admission_outcomes"], {"accepted": 1, "rejected": 1})
+        self.assertIn("tool_handler", report["slices"]["sandbox_artifact_kind"])
+        self.assertIn("verifier", report["slices"]["sandbox_artifact_kind"])
+        self.assertIn("passed", report["slices"]["sandbox_scan_status"])
+        self.assertIn("rejected", report["slices"]["sandbox_scan_status"])
+        self.assertIn("accepted", report["slices"]["sandbox_admission_outcome"])
+        self.assertIn("unsafe_generated_code", report["slices"]["sandbox_rejection_cause"])
+        self.assertIn("succeeded", report["slices"]["sandbox_execution_status"])
+
     def test_duplicate_signature_uses_normalized_instruction_and_ordered_actions(self) -> None:
         from synthesis.quality import duplicate_signature
 

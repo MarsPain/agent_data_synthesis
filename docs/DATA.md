@@ -113,6 +113,8 @@ and a quality report:
   capability gap, structured proposal, and local admission decision.
 - `source_events.jsonl`: optional source-audit records written when source
   auditing is enabled.
+- `sandbox_audits.jsonl`: optional generated-code sandbox audit records written
+  only when the deterministic sandbox fixture is explicitly enabled.
 
 ```json
 {
@@ -134,7 +136,8 @@ and a quality report:
 enabled, it also references `tool_proposals`, `parent_comparison`, and
 `review_queue`. When source auditing is enabled, it references
 `source_events`; manifests also include `source_policy_hashes` when samples or
-source-gated rejections carry source provenance.
+source-gated rejections carry source provenance. When the generated-code sandbox
+fixture is enabled, the manifest references `sandbox_audits`.
 
 `lineage.source_provenance` records the source bundle id, source policy hash,
 source ids, source kinds, license labels, license outcomes, retention/export
@@ -222,7 +225,9 @@ suggester and editor metadata do not overwrite those fields.
   node, suggestion outcome, editor action, edit rejection cause, source kind,
   license policy outcome, external-source eligibility, source rejection cause,
   environment-source admission outcome, adapter id, adapter protocol, adapter
-  execution outcome, and adapter rejection cause.
+  execution outcome, adapter rejection cause, sandbox artifact kind, sandbox scan
+  status, sandbox admission outcome, sandbox rejection cause, and sandbox
+  execution status.
 
 Capability-gap records use `schema_version: capability_gap_v1` and preserve
 candidate id, policy id, gap type, tool name, rejection cause, message, schema
@@ -248,6 +253,29 @@ requests use `schema_version: mcp_tool_call_request_v1`, and results use
 schema failures carry `rejected`; runtime failures carry `failed`. Adapter
 contract rejections are non-executable for quality-rate purposes and do not
 inflate verifier success metrics.
+
+Generated executable records use `schema_version:
+generated_executable_artifact_v1` and preserve artifact id, artifact kind
+(`tool_handler`, `environment_builder`, or `verifier`), language (`python`),
+source hash, declared entrypoint, source role, sanitized role lineage, creation
+timestamp, and sandbox-policy hash. They do not export raw source code.
+
+Generated-code scan records use `schema_version:
+generated_code_scan_result_v1` and preserve scan status, violation categories
+with line numbers, forbidden symbol names, source hash, scanner version, and
+redaction summary. Sandbox admission records use `schema_version:
+sandbox_admission_result_v1` and preserve artifact id, scan status, policy id,
+accepted flag, optional `unsafe_generated_code` rejection cause, sanitized
+reason, and audit artifact name. Sandbox execution records use
+`schema_version: sandbox_execution_result_v1` and preserve artifact id, status,
+timeout flag, exit class, stdout/stderr hashes and byte counts, duration, and
+sanitized error class. They do not export raw stdout, stderr, environment
+variables, generated code, prompts, headers, API keys, or host paths.
+
+Sandbox audit records use `schema_version: sandbox_audit_v1` and bundle the
+artifact, scan, admission, and optional execution records. The deterministic
+fixture writes these audits only when requested with `--enable-sandbox-fixture`
+or `enable_sandbox_fixture=True`.
 
 Exact duplicate candidates are rejected with `quality_duplicate` when a later
 accepted candidate repeats the normalized task instruction and ordered action tool

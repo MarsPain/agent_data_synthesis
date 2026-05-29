@@ -29,13 +29,15 @@ def build_quality_report(
     dataset_version: str,
     samples: list[dict[str, object]],
     rejections: list[dict[str, object]],
+    sandbox_audits: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
+    sandbox_audits = sandbox_audits or []
     total_count = len(samples) + len(rejections)
     executable_count = len(samples) + sum(
         1 for rejection in rejections if rejection.get("cause") in EXECUTABLE_REJECTION_CAUSES
     )
     rejection_causes = _count_rejection_causes(rejections)
-    slices = _build_slices(dataset_version, samples, rejections)
+    slices = _build_slices(dataset_version, samples, rejections, sandbox_audits)
 
     return {
         "schema_version": "quality_report_v1",
@@ -68,6 +70,7 @@ def build_quality_report(
         "suggestion_outcomes": _suggestion_outcomes(rejections),
         "editor_actions": _editor_actions(samples, rejections),
         "edit_rejection_causes": _edit_rejection_causes(rejections),
+        "sandbox_admission_outcomes": _sandbox_admission_outcomes(sandbox_audits),
         "slices": slices,
     }
 
@@ -175,6 +178,7 @@ def _build_slices(
     dataset_version: str,
     samples: list[dict[str, object]],
     rejections: list[dict[str, object]],
+    sandbox_audits: list[dict[str, object]],
 ) -> dict[str, object]:
     dimensions: dict[str, dict[str, dict[str, int]]] = {
         "dataset_version": {},
@@ -211,6 +215,11 @@ def _build_slices(
         "adapter_protocol": {},
         "adapter_execution_outcome": {},
         "adapter_rejection_cause": {},
+        "sandbox_artifact_kind": {},
+        "sandbox_scan_status": {},
+        "sandbox_admission_outcome": {},
+        "sandbox_rejection_cause": {},
+        "sandbox_execution_status": {},
     }
     for sample in samples:
         _add_slice(dimensions["dataset_version"], str(sample.get("dataset_version", dataset_version)), accepted=True)
@@ -300,6 +309,9 @@ def _build_slices(
         )
         for adapter in _rejection_adapter_lineages(rejection):
             _add_adapter_slices(dimensions, adapter, accepted=False)
+
+    for audit in sandbox_audits:
+        _add_sandbox_audit_slices(dimensions, audit)
 
     return {
         dimension: {key: _with_rates(counts) for key, counts in sorted(values.items())}
@@ -440,6 +452,45 @@ def _add_adapter_slices(
         _add_slice(dimensions["adapter_rejection_cause"], str(rejection_cause), accepted=accepted)
 
 
+def _add_sandbox_audit_slices(
+    dimensions: dict[str, dict[str, dict[str, int]]],
+    audit: Mapping[str, Any],
+) -> None:
+    artifact = _mapping(audit.get("artifact"))
+    scan = _mapping(audit.get("scan"))
+    admission = _mapping(audit.get("admission"))
+    execution = _mapping(audit.get("execution"))
+    accepted = bool(admission.get("accepted"))
+    if artifact:
+        _add_slice(
+            dimensions["sandbox_artifact_kind"],
+            str(artifact.get("artifact_kind", "unknown")),
+            accepted=accepted,
+        )
+    if scan:
+        _add_slice(
+            dimensions["sandbox_scan_status"],
+            str(scan.get("status", "unknown")),
+            accepted=accepted,
+        )
+    if admission:
+        outcome = "accepted" if admission.get("accepted") else "rejected"
+        _add_slice(dimensions["sandbox_admission_outcome"], outcome, accepted=accepted)
+        rejection_cause = admission.get("rejection_cause")
+        if rejection_cause:
+            _add_slice(
+                dimensions["sandbox_rejection_cause"],
+                str(rejection_cause),
+                accepted=accepted,
+            )
+    if execution:
+        _add_slice(
+            dimensions["sandbox_execution_status"],
+            str(execution.get("status", "unknown")),
+            accepted=accepted,
+        )
+
+
 def _add_role_outcome(
     outcomes: dict[str, dict[str, Any]],
     lineage: Mapping[str, Any],
@@ -563,6 +614,17 @@ def _tool_proposal_outcomes(
         *[expansion for rejection in rejections for expansion in _rejection_tool_expansions(rejection)],
     ]:
         outcome = str(_mapping(expansion.get("admission")).get("outcome", "unknown"))
+        outcomes[outcome] = outcomes.get(outcome, 0) + 1
+    return dict(sorted(outcomes.items()))
+
+
+def _sandbox_admission_outcomes(sandbox_audits: list[dict[str, object]]) -> dict[str, int]:
+    outcomes: dict[str, int] = {}
+    for audit in sandbox_audits:
+        admission = _mapping(audit.get("admission"))
+        if not admission:
+            continue
+        outcome = "accepted" if admission.get("accepted") else "rejected"
         outcomes[outcome] = outcomes.get(outcome, 0) + 1
     return dict(sorted(outcomes.items()))
 

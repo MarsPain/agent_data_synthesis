@@ -165,6 +165,45 @@ class FoundationPipelineTest(unittest.TestCase):
             )
             self.assertIn("succeeded", report["slices"]["adapter_execution_outcome"])
 
+    def test_sandbox_fixture_records_audit_artifact_without_changing_default_counts(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            direct = run_foundation_pipeline(
+                Path(tmpdir) / "direct",
+                dataset_version="dataset_direct",
+            )
+            sandboxed = run_foundation_pipeline(
+                Path(tmpdir) / "sandboxed",
+                dataset_version="dataset_sandboxed",
+                enable_sandbox_fixture=True,
+            )
+
+            self.assertEqual(sandboxed.accepted_count, direct.accepted_count)
+            self.assertEqual(sandboxed.rejected_count, direct.rejected_count)
+            self.assertIsNotNone(sandboxed.sandbox_audits_path)
+            manifest = json.loads(sandboxed.manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["artifacts"]["sandbox_audits"], "sandbox_audits.jsonl")
+            audits = [
+                json.loads(line)
+                for line in sandboxed.sandbox_audits_path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(
+                [audit["admission"]["accepted"] for audit in audits],
+                [True, False],
+            )
+            audit_text = sandboxed.sandbox_audits_path.read_text(encoding="utf-8")
+            self.assertNotIn("def ", audit_text)
+            self.assertNotIn("sk-live", audit_text)
+
+            report = json.loads(sandboxed.quality_report_path.read_text(encoding="utf-8"))
+            self.assertIn("passed", report["slices"]["sandbox_scan_status"])
+            self.assertIn("rejected", report["slices"]["sandbox_admission_outcome"])
+            self.assertIn("succeeded", report["slices"]["sandbox_execution_status"])
+
+            direct_manifest = json.loads(direct.manifest_path.read_text(encoding="utf-8"))
+            self.assertNotIn("sandbox_audits", direct_manifest["artifacts"])
+
     def test_adapter_contract_rejection_is_non_executable(self) -> None:
         from synthesis.execution import SolutionPolicy, ToolStep
         from synthesis.pipeline import run_foundation_pipeline

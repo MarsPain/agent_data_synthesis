@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+import re
 from typing import Any
 from urllib.parse import urlparse
 
@@ -26,6 +27,7 @@ REJECTION_CAUSES = {
     "task_suggestion_rejected",
     "source_policy_rejected",
     "adapter_contract_rejected",
+    "unsafe_generated_code",
 }
 
 REFINEMENT_DECISIONS = {
@@ -73,6 +75,11 @@ SOURCE_EVENT_TYPES = {
 SAFE_FETCH_CONTENT_TYPES = {"application/json"}
 ADAPTER_OPERATIONS = {"tool.call"}
 ADAPTER_EXECUTION_STATUSES = {"succeeded", "rejected", "failed"}
+GENERATED_ARTIFACT_KINDS = {"tool_handler", "environment_builder", "verifier"}
+GENERATED_CODE_SCAN_STATUSES = {"passed", "rejected"}
+SANDBOX_EXECUTION_STATUSES = {"succeeded", "failed"}
+SANDBOX_EXIT_CLASSES = {"zero", "nonzero", "timeout", "wrapper_error", "non_json"}
+ARTIFACT_ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 def validate_candidate_task(task: object) -> CandidateTask:
@@ -261,6 +268,113 @@ def validate_sandbox_policy_record(record: Mapping[str, Any]) -> None:
         raise ContractValidationError("generated_code_allowed must be a bool")
     if not isinstance(record.get("secret_redaction"), bool):
         raise ContractValidationError("secret_redaction must be a bool")
+
+
+def validate_generated_executable_artifact_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "generated_executable_artifact")
+    if _contains_raw_secret(record):
+        raise ContractValidationError("generated_executable_artifact contains raw secret material")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    artifact_id = _require_non_empty_string(record.get("artifact_id"), "artifact_id")
+    if not ARTIFACT_ID_RE.match(artifact_id):
+        raise ContractValidationError("artifact_id must be a snake_case identifier")
+    artifact_kind = _require_non_empty_string(record.get("artifact_kind"), "artifact_kind")
+    if artifact_kind not in GENERATED_ARTIFACT_KINDS:
+        raise ContractValidationError(
+            f"artifact_kind must be one of {sorted(GENERATED_ARTIFACT_KINDS)}"
+        )
+    language = _require_non_empty_string(record.get("language"), "language")
+    if language != "python":
+        raise ContractValidationError("language must be python")
+    _validate_content_hash(record.get("source_hash"), "source_hash")
+    _require_non_empty_string(record.get("declared_entrypoint"), "declared_entrypoint")
+    _require_non_empty_string(record.get("source_role"), "source_role")
+    role_lineage = _require_mapping(record.get("role_lineage"), "role_lineage")
+    _validate_lineage_role(role_lineage, "role_lineage")
+    _require_non_empty_string(record.get("created_at"), "created_at")
+    _validate_content_hash(record.get("sandbox_policy_hash"), "sandbox_policy_hash")
+
+
+def validate_generated_code_scan_result_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "generated_code_scan_result")
+    if _contains_raw_secret(record):
+        raise ContractValidationError("generated_code_scan_result contains raw secret material")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    status = _require_non_empty_string(record.get("status"), "status")
+    if status not in GENERATED_CODE_SCAN_STATUSES:
+        raise ContractValidationError(
+            f"status must be one of {sorted(GENERATED_CODE_SCAN_STATUSES)}"
+        )
+    violations = _require_sequence(record.get("violations"), "violations")
+    for index, raw_violation in enumerate(violations):
+        violation = _require_mapping(raw_violation, f"violations.{index}")
+        _require_non_empty_string(violation.get("category"), f"violations.{index}.category")
+        _require_int(violation.get("line_number"), f"violations.{index}.line_number")
+        _require_non_empty_string(violation.get("symbol"), f"violations.{index}.symbol")
+        if "excerpt" in violation or "source" in violation:
+            raise ContractValidationError(f"violations.{index} must not include raw source")
+    for index, symbol in enumerate(_require_sequence(record.get("forbidden_symbols"), "forbidden_symbols")):
+        _require_non_empty_string(symbol, f"forbidden_symbols.{index}")
+    _validate_content_hash(record.get("source_hash"), "source_hash")
+    _require_non_empty_string(record.get("scanner_version"), "scanner_version")
+    _require_mapping(record.get("redaction_summary"), "redaction_summary")
+
+
+def validate_sandbox_admission_result_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "sandbox_admission_result")
+    if _contains_raw_secret(record):
+        raise ContractValidationError("sandbox_admission_result contains raw secret material")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    _require_non_empty_string(record.get("artifact_id"), "artifact_id")
+    scan_status = _require_non_empty_string(record.get("scan_status"), "scan_status")
+    if scan_status not in GENERATED_CODE_SCAN_STATUSES:
+        raise ContractValidationError("scan_status is unsupported")
+    _require_non_empty_string(record.get("policy_id"), "policy_id")
+    accepted = record.get("accepted")
+    if not isinstance(accepted, bool):
+        raise ContractValidationError("accepted must be a bool")
+    rejection_cause = record.get("rejection_cause")
+    if accepted:
+        if rejection_cause is not None:
+            raise ContractValidationError("rejection_cause must be null when accepted")
+    else:
+        if rejection_cause != "unsafe_generated_code":
+            raise ContractValidationError("rejection_cause must be unsafe_generated_code")
+    _require_non_empty_string(record.get("sanitized_reason"), "sanitized_reason")
+    audit_path = _require_non_empty_string(record.get("audit_artifact_path"), "audit_artifact_path")
+    if "/" in audit_path or "\\" in audit_path:
+        raise ContractValidationError("audit_artifact_path must be a relative artifact name")
+
+
+def validate_sandbox_execution_result_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "sandbox_execution_result")
+    if _contains_raw_secret(record):
+        raise ContractValidationError("sandbox_execution_result contains raw secret material")
+    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    _require_non_empty_string(record.get("artifact_id"), "artifact_id")
+    status = _require_non_empty_string(record.get("status"), "status")
+    if status not in SANDBOX_EXECUTION_STATUSES:
+        raise ContractValidationError(
+            f"status must be one of {sorted(SANDBOX_EXECUTION_STATUSES)}"
+        )
+    if not isinstance(record.get("timeout"), bool):
+        raise ContractValidationError("timeout must be a bool")
+    exit_class = _require_non_empty_string(record.get("exit_class"), "exit_class")
+    if exit_class not in SANDBOX_EXIT_CLASSES:
+        raise ContractValidationError(
+            f"exit_class must be one of {sorted(SANDBOX_EXIT_CLASSES)}"
+        )
+    _validate_content_hash(record.get("stdout_hash"), "stdout_hash")
+    _require_int(record.get("stdout_bytes"), "stdout_bytes")
+    _validate_content_hash(record.get("stderr_hash"), "stderr_hash")
+    _require_int(record.get("stderr_bytes"), "stderr_bytes")
+    _require_int(record.get("duration_ms"), "duration_ms")
+    error_class = record.get("sanitized_error_class")
+    if status == "succeeded":
+        if error_class is not None:
+            raise ContractValidationError("sanitized_error_class must be null when succeeded")
+    else:
+        _require_non_empty_string(error_class, "sanitized_error_class")
 
 
 def validate_source_event_record(record: Mapping[str, Any]) -> None:
@@ -1065,6 +1179,8 @@ def _contains_raw_secret(value: object) -> bool:
             "agent_data_api_key" in lowered
             or "authorization:" in lowered
             or "secret-test-key" in lowered
+            or "sk-live" in lowered
+            or "sk-test" in lowered
         )
     return False
 

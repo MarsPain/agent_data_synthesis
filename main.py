@@ -66,6 +66,11 @@ def parse_args() -> argparse.Namespace:
         help="Route fixture tool calls through the local in-process MCP-compatible adapter shim.",
     )
     parser.add_argument(
+        "--enable-sandbox-fixture",
+        action="store_true",
+        help="Enable deterministic generated-code sandbox scan/admission/execution fixture.",
+    )
+    parser.add_argument(
         "--enable-source-governance-fixture",
         action="store_true",
         help=(
@@ -181,6 +186,7 @@ def main() -> int:
             contacts_environment_input=contacts_environment_input,
             source_events=source_events,
             enable_mcp_adapter=args.enable_mcp_adapter,
+            enable_sandbox_fixture=args.enable_sandbox_fixture,
         )
     except (LLMConfigurationError, LLMProviderError) as exc:
         print(str(exc), file=sys.stderr)

@@ -38,6 +38,18 @@ class RoleRegistryTests(unittest.TestCase):
         self.assertEqual(role.version, "role_tool_generation_v1")
         self.assertEqual(role.owner_module, "synthesis.tools")
         self.assertEqual(role.output_type, "tool_proposal")
+        self.assertFalse(role.requires_sandbox_admission)
+
+    def test_future_executable_roles_require_sandbox_admission_and_stay_disabled(self) -> None:
+        registry = default_role_registry()
+
+        environment = registry.get("environment_generation")
+        verifier = registry.get("verifier_generation")
+
+        self.assertFalse(environment.enabled)
+        self.assertFalse(verifier.enabled)
+        self.assertTrue(environment.requires_sandbox_admission)
+        self.assertTrue(verifier.requires_sandbox_admission)
 
     def test_default_registry_enables_task_suggester_and_editor_contract_roles(self) -> None:
         registry = default_role_registry()

@@ -13,7 +13,7 @@ No plans currently active.
 
 ## Deferred
 
-- [0014-async-local-orchestration-with-durable-queues](exec-plans/active/0014-async-local-orchestration-with-durable-queues.md):
+- [0014-async-local-orchestration-with-durable-queues](exec-plans/deferred/0014-async-local-orchestration-with-durable-queues.md):
   async job lifecycle, durable file-backed queues, manifest-based resumption,
   concurrency limits, cancellation, and per-role cost tracking; **deferred**
   until single runs exceed ~10 minutes or 100+ candidates. See the plan's
@@ -34,7 +34,12 @@ No plans currently active.
 - [0011-provenance-licensing-and-sandbox-gates](exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md): added source provenance, license eligibility, default-deny network policy, sandbox policy, source-event audit artifacts, and source-governance quality slices. Completed on 2026-05-17.
 - [0012-controlled-network-backed-environment-synthesis](exec-plans/completed/0012-controlled-network-backed-environment-synthesis.md): added controlled opt-in HTTPS source ingestion, allowlisted host enforcement, request budgets, payload limits, contacts environment-source admission, and sanitized fetch/admission audit events. Completed on 2026-05-17.
 - [0013-mcp-compatible-environment-tool-adapters](exec-plans/completed/0013-mcp-compatible-environment-tool-adapters.md): added local MCP-compatible adapter manifest, tool-call request/result envelopes, adapter lineage, quality slices, and in-process contacts shim. Completed on 2026-05-18.
+- [0015-generated-code-sandboxing-and-executable-admission-controls](exec-plans/completed/0015-generated-code-sandboxing-and-executable-admission-controls.md): added generated-code sandbox contracts, static scans, admission records, restricted local fixture execution, redacted sandbox audit artifacts, and reporting slices. Completed on 2026-05-27.
 
 ## Technical Debt
 
 - Current debt bucket: [exec-plans/tech-debt/README.md](exec-plans/tech-debt/README.md).
+- `TD-0001` generated-code sandboxing is resolved by completed plan
+  [0015-generated-code-sandboxing-and-executable-admission-controls](exec-plans/completed/0015-generated-code-sandboxing-and-executable-admission-controls.md).
+- `TD-0002` semantic duplicate detection remains unresolved until dataset
+  volume or curriculum-benchmark signals justify implementation.

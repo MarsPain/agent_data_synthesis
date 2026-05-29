@@ -20,6 +20,9 @@ The first backend should be a local Python pipeline with explicit modules and du
 - `synthesis.mcp`: local MCP-compatible adapter manifests, tool-call request and
   result envelopes, adapter lineage records, and the in-process contacts adapter
   shim. It does not start an MCP server or connect to external tool servers.
+- `synthesis.sandbox`: generated executable artifact records, Python static
+  safety scans, sandbox admission decisions, redacted sandbox audit records, and
+  the restricted local execution helper for explicitly admitted fixture code.
 - `synthesis.tasks`: task generation, seed-transformation expansion, task
   suggestion, edited-task assembly, difficulty scoring, curriculum policies,
   expected state declarations, optional branch-plan records, and candidate-level
@@ -62,12 +65,14 @@ remain disabled guardrails. `task_suggester` may only produce intent-level
 `task_suggestion` records, and `task_editor` may only produce `edited_task`
 records that are validated before execution. `tool_generation` may only produce
 structured tool proposal records; it does not produce executable code or
-installable packages. Provider lineage should record role name, role version,
-output type, owner module, retry policy, model id, base URL host, prompt or
-config hash, token and cost metadata when available, retry count, and error
-class. Transient transport failures, timeouts, HTTP 429, and HTTP 5xx responses
-may be retried within a bounded local budget. Secrets must never be written to
-manifests, trajectories, exports, or logs.
+installable packages. Disabled executable roles record that future outputs
+require sandbox admission before execution. Provider lineage should record role
+name, role version, output type, owner module, retry policy, sandbox-admission
+requirement where relevant, model id, base URL host, prompt or config hash,
+token and cost metadata when available, retry count, and error class. Transient
+transport failures, timeouts, HTTP 429, and HTTP 5xx responses may be retried
+within a bounded local budget. Secrets must never be written to manifests,
+trajectories, exports, or logs.
 
 ## Job Lifecycle
 
@@ -111,12 +116,17 @@ manifests, trajectories, exports, or logs.
    mismatch, optionally request one `tool_generation` proposal, admit only a
    matching curated local implementation, and rerun through the normal execution,
    verification, and quality gates.
-15. Apply dataset-quality gates such as exact duplicate detection and logical
+15. When `--enable-sandbox-fixture` or `enable_sandbox_fixture=True` is
+   explicitly set, run a deterministic generated-code fixture through static
+   scan, admission, restricted local execution, and redacted audit serialization.
+   This fixture does not enable arbitrary generated tools, environments, or
+   verifiers and does not change default accepted/rejected sample counts.
+16. Apply dataset-quality gates such as exact duplicate detection and logical
    consistency checks.
-16. Route failed samples by error class and optional review policy.
-17. Export accepted samples, rejections, source-event audits when enabled, tool
-   proposal events, branch lineage, task-expansion lineage, quality reports, and
-   lineage.
+17. Route failed samples by error class and optional review policy.
+18. Export accepted samples, rejections, source-event audits when enabled,
+   sandbox audits when enabled, tool proposal events, branch lineage,
+   task-expansion lineage, quality reports, and lineage.
 
 The controlled network path is available from the CLI only with
 `--enable-network-source`, `--source-url`, `--source-license-label`, and at least
@@ -132,6 +142,12 @@ source-policy hash, reset/checkpoint support, supported operations, tool schemas
 side-effect classes, and verifier implications. This path deliberately excludes
 external MCP server discovery, browser automation, credential brokering, remote
 filesystem access, and generated tool handlers.
+
+The generated-code sandbox fixture is local and opt-in. `--enable-sandbox-fixture`
+creates sanitized `sandbox_audits.jsonl` records for one admitted safe fixture
+artifact and one rejected unsafe fixture artifact. The fixture records scan
+status, admission outcome, artifact kind, and execution status in the quality
+report without admitting generated handlers into the normal tool registry.
 
 ## Scaling Direction
 

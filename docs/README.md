@@ -33,9 +33,11 @@
 ## Execution Plans
 
 - [exec-plans/active/README.md](exec-plans/active/README.md): active plan bucket.
-- [exec-plans/active/0014-async-local-orchestration-with-durable-queues.md](exec-plans/active/0014-async-local-orchestration-with-durable-queues.md): current async local orchestration with durable queues implementation plan.
 - [exec-plans/completed/README.md](exec-plans/completed/README.md): completed plan bucket.
+- [exec-plans/deferred/README.md](exec-plans/deferred/README.md): deferred plan bucket.
+- [exec-plans/deferred/0014-async-local-orchestration-with-durable-queues.md](exec-plans/deferred/0014-async-local-orchestration-with-durable-queues.md): deferred async local orchestration with durable queues plan.
 - [exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md](exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md): source provenance, license eligibility, default-deny network policy, sandbox policy, source-event audit artifacts, and reporting slices.
 - [exec-plans/completed/0012-controlled-network-backed-environment-synthesis.md](exec-plans/completed/0012-controlled-network-backed-environment-synthesis.md): controlled opt-in HTTPS source ingestion, allowlisted host enforcement, request budgets, payload limits, contacts environment-source admission, and sanitized fetch/admission audit events.
 - [exec-plans/completed/0013-mcp-compatible-environment-tool-adapters.md](exec-plans/completed/0013-mcp-compatible-environment-tool-adapters.md): local MCP-compatible adapter manifest, tool-call request/result envelopes, adapter lineage, quality slices, and in-process contacts shim.
+- [exec-plans/completed/0015-generated-code-sandboxing-and-executable-admission-controls.md](exec-plans/completed/0015-generated-code-sandboxing-and-executable-admission-controls.md): generated-code sandbox contracts, static scans, executable admission records, restricted local fixture execution, redacted audits, and quality slices.
 - [exec-plans/tech-debt/README.md](exec-plans/tech-debt/README.md): technical debt bucket.

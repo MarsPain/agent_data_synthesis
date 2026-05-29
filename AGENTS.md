@@ -38,5 +38,5 @@ uv run python -m unittest
 
 - `main.py` runs the local foundation pipeline and writes runtime outputs to `artifacts/foundation/` by default.
 - The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
-- Current active work is tracked in [docs/PLANS.md](docs/PLANS.md): plan 0014 is queued for implementation.
-- Latest completed work is documented in [docs/exec-plans/completed/0013-mcp-compatible-environment-tool-adapters.md](docs/exec-plans/completed/0013-mcp-compatible-environment-tool-adapters.md).
+- Current active work is tracked in [docs/PLANS.md](docs/PLANS.md): no plans are currently active.
+- Latest completed work is documented in [docs/exec-plans/completed/0015-generated-code-sandboxing-and-executable-admission-controls.md](docs/exec-plans/completed/0015-generated-code-sandboxing-and-executable-admission-controls.md).

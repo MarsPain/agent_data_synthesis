@@ -21,6 +21,7 @@ class FoundationCliTest(unittest.TestCase):
         self.assertFalse(args.enable_refinement)
         self.assertFalse(args.enable_branching)
         self.assertFalse(args.enable_mcp_adapter)
+        self.assertFalse(args.enable_sandbox_fixture)
 
     def test_main_writes_requested_output_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -130,6 +131,35 @@ class FoundationCliTest(unittest.TestCase):
             report = json.loads((output_dir / "quality_report.json").read_text(encoding="utf-8"))
             self.assertEqual(sample["lineage"]["adapter"][0]["adapter_id"], "contacts_local_mcp_adapter")
             self.assertIn("contacts_local_mcp_adapter", report["slices"]["adapter_id"])
+            self.assertIn("accepted=2", result.stdout)
+
+    def test_main_can_enable_sandbox_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--enable-sandbox-fixture",
+                    "--output-dir",
+                    str(output_dir),
+                    "--dataset-version",
+                    "dataset_cli_sandbox_test",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((output_dir / "sandbox_audits.jsonl").exists(), result.stdout)
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            report = json.loads((output_dir / "quality_report.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["artifacts"]["sandbox_audits"], "sandbox_audits.jsonl")
+            self.assertIn("accepted", report["slices"]["sandbox_admission_outcome"])
+            self.assertIn("rejected", report["slices"]["sandbox_admission_outcome"])
+            self.assertNotIn("def ", (output_dir / "sandbox_audits.jsonl").read_text(encoding="utf-8"))
             self.assertIn("accepted=2", result.stdout)
 
     def test_main_can_enable_no_network_source_governance_fixture(self) -> None:

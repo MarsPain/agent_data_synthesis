@@ -12,6 +12,10 @@ from synthesis.contracts import (
     validate_rejection_record,
     validate_review_record,
     validate_sample_record,
+    validate_generated_code_scan_result_record,
+    validate_generated_executable_artifact_record,
+    validate_sandbox_admission_result_record,
+    validate_sandbox_execution_result_record,
     validate_source_event_record,
     validate_seed_transformation_record,
     validate_task_suggestion_record,
@@ -35,6 +39,7 @@ class DatasetArtifacts:
     quality_report_path: Path
     tool_proposals_path: Path | None
     source_events_path: Path | None
+    sandbox_audits_path: Path | None
     parent_comparison_path: Path | None
     review_queue_path: Path | None
     accepted_count: int
@@ -361,6 +366,7 @@ def write_dataset_artifacts(
     review_records: list[dict[str, object]] | None = None,
     tool_proposals: list[dict[str, object]] | None = None,
     source_events: list[dict[str, object]] | None = None,
+    sandbox_audits: list[dict[str, object]] | None = None,
 ) -> DatasetArtifacts:
     output_dir.mkdir(parents=True, exist_ok=True)
     samples_path = output_dir / "samples.jsonl"
@@ -369,10 +375,12 @@ def write_dataset_artifacts(
     quality_report_path = output_dir / "quality_report.json"
     optional_tool_proposals_path = output_dir / "tool_proposals.jsonl"
     optional_source_events_path = output_dir / "source_events.jsonl"
+    optional_sandbox_audits_path = output_dir / "sandbox_audits.jsonl"
     optional_parent_comparison_path = output_dir / "parent_comparison.json"
     optional_review_queue_path = output_dir / "review_queue.jsonl"
     tool_proposals_path = optional_tool_proposals_path if tool_proposals else None
     source_events_path = optional_source_events_path if source_events else None
+    sandbox_audits_path = optional_sandbox_audits_path if sandbox_audits else None
     parent_comparison_path = optional_parent_comparison_path if parent_artifact_path else None
     review_queue_path = optional_review_queue_path if review_records else None
 
@@ -387,6 +395,8 @@ def write_dataset_artifacts(
         _validate_tool_proposal_event(proposal_record)
     for source_event in source_events or []:
         validate_source_event_record(source_event)
+    for sandbox_audit in sandbox_audits or []:
+        _validate_sandbox_audit_record(sandbox_audit)
 
     _write_jsonl(samples_path, samples)
     _write_jsonl(rejections_path, rejections)
@@ -402,11 +412,16 @@ def write_dataset_artifacts(
         _write_jsonl(optional_source_events_path, source_events)
     else:
         _remove_if_exists(optional_source_events_path)
+    if sandbox_audits:
+        _write_jsonl(optional_sandbox_audits_path, sandbox_audits)
+    else:
+        _remove_if_exists(optional_sandbox_audits_path)
 
     quality_report = build_quality_report(
         dataset_version=dataset_version,
         samples=samples,
         rejections=rejections,
+        sandbox_audits=sandbox_audits,
     )
     quality_report_path.write_text(
         json.dumps(quality_report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -440,6 +455,8 @@ def write_dataset_artifacts(
         artifacts["tool_proposals"] = tool_proposals_path.name
     if source_events_path:
         artifacts["source_events"] = source_events_path.name
+    if sandbox_audits_path:
+        artifacts["sandbox_audits"] = sandbox_audits_path.name
 
     source_policy_hashes = _source_policy_hashes(samples, rejections)
 
@@ -483,6 +500,7 @@ def write_dataset_artifacts(
         quality_report_path=quality_report_path,
         tool_proposals_path=tool_proposals_path,
         source_events_path=source_events_path,
+        sandbox_audits_path=sandbox_audits_path,
         parent_comparison_path=parent_comparison_path,
         review_queue_path=review_queue_path,
         accepted_count=len(samples),
@@ -531,6 +549,32 @@ def _validate_rejection_nested_records(record: Mapping[str, object]) -> None:
     task_editor = details.get("task_editor")
     if isinstance(task_editor, Mapping):
         validate_edited_task_record(task_editor)
+
+
+def _validate_sandbox_audit_record(record: Mapping[str, object]) -> None:
+    if record.get("schema_version") != "sandbox_audit_v1":
+        raise ValueError("sandbox audit schema_version must be sandbox_audit_v1")
+    artifact = record.get("artifact")
+    if isinstance(artifact, Mapping):
+        validate_generated_executable_artifact_record(artifact)
+    else:
+        raise ValueError("sandbox audit artifact must be an object")
+    scan = record.get("scan")
+    if isinstance(scan, Mapping):
+        validate_generated_code_scan_result_record(scan)
+    else:
+        raise ValueError("sandbox audit scan must be an object")
+    admission = record.get("admission")
+    if isinstance(admission, Mapping):
+        validate_sandbox_admission_result_record(admission)
+    else:
+        raise ValueError("sandbox audit admission must be an object")
+    execution = record.get("execution")
+    if execution is not None:
+        if isinstance(execution, Mapping):
+            validate_sandbox_execution_result_record(execution)
+        else:
+            raise ValueError("sandbox audit execution must be an object or null")
 
 
 def _tool_expansion_lineage(record: Mapping[str, object]) -> dict[str, object]:

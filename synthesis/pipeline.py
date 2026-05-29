@@ -46,6 +46,7 @@ from synthesis.quality import (
 from synthesis.refinement import Refiner, RefinementAttempt, RefinementContext, repairable
 from synthesis.refinement import generate_llm_backed_refinement
 from synthesis.roles import RoleRegistry, default_role_registry
+from synthesis.sandbox import build_deterministic_sandbox_fixture
 from synthesis.seeds import foundation_seed
 from synthesis.seeds import DomainSeed
 from synthesis.seeds import deterministic_seed_transformations
@@ -88,6 +89,7 @@ class PipelineResult:
     quality_report_path: Path
     tool_proposals_path: Path | None
     source_events_path: Path | None
+    sandbox_audits_path: Path | None
     parent_comparison_path: Path | None
     review_queue_path: Path | None
     accepted_count: int
@@ -207,6 +209,7 @@ def run_foundation_pipeline(
     contacts_environment_input: ContactsEnvironmentInput | None = None,
     source_events: list[dict[str, object]] | None = None,
     enable_mcp_adapter: bool = False,
+    enable_sandbox_fixture: bool = False,
 ) -> PipelineResult:
     seed = foundation_seed()
     source_event_records: list[dict[str, object]] = list(source_events or [])
@@ -239,6 +242,7 @@ def run_foundation_pipeline(
             quality_report_path=artifacts.quality_report_path,
             tool_proposals_path=artifacts.tool_proposals_path,
             source_events_path=artifacts.source_events_path,
+            sandbox_audits_path=artifacts.sandbox_audits_path,
             parent_comparison_path=artifacts.parent_comparison_path,
             review_queue_path=artifacts.review_queue_path,
             accepted_count=artifacts.accepted_count,
@@ -293,6 +297,7 @@ def run_foundation_pipeline(
                 quality_report_path=artifacts.quality_report_path,
                 tool_proposals_path=artifacts.tool_proposals_path,
                 source_events_path=artifacts.source_events_path,
+                sandbox_audits_path=artifacts.sandbox_audits_path,
                 parent_comparison_path=artifacts.parent_comparison_path,
                 review_queue_path=artifacts.review_queue_path,
                 accepted_count=artifacts.accepted_count,
@@ -357,6 +362,7 @@ def run_foundation_pipeline(
             quality_report_path=artifacts.quality_report_path,
             tool_proposals_path=artifacts.tool_proposals_path,
             source_events_path=artifacts.source_events_path,
+            sandbox_audits_path=artifacts.sandbox_audits_path,
             parent_comparison_path=artifacts.parent_comparison_path,
             review_queue_path=artifacts.review_queue_path,
             accepted_count=artifacts.accepted_count,
@@ -385,6 +391,7 @@ def run_foundation_pipeline(
             quality_report_path=artifacts.quality_report_path,
             tool_proposals_path=artifacts.tool_proposals_path,
             source_events_path=artifacts.source_events_path,
+            sandbox_audits_path=artifacts.sandbox_audits_path,
             parent_comparison_path=artifacts.parent_comparison_path,
             review_queue_path=artifacts.review_queue_path,
             accepted_count=artifacts.accepted_count,
@@ -450,6 +457,11 @@ def run_foundation_pipeline(
             )
 
     _attach_source_governance_to_rejections(rejections, source_provenance)
+    sandbox_audits = (
+        build_deterministic_sandbox_fixture(output_dir)
+        if enable_sandbox_fixture
+        else []
+    )
     artifacts = write_dataset_artifacts(
         output_dir=output_dir,
         dataset_version=dataset_version,
@@ -459,6 +471,7 @@ def run_foundation_pipeline(
         review_records=review_records,
         tool_proposals=tool_proposal_records,
         source_events=source_event_records,
+        sandbox_audits=sandbox_audits,
     )
     return PipelineResult(
         samples_path=artifacts.samples_path,
@@ -467,6 +480,7 @@ def run_foundation_pipeline(
         quality_report_path=artifacts.quality_report_path,
         tool_proposals_path=artifacts.tool_proposals_path,
         source_events_path=artifacts.source_events_path,
+        sandbox_audits_path=artifacts.sandbox_audits_path,
         parent_comparison_path=artifacts.parent_comparison_path,
         review_queue_path=artifacts.review_queue_path,
         accepted_count=artifacts.accepted_count,
