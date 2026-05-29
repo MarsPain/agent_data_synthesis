@@ -534,7 +534,10 @@ class QualityPipelineTest(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("synthesis.pipeline.execute_candidate", return_value=unsupported_execution):
+            with patch(
+                "synthesis.candidate_processing.execute_candidate",
+                return_value=unsupported_execution,
+            ):
                 result = run_foundation_pipeline(
                     Path(tmpdir),
                     dataset_version="dataset_logic_test",

@@ -40,6 +40,10 @@ The first backend should be a local Python pipeline with explicit modules and du
   future roles from making provider calls before an explicit enabling plan.
 - `synthesis.quality`: quality reports, metric slices, duplicate signatures,
   logical consistency checks, human-review records, and parent-version comparison.
+- `synthesis.candidate_processing`: single-candidate validation, policy
+  execution, verification, duplicate/logical gates, optional tool-expansion
+  reruns, optional refinement reruns, and structured per-candidate outcomes for
+  the synchronous pipeline to merge in order.
 - `synthesis.datasets`: sample assembly, manifests, artifact exports, generation
   failure rejection records, and quality report path plumbing.
 - `synthesis.orchestration`: jobs, workers, queues, cancellation, and metrics.
@@ -151,4 +155,18 @@ report without admitting generated handlers into the normal tool registry.
 
 ## Scaling Direction
 
-Start with a local async runner. Move to an actor or queue-based runner only when local orchestration cannot satisfy throughput goals. The Matrix pattern from the PDF should guide the later distributed form: task state travels with messages; workers stay role-specific and mostly stateless. Scaling should increase pipeline throughput and provider-call routing without adding local LLM cluster deployment as a project responsibility.
+Start with a local async runner. Move to an actor or queue-based runner only when
+local orchestration cannot satisfy throughput goals. The Matrix pattern from the
+PDF should guide the later distributed form: task state travels with messages;
+workers stay role-specific and mostly stateless. Scaling should increase
+pipeline throughput and provider-call routing without adding local LLM cluster
+deployment as a project responsibility.
+
+The candidate-processing boundary is orchestration-ready because it returns
+structured per-candidate samples, rejections, review records, tool proposal
+records, and accepted duplicate signatures for the synchronous pipeline to merge.
+It is not concurrency-safe yet. A future orchestration plan must define
+per-candidate environment checkpoint/reset isolation, curated tool registry
+mutation rules for tool-expansion reruns, deterministic duplicate admission when
+candidates complete out of order, and manifest/quality-report merge ordering for
+durable queues.

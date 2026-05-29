@@ -8,6 +8,7 @@ Agent Data Synthesis is an early-stage Python project for building an automated 
 - `main.py` builds a SQLite contact fixture, registers a typed lookup tool, executes candidate tasks, verifies trajectories independently, and writes JSONL plus a manifest.
 - The architecture is documented before implementation so later code can follow stable domain boundaries.
 - The current implementation is intentionally small; treat `docs/` as the source of truth for design and development guidance.
+- The synchronous pipeline now delegates candidate-level gate execution to a typed candidate-processing boundary while keeping artifact assembly ordered and local.
 - The planned synthesis pipeline is LLM-driven through a remote OpenAI-compatible API. It does not include local LLM cluster deployment.
 
 ## Documentation Map

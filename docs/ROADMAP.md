@@ -66,6 +66,9 @@
   scanning, explicit sandbox admission, restricted local fixture execution,
   redacted sandbox audits, and quality slices before external MCP servers or
   generated executable roles are enabled.
+- Harden the candidate execution boundary before async orchestration. Implemented
+  in plan 0016 with structured per-candidate outcomes while preserving the
+  synchronous default pipeline.
 - Add async orchestration with durable queues.
 - Evaluate Ray-style distributed workers if throughput requires it.
 - Add monitoring dashboards and cost controls.

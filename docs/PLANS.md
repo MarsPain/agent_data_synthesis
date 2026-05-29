@@ -35,6 +35,7 @@ No plans currently active.
 - [0012-controlled-network-backed-environment-synthesis](exec-plans/completed/0012-controlled-network-backed-environment-synthesis.md): added controlled opt-in HTTPS source ingestion, allowlisted host enforcement, request budgets, payload limits, contacts environment-source admission, and sanitized fetch/admission audit events. Completed on 2026-05-17.
 - [0013-mcp-compatible-environment-tool-adapters](exec-plans/completed/0013-mcp-compatible-environment-tool-adapters.md): added local MCP-compatible adapter manifest, tool-call request/result envelopes, adapter lineage, quality slices, and in-process contacts shim. Completed on 2026-05-18.
 - [0015-generated-code-sandboxing-and-executable-admission-controls](exec-plans/completed/0015-generated-code-sandboxing-and-executable-admission-controls.md): added generated-code sandbox contracts, static scans, admission records, restricted local fixture execution, redacted sandbox audit artifacts, and reporting slices. Completed on 2026-05-27.
+- [0016-candidate-execution-boundary-and-orchestration-readiness](exec-plans/completed/0016-candidate-execution-boundary-and-orchestration-readiness.md): extracted and tested a structured candidate-processing boundary before deferred async orchestration work. Completed on 2026-05-29.
 
 ## Technical Debt
 

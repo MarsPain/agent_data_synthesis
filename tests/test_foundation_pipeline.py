@@ -5,6 +5,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Callable
 from unittest.mock import patch
 
 from synthesis.execution import SolutionPolicy, ToolStep
@@ -12,6 +13,197 @@ from synthesis.tasks import CandidateTask, EditedTask, TaskExpansionResult
 
 
 class FoundationPipelineTest(unittest.TestCase):
+    def _normalized_artifacts(self, result) -> dict[str, object]:
+        artifacts: dict[str, object] = {
+            "samples": self._read_jsonl(result.samples_path),
+            "manifest": self._read_json(result.manifest_path),
+            "rejections": self._read_jsonl(result.rejections_path),
+            "quality_report": self._read_json(result.quality_report_path),
+        }
+        optional_paths = {
+            "tool_proposals": result.tool_proposals_path,
+            "source_events": result.source_events_path,
+            "sandbox_audits": result.sandbox_audits_path,
+            "parent_comparison": result.parent_comparison_path,
+            "review_queue": result.review_queue_path,
+        }
+        for name, path in optional_paths.items():
+            if path is None:
+                artifacts[name] = None
+            elif path.suffix == ".jsonl":
+                artifacts[name] = self._read_jsonl(path)
+            else:
+                artifacts[name] = self._read_json(path)
+        return self._normalize_artifact_value(artifacts)
+
+    def _read_json(self, path: Path) -> object:
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def _read_jsonl(self, path: Path) -> list[object]:
+        text = path.read_text(encoding="utf-8")
+        if not text:
+            return []
+        return [json.loads(line) for line in text.splitlines()]
+
+    def _normalize_artifact_value(self, value: object) -> object:
+        if isinstance(value, dict):
+            normalized: dict[str, object] = {}
+            for key, nested_value in value.items():
+                if key in {"dataset_version", "parent_dataset_version"}:
+                    normalized[key] = "<dataset_version>" if nested_value else nested_value
+                elif key == "duration_ms":
+                    normalized[key] = "<duration_ms>"
+                else:
+                    normalized[key] = self._normalize_artifact_value(nested_value)
+            return normalized
+        if isinstance(value, list):
+            return [self._normalize_artifact_value(item) for item in value]
+        return value
+
+    def test_refactor_sensitive_fixture_artifacts_are_deterministic(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+        from synthesis.sources import (
+            FetchedSourceRequest,
+            build_external_fixture_source_bundle,
+            build_network_contacts_source_input,
+        )
+
+        class FixtureHttpResponse:
+            status_code = 200
+            headers = {"content-type": "application/json"}
+
+            def __init__(self, content: bytes) -> None:
+                self.content = content
+
+        class FixtureHttpClient:
+            def __init__(self, content: bytes) -> None:
+                self.content = content
+
+            def get(self, url: str, *, timeout: float, follow_redirects: bool) -> FixtureHttpResponse:
+                return FixtureHttpResponse(self.content)
+
+        def source_governance_kwargs(tmpdir: Path) -> dict[str, object]:
+            return {
+                "source_bundle": build_external_fixture_source_bundle(network_enabled=True),
+                "enable_source_audit": True,
+            }
+
+        def network_source_kwargs(tmpdir: Path) -> dict[str, object]:
+            payload = json.dumps(
+                {
+                    "contacts": [
+                        {"name": "Alice Zhang", "email": "alice.zhang@example.test"},
+                        {"name": "Ben Carter", "email": "ben.carter@example.test"},
+                    ],
+                    "followups": [],
+                }
+            ).encode("utf-8")
+            source_input = build_network_contacts_source_input(
+                FetchedSourceRequest(
+                    url="https://allowed.example.test/contacts.json",
+                    allowed_hosts=("allowed.example.test",),
+                    request_budget=1,
+                    timeout_seconds=5.0,
+                    max_bytes=65536,
+                    expected_content_type="application/json",
+                    license_label="cc-by-4.0",
+                    require_source_audit=True,
+                ),
+                http_client=FixtureHttpClient(payload),
+            )
+            return {
+                "source_bundle": source_input.source_bundle,
+                "contacts_environment_input": source_input.environment_input,
+                "source_events": source_input.events,
+                "enable_source_audit": True,
+            }
+
+        case_factories: tuple[tuple[str, Callable[[Path], dict[str, object]]], ...] = (
+            ("default", lambda tmpdir: {}),
+            ("branching", lambda tmpdir: {"enable_branching": True}),
+            ("task_expansion", lambda tmpdir: {"enable_task_expansion": True}),
+            ("mcp_adapter", lambda tmpdir: {"enable_mcp_adapter": True}),
+            ("source_governance", source_governance_kwargs),
+            ("sandbox", lambda tmpdir: {"enable_sandbox_fixture": True}),
+            ("network_source", network_source_kwargs),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            for case_name, build_kwargs in case_factories:
+                with self.subTest(case=case_name):
+                    first = run_foundation_pipeline(
+                        root / case_name / "first",
+                        dataset_version=f"dataset_{case_name}_first",
+                        **build_kwargs(root),
+                    )
+                    second = run_foundation_pipeline(
+                        root / case_name / "second",
+                        dataset_version=f"dataset_{case_name}_second",
+                        **build_kwargs(root),
+                    )
+
+                    self.assertEqual(
+                        self._normalized_artifacts(first),
+                        self._normalized_artifacts(second),
+                    )
+
+    def test_candidate_outcome_application_preserves_ordered_admission_contract(self) -> None:
+        from synthesis.candidate_processing import CandidateProcessingOutcome
+        from synthesis.pipeline import _apply_candidate_outcome
+
+        samples: list[dict[str, object]] = []
+        rejections: list[dict[str, object]] = []
+        review_records: list[dict[str, object]] = []
+        tool_proposal_records: list[dict[str, object]] = []
+        accepted_signatures: set[tuple[str, tuple[str, ...]]] = set()
+
+        _apply_candidate_outcome(
+            CandidateProcessingOutcome(
+                sample={"sample_id": "sample_candidate"},
+                rejection=None,
+                review_records=({"candidate_id": "candidate_review"},),
+                tool_proposal_records=({"candidate_id": "candidate_tool"},),
+                accepted_signature=("instruction", ("lookup_contact_email",)),
+            ),
+            samples=samples,
+            rejections=rejections,
+            review_records=review_records,
+            tool_proposal_records=tool_proposal_records,
+            accepted_signatures=accepted_signatures,
+        )
+
+        self.assertEqual(samples, [{"sample_id": "sample_candidate"}])
+        self.assertEqual(rejections, [])
+        self.assertEqual(review_records, [{"candidate_id": "candidate_review"}])
+        self.assertEqual(tool_proposal_records, [{"candidate_id": "candidate_tool"}])
+        self.assertEqual(
+            accepted_signatures,
+            {("instruction", ("lookup_contact_email",))},
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "exactly one"):
+            _apply_candidate_outcome(
+                CandidateProcessingOutcome(sample=None, rejection=None),
+                samples=samples,
+                rejections=rejections,
+                review_records=review_records,
+                tool_proposal_records=tool_proposal_records,
+                accepted_signatures=accepted_signatures,
+            )
+        with self.assertRaisesRegex(RuntimeError, "exactly one"):
+            _apply_candidate_outcome(
+                CandidateProcessingOutcome(
+                    sample={"sample_id": "sample_bad"},
+                    rejection={"cause": "bad"},
+                ),
+                samples=samples,
+                rejections=rejections,
+                review_records=review_records,
+                tool_proposal_records=tool_proposal_records,
+                accepted_signatures=accepted_signatures,
+            )
+
     def test_generates_verified_sample_and_manifest(self) -> None:
         from synthesis.pipeline import run_foundation_pipeline
 
