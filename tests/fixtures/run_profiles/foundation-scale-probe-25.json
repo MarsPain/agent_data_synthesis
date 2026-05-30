@@ -1,0 +1,26 @@
+{
+  "schema_version": "run_profile_v1",
+  "profile_id": "foundation_scale_probe_25",
+  "dataset_version": "dataset_foundation_scale_probe_25",
+  "seed": {
+    "seed_id": "seed_contacts_v1",
+    "domain": "contacts",
+    "description": "Synthetic contact lookup and follow-up tasks.",
+    "task_taxonomy": [
+      "contact_lookup",
+      "contact_followup"
+    ]
+  },
+  "generation": {
+    "mode": "deterministic_scale_probe",
+    "target_candidate_count": 25
+  },
+  "features": {
+    "enable_branching": false,
+    "enable_task_expansion": false,
+    "enable_refinement": false,
+    "enable_mcp_adapter": false,
+    "enable_sandbox_fixture": false,
+    "enable_source_governance_fixture": false
+  }
+}

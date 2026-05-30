@@ -3,6 +3,9 @@
 ## Canonical Entities
 
 - **Seed:** source material, domain description, task taxonomy, or prior accepted sample used to start generation.
+- **Run Profile:** versioned local-run configuration that names a profile id,
+  dataset version, seed metadata, generation mode, target candidate count when
+  applicable, and supported feature flags.
 - **Source Record:** provenance contract for fixture, synthetic, transformed, or
   external material, including source id, origin reference, content hash, license
   label, retrieval timestamp when applicable, and retention/export eligibility.
@@ -139,6 +142,13 @@ enabled, it also references `tool_proposals`, `parent_comparison`, and
 source-gated rejections carry source provenance. When the generated-code sandbox
 fixture is enabled, the manifest references `sandbox_audits`.
 
+When a run is configured by a `run_profile_v1` file, `manifest.json` includes an
+optional `run_profile` object. This object is sanitized metadata only:
+`schema_version`, `profile_id`, `generation_mode`, `target_candidate_count`,
+`config_hash`, and `enabled_features`. It must not copy raw profile files,
+source payloads, authorization headers, provider prompts, API keys, or other
+secret-like fields. Non-profile runs omit `run_profile`.
+
 `lineage.source_provenance` records the source bundle id, source policy hash,
 source ids, source kinds, license labels, license outcomes, retention/export
 eligibility, `external_source_eligible`, and, for network-backed contacts
@@ -227,7 +237,10 @@ suggester and editor metadata do not overwrite those fields.
   environment-source admission outcome, adapter id, adapter protocol, adapter
   execution outcome, adapter rejection cause, sandbox artifact kind, sandbox scan
   status, sandbox admission outcome, sandbox rejection cause, and sandbox
-  execution status.
+  execution status. Run-profile id and generation-mode slices are intentionally
+  deferred until profile metadata is propagated to sample or rejection records;
+  the current `run_profile_v1` attribution is manifest-only to avoid duplicating
+  profile content across artifacts.
 
 Capability-gap records use `schema_version: capability_gap_v1` and preserve
 candidate id, policy id, gap type, tool name, rejection cause, message, schema

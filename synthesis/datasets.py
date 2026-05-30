@@ -367,6 +367,7 @@ def write_dataset_artifacts(
     tool_proposals: list[dict[str, object]] | None = None,
     source_events: list[dict[str, object]] | None = None,
     sandbox_audits: list[dict[str, object]] | None = None,
+    run_profile_metadata: dict[str, object] | None = None,
 ) -> DatasetArtifacts:
     output_dir.mkdir(parents=True, exist_ok=True)
     samples_path = output_dir / "samples.jsonl"
@@ -485,6 +486,8 @@ def write_dataset_artifacts(
         "generator_config_hashes": _lineage_config_hashes(samples),
         "rejection_causes": quality_report["rejection_causes"],
     }
+    if run_profile_metadata is not None:
+        manifest["run_profile"] = dict(run_profile_metadata)
     if source_policy_hashes:
         manifest["source_policy_hashes"] = source_policy_hashes
     validate_manifest_record(manifest)

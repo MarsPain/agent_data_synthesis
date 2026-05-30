@@ -293,6 +293,7 @@ class FoundationPipelineTest(unittest.TestCase):
             )
             self.assertEqual(manifest["verifier_versions"], ["verifier_exact_answer_state_v2"])
             self.assertEqual(manifest["rejection_causes"], {"verification_failed": 1})
+            self.assertNotIn("run_profile", manifest)
 
             rejection = json.loads(result.rejections_path.read_text(encoding="utf-8").splitlines()[0])
             self.assertEqual(rejection["cause"], "verification_failed")
@@ -306,6 +307,94 @@ class FoundationPipelineTest(unittest.TestCase):
             self.assertIn(
                 "lookup_contact_email > record_contact_followup",
                 quality_report["slices"]["tool_combination"],
+            )
+
+    def test_pipeline_uses_seed_override_and_writes_sanitized_run_profile_metadata(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+        from synthesis.run_profiles import load_run_profile
+
+        profile = load_run_profile(Path("tests/fixtures/run_profiles/foundation-fixture.json"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict(
+                os.environ,
+                {"AGENT_DATA_API_KEY": "secret-profile-key"},
+                clear=False,
+            ):
+                result = run_foundation_pipeline(
+                    Path(tmpdir),
+                    dataset_version=profile.dataset_version,
+                    seed_override=profile.seed,
+                    run_profile_metadata=profile.sanitized_metadata(),
+                )
+
+            manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["run_profile"]["profile_id"], "foundation_fixture_profile")
+            self.assertEqual(manifest["run_profile"]["generation_mode"], "foundation_fixture")
+            self.assertEqual(manifest["run_profile"]["target_candidate_count"], None)
+            self.assertEqual(manifest["run_profile"]["enabled_features"], [])
+            self.assertRegex(manifest["run_profile"]["config_hash"], r"^sha256:[0-9a-f]{64}$")
+            self.assertNotIn("secret-profile-key", result.manifest_path.read_text(encoding="utf-8"))
+
+            sample = json.loads(result.samples_path.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(sample["lineage"]["seed_ids"], ["seed_contacts_v1"])
+
+    def test_scale_probe_profile_pipeline_outputs_stable_decision_evidence(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+        from synthesis.run_profiles import load_run_profile
+        from synthesis.tasks import generate_scale_probe_candidates
+
+        profile = load_run_profile(Path("tests/fixtures/run_profiles/foundation-scale-probe-25.json"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first = run_foundation_pipeline(
+                Path(tmpdir) / "first",
+                dataset_version=profile.dataset_version,
+                candidate_generator=lambda seed: generate_scale_probe_candidates(
+                    seed,
+                    profile.generation.target_candidate_count or 0,
+                ),
+                seed_override=profile.seed,
+                run_profile_metadata=profile.sanitized_metadata(),
+            )
+            second = run_foundation_pipeline(
+                Path(tmpdir) / "second",
+                dataset_version=profile.dataset_version,
+                candidate_generator=lambda seed: generate_scale_probe_candidates(
+                    seed,
+                    profile.generation.target_candidate_count or 0,
+                ),
+                seed_override=profile.seed,
+                run_profile_metadata=profile.sanitized_metadata(),
+            )
+
+            self.assertEqual(first.accepted_count, 14)
+            self.assertEqual(first.rejected_count, 11)
+            self.assertEqual(
+                self._normalized_artifacts(first),
+                self._normalized_artifacts(second),
+            )
+            manifest = json.loads(first.manifest_path.read_text(encoding="utf-8"))
+            report = json.loads(first.quality_report_path.read_text(encoding="utf-8"))
+            samples = [
+                json.loads(line)
+                for line in first.samples_path.read_text(encoding="utf-8").splitlines()
+            ]
+
+            self.assertEqual(report["counts"]["total"], 25)
+            self.assertEqual(report["rejection_causes"]["quality_duplicate"], 3)
+            self.assertEqual(report["rejection_causes"]["verification_failed"], 4)
+            self.assertEqual(report["rejection_causes"]["solution_logic_error"], 4)
+            self.assertEqual(manifest["run_profile"]["profile_id"], "foundation_scale_probe_25")
+            self.assertEqual(manifest["run_profile"]["target_candidate_count"], 25)
+            self.assertRegex(manifest["run_profile"]["config_hash"], r"^sha256:[0-9a-f]{64}$")
+            self.assertEqual(
+                [sample["sample_id"] for sample in samples[:3]],
+                [
+                    "sample_candidate_scale_probe_0001",
+                    "sample_candidate_scale_probe_0004",
+                    "sample_candidate_scale_probe_0007",
+                ],
             )
 
     def test_adapter_fixture_path_records_lineage_without_changing_default_counts(self) -> None:

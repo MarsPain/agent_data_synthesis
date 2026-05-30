@@ -11,12 +11,14 @@ from synthesis.pipeline import (
     run_foundation_pipeline,
 )
 from synthesis.refinement import deterministic_fixture_refiner
+from synthesis.run_profiles import RunProfile, RunProfileValidationError, load_run_profile
 from synthesis.sources import build_external_fixture_source_bundle
 from synthesis.sources import (
     ControlledSourceFetchError,
     FetchedSourceRequest,
     build_network_contacts_source_input,
 )
+from synthesis.tasks import generate_scale_probe_candidates
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,8 +32,14 @@ def parse_args() -> argparse.Namespace:
         help="Directory for JSONL samples, rejections, manifest, and fixture state.",
     )
     parser.add_argument(
+        "--run-profile",
+        type=Path,
+        default=None,
+        help="Validated run_profile_v1 JSON file for configuring a local run.",
+    )
+    parser.add_argument(
         "--dataset-version",
-        default="dataset_foundation_v1",
+        default=None,
         help="Dataset version id written into samples and manifest.",
     )
     parser.add_argument(
@@ -118,6 +126,15 @@ def parse_args() -> argparse.Namespace:
         help="No-network test fixture used as the source response body.",
     )
     args = parser.parse_args()
+    args.loaded_run_profile = _load_profile_or_error(parser, args.run_profile)
+    if args.loaded_run_profile is None:
+        args.dataset_version = args.dataset_version or "dataset_foundation_v1"
+    elif args.dataset_version is None:
+        args.dataset_version = args.loaded_run_profile.dataset_version
+
+    if args.loaded_run_profile is not None:
+        _validate_profile_cli_combinations(parser, args.loaded_run_profile, args)
+
     if args.enable_network_source:
         if not args.source_url:
             parser.error("--enable-network-source requires --source-url")
@@ -130,16 +147,21 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    candidate_generator = build_llm_candidate_generator() if args.use_llm else None
+    profile: RunProfile | None = args.loaded_run_profile
+    candidate_generator = _profile_candidate_generator(profile, use_llm=args.use_llm)
     task_expansion_generator = (
         build_llm_task_expansion_generator()
-        if args.use_llm and args.enable_task_expansion
+        if args.use_llm and _feature_enabled(args, profile, "enable_task_expansion")
         else None
     )
-    refiner = deterministic_fixture_refiner if args.enable_refinement else None
+    refiner = (
+        deterministic_fixture_refiner
+        if _feature_enabled(args, profile, "enable_refinement")
+        else None
+    )
     source_bundle = (
         build_external_fixture_source_bundle(network_enabled=True)
-        if args.enable_source_governance_fixture
+        if _feature_enabled(args, profile, "enable_source_governance_fixture")
         else None
     )
     contacts_environment_input = None
@@ -176,17 +198,22 @@ def main() -> int:
             candidate_generator=candidate_generator,
             parent_artifact_path=args.parent_artifact,
             refiner=refiner,
-            enable_branching=args.enable_branching,
-            enable_task_expansion=args.enable_task_expansion,
+            enable_branching=_feature_enabled(args, profile, "enable_branching"),
+            enable_task_expansion=_feature_enabled(args, profile, "enable_task_expansion"),
             task_expansion_generator=task_expansion_generator,
             source_bundle=source_bundle,
             enable_source_audit=(
-                args.enable_source_governance_fixture or args.enable_network_source
+                _feature_enabled(args, profile, "enable_source_governance_fixture")
+                or args.enable_network_source
             ),
             contacts_environment_input=contacts_environment_input,
             source_events=source_events,
-            enable_mcp_adapter=args.enable_mcp_adapter,
-            enable_sandbox_fixture=args.enable_sandbox_fixture,
+            enable_mcp_adapter=_feature_enabled(args, profile, "enable_mcp_adapter"),
+            enable_sandbox_fixture=_feature_enabled(args, profile, "enable_sandbox_fixture"),
+            seed_override=profile.seed if profile is not None else None,
+            run_profile_metadata=(
+                profile.sanitized_metadata() if profile is not None else None
+            ),
         )
     except (LLMConfigurationError, LLMProviderError) as exc:
         print(str(exc), file=sys.stderr)
@@ -199,6 +226,63 @@ def main() -> int:
         f"manifest={result.manifest_path}"
     )
     return 0
+
+
+def _load_profile_or_error(
+    parser: argparse.ArgumentParser,
+    profile_path: Path | None,
+) -> RunProfile | None:
+    if profile_path is None:
+        return None
+    try:
+        return load_run_profile(profile_path)
+    except FileNotFoundError:
+        parser.error(f"run profile not found: {profile_path}")
+    except RunProfileValidationError as exc:
+        parser.error(f"invalid run profile: {exc}")
+
+
+def _validate_profile_cli_combinations(
+    parser: argparse.ArgumentParser,
+    profile: RunProfile,
+    args: argparse.Namespace,
+) -> None:
+    if profile.generation.mode == "llm" and not args.use_llm:
+        parser.error('run profile generation.mode="llm" requires --use-llm')
+    if profile.generation.mode != "llm" and args.use_llm:
+        parser.error("--use-llm requires run profile generation.mode=\"llm\"")
+    if args.enable_network_source and profile.features.enable_source_governance_fixture:
+        parser.error(
+            "run profile enable_source_governance_fixture conflicts with --enable-network-source"
+        )
+
+
+def _profile_candidate_generator(
+    profile: RunProfile | None,
+    *,
+    use_llm: bool,
+):
+    if profile is None:
+        return build_llm_candidate_generator() if use_llm else None
+    if profile.generation.mode == "llm":
+        return build_llm_candidate_generator()
+    if profile.generation.mode == "deterministic_scale_probe":
+        assert profile.generation.target_candidate_count is not None
+        return lambda seed: generate_scale_probe_candidates(
+            seed,
+            profile.generation.target_candidate_count,
+        )
+    return None
+
+
+def _feature_enabled(
+    args: argparse.Namespace,
+    profile: RunProfile | None,
+    feature_name: str,
+) -> bool:
+    cli_enabled = bool(getattr(args, feature_name))
+    profile_enabled = bool(getattr(profile.features, feature_name)) if profile else False
+    return cli_enabled or profile_enabled
 
 
 class _FixtureHttpResponse:

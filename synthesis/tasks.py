@@ -176,6 +176,20 @@ def generate_foundation_candidates(
     return order_candidates_by_curriculum(_attach_local_generation_lineage(candidates))
 
 
+def generate_scale_probe_candidates(
+    seed: DomainSeed,
+    target_candidate_count: int,
+) -> list[CandidateTask]:
+    if target_candidate_count <= 0:
+        raise ValueError("target_candidate_count must be positive")
+
+    candidates = [
+        _scale_probe_candidate(seed, index)
+        for index in range(1, target_candidate_count + 1)
+    ]
+    return order_candidates_by_curriculum(candidates)
+
+
 def generate_llm_backed_candidates(
     seed: DomainSeed,
     client: Any,
@@ -476,6 +490,167 @@ def _branching_contact_candidate(seed: DomainSeed) -> CandidateTask:
     )
 
 
+def _scale_probe_candidate(seed: DomainSeed, index: int) -> CandidateTask:
+    candidate_id = f"candidate_scale_probe_{index:04d}"
+    probe_case = (index - 1) % 6
+    lineage = local_scale_probe_generation_lineage()
+    if probe_case == 0:
+        return CandidateTask(
+            candidate_id=candidate_id,
+            instruction=f"Find Alice Zhang's email address for scale probe item {index}.",
+            constraints={
+                "task_type": "contact_lookup",
+                "probe_case": "single_step_lookup",
+                "must_use_tool": "lookup_contact_email",
+            },
+            difficulty={
+                "level": "easy",
+                "tool_count": 1,
+                "constraint_count": 1,
+                "state_changes": 0,
+                "ambiguity": "none",
+                "recovery_paths": 0,
+            },
+            tool_name="lookup_contact_email",
+            arguments={"name": "Alice Zhang"},
+            expected_answer="alice.zhang@example.test",
+            seed_ids=(seed.seed_id,),
+            generation_lineage=lineage,
+        )
+    if probe_case == 1:
+        return CandidateTask(
+            candidate_id=candidate_id,
+            instruction=f"Find Ben Carter's email address for scale probe item {index}.",
+            constraints={
+                "task_type": "contact_lookup",
+                "probe_case": "verification_failure",
+                "must_use_tool": "lookup_contact_email",
+            },
+            difficulty={
+                "level": "easy",
+                "tool_count": 1,
+                "constraint_count": 1,
+                "state_changes": 0,
+                "ambiguity": "none",
+                "recovery_paths": 0,
+            },
+            tool_name="lookup_contact_email",
+            arguments={"name": "Ben Carter"},
+            expected_answer="ben@example.test",
+            seed_ids=(seed.seed_id,),
+            generation_lineage=lineage,
+        )
+    if probe_case == 2:
+        return CandidateTask(
+            candidate_id=candidate_id,
+            instruction=(
+                f"Find Alice Zhang's email address and record a follow-up "
+                f"for scale probe item {index}."
+            ),
+            constraints={
+                "task_type": "contact_followup",
+                "probe_case": "multi_step_followup",
+                "required_tools": ["lookup_contact_email", "record_contact_followup"],
+            },
+            difficulty={
+                "level": "medium",
+                "tool_count": 2,
+                "constraint_count": 2,
+                "state_changes": 1,
+                "ambiguity": "none",
+                "recovery_paths": 0,
+            },
+            tool_name="lookup_contact_email",
+            arguments={"name": "Alice Zhang"},
+            expected_answer="alice.zhang@example.test",
+            seed_ids=(seed.seed_id,),
+            generation_lineage=lineage,
+            expected_state={
+                "contact_followup": {
+                    "name": "Alice Zhang",
+                    "note": "Send follow-up email to alice.zhang@example.test.",
+                }
+            },
+        )
+    if probe_case == 3:
+        return CandidateTask(
+            candidate_id=candidate_id,
+            instruction="Find Alice Zhang's email address for scale probe duplicate.",
+            constraints={
+                "task_type": "contact_lookup",
+                "probe_case": "duplicate_lookup",
+                "must_use_tool": "lookup_contact_email",
+            },
+            difficulty={
+                "level": "easy",
+                "tool_count": 1,
+                "constraint_count": 1,
+                "state_changes": 0,
+                "ambiguity": "none",
+                "recovery_paths": 0,
+            },
+            tool_name="lookup_contact_email",
+            arguments={"name": "Alice Zhang"},
+            expected_answer="alice.zhang@example.test",
+            seed_ids=(seed.seed_id,),
+            generation_lineage=lineage,
+        )
+    if probe_case == 4:
+        return CandidateTask(
+            candidate_id=candidate_id,
+            instruction=(
+                f"Return a supervisor-only contact answer after looking up "
+                f"Alice Zhang for scale probe item {index}."
+            ),
+            constraints={
+                "task_type": "contact_lookup",
+                "probe_case": "logical_support_failure",
+                "must_use_tool": "lookup_contact_email",
+            },
+            difficulty={
+                "level": "medium",
+                "tool_count": 1,
+                "constraint_count": 2,
+                "state_changes": 0,
+                "ambiguity": "unsupported_final_answer",
+                "recovery_paths": 0,
+            },
+            tool_name="lookup_contact_email",
+            arguments={"name": "Alice Zhang"},
+            expected_answer="escalation-needed@example.test",
+            seed_ids=(seed.seed_id,),
+            generation_lineage=lineage,
+        )
+    return CandidateTask(
+        candidate_id=candidate_id,
+        instruction=f"Find Ben Carter's email address and record a follow-up for probe item {index}.",
+        constraints={
+            "task_type": "contact_followup",
+            "probe_case": "stateful_followup",
+            "required_tools": ["lookup_contact_email", "record_contact_followup"],
+        },
+        difficulty={
+            "level": "medium",
+            "tool_count": 2,
+            "constraint_count": 2,
+            "state_changes": 1,
+            "ambiguity": "none",
+            "recovery_paths": 0,
+        },
+        tool_name="lookup_contact_email",
+        arguments={"name": "Ben Carter"},
+        expected_answer="ben.carter@example.test",
+        seed_ids=(seed.seed_id,),
+        generation_lineage=lineage,
+        expected_state={
+            "contact_followup": {
+                "name": "Ben Carter",
+                "note": "Send follow-up email to ben.carter@example.test.",
+            }
+        },
+    )
+
+
 def _candidate_generation_prompt(seed: DomainSeed) -> str:
     taxonomy = ", ".join(seed.task_taxonomy)
     return (
@@ -599,6 +774,20 @@ def local_task_generation_lineage() -> dict[str, object]:
         "provider_host": "local",
         "model": "scripted",
         "config_hash": "scripted_task_generation_v1",
+        "configured": True,
+    }
+
+
+def local_scale_probe_generation_lineage() -> dict[str, object]:
+    return {
+        "role": "scripted_task_generation",
+        "role_version": "role_scripted_task_generation_v1",
+        "output_type": "candidate_tasks",
+        "owner_module": "synthesis.tasks",
+        "retry_policy": "local_deterministic",
+        "provider_host": "local",
+        "model": "scripted_scale_probe",
+        "config_hash": "scale-probe-local-v1",
         "configured": True,
     }
 

@@ -180,8 +180,10 @@ def run_foundation_pipeline(
     source_events: list[dict[str, object]] | None = None,
     enable_mcp_adapter: bool = False,
     enable_sandbox_fixture: bool = False,
+    seed_override: DomainSeed | None = None,
+    run_profile_metadata: dict[str, object] | None = None,
 ) -> PipelineResult:
-    seed = foundation_seed()
+    seed = seed_override or foundation_seed()
     source_event_records: list[dict[str, object]] = list(source_events or [])
     selected_source_bundle = source_bundle or build_fixture_source_bundle()
     try:
@@ -204,6 +206,7 @@ def run_foundation_pipeline(
             review_records=[],
             tool_proposals=[],
             source_events=source_event_records,
+            run_profile_metadata=run_profile_metadata,
         )
         return PipelineResult(
             samples_path=artifacts.samples_path,
@@ -259,6 +262,7 @@ def run_foundation_pipeline(
                 review_records=[],
                 tool_proposals=[],
                 source_events=source_event_records,
+                run_profile_metadata=run_profile_metadata,
             )
             return PipelineResult(
                 samples_path=artifacts.samples_path,
@@ -338,6 +342,7 @@ def run_foundation_pipeline(
             review_records=review_records,
             tool_proposals=tool_proposal_records,
             source_events=source_event_records,
+            run_profile_metadata=run_profile_metadata,
         )
         return PipelineResult(
             samples_path=artifacts.samples_path,
@@ -367,6 +372,7 @@ def run_foundation_pipeline(
             review_records=review_records,
             tool_proposals=tool_proposal_records,
             source_events=source_event_records,
+            run_profile_metadata=run_profile_metadata,
         )
         return PipelineResult(
             samples_path=artifacts.samples_path,
@@ -448,6 +454,7 @@ def run_foundation_pipeline(
         tool_proposals=tool_proposal_records,
         source_events=source_event_records,
         sandbox_audits=sandbox_audits,
+        run_profile_metadata=run_profile_metadata,
     )
     return PipelineResult(
         samples_path=artifacts.samples_path,

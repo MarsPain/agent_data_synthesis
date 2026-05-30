@@ -261,6 +261,149 @@ class FoundationCliTest(unittest.TestCase):
             self.assertNotIn("Alice Zhang", (output_dir / "source_events.jsonl").read_text(encoding="utf-8"))
             self.assertIn("accepted=2", result.stdout)
 
+    def test_main_can_run_foundation_fixture_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/foundation-fixture.json",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["dataset_version"], "dataset_foundation_profile_v1")
+            self.assertEqual(manifest["accepted_count"], 2)
+            self.assertEqual(manifest["rejected_count"], 1)
+            self.assertEqual(manifest["run_profile"]["profile_id"], "foundation_fixture_profile")
+            self.assertEqual(manifest["run_profile"]["generation_mode"], "foundation_fixture")
+            self.assertIn("accepted=2", result.stdout)
+
+    def test_main_dataset_version_overrides_profile_dataset_version(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/foundation-fixture.json",
+                    "--dataset-version",
+                    "dataset_cli_profile_override",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["dataset_version"], "dataset_cli_profile_override")
+            self.assertEqual(manifest["run_profile"]["profile_id"], "foundation_fixture_profile")
+
+    def test_main_rejects_invalid_profile_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/missing.json",
+                    "--output-dir",
+                    str(Path(tmpdir) / "foundation"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("run profile", result.stderr)
+
+    def test_main_rejects_invalid_profile_content(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_path = Path(tmpdir) / "bad-profile.json"
+            profile_path.write_text('{"schema_version": "run_profile_v2"}', encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    str(profile_path),
+                    "--output-dir",
+                    str(Path(tmpdir) / "foundation"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("schema_version", result.stderr)
+
+    def test_main_rejects_use_llm_with_non_llm_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/foundation-fixture.json",
+                    "--use-llm",
+                    "--output-dir",
+                    str(Path(tmpdir) / "foundation"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("--use-llm", result.stderr)
+            self.assertIn("generation.mode", result.stderr)
+
+    def test_main_can_run_deterministic_scale_probe_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation-scale-probe"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/foundation-scale-probe-25.json",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            report = json.loads((output_dir / "quality_report.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["dataset_version"], "dataset_foundation_scale_probe_25")
+            self.assertEqual(manifest["run_profile"]["target_candidate_count"], 25)
+            self.assertRegex(manifest["run_profile"]["config_hash"], r"^sha256:[0-9a-f]{64}$")
+            self.assertEqual(report["counts"]["total"], 25)
+            self.assertEqual(report["rejection_causes"]["quality_duplicate"], 3)
+            self.assertEqual(report["rejection_causes"]["solution_logic_error"], 4)
+            self.assertIn("accepted=14", result.stdout)
+
     def test_use_llm_requires_provider_configuration(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             env = dict(os.environ)

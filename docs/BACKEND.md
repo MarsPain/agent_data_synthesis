@@ -8,6 +8,9 @@ The first backend should be a local Python pipeline with explicit modules and du
 
 - `synthesis.seeds`: source registration, normalized seed records, seed
   transformation records, and deterministic taxonomy-expansion requests.
+- `synthesis.run_profiles`: `run_profile_v1` parsing, validation, defaulted
+  feature flags, sanitized metadata export, and stable config hashing for local
+  synchronous runs.
 - `synthesis.sources`: source governance records, license decisions, default-deny
   network policy, sandbox policy, source-bundle validation, source-policy hashes,
   deterministic no-network external-source fixtures, controlled HTTPS fetch
@@ -80,7 +83,10 @@ trajectories, exports, or logs.
 
 ## Job Lifecycle
 
-1. Register seeds and target domain.
+1. Register seeds and target domain. For configurable local runs, load a
+   validated `run_profile_v1` file and translate its seed, generation mode,
+   dataset version, and feature flags into the existing synchronous pipeline
+   arguments.
 2. Validate the source bundle before environment construction. External-source
    material must pass license, network, and sandbox gates or be rejected with
    `source_policy_rejected`.
@@ -130,7 +136,14 @@ trajectories, exports, or logs.
 17. Route failed samples by error class and optional review policy.
 18. Export accepted samples, rejections, source-event audits when enabled,
    sandbox audits when enabled, tool proposal events, branch lineage,
-   task-expansion lineage, quality reports, and lineage.
+   task-expansion lineage, quality reports, lineage, and sanitized run-profile
+   manifest metadata when a profile is supplied.
+
+The run-profile boundary is declarative and synchronous. `--run-profile` supports
+the existing foundation fixture, remote LLM-backed generation when `--use-llm` is
+also supplied, and a deterministic contacts scale probe. It does not activate
+`synthesis.orchestration`, durable queues, cancellation, resumption, external
+MCP servers, or generated environment/tool/verifier handlers.
 
 The controlled network path is available from the CLI only with
 `--enable-network-source`, `--source-url`, `--source-license-label`, and at least
@@ -155,12 +168,13 @@ report without admitting generated handlers into the normal tool registry.
 
 ## Scaling Direction
 
-Start with a local async runner. Move to an actor or queue-based runner only when
-local orchestration cannot satisfy throughput goals. The Matrix pattern from the
-PDF should guide the later distributed form: task state travels with messages;
-workers stay role-specific and mostly stateless. Scaling should increase
-pipeline throughput and provider-call routing without adding local LLM cluster
-deployment as a project responsibility.
+Use synchronous run profiles and deterministic contacts scale probes before
+activating a local async runner. Move to an actor or queue-based runner only when
+profiled synchronous runs cannot satisfy throughput goals. The Matrix pattern
+from the PDF should guide the later distributed form: task state travels with
+messages; workers stay role-specific and mostly stateless. Scaling should
+increase pipeline throughput and provider-call routing without adding local LLM
+cluster deployment as a project responsibility.
 
 The candidate-processing boundary is orchestration-ready because it returns
 structured per-candidate samples, rejections, review records, tool proposal

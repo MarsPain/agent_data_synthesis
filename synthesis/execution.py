@@ -114,6 +114,15 @@ def scripted_solution_policy(task: CandidateTask) -> SolutionPolicy:
             lineage=_local_policy_lineage(),
         )
 
+    if task.constraints.get("probe_case") == "logical_support_failure":
+        return SolutionPolicy(
+            policy_id=f"policy_{task.candidate_id}",
+            role="scripted_solution_policy",
+            steps=(ToolStep(tool_name=task.tool_name, arguments=task.arguments),),
+            final_response_template=task.expected_answer,
+            lineage=_local_policy_lineage(),
+        )
+
     return SolutionPolicy(
         policy_id=f"policy_{task.candidate_id}",
         role="scripted_solution_policy",

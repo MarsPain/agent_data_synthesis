@@ -6,7 +6,10 @@ Agent training data is scarce because real interactions rarely expose complete o
 
 ## MVP User Flow
 
-1. User provides a domain config and optional seed records.
+1. User provides a `run_profile_v1` file for the current local MVP. The profile
+   maps domain config and optional seed records to validated seed metadata,
+   generation mode, target candidate count when applicable, and supported
+   feature flags.
 2. System builds a small executable environment.
 3. System registers typed tools over that environment.
 4. System loads remote LLM configuration from `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`.
@@ -17,8 +20,10 @@ Agent training data is scarce because real interactions rarely expose complete o
 
 ## MVP Acceptance
 
-- Works through a local runner without distributed infrastructure or local LLM cluster deployment.
+- Works through a local synchronous runner without distributed infrastructure or local LLM cluster deployment.
 - Uses a remote OpenAI-compatible LLM API for LLM-backed generation.
+- Supports deterministic foundation and contacts scale-probe profiles before
+  async orchestration is activated.
 - Produces verifiable JSONL samples.
 - Records lineage and quality metrics.
 - Makes failures inspectable.

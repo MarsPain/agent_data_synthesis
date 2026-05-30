@@ -81,6 +81,38 @@ class DatasetContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ContractValidationError, "schema_version"):
             validate_manifest_record(manifest)
 
+    def test_manifest_contract_accepts_sanitized_run_profile_metadata(self) -> None:
+        from synthesis.contracts import validate_manifest_record
+
+        manifest = _valid_manifest()
+        manifest["run_profile"] = {
+            "schema_version": "run_profile_v1",
+            "profile_id": "foundation_scale_probe_25",
+            "generation_mode": "deterministic_scale_probe",
+            "target_candidate_count": 25,
+            "config_hash": "sha256:" + "1" * 64,
+            "enabled_features": ["enable_mcp_adapter"],
+        }
+
+        validate_manifest_record(manifest)
+
+    def test_manifest_contract_rejects_raw_secret_like_run_profile_metadata(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_manifest_record
+
+        manifest = _valid_manifest()
+        manifest["run_profile"] = {
+            "schema_version": "run_profile_v1",
+            "profile_id": "foundation_scale_probe_25",
+            "generation_mode": "deterministic_scale_probe",
+            "target_candidate_count": 25,
+            "config_hash": "sha256:" + "1" * 64,
+            "enabled_features": [],
+            "AGENT_DATA_API_KEY": "secret-test-key",
+        }
+
+        with self.assertRaisesRegex(ContractValidationError, "run_profile"):
+            validate_manifest_record(manifest)
+
     def test_dataset_writer_rejects_malformed_sample_before_writing(self) -> None:
         from synthesis.contracts import ContractValidationError
         from synthesis.datasets import write_dataset_artifacts
@@ -299,6 +331,27 @@ def _valid_sample() -> dict[str, object]:
                 "version": "verifier_exact_answer_v1",
             },
         },
+    }
+
+
+def _valid_manifest() -> dict[str, object]:
+    return {
+        "schema_version": "dataset_manifest_v1",
+        "dataset_version": "dataset_test",
+        "parent_dataset_version": None,
+        "accepted_count": 1,
+        "rejected_count": 0,
+        "artifacts": {
+            "samples": "samples.jsonl",
+            "rejections": "rejections.jsonl",
+            "quality_report": "quality_report.json",
+        },
+        "quality": {"success_rate": 1.0, "executable_rate": 1.0},
+        "environment_versions": ["env_contacts_v2"],
+        "tool_versions": ["tool_lookup_contact_email_v1"],
+        "verifier_versions": ["verifier_exact_answer_state_v2"],
+        "generator_config_hashes": ["scripted_task_generation_v1"],
+        "rejection_causes": {},
     }
 
 

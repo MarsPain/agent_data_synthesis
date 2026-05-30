@@ -5,6 +5,9 @@ is accepted as complete, move it to `../completed/` and update `../../PLANS.md`.
 
 ## Currently Executing
 
-No plans currently executing.
+No plans are currently active.
 
-## Completed (none yet in this directory)
+## Completed
+
+- [0017-configurable-run-profiles-and-scale-probe](../completed/0017-configurable-run-profiles-and-scale-probe.md):
+  completed on 2026-05-29.

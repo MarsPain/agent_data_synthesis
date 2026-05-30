@@ -69,6 +69,11 @@
 - Harden the candidate execution boundary before async orchestration. Implemented
   in plan 0016 with structured per-candidate outcomes while preserving the
   synchronous default pipeline.
+- Add configurable run profiles and deterministic synchronous scale probing
+  before async orchestration. Implemented in plan 0017 with `run_profile_v1`,
+  sanitized manifest attribution, and contacts-domain scale-probe fixtures used
+  to decide whether plan 0014 or semantic duplicate detection should be
+  reactivated.
 - Add async orchestration with durable queues.
 - Evaluate Ray-style distributed workers if throughput requires it.
 - Add monitoring dashboards and cost controls.

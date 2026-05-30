@@ -80,6 +80,15 @@ GENERATED_CODE_SCAN_STATUSES = {"passed", "rejected"}
 SANDBOX_EXECUTION_STATUSES = {"succeeded", "failed"}
 SANDBOX_EXIT_CLASSES = {"zero", "nonzero", "timeout", "wrapper_error", "non_json"}
 ARTIFACT_ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+RUN_PROFILE_GENERATION_MODES = {"foundation_fixture", "deterministic_scale_probe", "llm"}
+RUN_PROFILE_FEATURE_KEYS = {
+    "enable_branching",
+    "enable_task_expansion",
+    "enable_refinement",
+    "enable_mcp_adapter",
+    "enable_sandbox_fixture",
+    "enable_source_governance_fixture",
+}
 
 
 def validate_candidate_task(task: object) -> CandidateTask:
@@ -152,6 +161,8 @@ def validate_manifest_record(record: Mapping[str, Any]) -> None:
             record.get("source_policy_hashes"),
             "source_policy_hashes",
         )
+    if "run_profile" in record:
+        _validate_run_profile_metadata(record.get("run_profile"))
 
 
 def validate_source_record(record: Mapping[str, Any]) -> None:
@@ -1104,6 +1115,53 @@ def _validate_branch_lineage(raw: object) -> None:
     _require_positive_int(lineage.get("branch_depth"), "lineage.branching.branch_depth")
     _require_int(lineage.get("fallback_count"), "lineage.branching.fallback_count")
     validate_branch_outcomes(_require_sequence(lineage.get("branch_outcomes"), "lineage.branching.branch_outcomes"))
+
+
+def _validate_run_profile_metadata(raw: object) -> None:
+    profile = _require_mapping(raw, "run_profile")
+    allowed_keys = {
+        "schema_version",
+        "profile_id",
+        "generation_mode",
+        "target_candidate_count",
+        "config_hash",
+        "enabled_features",
+    }
+    unexpected = sorted(str(key) for key in profile if key not in allowed_keys)
+    if unexpected:
+        raise ContractValidationError(
+            f"run_profile contains unsupported keys: {', '.join(unexpected)}"
+        )
+    schema_version = _require_non_empty_string(
+        profile.get("schema_version"),
+        "run_profile.schema_version",
+    )
+    if schema_version != "run_profile_v1":
+        raise ContractValidationError("run_profile.schema_version is unsupported")
+    _require_non_empty_string(profile.get("profile_id"), "run_profile.profile_id")
+    mode = _require_non_empty_string(
+        profile.get("generation_mode"),
+        "run_profile.generation_mode",
+    )
+    if mode not in RUN_PROFILE_GENERATION_MODES:
+        raise ContractValidationError("run_profile.generation_mode is unsupported")
+    target_count = profile.get("target_candidate_count")
+    if target_count is not None:
+        _require_positive_int(target_count, "run_profile.target_candidate_count")
+    _validate_content_hash(profile.get("config_hash"), "run_profile.config_hash")
+    enabled_features = _require_sequence(
+        profile.get("enabled_features"),
+        "run_profile.enabled_features",
+    )
+    for index, feature in enumerate(enabled_features):
+        feature_name = _require_non_empty_string(
+            feature,
+            f"run_profile.enabled_features.{index}",
+        )
+        if feature_name not in RUN_PROFILE_FEATURE_KEYS:
+            raise ContractValidationError(
+                f"run_profile.enabled_features.{index} is unsupported"
+            )
 
 
 def _require_mapping(raw: object, path: str) -> Mapping[str, Any]:
