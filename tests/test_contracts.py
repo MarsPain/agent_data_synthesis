@@ -67,6 +67,64 @@ class DatasetContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ContractValidationError, "cause"):
             validate_rejection_record(rejection)
 
+    def test_sample_contract_accepts_run_profile_attribution(self) -> None:
+        from synthesis.contracts import validate_sample_record
+
+        sample = _valid_sample()
+        sample["lineage"]["run_profile"] = _valid_run_profile_attribution()
+
+        validate_sample_record(sample)
+
+    def test_rejection_contract_accepts_run_profile_attribution(self) -> None:
+        from synthesis.contracts import validate_rejection_record
+
+        rejection = _valid_rejection()
+        rejection["details"]["run_profile"] = _valid_run_profile_attribution(
+            profile_schema_version="run_profile_v2",
+            include_source=True,
+        )
+
+        validate_rejection_record(rejection)
+
+    def test_run_profile_attribution_rejects_invalid_hashes_and_unknown_keys(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_sample_record
+
+        invalid_records = (
+            {"config_hash": "not-a-hash"},
+            {"target_candidate_count": 25},
+            {"enabled_features": []},
+            {"source": {**_valid_run_profile_source_attribution(), "path": "contacts-profile.json"}},
+            {"source": {**_valid_run_profile_source_attribution(), "raw_payload": {"contacts": []}}},
+        )
+        for override in invalid_records:
+            with self.subTest(override=override):
+                sample = _valid_sample()
+                attribution = _valid_run_profile_attribution(include_source=True)
+                attribution.update(override)
+                sample["lineage"]["run_profile"] = attribution
+
+                with self.assertRaisesRegex(ContractValidationError, "run_profile"):
+                    validate_sample_record(sample)
+
+    def test_run_profile_attribution_requires_core_fields(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_rejection_record
+
+        for field in (
+            "schema_version",
+            "profile_schema_version",
+            "profile_id",
+            "generation_mode",
+            "config_hash",
+        ):
+            with self.subTest(field=field):
+                rejection = _valid_rejection()
+                attribution = _valid_run_profile_attribution()
+                attribution.pop(field)
+                rejection["details"]["run_profile"] = attribution
+
+                with self.assertRaisesRegex(ContractValidationError, "run_profile"):
+                    validate_rejection_record(rejection)
+
     def test_manifest_contract_requires_version_comparison_fields(self) -> None:
         from synthesis.contracts import ContractValidationError, validate_manifest_record
 
@@ -387,6 +445,50 @@ def _valid_sample() -> dict[str, object]:
                 "version": "verifier_exact_answer_v1",
             },
         },
+    }
+
+
+def _valid_rejection() -> dict[str, object]:
+    return {
+        "candidate_id": "candidate_contacts_ben_bad_expectation",
+        "cause": "verification_failed",
+        "task": {
+            "candidate_id": "candidate_contacts_ben_bad_expectation",
+            "instruction": "Find Ben Carter's email address.",
+            "constraints": {"must_use_tool": "lookup_contact_email"},
+            "difficulty": {"level": "easy", "tool_count": 1},
+        },
+        "details": {
+            "check": "final_response_contains_expected_answer",
+            "retry_eligible": False,
+        },
+    }
+
+
+def _valid_run_profile_attribution(
+    *,
+    profile_schema_version: str = "run_profile_v1",
+    include_source: bool = False,
+) -> dict[str, object]:
+    attribution: dict[str, object] = {
+        "schema_version": "run_profile_attribution_v1",
+        "profile_schema_version": profile_schema_version,
+        "profile_id": "foundation_fixture_profile",
+        "generation_mode": "foundation_fixture",
+        "config_hash": "sha256:" + "1" * 64,
+    }
+    if include_source:
+        attribution["source"] = _valid_run_profile_source_attribution()
+    return attribution
+
+
+def _valid_run_profile_source_attribution() -> dict[str, object]:
+    return {
+        "kind": "local_contacts_json",
+        "source_id": "source_profile_contacts_v1",
+        "content_hash": "sha256:" + "2" * 64,
+        "license_label": "cc-by-4.0",
+        "source_policy_hash": "sha256:" + "3" * 64,
     }
 
 

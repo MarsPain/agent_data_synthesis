@@ -38,5 +38,6 @@ uv run python -m unittest
 
 - `main.py` runs the local foundation pipeline and writes runtime outputs to `artifacts/foundation/` by default.
 - The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
-- Current active work is tracked in [docs/PLANS.md](docs/PLANS.md): none.
-- Latest completed work is documented in [docs/exec-plans/completed/0018-profile-driven-source-admission-and-contacts-environment-overrides.md](docs/exec-plans/completed/0018-profile-driven-source-admission-and-contacts-environment-overrides.md).
+- Current active work is tracked in [docs/PLANS.md](docs/PLANS.md); there is
+  currently no active implementation plan.
+- Latest completed work is documented in [docs/exec-plans/completed/0019-profile-attributed-quality-and-comparison.md](docs/exec-plans/completed/0019-profile-attributed-quality-and-comparison.md).

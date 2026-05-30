@@ -135,7 +135,12 @@ def validate_rejection_record(record: Mapping[str, Any]) -> None:
     if cause not in REJECTION_CAUSES:
         raise ContractValidationError(f"cause must be one of {sorted(REJECTION_CAUSES)}")
     _validate_task(record.get("task"))
-    _require_mapping(record.get("details"), "details")
+    details = _require_mapping(record.get("details"), "details")
+    if "run_profile" in details:
+        _validate_run_profile_attribution(
+            details.get("run_profile"),
+            "details.run_profile",
+        )
 
 
 def validate_manifest_record(record: Mapping[str, Any]) -> None:
@@ -947,6 +952,11 @@ def _validate_lineage(raw: object) -> None:
             raise ContractValidationError("lineage.adapter must contain at least one record")
         for index, adapter in enumerate(adapters):
             _validate_adapter_lineage_record_at_path(adapter, f"lineage.adapter.{index}")
+    if "run_profile" in lineage:
+        _validate_run_profile_attribution(
+            lineage.get("run_profile"),
+            "lineage.run_profile",
+        )
 
     verifier = _require_mapping(lineage.get("verifier"), "lineage.verifier")
     _require_non_empty_string(verifier.get("id"), "lineage.verifier.id")
@@ -1197,6 +1207,81 @@ def _validate_run_profile_source_metadata(raw: object) -> None:
     _validate_content_hash(
         source.get("source_policy_hash"),
         "run_profile.source.source_policy_hash",
+    )
+
+
+def _validate_run_profile_attribution(raw: object, path: str) -> None:
+    attribution = _require_mapping(raw, path)
+    if _contains_raw_secret(attribution):
+        raise ContractValidationError(f"{path} contains raw secret material")
+    allowed_keys = {
+        "schema_version",
+        "profile_schema_version",
+        "profile_id",
+        "generation_mode",
+        "config_hash",
+        "source",
+    }
+    unexpected = sorted(str(key) for key in attribution if key not in allowed_keys)
+    if unexpected:
+        raise ContractValidationError(
+            f"{path} contains unsupported keys: {', '.join(unexpected)}"
+        )
+    schema_version = _require_non_empty_string(
+        attribution.get("schema_version"),
+        f"{path}.schema_version",
+    )
+    if schema_version != "run_profile_attribution_v1":
+        raise ContractValidationError(f"{path}.schema_version is unsupported")
+    profile_schema_version = _require_non_empty_string(
+        attribution.get("profile_schema_version"),
+        f"{path}.profile_schema_version",
+    )
+    if profile_schema_version not in {"run_profile_v1", "run_profile_v2"}:
+        raise ContractValidationError(f"{path}.profile_schema_version is unsupported")
+    _require_non_empty_string(attribution.get("profile_id"), f"{path}.profile_id")
+    mode = _require_non_empty_string(
+        attribution.get("generation_mode"),
+        f"{path}.generation_mode",
+    )
+    if mode not in RUN_PROFILE_GENERATION_MODES:
+        raise ContractValidationError(f"{path}.generation_mode is unsupported")
+    _validate_content_hash(attribution.get("config_hash"), f"{path}.config_hash")
+    if "source" in attribution:
+        _validate_run_profile_source_attribution(
+            attribution.get("source"),
+            f"{path}.source",
+        )
+
+
+def _validate_run_profile_source_attribution(raw: object, path: str) -> None:
+    source = _require_mapping(raw, path)
+    allowed_keys = {
+        "kind",
+        "source_id",
+        "content_hash",
+        "license_label",
+        "source_policy_hash",
+    }
+    unexpected = sorted(str(key) for key in source if key not in allowed_keys)
+    if unexpected:
+        raise ContractValidationError(
+            f"{path} contains unsupported keys: {', '.join(unexpected)}"
+        )
+    kind = _require_non_empty_string(source.get("kind"), f"{path}.kind")
+    if kind != "local_contacts_json":
+        raise ContractValidationError(f"{path}.kind is unsupported")
+    _require_non_empty_string(source.get("source_id"), f"{path}.source_id")
+    _validate_content_hash(source.get("content_hash"), f"{path}.content_hash")
+    license_label = _require_non_empty_string(
+        source.get("license_label"),
+        f"{path}.license_label",
+    )
+    if license_label not in SOURCE_LICENSE_LABELS:
+        raise ContractValidationError(f"{path}.license_label is unsupported")
+    _validate_content_hash(
+        source.get("source_policy_hash"),
+        f"{path}.source_policy_hash",
     )
 
 

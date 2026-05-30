@@ -99,8 +99,9 @@ seed-transformation type, taxonomy node, suggestion outcome, editor action, edit
 rejection cause, source kind, license policy outcome, external-source
 eligibility, source rejection cause, environment-source admission outcome,
 adapter id, adapter protocol, adapter execution outcome, adapter rejection cause,
-and dataset version. Dataset reports should preserve trends over time so
-regressions are visible instead of hidden inside aggregate averages.
+run-profile id, generation mode, run-profile schema version, and dataset
+version. Dataset reports should preserve trends over time so regressions are
+visible instead of hidden inside aggregate averages.
 
 ## Dataset Output Contract
 
@@ -157,6 +158,17 @@ secret-like fields. Non-profile runs omit `run_profile`.
 profile-local source path is used only at runtime to read the declared JSON file
 relative to the profile directory; manifests, quality reports, source events,
 and rejection metadata must not persist raw local paths or raw contacts payloads.
+
+Profile-configured runs also attach a narrow per-record attribution record under
+`lineage.run_profile` for accepted samples and `details.run_profile` for
+rejected candidates. This record uses `schema_version:
+run_profile_attribution_v1` and contains only `profile_schema_version`,
+`profile_id`, `generation_mode`, `config_hash`, and the optional sanitized
+source summary fields already admitted for manifest metadata. It intentionally
+omits manifest-only fields such as `target_candidate_count` and
+`enabled_features`, plus raw profile paths, source paths, payload rows,
+prompts, headers, API keys, and arbitrary profile JSON keys. Non-profile runs
+omit this per-record attribution entirely.
 
 `lineage.source_provenance` records the source bundle id, source policy hash,
 source ids, source kinds, license labels, license outcomes, retention/export
@@ -246,11 +258,10 @@ suggester and editor metadata do not overwrite those fields.
   license policy outcome, external-source eligibility, source rejection cause,
   environment-source admission outcome, adapter id, adapter protocol, adapter
   execution outcome, adapter rejection cause, sandbox artifact kind, sandbox scan
-  status, sandbox admission outcome, sandbox rejection cause, and sandbox
-  execution status. Run-profile id and generation-mode slices are intentionally
-  deferred until profile metadata is propagated to sample or rejection records;
-  the current `run_profile_v1` attribution is manifest-only to avoid duplicating
-  profile content across artifacts.
+  status, sandbox admission outcome, sandbox rejection cause, sandbox execution
+  status, run-profile id, generation mode, and run-profile schema version.
+  Profile slices are populated only from per-record run-profile attribution;
+  no-profile records do not create synthetic `unknown` profile slices.
 
 Capability-gap records use `schema_version: capability_gap_v1` and preserve
 candidate id, policy id, gap type, tool name, rejection cause, message, schema
@@ -321,6 +332,8 @@ When a local parent manifest or quality report path is supplied, the pipeline wr
 `parent_comparison.json` with `schema_version: parent_comparison_v1`. The comparison
 records accepted-count delta, rejected-count delta, success-rate delta,
 executable-rate delta, new and removed slice keys, and rejection-cause deltas.
+Run-profile slice dimensions participate in the existing `new_slice_keys` and
+`removed_slice_keys` maps without a separate comparison schema.
 
 ### Human Review Queue Contract
 

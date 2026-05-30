@@ -384,6 +384,29 @@ class FoundationCliTest(unittest.TestCase):
             self.assertIn("source_policy_hash", manifest["run_profile"]["source"])
             report = json.loads((output_dir / "quality_report.json").read_text(encoding="utf-8"))
             self.assertIn("local_file", report["slices"]["source_kind"])
+            self.assertIn("foundation_profile_local_contacts", report["slices"]["run_profile_id"])
+            samples = [
+                json.loads(line)
+                for line in (output_dir / "samples.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            rejections = [
+                json.loads(line)
+                for line in (output_dir / "rejections.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertTrue(
+                all(
+                    sample["lineage"]["run_profile"]["schema_version"]
+                    == "run_profile_attribution_v1"
+                    for sample in samples
+                )
+            )
+            self.assertTrue(
+                all(
+                    rejection["details"]["run_profile"]["source"]["source_id"]
+                    == "source_profile_contacts_v1"
+                    for rejection in rejections
+                )
+            )
             exported_audit = (
                 (output_dir / "manifest.json").read_text(encoding="utf-8")
                 + (output_dir / "source_events.jsonl").read_text(encoding="utf-8")
@@ -394,6 +417,10 @@ class FoundationCliTest(unittest.TestCase):
             self.assertNotIn("Alice Zhang", (output_dir / "source_events.jsonl").read_text(encoding="utf-8"))
             self.assertNotIn("alice.zhang@example.test", exported_audit)
             self.assertNotIn("ben.carter@example.test", exported_audit)
+            self.assertNotIn(str(Path.cwd()), exported_audit)
+            self.assertNotIn("target_candidate_count", (output_dir / "samples.jsonl").read_text(encoding="utf-8"))
+            self.assertNotIn("enabled_features", (output_dir / "samples.jsonl").read_text(encoding="utf-8"))
+            self.assertNotIn("contacts-profile.json", (output_dir / "samples.jsonl").read_text(encoding="utf-8"))
             self.assertIn("accepted=2", result.stdout)
 
     def test_main_rejects_profile_local_source_conflicting_with_network_source(self) -> None:

@@ -298,6 +298,8 @@ class FoundationPipelineTest(unittest.TestCase):
             rejection = json.loads(result.rejections_path.read_text(encoding="utf-8").splitlines()[0])
             self.assertEqual(rejection["cause"], "verification_failed")
             self.assertIn("expected", rejection["details"])
+            self.assertTrue(all("run_profile" not in sample["lineage"] for sample in samples))
+            self.assertNotIn("run_profile", rejection["details"])
 
             quality_report = json.loads(result.quality_report_path.read_text(encoding="utf-8"))
             self.assertEqual(quality_report["schema_version"], "quality_report_v1")
@@ -338,6 +340,62 @@ class FoundationPipelineTest(unittest.TestCase):
 
             sample = json.loads(result.samples_path.read_text(encoding="utf-8").splitlines()[0])
             self.assertEqual(sample["lineage"]["seed_ids"], ["seed_contacts_v1"])
+            self.assertEqual(
+                sample["lineage"]["run_profile"],
+                {
+                    "schema_version": "run_profile_attribution_v1",
+                    "profile_schema_version": "run_profile_v1",
+                    "profile_id": "foundation_fixture_profile",
+                    "generation_mode": "foundation_fixture",
+                    "config_hash": manifest["run_profile"]["config_hash"],
+                },
+            )
+            self.assertNotIn("target_candidate_count", sample["lineage"]["run_profile"])
+            self.assertNotIn("enabled_features", sample["lineage"]["run_profile"])
+            rejection = json.loads(result.rejections_path.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(rejection["details"]["run_profile"], sample["lineage"]["run_profile"])
+
+    def test_run_profile_attribution_builder_excludes_manifest_only_fields(self) -> None:
+        from synthesis.datasets import _run_profile_attribution
+
+        attribution = _run_profile_attribution(
+            {
+                "schema_version": "run_profile_v2",
+                "profile_id": "foundation_profile_local_contacts",
+                "generation_mode": "foundation_fixture",
+                "target_candidate_count": 25,
+                "config_hash": "sha256:" + "1" * 64,
+                "enabled_features": ["enable_branching"],
+                "profile_path": "/tmp/profile.json",
+                "source": {
+                    "kind": "local_contacts_json",
+                    "source_id": "source_profile_contacts_v1",
+                    "content_hash": "sha256:" + "2" * 64,
+                    "license_label": "cc-by-4.0",
+                    "source_policy_hash": "sha256:" + "3" * 64,
+                    "path": "contacts-profile.json",
+                    "raw_payload": {"contacts": []},
+                },
+            }
+        )
+
+        self.assertEqual(
+            attribution,
+            {
+                "schema_version": "run_profile_attribution_v1",
+                "profile_schema_version": "run_profile_v2",
+                "profile_id": "foundation_profile_local_contacts",
+                "generation_mode": "foundation_fixture",
+                "config_hash": "sha256:" + "1" * 64,
+                "source": {
+                    "kind": "local_contacts_json",
+                    "source_id": "source_profile_contacts_v1",
+                    "content_hash": "sha256:" + "2" * 64,
+                    "license_label": "cc-by-4.0",
+                    "source_policy_hash": "sha256:" + "3" * 64,
+                },
+            },
+        )
 
     def test_scale_probe_profile_pipeline_outputs_stable_decision_evidence(self) -> None:
         from synthesis.pipeline import run_foundation_pipeline
@@ -436,6 +494,18 @@ class FoundationPipelineTest(unittest.TestCase):
             sample = json.loads(result.samples_path.read_text(encoding="utf-8").splitlines()[0])
             self.assertEqual(sample["lineage"]["source_provenance"]["source_kinds"], ["local_file"])
             self.assertEqual(sample["environment"]["reset_recipe"]["contact_count"], 4)
+            self.assertEqual(
+                sample["lineage"]["run_profile"]["source"],
+                {
+                    "kind": "local_contacts_json",
+                    "source_id": "source_profile_contacts_v1",
+                    "content_hash": source_input.source_summary["content_hash"],
+                    "license_label": "cc-by-4.0",
+                    "source_policy_hash": source_input.source_summary["source_policy_hash"],
+                },
+            )
+            rejection = json.loads(result.rejections_path.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(rejection["details"]["run_profile"], sample["lineage"]["run_profile"])
 
             audit_text = (
                 result.manifest_path.read_text(encoding="utf-8")

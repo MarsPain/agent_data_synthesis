@@ -78,6 +78,10 @@
   Implemented in plan 0018 with `run_profile_v2`, profile-relative contacts JSON
   ingestion through source governance, sanitized source metadata, and environment
   overrides over the existing synchronous pipeline.
+- Add profile-attributed quality and comparison before async orchestration.
+  Implemented in plan 0019 with sanitized per-record profile attribution,
+  profile quality slices, and parent-comparison visibility over profile slice
+  keys.
 - Add async orchestration with durable queues.
 - Evaluate Ray-style distributed workers if throughput requires it.
 - Add monitoring dashboards and cost controls.

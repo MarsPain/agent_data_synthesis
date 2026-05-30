@@ -384,6 +384,12 @@ def write_dataset_artifacts(
     sandbox_audits_path = optional_sandbox_audits_path if sandbox_audits else None
     parent_comparison_path = optional_parent_comparison_path if parent_artifact_path else None
     review_queue_path = optional_review_queue_path if review_records else None
+    run_profile_attribution = _run_profile_attribution(run_profile_metadata)
+    samples = _samples_with_run_profile_attribution(samples, run_profile_attribution)
+    rejections = _rejections_with_run_profile_attribution(
+        rejections,
+        run_profile_attribution,
+    )
 
     for sample in samples:
         validate_sample_record(sample)
@@ -509,6 +515,73 @@ def write_dataset_artifacts(
         accepted_count=len(samples),
         rejected_count=len(rejections),
     )
+
+
+def _run_profile_attribution(
+    run_profile_metadata: Mapping[str, object] | None,
+) -> dict[str, object] | None:
+    if run_profile_metadata is None:
+        return None
+
+    attribution: dict[str, object] = {
+        "schema_version": "run_profile_attribution_v1",
+        "profile_schema_version": run_profile_metadata.get("schema_version"),
+        "profile_id": run_profile_metadata.get("profile_id"),
+        "generation_mode": run_profile_metadata.get("generation_mode"),
+        "config_hash": run_profile_metadata.get("config_hash"),
+    }
+    source = run_profile_metadata.get("source")
+    if isinstance(source, Mapping):
+        attribution["source"] = {
+            "kind": source.get("kind"),
+            "source_id": source.get("source_id"),
+            "content_hash": source.get("content_hash"),
+            "license_label": source.get("license_label"),
+            "source_policy_hash": source.get("source_policy_hash"),
+        }
+    return attribution
+
+
+def _samples_with_run_profile_attribution(
+    samples: list[dict[str, object]],
+    attribution: Mapping[str, object] | None,
+) -> list[dict[str, object]]:
+    if attribution is None:
+        return samples
+    attributed_samples: list[dict[str, object]] = []
+    for sample in samples:
+        attributed_sample = dict(sample)
+        lineage = dict(attributed_sample.get("lineage", {}))
+        lineage["run_profile"] = _copy_run_profile_attribution(attribution)
+        attributed_sample["lineage"] = lineage
+        attributed_samples.append(attributed_sample)
+    return attributed_samples
+
+
+def _rejections_with_run_profile_attribution(
+    rejections: list[dict[str, object]],
+    attribution: Mapping[str, object] | None,
+) -> list[dict[str, object]]:
+    if attribution is None:
+        return rejections
+    attributed_rejections: list[dict[str, object]] = []
+    for rejection in rejections:
+        attributed_rejection = dict(rejection)
+        details = attributed_rejection.get("details")
+        if isinstance(details, Mapping):
+            attributed_details = dict(details)
+            attributed_details["run_profile"] = _copy_run_profile_attribution(attribution)
+            attributed_rejection["details"] = attributed_details
+        attributed_rejections.append(attributed_rejection)
+    return attributed_rejections
+
+
+def _copy_run_profile_attribution(attribution: Mapping[str, object]) -> dict[str, object]:
+    copied = dict(attribution)
+    source = copied.get("source")
+    if isinstance(source, Mapping):
+        copied["source"] = dict(source)
+    return copied
 
 
 def _write_jsonl(path: Path, records: list[dict[str, object]]) -> None:

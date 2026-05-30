@@ -352,6 +352,46 @@ class QualityReportingTest(unittest.TestCase):
         self.assertIn("unsafe_generated_code", report["slices"]["sandbox_rejection_cause"])
         self.assertIn("succeeded", report["slices"]["sandbox_execution_status"])
 
+    def test_report_summarizes_run_profile_slices_for_samples_and_rejections(self) -> None:
+        from synthesis.quality import build_quality_report
+
+        sample = _sample()
+        sample["lineage"]["run_profile"] = _run_profile_attribution()
+        rejection = _rejection()
+        rejection["details"]["run_profile"] = _run_profile_attribution()
+
+        report = build_quality_report(
+            dataset_version="dataset_test",
+            samples=[sample],
+            rejections=[rejection],
+        )
+
+        self.assertEqual(
+            report["slices"]["run_profile_id"]["foundation_fixture_profile"],
+            {"total": 2, "accepted": 1, "rejected": 1, "success_rate": 0.5},
+        )
+        self.assertEqual(
+            report["slices"]["generation_mode"]["foundation_fixture"],
+            {"total": 2, "accepted": 1, "rejected": 1, "success_rate": 0.5},
+        )
+        self.assertEqual(
+            report["slices"]["run_profile_schema_version"]["run_profile_v1"],
+            {"total": 2, "accepted": 1, "rejected": 1, "success_rate": 0.5},
+        )
+
+    def test_no_profile_records_do_not_create_unknown_profile_slices(self) -> None:
+        from synthesis.quality import build_quality_report
+
+        report = build_quality_report(
+            dataset_version="dataset_test",
+            samples=[_sample()],
+            rejections=[_rejection()],
+        )
+
+        self.assertEqual(report["slices"]["run_profile_id"], {})
+        self.assertEqual(report["slices"]["generation_mode"], {})
+        self.assertEqual(report["slices"]["run_profile_schema_version"], {})
+
     def test_duplicate_signature_uses_normalized_instruction_and_ordered_actions(self) -> None:
         from synthesis.quality import duplicate_signature
 
@@ -394,6 +434,43 @@ class QualityReportingTest(unittest.TestCase):
         self.assertEqual(
             comparison["rejection_cause_deltas"],
             {"quality_duplicate": 1, "verification_failed": -2},
+        )
+
+    def test_parent_comparison_reports_new_profile_slice_keys(self) -> None:
+        from synthesis.quality import build_parent_comparison
+
+        parent = {
+            "schema_version": "quality_report_v1",
+            "dataset_version": "dataset_parent",
+            "counts": {"accepted": 1, "rejected": 0},
+            "rates": {"success_rate": 1.0, "executable_rate": 1.0},
+            "slices": {"dataset_version": {"dataset_parent": {}}},
+            "rejection_causes": {},
+        }
+        current = {
+            "schema_version": "quality_report_v1",
+            "dataset_version": "dataset_current",
+            "counts": {"accepted": 1, "rejected": 0},
+            "rates": {"success_rate": 1.0, "executable_rate": 1.0},
+            "slices": {
+                "dataset_version": {"dataset_current": {}},
+                "run_profile_id": {"foundation_fixture_profile": {}},
+                "generation_mode": {"foundation_fixture": {}},
+                "run_profile_schema_version": {"run_profile_v1": {}},
+            },
+            "rejection_causes": {},
+        }
+
+        comparison = build_parent_comparison(current=current, parent=parent)
+
+        self.assertEqual(
+            comparison["new_slice_keys"],
+            {
+                "dataset_version": ["dataset_current"],
+                "generation_mode": ["foundation_fixture"],
+                "run_profile_id": ["foundation_fixture_profile"],
+                "run_profile_schema_version": ["run_profile_v1"],
+            },
         )
 
     def test_review_record_has_stable_shape(self) -> None:
@@ -753,6 +830,16 @@ def _rejection() -> dict[str, object]:
             "difficulty": _difficulty(),
         },
         "details": {"check": "final_response_contains_expected_answer"},
+    }
+
+
+def _run_profile_attribution() -> dict[str, object]:
+    return {
+        "schema_version": "run_profile_attribution_v1",
+        "profile_schema_version": "run_profile_v1",
+        "profile_id": "foundation_fixture_profile",
+        "generation_mode": "foundation_fixture",
+        "config_hash": "sha256:" + "1" * 64,
     }
 
 

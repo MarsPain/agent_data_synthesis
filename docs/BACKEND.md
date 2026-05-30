@@ -49,8 +49,9 @@ The first backend should be a local Python pipeline with explicit modules and du
   execution, verification, duplicate/logical gates, optional tool-expansion
   reruns, optional refinement reruns, and structured per-candidate outcomes for
   the synchronous pipeline to merge in order.
-- `synthesis.datasets`: sample assembly, manifests, artifact exports, generation
-  failure rejection records, and quality report path plumbing.
+- `synthesis.datasets`: sample assembly, per-record run-profile attribution,
+  manifests, artifact exports, generation failure rejection records, and quality
+  report path plumbing.
 - `synthesis.orchestration`: jobs, workers, queues, cancellation, and metrics.
 - `synthesis.llm`: remote provider adapter, request/response capture, bounded
   retry policy, sanitized provider error classification, prompt hashing, cost
@@ -142,8 +143,9 @@ trajectories, exports, or logs.
 17. Route failed samples by error class and optional review policy.
 18. Export accepted samples, rejections, source-event audits when enabled,
    sandbox audits when enabled, tool proposal events, branch lineage,
-   task-expansion lineage, quality reports, lineage, and sanitized run-profile
-   manifest metadata when a profile is supplied.
+   task-expansion lineage, quality reports, lineage, sanitized run-profile
+   manifest metadata, and narrow per-record run-profile attribution when a
+   profile is supplied.
 
 The run-profile boundary is declarative and synchronous. `--run-profile` supports
 the existing foundation fixture, remote LLM-backed generation when `--use-llm` is
@@ -151,10 +153,12 @@ also supplied, a deterministic contacts scale probe, and a `run_profile_v2`
 profile-local contacts JSON source. Profile-local source declarations conflict
 with `--enable-network-source` and with the external source-governance fixture;
 they require the contacts domain and write only source id, content hash, license
-label, and source-policy hash to manifest metadata. This path does not activate
-`synthesis.orchestration`, durable queues, cancellation, resumption, external
-MCP servers, arbitrary file ingestion, or generated environment/tool/verifier
-handlers.
+label, and source-policy hash to manifest metadata and per-record attribution.
+Per-record attribution omits target candidate counts, feature lists, profile
+paths, source paths, payload rows, prompts, headers, API keys, and arbitrary
+profile content. This path does not activate `synthesis.orchestration`, durable
+queues, cancellation, resumption, external MCP servers, arbitrary file
+ingestion, or generated environment/tool/verifier handlers.
 
 The controlled network path is available from the CLI only with
 `--enable-network-source`, `--source-url`, `--source-license-label`, and at least

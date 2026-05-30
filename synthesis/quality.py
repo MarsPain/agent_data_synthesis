@@ -220,6 +220,9 @@ def _build_slices(
         "sandbox_admission_outcome": {},
         "sandbox_rejection_cause": {},
         "sandbox_execution_status": {},
+        "run_profile_id": {},
+        "generation_mode": {},
+        "run_profile_schema_version": {},
     }
     for sample in samples:
         _add_slice(dimensions["dataset_version"], str(sample.get("dataset_version", dataset_version)), accepted=True)
@@ -255,6 +258,11 @@ def _build_slices(
         )
         for adapter in _sample_adapter_lineages(sample):
             _add_adapter_slices(dimensions, adapter, accepted=True)
+        _add_run_profile_slices(
+            dimensions,
+            _sample_run_profile_attribution(sample),
+            accepted=True,
+        )
 
     for rejection in rejections:
         task = _mapping(rejection.get("task"))
@@ -309,6 +317,11 @@ def _build_slices(
         )
         for adapter in _rejection_adapter_lineages(rejection):
             _add_adapter_slices(dimensions, adapter, accepted=False)
+        _add_run_profile_slices(
+            dimensions,
+            _rejection_run_profile_attribution(rejection),
+            accepted=False,
+        )
 
     for audit in sandbox_audits:
         _add_sandbox_audit_slices(dimensions, audit)
@@ -487,6 +500,29 @@ def _add_sandbox_audit_slices(
         _add_slice(
             dimensions["sandbox_execution_status"],
             str(execution.get("status", "unknown")),
+            accepted=accepted,
+        )
+
+
+def _add_run_profile_slices(
+    dimensions: dict[str, dict[str, dict[str, int]]],
+    attribution: Mapping[str, Any],
+    *,
+    accepted: bool,
+) -> None:
+    if not attribution:
+        return
+    profile_id = attribution.get("profile_id")
+    if profile_id:
+        _add_slice(dimensions["run_profile_id"], str(profile_id), accepted=accepted)
+    generation_mode = attribution.get("generation_mode")
+    if generation_mode:
+        _add_slice(dimensions["generation_mode"], str(generation_mode), accepted=accepted)
+    profile_schema_version = attribution.get("profile_schema_version")
+    if profile_schema_version:
+        _add_slice(
+            dimensions["run_profile_schema_version"],
+            str(profile_schema_version),
             accepted=accepted,
         )
 
@@ -907,6 +943,11 @@ def _sample_adapter_lineages(sample: Mapping[str, Any]) -> list[Mapping[str, Any
     return []
 
 
+def _sample_run_profile_attribution(sample: Mapping[str, Any]) -> Mapping[str, Any]:
+    lineage = _mapping(sample.get("lineage"))
+    return _mapping(lineage.get("run_profile"))
+
+
 def _rejection_tool_expansions(rejection: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     details = _mapping(rejection.get("details"))
     expansion = _mapping(details.get("tool_proposal"))
@@ -972,6 +1013,11 @@ def _rejection_adapter_lineages(rejection: Mapping[str, Any]) -> list[Mapping[st
     details = _mapping(rejection.get("details"))
     adapter = _mapping(details.get("adapter_rejection"))
     return [adapter] if adapter else []
+
+
+def _rejection_run_profile_attribution(rejection: Mapping[str, Any]) -> Mapping[str, Any]:
+    details = _mapping(rejection.get("details"))
+    return _mapping(details.get("run_profile"))
 
 
 def _role_name(lineage: Mapping[str, Any]) -> str:
