@@ -16,7 +16,9 @@ from synthesis.sources import build_external_fixture_source_bundle
 from synthesis.sources import (
     ControlledSourceFetchError,
     FetchedSourceRequest,
+    ProfileLocalContactsSourceRequest,
     build_network_contacts_source_input,
+    build_profile_local_contacts_source_input,
 )
 from synthesis.tasks import generate_scale_probe_candidates
 
@@ -35,7 +37,7 @@ def parse_args() -> argparse.Namespace:
         "--run-profile",
         type=Path,
         default=None,
-        help="Validated run_profile_v1 JSON file for configuring a local run.",
+        help="Validated run_profile_v1 or run_profile_v2 JSON file for configuring a local run.",
     )
     parser.add_argument(
         "--dataset-version",
@@ -166,6 +168,19 @@ def main() -> int:
     )
     contacts_environment_input = None
     source_events = None
+    profile_source_summary = None
+    if profile is not None and profile.source is not None:
+        try:
+            profile_source = build_profile_local_contacts_source_input(
+                ProfileLocalContactsSourceRequest.from_run_profile_source(profile.source)
+            )
+        except ControlledSourceFetchError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        source_bundle = profile_source.source_bundle
+        contacts_environment_input = profile_source.environment_input
+        source_events = profile_source.events
+        profile_source_summary = profile_source.source_summary
     if args.enable_network_source:
         try:
             network_source = build_network_contacts_source_input(
@@ -205,6 +220,7 @@ def main() -> int:
             enable_source_audit=(
                 _feature_enabled(args, profile, "enable_source_governance_fixture")
                 or args.enable_network_source
+                or (profile is not None and profile.source is not None)
             ),
             contacts_environment_input=contacts_environment_input,
             source_events=source_events,
@@ -212,7 +228,9 @@ def main() -> int:
             enable_sandbox_fixture=_feature_enabled(args, profile, "enable_sandbox_fixture"),
             seed_override=profile.seed if profile is not None else None,
             run_profile_metadata=(
-                profile.sanitized_metadata() if profile is not None else None
+                profile.sanitized_metadata(source_summary=profile_source_summary)
+                if profile is not None
+                else None
             ),
         )
     except (LLMConfigurationError, LLMProviderError) as exc:
@@ -255,6 +273,15 @@ def _validate_profile_cli_combinations(
         parser.error(
             "run profile enable_source_governance_fixture conflicts with --enable-network-source"
         )
+    if profile.source is not None:
+        if args.enable_network_source:
+            parser.error("profile source conflicts with --enable-network-source")
+        if args.enable_source_governance_fixture or profile.features.enable_source_governance_fixture:
+            parser.error(
+                "profile source conflicts with enable_source_governance_fixture"
+            )
+        if profile.seed.domain != "contacts":
+            parser.error("profile source requires seed.domain=\"contacts\"")
 
 
 def _profile_candidate_generator(

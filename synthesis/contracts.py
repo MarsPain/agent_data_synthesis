@@ -53,7 +53,7 @@ TASK_TAXONOMY_NODES = {
     "unsupported_network_research",
 }
 TASK_SUGGESTION_OUTCOMES = {"accepted", "rejected"}
-SOURCE_KINDS = {"fixture", "synthetic", "transformed", "external"}
+SOURCE_KINDS = {"fixture", "synthetic", "transformed", "external", "local_file"}
 SOURCE_LICENSE_LABELS = {
     "fixture_internal",
     "synthetic_internal",
@@ -1126,6 +1126,7 @@ def _validate_run_profile_metadata(raw: object) -> None:
         "target_candidate_count",
         "config_hash",
         "enabled_features",
+        "source",
     }
     unexpected = sorted(str(key) for key in profile if key not in allowed_keys)
     if unexpected:
@@ -1136,7 +1137,7 @@ def _validate_run_profile_metadata(raw: object) -> None:
         profile.get("schema_version"),
         "run_profile.schema_version",
     )
-    if schema_version != "run_profile_v1":
+    if schema_version not in {"run_profile_v1", "run_profile_v2"}:
         raise ContractValidationError("run_profile.schema_version is unsupported")
     _require_non_empty_string(profile.get("profile_id"), "run_profile.profile_id")
     mode = _require_non_empty_string(
@@ -1162,6 +1163,41 @@ def _validate_run_profile_metadata(raw: object) -> None:
             raise ContractValidationError(
                 f"run_profile.enabled_features.{index} is unsupported"
             )
+    if "source" in profile:
+        if schema_version != "run_profile_v2":
+            raise ContractValidationError("run_profile.source requires run_profile_v2")
+        _validate_run_profile_source_metadata(profile.get("source"))
+
+
+def _validate_run_profile_source_metadata(raw: object) -> None:
+    source = _require_mapping(raw, "run_profile.source")
+    allowed_keys = {
+        "kind",
+        "source_id",
+        "content_hash",
+        "license_label",
+        "source_policy_hash",
+    }
+    unexpected = sorted(str(key) for key in source if key not in allowed_keys)
+    if unexpected:
+        raise ContractValidationError(
+            f"run_profile.source contains unsupported keys: {', '.join(unexpected)}"
+        )
+    kind = _require_non_empty_string(source.get("kind"), "run_profile.source.kind")
+    if kind != "local_contacts_json":
+        raise ContractValidationError("run_profile.source.kind is unsupported")
+    _require_non_empty_string(source.get("source_id"), "run_profile.source.source_id")
+    _validate_content_hash(source.get("content_hash"), "run_profile.source.content_hash")
+    license_label = _require_non_empty_string(
+        source.get("license_label"),
+        "run_profile.source.license_label",
+    )
+    if license_label not in SOURCE_LICENSE_LABELS:
+        raise ContractValidationError("run_profile.source.license_label is unsupported")
+    _validate_content_hash(
+        source.get("source_policy_hash"),
+        "run_profile.source.source_policy_hash",
+    )
 
 
 def _require_mapping(raw: object, path: str) -> Mapping[str, Any]:

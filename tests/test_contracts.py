@@ -96,6 +96,62 @@ class DatasetContractTest(unittest.TestCase):
 
         validate_manifest_record(manifest)
 
+    def test_manifest_contract_accepts_v2_profile_source_summary(self) -> None:
+        from synthesis.contracts import validate_manifest_record
+
+        manifest = _valid_manifest()
+        manifest["run_profile"] = {
+            "schema_version": "run_profile_v2",
+            "profile_id": "foundation_profile_local_contacts",
+            "generation_mode": "foundation_fixture",
+            "target_candidate_count": None,
+            "config_hash": "sha256:" + "1" * 64,
+            "enabled_features": [],
+            "source": {
+                "kind": "local_contacts_json",
+                "source_id": "source_profile_contacts_v1",
+                "content_hash": "sha256:" + "2" * 64,
+                "license_label": "cc-by-4.0",
+                "source_policy_hash": "sha256:" + "3" * 64,
+            },
+        }
+
+        validate_manifest_record(manifest)
+
+    def test_manifest_contract_rejects_raw_profile_source_metadata(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_manifest_record
+
+        forbidden_pairs = (
+            ("path", "contacts-profile.json"),
+            ("raw_payload", {"contacts": [{"name": "Alice Zhang"}]}),
+            ("authorization", "Bearer secret-test-key"),
+            ("api_key", "secret-test-key"),
+            ("contact_name", "Alice Zhang"),
+        )
+        for key, value in forbidden_pairs:
+            with self.subTest(key=key):
+                manifest = _valid_manifest()
+                source = {
+                    "kind": "local_contacts_json",
+                    "source_id": "source_profile_contacts_v1",
+                    "content_hash": "sha256:" + "2" * 64,
+                    "license_label": "cc-by-4.0",
+                    "source_policy_hash": "sha256:" + "3" * 64,
+                    key: value,
+                }
+                manifest["run_profile"] = {
+                    "schema_version": "run_profile_v2",
+                    "profile_id": "foundation_profile_local_contacts",
+                    "generation_mode": "foundation_fixture",
+                    "target_candidate_count": None,
+                    "config_hash": "sha256:" + "1" * 64,
+                    "enabled_features": [],
+                    "source": source,
+                }
+
+                with self.assertRaisesRegex(ContractValidationError, "run_profile"):
+                    validate_manifest_record(manifest)
+
     def test_manifest_contract_rejects_raw_secret_like_run_profile_metadata(self) -> None:
         from synthesis.contracts import ContractValidationError, validate_manifest_record
 

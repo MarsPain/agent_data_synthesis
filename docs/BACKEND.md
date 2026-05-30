@@ -8,13 +8,15 @@ The first backend should be a local Python pipeline with explicit modules and du
 
 - `synthesis.seeds`: source registration, normalized seed records, seed
   transformation records, and deterministic taxonomy-expansion requests.
-- `synthesis.run_profiles`: `run_profile_v1` parsing, validation, defaulted
-  feature flags, sanitized metadata export, and stable config hashing for local
+- `synthesis.run_profiles`: `run_profile_v1` and `run_profile_v2` parsing,
+  validation, defaulted feature flags, optional local contacts source
+  declarations, sanitized metadata export, and stable config hashing for local
   synchronous runs.
 - `synthesis.sources`: source governance records, license decisions, default-deny
   network policy, sandbox policy, source-bundle validation, source-policy hashes,
   deterministic no-network external-source fixtures, controlled HTTPS fetch
-  contracts, bounded request admission, and sanitized source-event records.
+  contracts, bounded request admission, profile-local contacts JSON admission,
+  and sanitized source-event records.
 - `synthesis.environments`: environment builders, typed contacts environment
   input records, reset/checkpoint operations, and state adapters.
 - `synthesis.tools`: tool definitions, schema generation, registry, dependency
@@ -84,17 +86,21 @@ trajectories, exports, or logs.
 ## Job Lifecycle
 
 1. Register seeds and target domain. For configurable local runs, load a
-   validated `run_profile_v1` file and translate its seed, generation mode,
-   dataset version, and feature flags into the existing synchronous pipeline
-   arguments.
+   validated `run_profile_v1` or `run_profile_v2` file and translate its seed,
+   generation mode, dataset version, feature flags, and optional governed local
+   contacts source into the existing synchronous pipeline arguments.
 2. Validate the source bundle before environment construction. External-source
    material must pass license, network, and sandbox gates or be rejected with
    `source_policy_rejected`.
 3. When controlled network-backed synthesis is explicitly enabled, fetch one
    allowlisted HTTPS JSON source through the injectable HTTP boundary, enforce
    timeout, byte, content-type, redirect, and request-budget limits, and convert
-   the payload into a typed contacts environment input. The default pipeline does
-   not fetch external network sources.
+   the payload into a typed contacts environment input. When a `run_profile_v2`
+   declares `source.kind=local_contacts_json`, read the profile-relative JSON
+   file under its byte budget, admit it as `source_kind=local_file`, and convert
+   it through the same typed contacts environment input boundary. The default
+   pipeline does not fetch external network sources or ingest arbitrary local
+   files.
 4. Build or load an environment version with source provenance, source-policy
    hash metadata, and environment-source admission status.
 5. Build or load a tool registry version.
@@ -141,9 +147,14 @@ trajectories, exports, or logs.
 
 The run-profile boundary is declarative and synchronous. `--run-profile` supports
 the existing foundation fixture, remote LLM-backed generation when `--use-llm` is
-also supplied, and a deterministic contacts scale probe. It does not activate
+also supplied, a deterministic contacts scale probe, and a `run_profile_v2`
+profile-local contacts JSON source. Profile-local source declarations conflict
+with `--enable-network-source` and with the external source-governance fixture;
+they require the contacts domain and write only source id, content hash, license
+label, and source-policy hash to manifest metadata. This path does not activate
 `synthesis.orchestration`, durable queues, cancellation, resumption, external
-MCP servers, or generated environment/tool/verifier handlers.
+MCP servers, arbitrary file ingestion, or generated environment/tool/verifier
+handlers.
 
 The controlled network path is available from the CLI only with
 `--enable-network-source`, `--source-url`, `--source-license-label`, and at least

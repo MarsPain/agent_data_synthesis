@@ -335,7 +335,7 @@ class FoundationCliTest(unittest.TestCase):
     def test_main_rejects_invalid_profile_content(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             profile_path = Path(tmpdir) / "bad-profile.json"
-            profile_path.write_text('{"schema_version": "run_profile_v2"}', encoding="utf-8")
+            profile_path.write_text('{"schema_version": "run_profile_v3"}', encoding="utf-8")
 
             result = subprocess.run(
                 [
@@ -353,6 +353,110 @@ class FoundationCliTest(unittest.TestCase):
 
             self.assertEqual(result.returncode, 2)
             self.assertIn("schema_version", result.stderr)
+
+    def test_main_can_run_profile_local_contacts_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation-profile-local"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/profile-local-contacts.json",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((output_dir / "source_events.jsonl").exists(), result.stdout)
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["run_profile"]["schema_version"], "run_profile_v2")
+            self.assertEqual(
+                manifest["run_profile"]["source"]["source_id"],
+                "source_profile_contacts_v1",
+            )
+            self.assertEqual(manifest["run_profile"]["source"]["kind"], "local_contacts_json")
+            self.assertIn("source_policy_hash", manifest["run_profile"]["source"])
+            report = json.loads((output_dir / "quality_report.json").read_text(encoding="utf-8"))
+            self.assertIn("local_file", report["slices"]["source_kind"])
+            exported_audit = (
+                (output_dir / "manifest.json").read_text(encoding="utf-8")
+                + (output_dir / "source_events.jsonl").read_text(encoding="utf-8")
+                + (output_dir / "quality_report.json").read_text(encoding="utf-8")
+                + (output_dir / "rejections.jsonl").read_text(encoding="utf-8")
+            )
+            self.assertNotIn("contacts-profile.json", exported_audit)
+            self.assertNotIn("Alice Zhang", (output_dir / "source_events.jsonl").read_text(encoding="utf-8"))
+            self.assertNotIn("alice.zhang@example.test", exported_audit)
+            self.assertNotIn("ben.carter@example.test", exported_audit)
+            self.assertIn("accepted=2", result.stdout)
+
+    def test_main_rejects_profile_local_source_conflicting_with_network_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/profile-local-contacts.json",
+                    "--enable-network-source",
+                    "--source-url",
+                    "https://allowed.example.test/contacts.json",
+                    "--source-license-label",
+                    "cc-by-4.0",
+                    "--allowed-source-host",
+                    "allowed.example.test",
+                    "--output-dir",
+                    str(Path(tmpdir) / "foundation"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("profile source", result.stderr)
+            self.assertIn("--enable-network-source", result.stderr)
+
+    def test_main_rejects_profile_local_source_bad_license_and_missing_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bad_license = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/profile-local-contacts-bad-license.json",
+                    "--output-dir",
+                    str(Path(tmpdir) / "bad-license"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            missing_file = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/profile-local-contacts-missing-file.json",
+                    "--output-dir",
+                    str(Path(tmpdir) / "missing-file"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(bad_license.returncode, 2)
+            self.assertIn("license_label", bad_license.stderr)
+            self.assertEqual(missing_file.returncode, 1)
+            self.assertIn("local source rejected", missing_file.stderr)
+            self.assertFalse((Path(tmpdir) / "missing-file" / "manifest.json").exists())
 
     def test_main_rejects_use_llm_with_non_llm_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

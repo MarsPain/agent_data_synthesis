@@ -4,13 +4,18 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
+from synthesis.contracts import SOURCE_LICENSE_LABELS
 from synthesis.seeds import DomainSeed
 
 
 RUN_PROFILE_SCHEMA_VERSION = "run_profile_v1"
+RUN_PROFILE_SCHEMA_VERSIONS = {"run_profile_v1", "run_profile_v2"}
 GENERATION_MODES = {"foundation_fixture", "deterministic_scale_probe", "llm"}
+SOURCE_KINDS = {"local_contacts_json"}
+SOURCE_KEYS = {"kind", "source_id", "path", "license_label", "max_bytes"}
+DEFAULT_SOURCE_MAX_BYTES = 65536
 FEATURE_KEYS = (
     "enable_branching",
     "enable_task_expansion",
@@ -54,6 +59,25 @@ class RunProfileFeatures:
 
 
 @dataclass(frozen=True)
+class RunProfileSource:
+    kind: str
+    source_id: str
+    relative_path: str
+    resolved_path: Path
+    license_label: str
+    max_bytes: int
+
+    def canonical(self) -> dict[str, object]:
+        return {
+            "kind": self.kind,
+            "source_id": self.source_id,
+            "path": self.relative_path,
+            "license_label": self.license_label,
+            "max_bytes": self.max_bytes,
+        }
+
+
+@dataclass(frozen=True)
 class RunProfile:
     schema_version: str
     profile_id: str
@@ -62,9 +86,14 @@ class RunProfile:
     generation: RunProfileGeneration
     features: RunProfileFeatures
     config_hash: str
+    source: RunProfileSource | None = None
 
-    def sanitized_metadata(self) -> dict[str, object]:
-        return {
+    def sanitized_metadata(
+        self,
+        *,
+        source_summary: Mapping[str, object] | None = None,
+    ) -> dict[str, object]:
+        metadata: dict[str, object] = {
             "schema_version": self.schema_version,
             "profile_id": self.profile_id,
             "generation_mode": self.generation.mode,
@@ -72,6 +101,9 @@ class RunProfile:
             "config_hash": self.config_hash,
             "enabled_features": self.features.enabled_feature_names(),
         }
+        if source_summary is not None:
+            metadata["source"] = dict(source_summary)
+        return metadata
 
     def canonical(self) -> dict[str, object]:
         return _canonical_profile_mapping(
@@ -81,6 +113,7 @@ class RunProfile:
             seed=self.seed,
             generation=self.generation,
             features=self.features,
+            source=self.source,
         )
 
 
@@ -96,15 +129,16 @@ def load_run_profile(path: Path) -> RunProfile:
         raise RunProfileValidationError("run profile must be a JSON object")
 
     schema_version = _require_string(raw.get("schema_version"), "schema_version")
-    if schema_version != RUN_PROFILE_SCHEMA_VERSION:
+    if schema_version not in RUN_PROFILE_SCHEMA_VERSIONS:
         raise RunProfileValidationError(
-            f"schema_version must be {RUN_PROFILE_SCHEMA_VERSION}"
+            f"schema_version must be one of {sorted(RUN_PROFILE_SCHEMA_VERSIONS)}"
         )
     profile_id = _require_string(raw.get("profile_id"), "profile_id")
     dataset_version = _require_string(raw.get("dataset_version"), "dataset_version")
     seed = _load_seed(raw.get("seed"))
     generation = _load_generation(raw.get("generation"))
     features = _load_features(raw.get("features", {}))
+    source = _load_source(raw.get("source"), schema_version=schema_version, profile_path=path)
     canonical = _canonical_profile_mapping(
         schema_version=schema_version,
         profile_id=profile_id,
@@ -112,6 +146,7 @@ def load_run_profile(path: Path) -> RunProfile:
         seed=seed,
         generation=generation,
         features=features,
+        source=source,
     )
     return RunProfile(
         schema_version=schema_version,
@@ -121,6 +156,7 @@ def load_run_profile(path: Path) -> RunProfile:
         generation=generation,
         features=features,
         config_hash=_config_hash(canonical),
+        source=source,
     )
 
 
@@ -181,6 +217,59 @@ def _load_features(raw_features: object) -> RunProfileFeatures:
     return RunProfileFeatures(**values)
 
 
+def _load_source(
+    raw_source: object,
+    *,
+    schema_version: str,
+    profile_path: Path,
+) -> RunProfileSource | None:
+    if schema_version == RUN_PROFILE_SCHEMA_VERSION:
+        if raw_source is not None:
+            raise RunProfileValidationError("source is only supported for run_profile_v2")
+        return None
+    if raw_source is None:
+        return None
+
+    source = _require_mapping(raw_source, "source")
+    unknown_keys = sorted(str(key) for key in source if key not in SOURCE_KEYS)
+    if unknown_keys:
+        raise RunProfileValidationError(
+            f"unsupported source keys: {', '.join(unknown_keys)}"
+        )
+    kind = _require_string(source.get("kind"), "source.kind")
+    if kind not in SOURCE_KINDS:
+        raise RunProfileValidationError(
+            f"source.kind must be one of {sorted(SOURCE_KINDS)}"
+        )
+    source_id = _require_string(source.get("source_id"), "source.source_id")
+    relative_path = _require_string(source.get("path"), "source.path")
+    source_path = Path(relative_path)
+    if source_path.is_absolute():
+        raise RunProfileValidationError("source.path must be relative")
+    if ".." in source_path.parts:
+        raise RunProfileValidationError("source.path must not contain parent traversal")
+    if source_path.suffix != ".json":
+        raise RunProfileValidationError("source.path must have a .json suffix")
+    license_label = _require_string(source.get("license_label"), "source.license_label")
+    if license_label not in SOURCE_LICENSE_LABELS:
+        raise RunProfileValidationError(
+            f"source.license_label must be one of {sorted(SOURCE_LICENSE_LABELS)}"
+        )
+    max_bytes = _optional_positive_int(
+        source.get("max_bytes", DEFAULT_SOURCE_MAX_BYTES),
+        "source.max_bytes",
+    )
+    assert max_bytes is not None
+    return RunProfileSource(
+        kind=kind,
+        source_id=source_id,
+        relative_path=relative_path,
+        resolved_path=profile_path.parent / source_path,
+        license_label=license_label,
+        max_bytes=max_bytes,
+    )
+
+
 def _canonical_profile_mapping(
     *,
     schema_version: str,
@@ -189,8 +278,9 @@ def _canonical_profile_mapping(
     seed: DomainSeed,
     generation: RunProfileGeneration,
     features: RunProfileFeatures,
+    source: RunProfileSource | None = None,
 ) -> dict[str, object]:
-    return {
+    canonical: dict[str, object] = {
         "schema_version": schema_version,
         "profile_id": profile_id,
         "dataset_version": dataset_version,
@@ -203,6 +293,9 @@ def _canonical_profile_mapping(
         "generation": generation.canonical(),
         "features": features.canonical(),
     }
+    if source is not None:
+        canonical["source"] = source.canonical()
+    return canonical
 
 
 def _config_hash(canonical_profile: dict[str, object]) -> str:

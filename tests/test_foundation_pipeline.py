@@ -397,6 +397,58 @@ class FoundationPipelineTest(unittest.TestCase):
                 ],
             )
 
+    def test_profile_local_source_pipeline_writes_sanitized_source_metadata(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+        from synthesis.run_profiles import load_run_profile
+        from synthesis.sources import (
+            ProfileLocalContactsSourceRequest,
+            build_profile_local_contacts_source_input,
+        )
+
+        profile = load_run_profile(Path("tests/fixtures/run_profiles/profile-local-contacts.json"))
+        assert profile.source is not None
+        source_input = build_profile_local_contacts_source_input(
+            ProfileLocalContactsSourceRequest.from_run_profile_source(profile.source)
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_foundation_pipeline(
+                Path(tmpdir),
+                dataset_version=profile.dataset_version,
+                source_bundle=source_input.source_bundle,
+                contacts_environment_input=source_input.environment_input,
+                source_events=source_input.events,
+                enable_source_audit=True,
+                seed_override=profile.seed,
+                run_profile_metadata=profile.sanitized_metadata(
+                    source_summary=source_input.source_summary
+                ),
+            )
+
+            self.assertEqual(result.accepted_count, 2)
+            self.assertEqual(result.rejected_count, 1)
+            self.assertIsNotNone(result.source_events_path)
+            manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["run_profile"]["schema_version"], "run_profile_v2")
+            self.assertEqual(manifest["run_profile"]["source"], source_input.source_summary)
+            self.assertEqual(manifest["source_policy_hashes"], [source_input.source_summary["source_policy_hash"]])
+
+            sample = json.loads(result.samples_path.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(sample["lineage"]["source_provenance"]["source_kinds"], ["local_file"])
+            self.assertEqual(sample["environment"]["reset_recipe"]["contact_count"], 4)
+
+            audit_text = (
+                result.manifest_path.read_text(encoding="utf-8")
+                + result.source_events_path.read_text(encoding="utf-8")
+                + result.quality_report_path.read_text(encoding="utf-8")
+                + result.rejections_path.read_text(encoding="utf-8")
+            )
+            self.assertNotIn("contacts-profile.json", audit_text)
+            self.assertNotIn("alice.zhang@example.test", audit_text)
+            self.assertNotIn("ben.carter@example.test", audit_text)
+            self.assertNotIn("clara.nguyen@example.test", audit_text)
+            self.assertNotIn("devon.lee@example.test", audit_text)
+
     def test_adapter_fixture_path_records_lineage_without_changing_default_counts(self) -> None:
         from synthesis.pipeline import run_foundation_pipeline
 

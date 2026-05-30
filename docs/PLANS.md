@@ -9,7 +9,7 @@
 
 ## Active
 
-No plans are currently active.
+- None.
 
 ## Deferred
 
@@ -37,6 +37,7 @@ No plans are currently active.
 - [0015-generated-code-sandboxing-and-executable-admission-controls](exec-plans/completed/0015-generated-code-sandboxing-and-executable-admission-controls.md): added generated-code sandbox contracts, static scans, admission records, restricted local fixture execution, redacted sandbox audit artifacts, and reporting slices. Completed on 2026-05-27.
 - [0016-candidate-execution-boundary-and-orchestration-readiness](exec-plans/completed/0016-candidate-execution-boundary-and-orchestration-readiness.md): extracted and tested a structured candidate-processing boundary before deferred async orchestration work. Completed on 2026-05-29.
 - [0017-configurable-run-profiles-and-scale-probe](exec-plans/completed/0017-configurable-run-profiles-and-scale-probe.md): added declarative run profiles, deterministic scale-probe generation, sanitized manifest metadata, and synchronous scale evidence before async orchestration or semantic duplicate detection. Completed on 2026-05-29.
+- [0018-profile-driven-source-admission-and-contacts-environment-overrides](exec-plans/completed/0018-profile-driven-source-admission-and-contacts-environment-overrides.md): added `run_profile_v2`, profile-local contacts JSON source admission, environment overrides, sanitized manifest source metadata, and source-governed synchronous runs. Completed on 2026-05-30.
 
 ## Technical Debt
 

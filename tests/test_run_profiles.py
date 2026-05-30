@@ -84,10 +84,126 @@ class RunProfileTest(unittest.TestCase):
         from synthesis.run_profiles import RunProfileValidationError, load_run_profile
 
         with tempfile.TemporaryDirectory() as tmp:
-            path = self._write_profile(Path(tmp), overrides={"schema_version": "run_profile_v2"})
+            path = self._write_profile(Path(tmp), overrides={"schema_version": "run_profile_v3"})
 
             with self.assertRaisesRegex(RunProfileValidationError, "schema_version"):
                 load_run_profile(path)
+
+    def test_existing_fixture_profiles_remain_v1_without_source_metadata(self) -> None:
+        from synthesis.run_profiles import load_run_profile
+
+        for fixture in (
+            Path("tests/fixtures/run_profiles/foundation-fixture.json"),
+            Path("tests/fixtures/run_profiles/foundation-scale-probe-25.json"),
+        ):
+            with self.subTest(fixture=fixture.name):
+                profile = load_run_profile(fixture)
+
+                self.assertEqual(profile.schema_version, "run_profile_v1")
+                self.assertIsNone(profile.source)
+                self.assertNotIn("source", profile.sanitized_metadata())
+
+    def test_v2_profile_loads_local_contacts_source_with_sanitized_metadata(self) -> None:
+        from synthesis.run_profiles import load_run_profile
+
+        profile = load_run_profile(Path("tests/fixtures/run_profiles/profile-local-contacts.json"))
+
+        self.assertEqual(profile.schema_version, "run_profile_v2")
+        self.assertIsNotNone(profile.source)
+        assert profile.source is not None
+        self.assertEqual(profile.source.kind, "local_contacts_json")
+        self.assertEqual(profile.source.source_id, "source_profile_contacts_v1")
+        self.assertEqual(profile.source.relative_path, "contacts-profile.json")
+        self.assertEqual(profile.source.resolved_path.name, "contacts-profile.json")
+        self.assertEqual(profile.source.max_bytes, 65536)
+        self.assertNotIn("contacts-profile.json", json.dumps(profile.sanitized_metadata()))
+        self.assertNotIn("source", profile.sanitized_metadata())
+
+        metadata = profile.sanitized_metadata(
+            source_summary={
+                "kind": "local_contacts_json",
+                "source_id": "source_profile_contacts_v1",
+                "content_hash": "sha256:" + "1" * 64,
+                "license_label": "cc-by-4.0",
+                "source_policy_hash": "sha256:" + "2" * 64,
+            }
+        )
+        self.assertEqual(metadata["source"]["source_id"], "source_profile_contacts_v1")
+        self.assertNotIn("path", metadata["source"])
+
+    def test_v2_source_declaration_changes_config_hash(self) -> None:
+        from synthesis.run_profiles import load_run_profile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            (tmpdir / "contacts-a.json").write_text('{"contacts":[]}', encoding="utf-8")
+            (tmpdir / "contacts-b.json").write_text('{"contacts":[]}', encoding="utf-8")
+            first = self._write_profile(
+                tmpdir,
+                overrides={
+                    "schema_version": "run_profile_v2",
+                    "generation": {"mode": "foundation_fixture"},
+                    "source": {
+                        "kind": "local_contacts_json",
+                        "source_id": "source_profile_contacts_v1",
+                        "path": "contacts-a.json",
+                        "license_label": "cc-by-4.0",
+                    },
+                },
+            )
+            first_profile = load_run_profile(first)
+            second = self._write_profile(
+                tmpdir,
+                overrides={
+                    "schema_version": "run_profile_v2",
+                    "generation": {"mode": "foundation_fixture"},
+                    "source": {
+                        "kind": "local_contacts_json",
+                        "source_id": "source_profile_contacts_v1",
+                        "path": "contacts-b.json",
+                        "license_label": "cc-by-4.0",
+                    },
+                },
+            )
+            second_profile = load_run_profile(second)
+
+            self.assertNotEqual(first_profile.config_hash, second_profile.config_hash)
+
+    def test_v2_source_rejects_unsafe_or_unknown_declarations(self) -> None:
+        from synthesis.run_profiles import RunProfileValidationError, load_run_profile
+
+        invalid_sources = (
+            {"path": "/tmp/contacts.json"},
+            {"path": "../contacts.json"},
+            {"path": "contacts.txt"},
+            {"max_bytes": 0},
+            {"license_label": "bad-license"},
+            {"kind": "csv"},
+            {"source_id": ""},
+            {"unexpected": True},
+        )
+        for invalid_source in invalid_sources:
+            with self.subTest(invalid_source=invalid_source):
+                with tempfile.TemporaryDirectory() as tmp:
+                    tmpdir = Path(tmp)
+                    source = {
+                        "kind": "local_contacts_json",
+                        "source_id": "source_profile_contacts_v1",
+                        "path": "contacts.json",
+                        "license_label": "cc-by-4.0",
+                    }
+                    source.update(invalid_source)
+                    path = self._write_profile(
+                        tmpdir,
+                        overrides={
+                            "schema_version": "run_profile_v2",
+                            "generation": {"mode": "foundation_fixture"},
+                            "source": source,
+                        },
+                    )
+
+                    with self.assertRaises(RunProfileValidationError):
+                        load_run_profile(path)
 
     def test_rejects_empty_profile_id_and_dataset_version(self) -> None:
         from synthesis.run_profiles import RunProfileValidationError, load_run_profile

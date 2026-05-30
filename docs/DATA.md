@@ -5,10 +5,12 @@
 - **Seed:** source material, domain description, task taxonomy, or prior accepted sample used to start generation.
 - **Run Profile:** versioned local-run configuration that names a profile id,
   dataset version, seed metadata, generation mode, target candidate count when
-  applicable, and supported feature flags.
+  applicable, supported feature flags, and, for `run_profile_v2`, an optional
+  governed local contacts JSON source declaration.
 - **Source Record:** provenance contract for fixture, synthetic, transformed, or
-  external material, including source id, origin reference, content hash, license
-  label, retrieval timestamp when applicable, and retention/export eligibility.
+  external/local-file material, including source id, sanitized origin reference,
+  content hash, license label, retrieval timestamp when applicable, and
+  retention/export eligibility.
 - **License Policy Decision:** explicit allow, reject, or review-required
   decision for a source record.
 - **Network Policy:** default-deny external-source access policy with explicit
@@ -149,16 +151,24 @@ optional `run_profile` object. This object is sanitized metadata only:
 source payloads, authorization headers, provider prompts, API keys, or other
 secret-like fields. Non-profile runs omit `run_profile`.
 
+`run_profile_v2` preserves the same manifest metadata and may add
+`run_profile.source` after source admission. That summary contains only `kind`,
+`source_id`, `content_hash`, `license_label`, and `source_policy_hash`. The
+profile-local source path is used only at runtime to read the declared JSON file
+relative to the profile directory; manifests, quality reports, source events,
+and rejection metadata must not persist raw local paths or raw contacts payloads.
+
 `lineage.source_provenance` records the source bundle id, source policy hash,
 source ids, source kinds, license labels, license outcomes, retention/export
-eligibility, `external_source_eligible`, and, for network-backed contacts
-inputs, `environment_source_admission`. Environment metadata carries the same
-source provenance so environment versions can be traced back to the policy hash
-that admitted their source bundle. Network-backed environment reset recipes also
-record source bundle id, source policy hash, contact count, and follow-up count;
-they do not record raw source URLs or payload text. Rejected external source
-material and rejected environment-source inputs use `source_policy_rejected` and
-store sanitized source governance details under `details.source_governance`.
+eligibility, `external_source_eligible`, and, for source-backed contacts inputs,
+`environment_source_admission`. Environment metadata carries the same source
+provenance so environment versions can be traced back to the policy hash that
+admitted their source bundle. Network-backed and profile-local environment reset
+recipes also record source bundle id, source policy hash, contact count, and
+follow-up count; they do not record raw source URLs, raw local paths, or payload
+text. Rejected external/local-file source material and rejected
+environment-source inputs use `source_policy_rejected` and store sanitized source
+governance details under `details.source_governance`.
 
 Trajectory events currently supported by the contract are:
 

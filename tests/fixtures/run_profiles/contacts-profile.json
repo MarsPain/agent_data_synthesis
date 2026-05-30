@@ -1,0 +1,21 @@
+{
+  "contacts": [
+    {
+      "name": "Alice Zhang",
+      "email": "alice.zhang@example.test"
+    },
+    {
+      "name": "Ben Carter",
+      "email": "ben.carter@example.test"
+    },
+    {
+      "name": "Clara Nguyen",
+      "email": "clara.nguyen@example.test"
+    },
+    {
+      "name": "Devon Lee",
+      "email": "devon.lee@example.test"
+    }
+  ],
+  "followups": []
+}

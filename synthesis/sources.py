@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 from urllib.parse import urlparse
 
@@ -186,6 +187,31 @@ class NetworkContactsSourceInput:
     fetch_result: FetchedSourceResult
     environment_input: ContactsEnvironmentInput
     events: list[dict[str, object]]
+
+
+@dataclass(frozen=True)
+class ProfileLocalContactsSourceRequest:
+    source_id: str
+    path: Path
+    license_label: str
+    max_bytes: int
+
+    @classmethod
+    def from_run_profile_source(cls, source: object) -> "ProfileLocalContactsSourceRequest":
+        return cls(
+            source_id=str(getattr(source, "source_id")),
+            path=Path(getattr(source, "resolved_path")),
+            license_label=str(getattr(source, "license_label")),
+            max_bytes=int(getattr(source, "max_bytes")),
+        )
+
+
+@dataclass(frozen=True)
+class ProfileLocalContactsSourceInput:
+    source_bundle: SourceBundle
+    environment_input: ContactsEnvironmentInput
+    events: list[dict[str, object]]
+    source_summary: dict[str, object]
 
 
 class HttpResponse(Protocol):
@@ -415,6 +441,84 @@ def build_network_contacts_source_input(
     )
 
 
+def build_profile_local_contacts_source_input(
+    request: ProfileLocalContactsSourceRequest,
+) -> ProfileLocalContactsSourceInput:
+    source_id = request.source_id
+    origin_reference = _profile_local_origin_reference(source_id)
+    origin_alias = _origin_alias(origin_reference)
+    no_payload_hash = _bytes_content_hash(b"")
+    events: list[dict[str, object]] = []
+
+    try:
+        with request.path.open("rb") as source_file:
+            content = source_file.read(request.max_bytes + 1)
+    except FileNotFoundError:
+        _append_local_file_rejection_event(
+            events,
+            request=request,
+            origin_alias=origin_alias,
+            content_hash=no_payload_hash,
+            cause="file_not_found",
+        )
+        raise ControlledSourceFetchError(
+            "local source rejected: file not found",
+            events=events,
+        ) from None
+
+    if len(content) > request.max_bytes:
+        _append_local_file_rejection_event(
+            events,
+            request=request,
+            origin_alias=origin_alias,
+            content_hash=no_payload_hash,
+            cause="payload_too_large",
+        )
+        raise ControlledSourceFetchError(
+            "local source rejected: payload too large",
+            events=events,
+        )
+
+    content_hash = _bytes_content_hash(content)
+    source_bundle = _local_file_source_bundle(
+        request=request,
+        content_hash=content_hash,
+        license_outcome="allowed",
+    )
+    source_result = validate_source_bundle(source_bundle)
+    environment_input = _contacts_environment_input_from_payload(
+        content,
+        source_bundle_id=source_bundle.bundle_id,
+        source_policy_hash=source_result.source_policy_hash,
+    )
+    events.append(
+        _sanitized_source_event(
+            event_type="fetch_accepted",
+            source_id=source_id,
+            source_kind="local_file",
+            origin_alias=origin_alias,
+            content_hash=content_hash,
+            license_label=request.license_label,
+            license_outcome="allowed",
+            source_policy_hash=source_result.source_policy_hash,
+            policy_outcome="allowed",
+            rejection_causes=[],
+        )
+    )
+    return ProfileLocalContactsSourceInput(
+        source_bundle=source_bundle,
+        environment_input=environment_input,
+        events=events,
+        source_summary={
+            "kind": "local_contacts_json",
+            "source_id": source_id,
+            "content_hash": content_hash,
+            "license_label": request.license_label,
+            "source_policy_hash": source_result.source_policy_hash,
+        },
+    )
+
+
 def build_fixture_source_bundle() -> SourceBundle:
     source = SourceRecord(
         source_id="source_fixture_contacts",
@@ -535,6 +639,48 @@ def _network_source_bundle(
     )
 
 
+def _local_file_source_bundle(
+    *,
+    request: ProfileLocalContactsSourceRequest,
+    content_hash: str,
+    license_outcome: str,
+    license_cause: str | None = None,
+) -> SourceBundle:
+    source = SourceRecord(
+        source_id=request.source_id,
+        source_kind="local_file",
+        origin_reference=_profile_local_origin_reference(request.source_id),
+        content_hash=content_hash,
+        license_label=request.license_label,
+        retention_eligible=license_outcome == "allowed",
+        export_eligible=license_outcome == "allowed",
+    )
+    return SourceBundle(
+        bundle_id=f"bundle_{request.source_id}",
+        sources=(source,),
+        license_decisions=(
+            LicensePolicyDecision(
+                source_id=source.source_id,
+                license_label=source.license_label,
+                outcome=license_outcome,
+                cause=license_cause,
+            ),
+        ),
+        network_policy=NetworkPolicy(
+            enabled=False,
+            allowed_hosts=(),
+            request_budget=0,
+            require_source_events=True,
+        ),
+        sandbox_policy=SandboxPolicy(
+            policy_id="sandbox_profile_local_contacts",
+            filesystem_isolation="artifact_subdir",
+            generated_code_allowed=False,
+            secret_redaction=True,
+        ),
+    )
+
+
 def validate_source_bundle(bundle: SourceBundle) -> SourceGovernanceResult:
     if not bundle.sources:
         raise ValueError("source bundle must contain at least one source")
@@ -549,7 +695,7 @@ def validate_source_bundle(bundle: SourceBundle) -> SourceGovernanceResult:
     rejection_causes: list[str] = []
     for source in bundle.sources:
         decision = decisions.get(source.source_id)
-        if source.source_kind == "external" and decision is None:
+        if source.source_kind in {"external", "local_file"} and decision is None:
             rejection_causes.append("license_decision_missing")
             continue
         if decision is None:
@@ -566,6 +712,10 @@ def validate_source_bundle(bundle: SourceBundle) -> SourceGovernanceResult:
     external_sources = [source for source in bundle.sources if source.source_kind == "external"]
     if external_sources:
         rejection_causes.extend(_network_rejection_causes(bundle, external_sources))
+    governed_file_sources = [
+        source for source in bundle.sources if source.source_kind in {"external", "local_file"}
+    ]
+    if governed_file_sources:
         rejection_causes.extend(_sandbox_rejection_causes(bundle))
 
     policy_hash = source_policy_hash(bundle)
@@ -726,6 +876,36 @@ def _append_fetch_rejection_event(
     )
 
 
+def _append_local_file_rejection_event(
+    events: list[dict[str, object]],
+    *,
+    request: ProfileLocalContactsSourceRequest,
+    origin_alias: str,
+    content_hash: str,
+    cause: str,
+) -> None:
+    bundle = _local_file_source_bundle(
+        request=request,
+        content_hash=content_hash,
+        license_outcome="rejected",
+        license_cause=cause,
+    )
+    events.append(
+        _sanitized_source_event(
+            event_type="fetch_rejected",
+            source_id=request.source_id,
+            source_kind="local_file",
+            origin_alias=origin_alias,
+            content_hash=content_hash,
+            license_label=request.license_label,
+            license_outcome="rejected",
+            source_policy_hash=source_policy_hash(bundle),
+            policy_outcome="rejected",
+            rejection_causes=[cause],
+        )
+    )
+
+
 def source_environment_admission_event(
     *,
     event_type: str,
@@ -866,6 +1046,10 @@ def _bytes_content_hash(content: bytes) -> str:
 
 def _external_source_id(url: str) -> str:
     return "source_external_" + hashlib.sha256(url.encode("utf-8")).hexdigest()[:12]
+
+
+def _profile_local_origin_reference(source_id: str) -> str:
+    return f"profile_local_file:{source_id}"
 
 
 def _normalized_content_type(content_type: str) -> str:

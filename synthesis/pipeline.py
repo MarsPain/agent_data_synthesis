@@ -503,7 +503,22 @@ def _attach_source_governance_to_rejections(
         details = rejection.get("details")
         if not isinstance(details, dict):
             continue
+        if "local_file" in source_provenance.get("source_kinds", []):
+            details.update(_redact_source_payload_values(details))
         details.setdefault("source_governance", dict(source_provenance))
+
+
+def _redact_source_payload_values(value: object) -> object:
+    if isinstance(value, dict):
+        return {
+            str(key): _redact_source_payload_values(nested)
+            for key, nested in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_source_payload_values(item) for item in value]
+    if isinstance(value, str) and "@" in value:
+        return "<redacted_source_payload_value>"
+    return value
 
 
 def _run_foundation_quality_gates(

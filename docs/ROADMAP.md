@@ -74,6 +74,10 @@
   sanitized manifest attribution, and contacts-domain scale-probe fixtures used
   to decide whether plan 0014 or semantic duplicate detection should be
   reactivated.
+- Add profile-driven local contacts source admission before async orchestration.
+  Implemented in plan 0018 with `run_profile_v2`, profile-relative contacts JSON
+  ingestion through source governance, sanitized source metadata, and environment
+  overrides over the existing synchronous pipeline.
 - Add async orchestration with durable queues.
 - Evaluate Ray-style distributed workers if throughput requires it.
 - Add monitoring dashboards and cost controls.

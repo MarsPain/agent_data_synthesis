@@ -303,6 +303,94 @@ class SourceGovernancePipelineTest(unittest.TestCase):
         self.assertEqual(events[-1]["rejection_causes"], ["payload_too_large"])
         self.assertNotIn("contacts", json.dumps(events))
 
+    def test_profile_local_contacts_source_builds_sanitized_input_and_events(self) -> None:
+        from synthesis.sources import (
+            ProfileLocalContactsSourceRequest,
+            build_profile_local_contacts_source_input,
+        )
+
+        source_input = build_profile_local_contacts_source_input(
+            ProfileLocalContactsSourceRequest(
+                source_id="source_profile_contacts_v1",
+                path=Path("tests/fixtures/run_profiles/contacts-profile.json"),
+                license_label="cc-by-4.0",
+                max_bytes=65536,
+            )
+        )
+
+        self.assertEqual(source_input.source_bundle.sources[0].source_kind, "local_file")
+        self.assertEqual(
+            source_input.source_bundle.sources[0].origin_reference,
+            "profile_local_file:source_profile_contacts_v1",
+        )
+        self.assertEqual(len(source_input.environment_input.contacts), 4)
+        self.assertEqual(source_input.source_summary["source_id"], "source_profile_contacts_v1")
+        self.assertRegex(str(source_input.source_summary["content_hash"]), r"^sha256:[0-9a-f]{64}$")
+        self.assertRegex(str(source_input.source_summary["source_policy_hash"]), r"^sha256:[0-9a-f]{64}$")
+        events_text = json.dumps(source_input.events, sort_keys=True)
+        self.assertIn("source_profile_contacts_v1", events_text)
+        self.assertNotIn("contacts-profile.json", events_text)
+        self.assertNotIn("Alice Zhang", events_text)
+        self.assertNotIn("alice.zhang@example.test", events_text)
+
+    def test_profile_local_contacts_source_rejects_oversize_payload_without_payload_leakage(self) -> None:
+        from synthesis.sources import (
+            ControlledSourceFetchError,
+            ProfileLocalContactsSourceRequest,
+            build_profile_local_contacts_source_input,
+        )
+
+        with self.assertRaisesRegex(ControlledSourceFetchError, "payload too large") as raised:
+            build_profile_local_contacts_source_input(
+                ProfileLocalContactsSourceRequest(
+                    source_id="source_profile_contacts_v1",
+                    path=Path("tests/fixtures/run_profiles/contacts-profile.json"),
+                    license_label="cc-by-4.0",
+                    max_bytes=4,
+                )
+            )
+
+        self.assertEqual(raised.exception.events[-1]["event_type"], "fetch_rejected")
+        self.assertEqual(raised.exception.events[-1]["source_kind"], "local_file")
+        self.assertNotIn("Alice Zhang", json.dumps(raised.exception.events))
+
+    def test_profile_local_contacts_source_bad_schema_becomes_environment_rejection(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+        from synthesis.sources import (
+            ProfileLocalContactsSourceRequest,
+            build_profile_local_contacts_source_input,
+        )
+
+        source_input = build_profile_local_contacts_source_input(
+            ProfileLocalContactsSourceRequest(
+                source_id="source_profile_contacts_bad_schema",
+                path=Path("tests/fixtures/run_profiles/contacts-profile-bad-schema.json"),
+                license_label="cc-by-4.0",
+                max_bytes=65536,
+            )
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_foundation_pipeline(
+                Path(tmpdir),
+                dataset_version="dataset_profile_local_bad_schema",
+                source_bundle=source_input.source_bundle,
+                contacts_environment_input=source_input.environment_input,
+                source_events=source_input.events,
+                enable_source_audit=True,
+            )
+
+            self.assertEqual(result.accepted_count, 0)
+            self.assertEqual(result.rejected_count, 1)
+            exported = (
+                result.rejections_path.read_text(encoding="utf-8")
+                + result.source_events_path.read_text(encoding="utf-8")
+                + result.manifest_path.read_text(encoding="utf-8")
+            )
+            self.assertIn("environment_source_rejected", exported)
+            self.assertNotIn("contacts-profile-bad-schema.json", exported)
+            self.assertNotIn("alice.zhang@example.test", exported)
+
     def test_environment_source_rejection_does_not_count_as_executable(self) -> None:
         from synthesis.pipeline import run_foundation_pipeline
         from synthesis.sources import (
