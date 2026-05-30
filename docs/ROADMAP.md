@@ -82,6 +82,10 @@
   Implemented in plan 0019 with sanitized per-record profile attribution,
   profile quality slices, and parent-comparison visibility over profile slice
   keys.
+- Add profile decision gates and benchmark reporting before async orchestration.
+  Implemented in plan 0020 with opt-in sanitized decision reports over
+  synchronous profile artifacts, explicit async and semantic-duplicate gates,
+  and MVP quality-floor decisions.
 - Add async orchestration with durable queues.
 - Evaluate Ray-style distributed workers if throughput requires it.
 - Add monitoring dashboards and cost controls.

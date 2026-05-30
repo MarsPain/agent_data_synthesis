@@ -46,6 +46,22 @@ class DatasetArtifacts:
     rejected_count: int
 
 
+def attach_profile_decision_report_to_manifest(
+    *,
+    manifest_path: Path,
+    report_path: Path,
+) -> None:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    artifacts = dict(manifest.get("artifacts", {}))
+    artifacts["profile_decision_report"] = report_path.name
+    manifest["artifacts"] = artifacts
+    validate_manifest_record(manifest)
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 def assemble_sample(
     *,
     dataset_version: str,

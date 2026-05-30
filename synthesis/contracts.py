@@ -170,6 +170,73 @@ def validate_manifest_record(record: Mapping[str, Any]) -> None:
         _validate_run_profile_metadata(record.get("run_profile"))
 
 
+def validate_profile_decision_report_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "profile_decision_report")
+    if _contains_raw_secret(record):
+        raise ContractValidationError("profile_decision_report contains raw secret material")
+    schema_version = _require_non_empty_string(record.get("schema_version"), "schema_version")
+    if schema_version != "profile_decision_report_v1":
+        raise ContractValidationError("schema_version is unsupported")
+    _require_non_empty_string(record.get("dataset_version"), "dataset_version")
+    profile = record.get("profile")
+    if profile is not None:
+        _validate_profile_decision_profile(profile)
+    inputs = _require_mapping(record.get("inputs"), "inputs")
+    for field in ("manifest_path", "quality_report_path"):
+        artifact_name = _require_non_empty_string(inputs.get(field), f"inputs.{field}")
+        _validate_artifact_filename(artifact_name, f"inputs.{field}")
+    parent_path = inputs.get("parent_comparison_path")
+    if parent_path is not None:
+        artifact_name = _require_non_empty_string(parent_path, "inputs.parent_comparison_path")
+        _validate_artifact_filename(artifact_name, "inputs.parent_comparison_path")
+
+    observed = _require_mapping(record.get("observed"), "observed")
+    for field in (
+        "total_candidates",
+        "accepted",
+        "rejected",
+        "exact_duplicate_count",
+        "infrastructure_rejection_count",
+        "source_policy_rejection_count",
+        "profile_slice_count",
+    ):
+        _require_int(observed.get(field), f"observed.{field}")
+    for field in (
+        "exact_duplicate_rate",
+        "infrastructure_rejection_rate",
+        "source_policy_rejection_rate",
+    ):
+        _require_number(observed.get(field), f"observed.{field}")
+    for field in ("success_rate", "executable_rate", "runtime_seconds"):
+        value = observed.get(field)
+        if value is not None:
+            _require_number(value, f"observed.{field}")
+
+    thresholds = _require_mapping(record.get("thresholds"), "thresholds")
+    for field in (
+        "async_candidate_count",
+        "semantic_duplicate_min_candidates",
+    ):
+        _require_positive_int(thresholds.get(field), f"thresholds.{field}")
+    for field in (
+        "async_runtime_seconds",
+        "semantic_duplicate_exact_rate",
+        "mvp_min_success_rate",
+        "mvp_min_executable_rate",
+        "mvp_max_infrastructure_rejection_rate",
+        "mvp_max_source_policy_rejection_rate",
+    ):
+        _require_number(thresholds.get(field), f"thresholds.{field}")
+
+    decisions = _require_mapping(record.get("decisions"), "decisions")
+    for decision_name in (
+        "async_orchestration",
+        "semantic_duplicate_detection",
+        "mvp_quality_floor",
+    ):
+        _validate_profile_decision(decisions.get(decision_name), f"decisions.{decision_name}")
+
+
 def validate_source_record(record: Mapping[str, Any]) -> None:
     _require_mapping(record, "source_record")
     _require_non_empty_string(record.get("schema_version"), "schema_version")
@@ -1283,6 +1350,53 @@ def _validate_run_profile_source_attribution(raw: object, path: str) -> None:
         source.get("source_policy_hash"),
         f"{path}.source_policy_hash",
     )
+
+
+def _validate_profile_decision(raw: object, path: str) -> None:
+    decision = _require_mapping(raw, path)
+    status = _require_non_empty_string(decision.get("status"), f"{path}.status")
+    if status not in {"activate", "defer", "passed", "failed", "insufficient_evidence"}:
+        raise ContractValidationError(f"{path}.status is unsupported")
+    reasons = _require_sequence(decision.get("reasons"), f"{path}.reasons")
+    if not reasons:
+        raise ContractValidationError(f"{path}.reasons must contain at least one reason")
+    for index, reason in enumerate(reasons):
+        _require_non_empty_string(reason, f"{path}.reasons.{index}")
+    triggered_by = _require_sequence(decision.get("triggered_by"), f"{path}.triggered_by")
+    for index, trigger in enumerate(triggered_by):
+        _require_non_empty_string(trigger, f"{path}.triggered_by.{index}")
+
+
+def _validate_profile_decision_profile(raw: object) -> None:
+    profile = _require_mapping(raw, "profile")
+    allowed_keys = {
+        "schema_version",
+        "profile_id",
+        "generation_mode",
+        "target_candidate_count",
+        "config_hash",
+    }
+    unexpected = sorted(str(key) for key in profile if key not in allowed_keys)
+    if unexpected:
+        raise ContractValidationError(
+            f"profile contains unsupported keys: {', '.join(unexpected)}"
+        )
+    schema_version = _require_non_empty_string(profile.get("schema_version"), "profile.schema_version")
+    if schema_version not in {"run_profile_v1", "run_profile_v2"}:
+        raise ContractValidationError("profile.schema_version is unsupported")
+    _require_non_empty_string(profile.get("profile_id"), "profile.profile_id")
+    mode = _require_non_empty_string(profile.get("generation_mode"), "profile.generation_mode")
+    if mode not in RUN_PROFILE_GENERATION_MODES:
+        raise ContractValidationError("profile.generation_mode is unsupported")
+    target_count = profile.get("target_candidate_count")
+    if target_count is not None:
+        _require_positive_int(target_count, "profile.target_candidate_count")
+    _validate_content_hash(profile.get("config_hash"), "profile.config_hash")
+
+
+def _validate_artifact_filename(raw: str, path: str) -> None:
+    if "/" in raw or "\\" in raw:
+        raise ContractValidationError(f"{path} must be a relative artifact name")
 
 
 def _require_mapping(raw: object, path: str) -> Mapping[str, Any]:

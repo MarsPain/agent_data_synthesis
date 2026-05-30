@@ -45,6 +45,9 @@ The first backend should be a local Python pipeline with explicit modules and du
   future roles from making provider calls before an explicit enabling plan.
 - `synthesis.quality`: quality reports, metric slices, duplicate signatures,
   logical consistency checks, human-review records, and parent-version comparison.
+- `synthesis.profile_decisions`: opt-in profile benchmark decision reports built
+  from manifest, quality report, optional parent comparison, runtime, and
+  deterministic thresholds.
 - `synthesis.candidate_processing`: single-candidate validation, policy
   execution, verification, duplicate/logical gates, optional tool-expansion
   reruns, optional refinement reruns, and structured per-candidate outcomes for
@@ -146,6 +149,9 @@ trajectories, exports, or logs.
    task-expansion lineage, quality reports, lineage, sanitized run-profile
    manifest metadata, and narrow per-record run-profile attribution when a
    profile is supplied.
+19. When `--write-profile-decision-report` is explicitly supplied, read the
+   exported manifest and quality report, write `profile_decision_report.json`,
+   and rewrite only the manifest artifact map to reference that report.
 
 The run-profile boundary is declarative and synchronous. `--run-profile` supports
 the existing foundation fixture, remote LLM-backed generation when `--use-llm` is
@@ -190,6 +196,13 @@ from the PDF should guide the later distributed form: task state travels with
 messages; workers stay role-specific and mostly stateless. Scaling should
 increase pipeline throughput and provider-call routing without adding local LLM
 cluster deployment as a project responsibility.
+
+Plan 0020 added an opt-in profile decision report above existing artifacts. The
+report reads the synchronous manifest and quality report, applies explicit
+thresholds, and preserves the rationale for keeping async orchestration and
+semantic duplicate detection deferred until their documented triggers are met.
+It does not activate `synthesis.orchestration` or change candidate-processing
+behavior.
 
 The candidate-processing boundary is orchestration-ready because it returns
 structured per-candidate samples, rejections, review records, tool proposal

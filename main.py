@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
+from synthesis.datasets import attach_profile_decision_report_to_manifest
 from synthesis.llm import LLMConfigurationError, LLMProviderError
 from synthesis.pipeline import (
     build_llm_candidate_generator,
     build_llm_task_expansion_generator,
     run_foundation_pipeline,
 )
+from synthesis.profile_decisions import write_profile_decision_report
 from synthesis.refinement import deterministic_fixture_refiner
 from synthesis.run_profiles import RunProfile, RunProfileValidationError, load_run_profile
 from synthesis.sources import build_external_fixture_source_bundle
@@ -127,6 +130,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="No-network test fixture used as the source response body.",
     )
+    parser.add_argument(
+        "--write-profile-decision-report",
+        action="store_true",
+        help="Write profile_decision_report.json and reference it from the manifest.",
+    )
     args = parser.parse_args()
     args.loaded_run_profile = _load_profile_or_error(parser, args.run_profile)
     if args.loaded_run_profile is None:
@@ -206,6 +214,7 @@ def main() -> int:
         source_bundle = network_source.source_bundle
         contacts_environment_input = network_source.environment_input
         source_events = network_source.events
+    start_time = time.perf_counter() if args.write_profile_decision_report else None
     try:
         result = run_foundation_pipeline(
             args.output_dir,
@@ -237,11 +246,30 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
+    profile_decision_report_path = None
+    if args.write_profile_decision_report:
+        assert start_time is not None
+        profile_decision_report_path = write_profile_decision_report(
+            manifest_path=result.manifest_path,
+            quality_report_path=result.quality_report_path,
+            parent_comparison_path=result.parent_comparison_path,
+            runtime_seconds=time.perf_counter() - start_time,
+        )
+        attach_profile_decision_report_to_manifest(
+            manifest_path=result.manifest_path,
+            report_path=profile_decision_report_path,
+        )
+
     print(
         "Foundation pipeline complete: "
         f"accepted={result.accepted_count} "
         f"rejected={result.rejected_count} "
         f"manifest={result.manifest_path}"
+        + (
+            f" profile_decision_report={profile_decision_report_path}"
+            if profile_decision_report_path is not None
+            else ""
+        )
     )
     return 0
 

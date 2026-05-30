@@ -9,6 +9,9 @@ Agent Data Synthesis is an early-stage Python project for building an automated 
 - The architecture is documented before implementation so later code can follow stable domain boundaries.
 - The current implementation is intentionally small; treat `docs/` as the source of truth for design and development guidance.
 - The synchronous pipeline now delegates candidate-level gate execution to a typed candidate-processing boundary while keeping artifact assembly ordered and local.
+- Profile runs can optionally write a sanitized `profile_decision_report.json`
+  with explicit async orchestration, semantic duplicate detection, and MVP
+  quality-floor decisions.
 - The planned synthesis pipeline is LLM-driven through a remote OpenAI-compatible API. It does not include local LLM cluster deployment.
 
 ## Documentation Map
@@ -30,6 +33,7 @@ uv run python main.py --enable-refinement --output-dir artifacts/foundation-refi
 uv run python main.py --enable-branching --output-dir artifacts/foundation-branching
 uv run python main.py --enable-task-expansion --output-dir artifacts/foundation-task-expansion
 uv run python main.py --enable-source-governance-fixture --output-dir artifacts/foundation-source-governance
+uv run python main.py --run-profile tests/fixtures/run_profiles/foundation-scale-probe-25.json --write-profile-decision-report --output-dir artifacts/foundation-scale-probe
 uv run python main.py --use-llm --output-dir artifacts/foundation-llm
 uv run python scripts/validate_docs.py
 uv run python -m unittest

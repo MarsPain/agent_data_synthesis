@@ -39,6 +39,7 @@ No active implementation plan.
 - [0017-configurable-run-profiles-and-scale-probe](exec-plans/completed/0017-configurable-run-profiles-and-scale-probe.md): added declarative run profiles, deterministic scale-probe generation, sanitized manifest metadata, and synchronous scale evidence before async orchestration or semantic duplicate detection. Completed on 2026-05-29.
 - [0018-profile-driven-source-admission-and-contacts-environment-overrides](exec-plans/completed/0018-profile-driven-source-admission-and-contacts-environment-overrides.md): added `run_profile_v2`, profile-local contacts JSON source admission, environment overrides, sanitized manifest source metadata, and source-governed synchronous runs. Completed on 2026-05-30.
 - [0019-profile-attributed-quality-and-comparison](exec-plans/completed/0019-profile-attributed-quality-and-comparison.md): added sanitized per-record run-profile attribution for samples and rejections, profile quality slices, and parent-comparison visibility while preserving synchronous profile execution. Completed on 2026-05-30.
+- [0020-profile-decision-gates-and-benchmark-reporting](exec-plans/completed/0020-profile-decision-gates-and-benchmark-reporting.md): added opt-in sanitized profile decision reports with async orchestration, semantic duplicate detection, and MVP quality-floor decisions over synchronous profile artifacts. Completed on 2026-05-30.
 
 ## Technical Debt
 

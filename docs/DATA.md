@@ -121,6 +121,8 @@ and a quality report:
   auditing is enabled.
 - `sandbox_audits.jsonl`: optional generated-code sandbox audit records written
   only when the deterministic sandbox fixture is explicitly enabled.
+- `profile_decision_report.json`: optional benchmark decision report written
+  only when explicitly requested for a profile run.
 
 ```json
 {
@@ -143,7 +145,9 @@ enabled, it also references `tool_proposals`, `parent_comparison`, and
 `review_queue`. When source auditing is enabled, it references
 `source_events`; manifests also include `source_policy_hashes` when samples or
 source-gated rejections carry source provenance. When the generated-code sandbox
-fixture is enabled, the manifest references `sandbox_audits`.
+fixture is enabled, the manifest references `sandbox_audits`. When profile
+decision reporting is explicitly requested, the manifest references
+`profile_decision_report`.
 
 When a run is configured by a `run_profile_v1` file, `manifest.json` includes an
 optional `run_profile` object. This object is sanitized metadata only:
@@ -262,6 +266,30 @@ suggester and editor metadata do not overwrite those fields.
   status, run-profile id, generation mode, and run-profile schema version.
   Profile slices are populated only from per-record run-profile attribution;
   no-profile records do not create synthetic `unknown` profile slices.
+
+### Profile Decision Report Contract
+
+`profile_decision_report.json` uses `schema_version:
+profile_decision_report_v1` and is generated only when explicitly requested. The
+report reads existing `manifest.json`, `quality_report.json`, and optional
+`parent_comparison.json` artifacts, then records dataset/profile identity,
+artifact input names, observed candidate counts, success and executable rates,
+exact duplicate counts/rates, infrastructure and source-policy rejection
+counts/rates, optional runtime seconds, profile slice count, the thresholds used,
+and deterministic decisions for `async_orchestration`,
+`semantic_duplicate_detection`, and `mvp_quality_floor`.
+
+Decision statuses are machine-readable. Async orchestration is `activate` only
+when candidate count or runtime meets the configured threshold; otherwise it is
+`defer`. Semantic duplicate detection is `activate` only when both volume and
+exact-duplicate-rate thresholds are met; low volume keeps it deferred even when
+the exact duplicate rate is high. The MVP quality floor is `passed` when success
+and executable rates meet minimums and infrastructure/source-policy rejection
+rates stay within caps, `failed` when observed rates miss those thresholds, and
+`insufficient_evidence` when required quality rates are absent or malformed.
+The report stores sanitized profile metadata only and must not include raw
+profile files, source paths, payload rows, contact emails, prompts, headers, API
+keys, or arbitrary profile JSON.
 
 Capability-gap records use `schema_version: capability_gap_v1` and preserve
 candidate id, policy id, gap type, tool name, rejection cause, message, schema

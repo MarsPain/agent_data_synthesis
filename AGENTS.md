@@ -30,6 +30,7 @@ uv run python main.py --enable-branching --output-dir artifacts/foundation-branc
 uv run python main.py --enable-task-expansion --output-dir artifacts/foundation-task-expansion
 uv run python main.py --enable-source-governance-fixture --output-dir artifacts/foundation-source-governance
 uv run python main.py --enable-network-source --source-url https://allowed.example.test/contacts.json --source-license-label cc-by-4.0 --allowed-source-host allowed.example.test --mock-source-fixture tests/fixtures/contacts.json --output-dir artifacts/foundation-network-source
+uv run python main.py --run-profile tests/fixtures/run_profiles/foundation-scale-probe-25.json --write-profile-decision-report --output-dir artifacts/foundation-scale-probe
 uv run python scripts/validate_docs.py
 uv run python -m unittest
 ```
@@ -40,4 +41,4 @@ uv run python -m unittest
 - The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
 - Current active work is tracked in [docs/PLANS.md](docs/PLANS.md); there is
   currently no active implementation plan.
-- Latest completed work is documented in [docs/exec-plans/completed/0019-profile-attributed-quality-and-comparison.md](docs/exec-plans/completed/0019-profile-attributed-quality-and-comparison.md).
+- Latest completed work is documented in [docs/exec-plans/completed/0020-profile-decision-gates-and-benchmark-reporting.md](docs/exec-plans/completed/0020-profile-decision-gates-and-benchmark-reporting.md).

@@ -533,7 +533,45 @@ class FoundationCliTest(unittest.TestCase):
             self.assertEqual(report["counts"]["total"], 25)
             self.assertEqual(report["rejection_causes"]["quality_duplicate"], 3)
             self.assertEqual(report["rejection_causes"]["solution_logic_error"], 4)
+            self.assertNotIn("profile_decision_report", manifest["artifacts"])
+            self.assertFalse((output_dir / "profile_decision_report.json").exists())
             self.assertIn("accepted=14", result.stdout)
+
+    def test_main_can_write_profile_decision_report_for_scale_probe_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation-scale-probe"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/foundation-scale-probe-25.json",
+                    "--write-profile-decision-report",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            report_path = output_dir / "profile_decision_report.json"
+            self.assertTrue(report_path.exists(), result.stdout)
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["decisions"]["async_orchestration"]["status"], "defer")
+            self.assertEqual(
+                report["decisions"]["semantic_duplicate_detection"]["status"],
+                "defer",
+            )
+            self.assertEqual(report["decisions"]["mvp_quality_floor"]["status"], "passed")
+            self.assertEqual(
+                manifest["artifacts"]["profile_decision_report"],
+                "profile_decision_report.json",
+            )
+            self.assertIn("profile_decision_report=", result.stdout)
 
     def test_use_llm_requires_provider_configuration(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
