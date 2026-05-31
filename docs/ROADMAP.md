@@ -94,6 +94,10 @@
   Implemented in plan 0022 with opt-in deterministic contacts evaluation
   reports, capability slices, parent evaluation comparison, and
   profile-decision evidence without changing default synchronous generation.
+- Tighten held-out evaluation quality ratchets and profile promotion gates before
+  async orchestration. Implemented in plan 0023 with controlled-failure
+  benchmark semantics, per-capability thresholds, semantic duplicate watch
+  rationale, and profile promotion separated from the MVP quality floor.
 - Add async orchestration with durable queues.
 - Evaluate Ray-style distributed workers if throughput requires it.
 - Add monitoring dashboards and cost controls.

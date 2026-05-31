@@ -103,6 +103,8 @@ MANIFEST_ARTIFACT_KEYS = {
 }
 EVALUATION_TASK_STATUSES = {"passed", "failed"}
 EVALUATION_DECISION_STATUSES = {"passed", "failed", "insufficient_evidence"}
+EVALUATION_EXPECTED_OUTCOMES = {"passed", "controlled_failure"}
+PROFILE_PROMOTION_STATUSES = {"passed", "failed", "blocked", "insufficient_evidence"}
 
 
 def validate_candidate_task(task: object) -> CandidateTask:
@@ -253,6 +255,11 @@ def validate_profile_decision_report_record(record: Mapping[str, Any]) -> None:
         "mvp_quality_floor",
     ):
         _validate_profile_decision(decisions.get(decision_name), f"decisions.{decision_name}")
+    _validate_profile_decision(
+        decisions.get("profile_promotion"),
+        "decisions.profile_promotion",
+        allowed_statuses=PROFILE_PROMOTION_STATUSES,
+    )
     if "evaluation" in record:
         _validate_profile_decision_evaluation(record.get("evaluation"))
 
@@ -340,6 +347,22 @@ def validate_evaluation_report_record(record: Mapping[str, Any]) -> None:
             _require_non_empty_string(failure_cause, f"task_results.{index}.failure_cause")
         for tag_index, tag in enumerate(tags):
             _require_non_empty_string(tag, f"task_results.{index}.capability_tags.{tag_index}")
+        expected_outcome = result.get("expected_outcome")
+        if expected_outcome is not None:
+            outcome = _require_non_empty_string(
+                expected_outcome,
+                f"task_results.{index}.expected_outcome",
+            )
+            if outcome not in EVALUATION_EXPECTED_OUTCOMES:
+                raise ContractValidationError(
+                    f"task_results.{index}.expected_outcome is unsupported"
+                )
+        observed_failure_cause = result.get("observed_failure_cause")
+        if observed_failure_cause is not None:
+            _require_non_empty_string(
+                observed_failure_cause,
+                f"task_results.{index}.observed_failure_cause",
+            )
     if result_counts["passed"] != passed or result_counts["failed"] != failed:
         raise ContractValidationError("counts must match task_results statuses")
 
@@ -1463,10 +1486,22 @@ def _validate_run_profile_source_attribution(raw: object, path: str) -> None:
     )
 
 
-def _validate_profile_decision(raw: object, path: str) -> None:
+def _validate_profile_decision(
+    raw: object,
+    path: str,
+    *,
+    allowed_statuses: set[str] | None = None,
+) -> None:
     decision = _require_mapping(raw, path)
     status = _require_non_empty_string(decision.get("status"), f"{path}.status")
-    if status not in {"activate", "defer", "passed", "failed", "insufficient_evidence"}:
+    statuses = allowed_statuses or {
+        "activate",
+        "defer",
+        "passed",
+        "failed",
+        "insufficient_evidence",
+    }
+    if status not in statuses:
         raise ContractValidationError(f"{path}.status is unsupported")
     reasons = _require_sequence(decision.get("reasons"), f"{path}.reasons")
     if not reasons:
@@ -1570,6 +1605,22 @@ def _validate_evaluation_thresholds(raw: object) -> None:
         "thresholds.mvp_min_heldout_pass_rate",
     )
     _require_int(thresholds.get("max_regression_count"), "thresholds.max_regression_count")
+    capability_thresholds = thresholds.get("min_capability_pass_rates")
+    if capability_thresholds is None:
+        return
+    mapping = _require_mapping(
+        capability_thresholds,
+        "thresholds.min_capability_pass_rates",
+    )
+    for raw_capability, raw_minimum in mapping.items():
+        capability = _require_non_empty_string(
+            raw_capability,
+            "thresholds.min_capability_pass_rates key",
+        )
+        _require_number(
+            raw_minimum,
+            f"thresholds.min_capability_pass_rates.{capability}",
+        )
 
 
 def _validate_evaluation_decision(raw: object) -> None:

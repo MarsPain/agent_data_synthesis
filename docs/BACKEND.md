@@ -156,12 +156,15 @@ trajectories, exports, or logs.
    profile is supplied.
 19. When `--write-evaluation-report` is explicitly supplied, run the
    deterministic contacts held-out suite, write `evaluation_report.json`, and
-   rewrite only the manifest artifact map to reference that report.
+   rewrite only the manifest artifact map to reference that report. The
+   evaluation report includes controlled expected-failure benchmark semantics
+   and per-capability threshold decisions.
 20. When `--write-profile-decision-report` is explicitly supplied, read the
    exported manifest and quality report, write `profile_decision_report.json`,
    include held-out evaluation evidence when an evaluation report was also
-   requested, and rewrite only the manifest artifact map to reference that
-   report.
+   requested, separate the MVP quality-floor decision from the higher-level
+   profile-promotion decision, and rewrite only the manifest artifact map to
+   reference that report.
 
 The run-profile boundary is declarative and synchronous. `--run-profile` supports
 the existing foundation fixture, remote LLM-backed generation when `--use-llm` is
@@ -233,6 +236,14 @@ capability-level slices and optional parent evaluation comparisons, and feeds
 held-out pass/regression evidence into profile decision reports when both
 reports are requested. It does not change candidate generation, acceptance,
 source governance, sandbox admission, or default synchronous output.
+
+Plan 0023 tightened that opt-in reporting boundary. Held-out reports now
+distinguish normal pass tasks from controlled expected-failure tasks and enforce
+capability-level pass-rate thresholds. Profile decision reports now keep the MVP
+quality floor separate from `profile_promotion`, which can pass, fail, block on
+activated scale work, or report insufficient evidence. Low-volume exact
+duplicate pressure is recorded as a watch rationale while semantic duplicate
+detection remains deferred below the volume threshold.
 
 Remaining async work is still deferred to plan 0014: durable queues, workers,
 cancellation, resumption, external process isolation, and per-role async cost

@@ -42,6 +42,7 @@ No active implementation plan.
 - [0020-profile-decision-gates-and-benchmark-reporting](exec-plans/completed/0020-profile-decision-gates-and-benchmark-reporting.md): added opt-in sanitized profile decision reports with async orchestration, semantic duplicate detection, and MVP quality-floor decisions over synchronous profile artifacts. Completed on 2026-05-30.
 - [0021-candidate-isolation-and-deterministic-merge](exec-plans/completed/0021-candidate-isolation-and-deterministic-merge.md): added per-candidate environment/registry/adapter isolation and deterministic merge admission for provisional candidate outcomes. Completed on 2026-05-31.
 - [0022-held-out-evaluation-and-profile-benchmarking](exec-plans/completed/0022-held-out-evaluation-and-profile-benchmarking.md): added opt-in held-out evaluation reports, deterministic contacts benchmark tasks, capability slices, optional parent evaluation comparison, and profile-decision evidence before async orchestration or semantic duplicate detection. Completed on 2026-05-31.
+- [0023-evaluation-quality-ratchet-and-profile-promotion](exec-plans/completed/0023-evaluation-quality-ratchet-and-profile-promotion.md): tightened held-out evaluation semantics, added capability-level thresholds, introduced profile promotion decisions, and kept async orchestration plus semantic duplicate detection deferred until explicit triggers are met. Completed on 2026-05-31.
 
 ## Technical Debt
 

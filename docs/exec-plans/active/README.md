@@ -9,6 +9,8 @@ No active implementation plan.
 
 ## Completed
 
+- [0023-evaluation-quality-ratchet-and-profile-promotion](../completed/0023-evaluation-quality-ratchet-and-profile-promotion.md):
+  completed on 2026-05-31.
 - [0022-held-out-evaluation-and-profile-benchmarking](../completed/0022-held-out-evaluation-and-profile-benchmarking.md):
   completed on 2026-05-31.
 - [0021-candidate-isolation-and-deterministic-merge](../completed/0021-candidate-isolation-and-deterministic-merge.md):

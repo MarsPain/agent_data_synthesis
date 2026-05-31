@@ -412,6 +412,38 @@ class DatasetContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ContractValidationError, "status"):
             validate_evaluation_report_record(report)
 
+    def test_evaluation_report_contract_rejects_malformed_capability_threshold(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_evaluation_report_record
+
+        report = _valid_evaluation_report()
+        report["thresholds"]["min_capability_pass_rates"] = {"missing_contact": "high"}
+
+        with self.assertRaisesRegex(ContractValidationError, "min_capability_pass_rates"):
+            validate_evaluation_report_record(report)
+
+    def test_profile_decision_report_contract_accepts_valid_record(self) -> None:
+        from synthesis.contracts import validate_profile_decision_report_record
+
+        validate_profile_decision_report_record(_valid_profile_decision_report())
+
+    def test_profile_decision_report_contract_requires_profile_promotion(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_profile_decision_report_record
+
+        report = _valid_profile_decision_report()
+        report["decisions"].pop("profile_promotion")
+
+        with self.assertRaisesRegex(ContractValidationError, "profile_promotion"):
+            validate_profile_decision_report_record(report)
+
+    def test_profile_decision_report_contract_rejects_unsupported_promotion_status(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_profile_decision_report_record
+
+        report = _valid_profile_decision_report()
+        report["decisions"]["profile_promotion"]["status"] = "maybe"
+
+        with self.assertRaisesRegex(ContractValidationError, "profile_promotion.status"):
+            validate_profile_decision_report_record(report)
+
     def test_manifest_contract_accepts_evaluation_report_artifact(self) -> None:
         from synthesis.contracts import validate_manifest_record
 
@@ -808,11 +840,14 @@ def _valid_evaluation_report() -> dict[str, object]:
                 "capability_tags": ["contact_lookup"],
                 "status": "passed",
                 "failure_cause": None,
+                "expected_outcome": "passed",
+                "observed_failure_cause": None,
             }
         ],
         "thresholds": {
             "mvp_min_heldout_pass_rate": 0.8,
             "max_regression_count": 0,
+            "min_capability_pass_rates": {"contact_lookup": 1.0},
         },
         "decision": {
             "status": "passed",
@@ -821,6 +856,83 @@ def _valid_evaluation_report() -> dict[str, object]:
                 "regressed 0 is at or below max_regression_count 0",
             ],
             "triggered_by": ["pass_rate", "regressed"],
+        },
+    }
+
+
+def _valid_profile_decision_report() -> dict[str, object]:
+    return {
+        "schema_version": "profile_decision_report_v1",
+        "dataset_version": "dataset_test",
+        "profile": None,
+        "inputs": {
+            "manifest_path": "manifest.json",
+            "quality_report_path": "quality_report.json",
+            "parent_comparison_path": None,
+            "evaluation_report_path": "evaluation_report.json",
+        },
+        "observed": {
+            "total_candidates": 25,
+            "accepted": 14,
+            "rejected": 11,
+            "success_rate": 0.56,
+            "executable_rate": 1.0,
+            "exact_duplicate_count": 3,
+            "exact_duplicate_rate": 0.12,
+            "infrastructure_rejection_count": 0,
+            "infrastructure_rejection_rate": 0.0,
+            "source_policy_rejection_count": 0,
+            "source_policy_rejection_rate": 0.0,
+            "runtime_seconds": 0.03,
+            "profile_slice_count": 3,
+        },
+        "thresholds": {
+            "async_candidate_count": 100,
+            "async_runtime_seconds": 600.0,
+            "semantic_duplicate_min_candidates": 100,
+            "semantic_duplicate_exact_rate": 0.1,
+            "mvp_min_success_rate": 0.5,
+            "mvp_min_executable_rate": 0.8,
+            "mvp_max_infrastructure_rejection_rate": 0.0,
+            "mvp_max_source_policy_rejection_rate": 0.0,
+        },
+        "evaluation": {
+            "decision_status": "passed",
+            "heldout_pass_rate": 1.0,
+            "regression_count": 0,
+        },
+        "decisions": {
+            "async_orchestration": {
+                "status": "defer",
+                "reasons": ["total_candidates 25 is below async_candidate_count 100"],
+                "triggered_by": [],
+            },
+            "semantic_duplicate_detection": {
+                "status": "defer",
+                "reasons": [
+                    "total_candidates 25 is below semantic_duplicate_min_candidates 100"
+                ],
+                "triggered_by": [],
+            },
+            "mvp_quality_floor": {
+                "status": "passed",
+                "reasons": ["held-out evaluation decision passed"],
+                "triggered_by": ["heldout_evaluation"],
+            },
+            "profile_promotion": {
+                "status": "passed",
+                "reasons": [
+                    "mvp_quality_floor passed",
+                    "held-out evaluation passed",
+                    "async_orchestration remains deferred by scale thresholds",
+                    "semantic_duplicate_detection remains deferred by volume threshold",
+                ],
+                "triggered_by": [
+                    "mvp_quality_floor",
+                    "heldout_evaluation",
+                    "scale_deferral",
+                ],
+            },
         },
     }
 

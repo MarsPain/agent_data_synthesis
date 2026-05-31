@@ -33,6 +33,10 @@ class ProfileDecisionReportTest(unittest.TestCase):
         self.assertEqual(report["decisions"]["async_orchestration"]["status"], "defer")
         self.assertEqual(report["decisions"]["semantic_duplicate_detection"]["status"], "defer")
         self.assertEqual(report["decisions"]["mvp_quality_floor"]["status"], "passed")
+        self.assertEqual(
+            report["decisions"]["profile_promotion"]["status"],
+            "insufficient_evidence",
+        )
 
     def test_async_activates_at_candidate_threshold(self) -> None:
         from synthesis.profile_decisions import build_profile_decision_report
@@ -42,6 +46,18 @@ class ProfileDecisionReportTest(unittest.TestCase):
         decision = report["decisions"]["async_orchestration"]
         self.assertEqual(decision["status"], "activate")
         self.assertIn("total_candidates", decision["triggered_by"])
+
+    def test_profile_promotion_blocks_when_scale_work_activates(self) -> None:
+        from synthesis.profile_decisions import build_profile_decision_report
+
+        report = build_profile_decision_report(
+            **_report_inputs(total=100, accepted=50, rejected=50),
+            evaluation_report=_evaluation_report(status="passed"),
+            evaluation_report_path=Path("evaluation_report.json"),
+        )
+
+        self.assertEqual(report["decisions"]["async_orchestration"]["status"], "activate")
+        self.assertEqual(report["decisions"]["profile_promotion"]["status"], "blocked")
 
     def test_async_activates_at_runtime_threshold(self) -> None:
         from synthesis.profile_decisions import build_profile_decision_report
@@ -85,6 +101,14 @@ class ProfileDecisionReportTest(unittest.TestCase):
             deferred_low_volume["decisions"]["semantic_duplicate_detection"]["status"],
             "defer",
         )
+        self.assertIn(
+            "exact_duplicate_rate",
+            deferred_low_volume["decisions"]["semantic_duplicate_detection"]["triggered_by"],
+        )
+        self.assertIn(
+            "watch",
+            deferred_low_volume["decisions"]["semantic_duplicate_detection"]["reasons"][-1],
+        )
 
     def test_mvp_quality_floor_fails_when_thresholds_are_missed(self) -> None:
         from synthesis.profile_decisions import build_profile_decision_report
@@ -110,6 +134,7 @@ class ProfileDecisionReportTest(unittest.TestCase):
                 report = build_profile_decision_report(**inputs)
 
                 self.assertEqual(report["decisions"]["mvp_quality_floor"]["status"], "failed")
+                self.assertEqual(report["decisions"]["profile_promotion"]["status"], "failed")
 
     def test_mvp_quality_floor_is_insufficient_when_required_rate_is_missing(self) -> None:
         from synthesis.profile_decisions import build_profile_decision_report
@@ -121,6 +146,10 @@ class ProfileDecisionReportTest(unittest.TestCase):
 
         self.assertEqual(
             report["decisions"]["mvp_quality_floor"]["status"],
+            "insufficient_evidence",
+        )
+        self.assertEqual(
+            report["decisions"]["profile_promotion"]["status"],
             "insufficient_evidence",
         )
 
@@ -137,6 +166,7 @@ class ProfileDecisionReportTest(unittest.TestCase):
         self.assertEqual(report["evaluation"]["heldout_pass_rate"], 0.8)
         self.assertEqual(report["evaluation"]["regression_count"], 0)
         self.assertEqual(report["decisions"]["mvp_quality_floor"]["status"], "passed")
+        self.assertEqual(report["decisions"]["profile_promotion"]["status"], "passed")
         self.assertEqual(report["inputs"]["evaluation_report_path"], "evaluation_report.json")
 
     def test_evaluation_failed_report_fails_mvp_quality_floor(self) -> None:
@@ -150,6 +180,7 @@ class ProfileDecisionReportTest(unittest.TestCase):
 
         self.assertEqual(report["evaluation"]["decision_status"], "failed")
         self.assertEqual(report["decisions"]["mvp_quality_floor"]["status"], "failed")
+        self.assertEqual(report["decisions"]["profile_promotion"]["status"], "failed")
         self.assertIn(
             "held-out evaluation decision failed",
             report["decisions"]["mvp_quality_floor"]["reasons"],
@@ -170,6 +201,10 @@ class ProfileDecisionReportTest(unittest.TestCase):
         self.assertEqual(report["evaluation"]["decision_status"], "insufficient_evidence")
         self.assertEqual(
             report["decisions"]["mvp_quality_floor"]["status"],
+            "insufficient_evidence",
+        )
+        self.assertEqual(
+            report["decisions"]["profile_promotion"]["status"],
             "insufficient_evidence",
         )
 

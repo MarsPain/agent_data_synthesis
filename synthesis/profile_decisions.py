@@ -70,6 +70,13 @@ def build_profile_decision_report(
         if evaluation_report is not None
         else None
     )
+    async_decision = _async_decision(observed, thresholds)
+    semantic_duplicate_decision = _semantic_duplicate_decision(observed, thresholds)
+    mvp_quality_decision = _mvp_quality_decision(
+        observed,
+        thresholds,
+        evaluation=evaluation,
+    )
     report: dict[str, object] = {
         "schema_version": PROFILE_DECISION_REPORT_SCHEMA_VERSION,
         "dataset_version": _string_value(manifest.get("dataset_version"), "manifest.dataset_version"),
@@ -84,14 +91,13 @@ def build_profile_decision_report(
         "observed": observed,
         "thresholds": asdict(thresholds),
         "decisions": {
-            "async_orchestration": _async_decision(observed, thresholds),
-            "semantic_duplicate_detection": _semantic_duplicate_decision(
-                observed,
-                thresholds,
-            ),
-            "mvp_quality_floor": _mvp_quality_decision(
-                observed,
-                thresholds,
+            "async_orchestration": async_decision,
+            "semantic_duplicate_detection": semantic_duplicate_decision,
+            "mvp_quality_floor": mvp_quality_decision,
+            "profile_promotion": _profile_promotion_decision(
+                mvp_quality_decision=mvp_quality_decision,
+                async_decision=async_decision,
+                semantic_duplicate_decision=semantic_duplicate_decision,
                 evaluation=evaluation,
             ),
         },
@@ -283,6 +289,13 @@ def _semantic_duplicate_decision(
             f"total_candidates {total_candidates} is below "
             f"semantic_duplicate_min_candidates {thresholds.semantic_duplicate_min_candidates}"
         )
+        if exact_duplicate_rate >= thresholds.semantic_duplicate_exact_rate:
+            triggered_by.append("exact_duplicate_rate")
+            reasons.append(
+                f"watch exact_duplicate_rate {exact_duplicate_rate} is at or above "
+                f"semantic_duplicate_exact_rate {thresholds.semantic_duplicate_exact_rate} "
+                "but volume is below activation threshold"
+            )
         return {"status": "defer", "reasons": reasons, "triggered_by": triggered_by}
 
     triggered_by.append("total_candidates")
@@ -410,12 +423,105 @@ def _mvp_quality_decision(
     }
 
 
+def _profile_promotion_decision(
+    *,
+    mvp_quality_decision: Mapping[str, object],
+    async_decision: Mapping[str, object],
+    semantic_duplicate_decision: Mapping[str, object],
+    evaluation: Mapping[str, object] | None,
+) -> dict[str, object]:
+    mvp_status = _string_value(
+        mvp_quality_decision.get("status"),
+        "decisions.mvp_quality_floor.status",
+    )
+    async_status = _string_value(
+        async_decision.get("status"),
+        "decisions.async_orchestration.status",
+    )
+    semantic_status = _string_value(
+        semantic_duplicate_decision.get("status"),
+        "decisions.semantic_duplicate_detection.status",
+    )
+    reasons: list[str] = []
+    triggered_by: list[str] = []
+
+    if mvp_status == "insufficient_evidence":
+        return {
+            "status": "insufficient_evidence",
+            "reasons": ["mvp_quality_floor has insufficient evidence"],
+            "triggered_by": [],
+        }
+    if mvp_status == "failed":
+        return {
+            "status": "failed",
+            "reasons": ["mvp_quality_floor failed"],
+            "triggered_by": [],
+        }
+    if evaluation is None:
+        return {
+            "status": "insufficient_evidence",
+            "reasons": ["held-out evaluation evidence is unavailable"],
+            "triggered_by": [],
+        }
+
+    evaluation_status = _string_value(
+        evaluation.get("decision_status"),
+        "evaluation.decision_status",
+    )
+    if evaluation_status == "insufficient_evidence":
+        return {
+            "status": "insufficient_evidence",
+            "reasons": ["held-out evaluation evidence is insufficient"],
+            "triggered_by": [],
+        }
+    if evaluation_status == "failed":
+        reasons.append("held-out evaluation failed")
+        return {
+            "status": "failed",
+            "reasons": reasons,
+            "triggered_by": [],
+        }
+
+    reasons.extend(["mvp_quality_floor passed", "held-out evaluation passed"])
+    triggered_by.extend(["mvp_quality_floor", "heldout_evaluation"])
+    blocked = False
+    if async_status == "activate":
+        blocked = True
+        reasons.append("async_orchestration requires implementation before promotion")
+        triggered_by.append("async_orchestration")
+    else:
+        reasons.append("async_orchestration remains deferred by scale thresholds")
+    if semantic_status == "activate":
+        blocked = True
+        reasons.append(
+            "semantic_duplicate_detection requires implementation before promotion"
+        )
+        triggered_by.append("semantic_duplicate_detection")
+    else:
+        reasons.append("semantic_duplicate_detection remains deferred by volume threshold")
+    if not blocked:
+        triggered_by.append("scale_deferral")
+    return {
+        "status": "blocked" if blocked else "passed",
+        "reasons": reasons,
+        "triggered_by": triggered_by,
+    }
+
+
 def _evaluation_summary(evaluation_report: Mapping[str, Any]) -> dict[str, object]:
     try:
         validate_evaluation_report_record(evaluation_report)
         rates = _mapping_value(evaluation_report.get("rates"), "evaluation_report.rates")
         counts = _mapping_value(evaluation_report.get("counts"), "evaluation_report.counts")
         decision = _mapping_value(evaluation_report.get("decision"), "evaluation_report.decision")
+        capability_slices = _mapping_value(
+            evaluation_report.get("capability_slices"),
+            "evaluation_report.capability_slices",
+        )
+        thresholds = _mapping_value(
+            evaluation_report.get("thresholds"),
+            "evaluation_report.thresholds",
+        )
         return {
             "decision_status": _string_value(
                 decision.get("status"),
@@ -429,13 +535,43 @@ def _evaluation_summary(evaluation_report: Mapping[str, Any]) -> dict[str, objec
                 counts.get("regressed"),
                 "evaluation_report.counts.regressed",
             ),
+            "failed_capabilities": _failed_capabilities(
+                capability_slices,
+                thresholds.get("min_capability_pass_rates"),
+            ),
         }
     except (ContractValidationError, ValueError):
         return {
             "decision_status": "insufficient_evidence",
             "heldout_pass_rate": None,
             "regression_count": None,
+            "failed_capabilities": [],
         }
+
+
+def _failed_capabilities(
+    capability_slices: Mapping[str, Any],
+    raw_thresholds: object,
+) -> list[str]:
+    if not isinstance(raw_thresholds, Mapping):
+        return []
+    failed: list[str] = []
+    for raw_capability, raw_minimum in raw_thresholds.items():
+        if not isinstance(raw_capability, str):
+            continue
+        if not isinstance(raw_minimum, (int, float)) or isinstance(raw_minimum, bool):
+            continue
+        capability_slice = capability_slices.get(raw_capability)
+        if not isinstance(capability_slice, Mapping):
+            failed.append(raw_capability)
+            continue
+        pass_rate = capability_slice.get("pass_rate")
+        if not isinstance(pass_rate, (int, float)) or isinstance(pass_rate, bool):
+            failed.append(raw_capability)
+            continue
+        if float(pass_rate) < float(raw_minimum):
+            failed.append(raw_capability)
+    return failed
 
 
 def _profile_summary(manifest: Mapping[str, Any]) -> dict[str, object] | None:

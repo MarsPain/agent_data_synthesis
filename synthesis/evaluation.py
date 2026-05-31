@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -26,6 +26,8 @@ class HeldoutTask:
     task_id: str
     candidate: CandidateTask
     capability_tags: tuple[str, ...]
+    expected_outcome: str = "passed"
+    expected_failure_cause: str | None = None
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,8 @@ class HeldoutTaskResult:
     capability_tags: tuple[str, ...]
     status: str
     failure_cause: str | None
+    expected_outcome: str
+    observed_failure_cause: str | None
 
     def export(self) -> dict[str, object]:
         return {
@@ -48,6 +52,8 @@ class HeldoutTaskResult:
             "capability_tags": list(self.capability_tags),
             "status": self.status,
             "failure_cause": self.failure_cause,
+            "expected_outcome": self.expected_outcome,
+            "observed_failure_cause": self.observed_failure_cause,
         }
 
 
@@ -55,6 +61,14 @@ class HeldoutTaskResult:
 class EvaluationThresholds:
     mvp_min_heldout_pass_rate: float = 0.8
     max_regression_count: int = 0
+    min_capability_pass_rates: Mapping[str, float] = field(
+        default_factory=lambda: {
+            "contact_lookup": 1.0,
+            "state_change": 1.0,
+            "branching": 1.0,
+            "missing_contact": 1.0,
+        }
+    )
 
 
 def contacts_heldout_suite() -> HeldoutSuite:
@@ -135,6 +149,8 @@ def contacts_heldout_suite() -> HeldoutSuite:
         HeldoutTask(
             task_id="heldout_contacts_missing_contact",
             capability_tags=("missing_contact",),
+            expected_outcome="controlled_failure",
+            expected_failure_cause="verification_failed",
             candidate=CandidateTask(
                 candidate_id="heldout_contacts_missing_contact",
                 instruction="Held-out negative case: verify an unknown contact fails safely.",
@@ -189,6 +205,7 @@ def build_evaluation_report(
             "unchanged": parent_comparison["unchanged"],
         }
     )
+    capability_slices = _capability_slices(task_results)
     report: dict[str, object] = {
         "schema_version": EVALUATION_REPORT_SCHEMA_VERSION,
         "dataset_version": dataset_version,
@@ -209,11 +226,11 @@ def build_evaluation_report(
         },
         "counts": counts,
         "rates": {"pass_rate": _rate(counts["passed"], counts["total"])},
-        "capability_slices": _capability_slices(task_results),
+        "capability_slices": capability_slices,
         "task_results": [result.export() for result in task_results],
         "thresholds": asdict(thresholds),
         "parent_comparison": parent_comparison,
-        "decision": _decision(counts, thresholds),
+        "decision": _decision(counts, capability_slices, thresholds),
     }
     validate_evaluation_report_record(report)
     return report
@@ -248,6 +265,8 @@ def _run_suite(suite: HeldoutSuite) -> list[HeldoutTaskResult]:
         registry = build_contact_tool_registry(environment)
         verifier = ExactAnswerVerifier()
         for task in suite.tasks:
+            observed_failure_cause: str | None = None
+            observed_passed = False
             try:
                 execution = execute_candidate(task.candidate, registry)
                 verification = verifier.verify(
@@ -256,32 +275,50 @@ def _run_suite(suite: HeldoutSuite) -> list[HeldoutTaskResult]:
                     environment=environment,
                 )
             except Exception as exc:
-                results.append(
-                    HeldoutTaskResult(
-                        task_id=task.task_id,
-                        capability_tags=task.capability_tags,
-                        status="failed",
-                        failure_cause=_failure_cause(exc),
-                    )
-                )
+                observed_failure_cause = _failure_cause(exc, task)
+                results.append(_task_result(task, observed_passed, observed_failure_cause))
                 continue
             failed_check = next(
                 (check for check in verification.checks if not check.get("passed")),
                 None,
             )
-            results.append(
-                HeldoutTaskResult(
-                    task_id=task.task_id,
-                    capability_tags=task.capability_tags,
-                    status="passed" if verification.passed else "failed",
-                    failure_cause=(
-                        None
-                        if verification.passed
-                        else str(failed_check.get("cause") or "verification_failed")
-                    ),
-                )
+            observed_passed = verification.passed
+            observed_failure_cause = (
+                None
+                if verification.passed
+                else str(failed_check.get("cause") or "verification_failed")
             )
+            results.append(_task_result(task, observed_passed, observed_failure_cause))
     return results
+
+
+def _task_result(
+    task: HeldoutTask,
+    observed_passed: bool,
+    observed_failure_cause: str | None,
+) -> HeldoutTaskResult:
+    if task.expected_outcome == "passed":
+        status = "passed" if observed_passed else "failed"
+    elif task.expected_outcome == "controlled_failure":
+        status = (
+            "passed"
+            if (
+                not observed_passed
+                and observed_failure_cause == task.expected_failure_cause
+            )
+            else "failed"
+        )
+    else:
+        status = "failed"
+
+    return HeldoutTaskResult(
+        task_id=task.task_id,
+        capability_tags=task.capability_tags,
+        status=status,
+        failure_cause=None if status == "passed" else observed_failure_cause,
+        expected_outcome=task.expected_outcome,
+        observed_failure_cause=observed_failure_cause,
+    )
 
 
 def _heldout_branching_candidate(seed_ids: tuple[str, ...]) -> CandidateTask:
@@ -433,6 +470,7 @@ def _compare_parent(
 
 def _decision(
     counts: Mapping[str, int],
+    capability_slices: Mapping[str, Mapping[str, object]],
     thresholds: EvaluationThresholds,
 ) -> dict[str, object]:
     total = counts["total"]
@@ -471,6 +509,28 @@ def _decision(
             f"regressed {regressed} is above "
             f"max_regression_count {thresholds.max_regression_count}"
         )
+    for capability, minimum in sorted(thresholds.min_capability_pass_rates.items()):
+        capability_slice = capability_slices.get(capability)
+        if capability_slice is None:
+            reasons.append(f"capability {capability} slice is unavailable")
+            return {
+                "status": "insufficient_evidence",
+                "reasons": reasons,
+                "triggered_by": [],
+            }
+        pass_rate = float(capability_slice.get("pass_rate", 0.0))
+        if pass_rate >= minimum:
+            triggered_by.append(f"capability:{capability}")
+            reasons.append(
+                f"capability {capability} pass_rate {pass_rate} "
+                f"is at or above minimum {minimum}"
+            )
+        else:
+            failed = True
+            reasons.append(
+                f"capability {capability} pass_rate {pass_rate} "
+                f"is below minimum {minimum}"
+            )
     return {
         "status": "failed" if failed else "passed",
         "reasons": reasons,
@@ -517,7 +577,9 @@ def _ensure_quality_report_matches_dataset(
         raise ValueError("quality_report.dataset_version must match manifest.dataset_version")
 
 
-def _failure_cause(exc: Exception) -> str:
+def _failure_cause(exc: Exception, task: HeldoutTask) -> str:
+    if task.expected_outcome == "controlled_failure" and task.expected_failure_cause:
+        return task.expected_failure_cause
     if isinstance(exc, KeyError):
         return "tool_runtime_error"
     return "verification_failed"

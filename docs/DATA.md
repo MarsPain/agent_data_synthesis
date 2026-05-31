@@ -283,16 +283,21 @@ policy execution, and verifier contracts.
 The report records sanitized dataset/profile identity, artifact input names,
 suite id/version/task count, per-task pass/fail results, capability slices,
 aggregate counts, pass rate, optional parent evaluation comparison, and a
-threshold decision. The MVP thresholds are `mvp_min_heldout_pass_rate` and
-`max_regression_count`. Without a parent report, regression and improvement
-counts are zero and unchanged equals the current task count. With a parent
-report, matching task ids are compared by status, and missing parent task ids
-are listed without failing report generation.
+threshold decision. Thresholds include `mvp_min_heldout_pass_rate`,
+`max_regression_count`, and optional `min_capability_pass_rates`. Capability
+thresholds ratchet individual benchmark slices independently of the aggregate
+pass rate; if a required slice is missing, the decision is
+`insufficient_evidence`.
 
-Held-out task records store only task id, capability tags, status, and sanitized
-failure cause. Evaluation reports must not include raw local profile paths, raw
-source payloads, contact emails beyond existing synthetic fixture values,
-prompts, provider payloads, headers, API keys, or arbitrary profile JSON.
+Held-out task records store task id, capability tags, status, sanitized failure
+cause, and optional expected-outcome audit fields. `expected_outcome: passed`
+means execution and verification must pass. `expected_outcome:
+controlled_failure` means the task passes only when the observed sanitized
+failure cause matches the expected controlled failure. `observed_failure_cause`
+records that sanitized cause even when the controlled-failure task is counted as
+passed. Evaluation reports must not include raw local profile paths, raw source
+payloads, contact emails beyond existing synthetic fixture values, prompts,
+provider payloads, headers, API keys, or arbitrary profile JSON.
 
 ### Profile Decision Report Contract
 
@@ -306,18 +311,27 @@ exact duplicate counts/rates, infrastructure and source-policy rejection
 counts/rates, optional runtime seconds, optional held-out evaluation status,
 profile slice count, the thresholds used, and deterministic decisions for
 `async_orchestration`,
-`semantic_duplicate_detection`, and `mvp_quality_floor`.
+`semantic_duplicate_detection`, `mvp_quality_floor`, and `profile_promotion`.
 
 Decision statuses are machine-readable. Async orchestration is `activate` only
 when candidate count or runtime meets the configured threshold; otherwise it is
 `defer`. Semantic duplicate detection is `activate` only when both volume and
-exact-duplicate-rate thresholds are met; low volume keeps it deferred even when
-the exact duplicate rate is high. The MVP quality floor is `passed` when success
-and executable rates meet minimums and infrastructure/source-policy rejection
-rates stay within caps and any supplied held-out evaluation has passed,
-`failed` when observed rates miss those thresholds or a supplied held-out
-evaluation fails, and `insufficient_evidence` when required quality rates or
-supplied evaluation evidence are absent or malformed.
+exact-duplicate-rate thresholds are met. Low volume keeps it deferred even when
+the exact duplicate rate is high, but the decision records an `exact_duplicate_rate`
+watch trigger and rationale so the pressure remains visible without activating
+`TD-0002`.
+
+The MVP quality floor is `passed` when success and executable rates meet
+minimums, infrastructure/source-policy rejection rates stay within caps, and any
+supplied held-out evaluation has passed. It is `failed` when observed rates miss
+those thresholds or a supplied held-out evaluation fails, and
+`insufficient_evidence` when required quality rates or supplied evaluation
+evidence are absent or malformed. `profile_promotion` is the higher-level local
+MVP promotion decision: it can be `passed`, `failed`, `blocked`, or
+`insufficient_evidence`. Promotion requires the MVP floor and held-out
+evaluation to pass, remains blocked when async orchestration or semantic
+duplicate detection activates, and reports insufficient evidence when required
+quality or evaluation evidence is missing or malformed.
 The report stores sanitized profile metadata only and must not include raw
 profile files, source paths, payload rows, contact emails, prompts, headers, API
 keys, or arbitrary profile JSON.

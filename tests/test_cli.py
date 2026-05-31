@@ -564,6 +564,8 @@ class FoundationCliTest(unittest.TestCase):
             report = json.loads(report_path.read_text(encoding="utf-8"))
             manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(report["schema_version"], "evaluation_report_v1")
+            self.assertEqual(report["counts"]["passed"], 5)
+            self.assertEqual(report["capability_slices"]["missing_contact"]["pass_rate"], 1.0)
             self.assertEqual(report["decision"]["status"], "passed")
             self.assertEqual(manifest["artifacts"]["evaluation_report"], "evaluation_report.json")
             self.assertIn("evaluation_report=", result.stdout)
@@ -598,6 +600,10 @@ class FoundationCliTest(unittest.TestCase):
                 "defer",
             )
             self.assertEqual(report["decisions"]["mvp_quality_floor"]["status"], "passed")
+            self.assertEqual(
+                report["decisions"]["profile_promotion"]["status"],
+                "insufficient_evidence",
+            )
             self.assertEqual(
                 manifest["artifacts"]["profile_decision_report"],
                 "profile_decision_report.json",
@@ -639,6 +645,10 @@ class FoundationCliTest(unittest.TestCase):
                 "evaluation_report.json",
             )
             self.assertEqual(decision_report["evaluation"]["decision_status"], "passed")
+            self.assertEqual(
+                decision_report["decisions"]["profile_promotion"]["status"],
+                "passed",
+            )
 
     def test_evaluation_report_for_profile_local_source_is_sanitized(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

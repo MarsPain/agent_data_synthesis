@@ -41,14 +41,21 @@ class HeldoutEvaluationTest(unittest.TestCase):
 
         self.assertEqual(report["suite"]["task_count"], 5)
         self.assertEqual(report["counts"]["total"], 5)
-        self.assertEqual(report["counts"]["passed"], 4)
-        self.assertEqual(report["counts"]["failed"], 1)
-        self.assertEqual(report["rates"]["pass_rate"], 0.8)
+        self.assertEqual(report["counts"]["passed"], 5)
+        self.assertEqual(report["counts"]["failed"], 0)
+        self.assertEqual(report["rates"]["pass_rate"], 1.0)
         self.assertEqual(
             report["capability_slices"]["contact_lookup"],
             {"total": 2, "passed": 2, "failed": 0, "pass_rate": 1.0},
         )
-        self.assertEqual(report["capability_slices"]["missing_contact"]["failed"], 1)
+        self.assertEqual(report["capability_slices"]["missing_contact"]["passed"], 1)
+        self.assertEqual(report["capability_slices"]["missing_contact"]["failed"], 0)
+        task_result = {
+            result["task_id"]: result for result in report["task_results"]
+        }["heldout_contacts_missing_contact"]
+        self.assertEqual(task_result["status"], "passed")
+        self.assertEqual(task_result["expected_outcome"], "controlled_failure")
+        self.assertEqual(task_result["observed_failure_cause"], "verification_failed")
         self.assertEqual(report["decision"]["status"], "passed")
         validate_evaluation_report_record(report)
 
@@ -83,7 +90,26 @@ class HeldoutEvaluationTest(unittest.TestCase):
             ["heldout_contacts_missing_contact"],
         )
 
-    def test_parent_regression_fails_decision(self) -> None:
+    def test_capability_threshold_miss_fails_decision(self) -> None:
+        from synthesis.evaluation import EvaluationThresholds, build_evaluation_report
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest_path, quality_report_path = _write_inputs(Path(tmpdir))
+            report = build_evaluation_report(
+                manifest_path=manifest_path,
+                quality_report_path=quality_report_path,
+                thresholds=EvaluationThresholds(
+                    min_capability_pass_rates={"missing_contact": 1.01}
+                ),
+            )
+
+        self.assertEqual(report["decision"]["status"], "failed")
+        self.assertIn(
+            "capability missing_contact pass_rate 1.0 is below minimum 1.01",
+            report["decision"]["reasons"],
+        )
+
+    def test_parent_comparison_treats_controlled_failure_status_as_passed(self) -> None:
         from synthesis.evaluation import build_evaluation_report
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -107,8 +133,8 @@ class HeldoutEvaluationTest(unittest.TestCase):
                 parent_evaluation_report_path=parent_path,
             )
 
-        self.assertEqual(report["counts"]["regressed"], 1)
-        self.assertEqual(report["decision"]["status"], "failed")
+        self.assertEqual(report["counts"]["regressed"], 0)
+        self.assertEqual(report["decision"]["status"], "passed")
 
     def test_cli_writes_valid_report_next_to_manifest_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
