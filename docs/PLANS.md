@@ -40,6 +40,7 @@ No active implementation plan.
 - [0018-profile-driven-source-admission-and-contacts-environment-overrides](exec-plans/completed/0018-profile-driven-source-admission-and-contacts-environment-overrides.md): added `run_profile_v2`, profile-local contacts JSON source admission, environment overrides, sanitized manifest source metadata, and source-governed synchronous runs. Completed on 2026-05-30.
 - [0019-profile-attributed-quality-and-comparison](exec-plans/completed/0019-profile-attributed-quality-and-comparison.md): added sanitized per-record run-profile attribution for samples and rejections, profile quality slices, and parent-comparison visibility while preserving synchronous profile execution. Completed on 2026-05-30.
 - [0020-profile-decision-gates-and-benchmark-reporting](exec-plans/completed/0020-profile-decision-gates-and-benchmark-reporting.md): added opt-in sanitized profile decision reports with async orchestration, semantic duplicate detection, and MVP quality-floor decisions over synchronous profile artifacts. Completed on 2026-05-30.
+- [0021-candidate-isolation-and-deterministic-merge](exec-plans/completed/0021-candidate-isolation-and-deterministic-merge.md): added per-candidate environment/registry/adapter isolation and deterministic merge admission for provisional candidate outcomes. Completed on 2026-05-31.
 
 ## Technical Debt
 

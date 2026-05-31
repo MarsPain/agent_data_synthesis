@@ -184,6 +184,18 @@ class ContactEnvironment:
     def restore_checkpoint(self, checkpoint: bytes) -> None:
         self.database_path.write_bytes(checkpoint)
 
+    def rebuild(self, output_dir: Path) -> "ContactEnvironment":
+        if self.source_input is not None:
+            return type(self).create_from_input(
+                output_dir,
+                self.source_input,
+                source_provenance=self.source_provenance,
+            )
+        return type(self).create_fixture(
+            output_dir,
+            source_provenance=self.source_provenance,
+        )
+
     def lookup_email(self, name: str) -> dict[str, str]:
         with closing(self.connect()) as connection:
             row = connection.execute(

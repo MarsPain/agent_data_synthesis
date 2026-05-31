@@ -148,60 +148,54 @@ class FoundationPipelineTest(unittest.TestCase):
                         self._normalized_artifacts(second),
                     )
 
-    def test_candidate_outcome_application_preserves_ordered_admission_contract(self) -> None:
-        from synthesis.candidate_processing import CandidateProcessingOutcome
-        from synthesis.pipeline import _apply_candidate_outcome
-
-        samples: list[dict[str, object]] = []
-        rejections: list[dict[str, object]] = []
-        review_records: list[dict[str, object]] = []
-        tool_proposal_records: list[dict[str, object]] = []
-        accepted_signatures: set[tuple[str, tuple[str, ...]]] = set()
-
-        _apply_candidate_outcome(
-            CandidateProcessingOutcome(
-                sample={"sample_id": "sample_candidate"},
-                rejection=None,
-                review_records=({"candidate_id": "candidate_review"},),
-                tool_proposal_records=({"candidate_id": "candidate_tool"},),
-                accepted_signature=("instruction", ("lookup_contact_email",)),
-            ),
-            samples=samples,
-            rejections=rejections,
-            review_records=review_records,
-            tool_proposal_records=tool_proposal_records,
-            accepted_signatures=accepted_signatures,
+    def test_candidate_merge_preserves_ordered_admission_contract(self) -> None:
+        from synthesis.candidate_processing import (
+            ProvisionalCandidateOutcome,
+            merge_candidate_outcomes,
         )
 
-        self.assertEqual(samples, [{"sample_id": "sample_candidate"}])
-        self.assertEqual(rejections, [])
-        self.assertEqual(review_records, [{"candidate_id": "candidate_review"}])
-        self.assertEqual(tool_proposal_records, [{"candidate_id": "candidate_tool"}])
-        self.assertEqual(
-            accepted_signatures,
-            {("instruction", ("lookup_contact_email",))},
-        )
-
-        with self.assertRaisesRegex(RuntimeError, "exactly one"):
-            _apply_candidate_outcome(
-                CandidateProcessingOutcome(sample=None, rejection=None),
-                samples=samples,
-                rejections=rejections,
-                review_records=review_records,
-                tool_proposal_records=tool_proposal_records,
-                accepted_signatures=accepted_signatures,
-            )
-        with self.assertRaisesRegex(RuntimeError, "exactly one"):
-            _apply_candidate_outcome(
-                CandidateProcessingOutcome(
-                    sample={"sample_id": "sample_bad"},
-                    rejection={"cause": "bad"},
+        result = merge_candidate_outcomes(
+            (
+                ProvisionalCandidateOutcome(
+                    sequence_index=0,
+                    candidate_id="candidate_sample",
+                    sample={"sample_id": "sample_candidate"},
+                    rejection=None,
+                    review_records=({"candidate_id": "candidate_review"},),
+                    tool_proposal_records=({"candidate_id": "candidate_tool"},),
+                    duplicate_signature=("instruction", ("lookup_contact_email",)),
                 ),
-                samples=samples,
-                rejections=rejections,
-                review_records=review_records,
-                tool_proposal_records=tool_proposal_records,
-                accepted_signatures=accepted_signatures,
+            )
+        )
+
+        self.assertEqual(result.samples, ({"sample_id": "sample_candidate"},))
+        self.assertEqual(result.rejections, ())
+        self.assertEqual(result.review_records, ({"candidate_id": "candidate_review"},))
+        self.assertEqual(result.tool_proposal_records, ({"candidate_id": "candidate_tool"},))
+        self.assertEqual(
+            result.accepted_signatures,
+            frozenset({("instruction", ("lookup_contact_email",))}),
+        )
+
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            merge_candidate_outcomes(
+                (
+                    ProvisionalCandidateOutcome(
+                        sequence_index=0,
+                        candidate_id="candidate_missing_terminal",
+                    ),
+                )
+            )
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            merge_candidate_outcomes(
+                (
+                    ProvisionalCandidateOutcome(
+                        sequence_index=0,
+                        candidate_id="candidate_bad",
+                        sample={"sample_id": "sample_bad"},
+                        rejection={"cause": "bad"},
+                    ),
+                )
             )
 
     def test_generates_verified_sample_and_manifest(self) -> None:

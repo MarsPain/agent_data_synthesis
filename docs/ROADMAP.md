@@ -86,6 +86,10 @@
   Implemented in plan 0020 with opt-in sanitized decision reports over
   synchronous profile artifacts, explicit async and semantic-duplicate gates,
   and MVP quality-floor decisions.
+- Add candidate isolation and deterministic merge admission before async
+  orchestration. Implemented in plan 0021 with per-candidate environment,
+  registry, and adapter rebuilds, candidate-local tool expansion, and stable
+  sequence-ordered duplicate admission over provisional outcomes.
 - Add async orchestration with durable queues.
 - Evaluate Ray-style distributed workers if throughput requires it.
 - Add monitoring dashboards and cost controls.

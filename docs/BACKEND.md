@@ -49,9 +49,9 @@ The first backend should be a local Python pipeline with explicit modules and du
   from manifest, quality report, optional parent comparison, runtime, and
   deterministic thresholds.
 - `synthesis.candidate_processing`: single-candidate validation, policy
-  execution, verification, duplicate/logical gates, optional tool-expansion
-  reruns, optional refinement reruns, and structured per-candidate outcomes for
-  the synchronous pipeline to merge in order.
+  execution, verification, logical gates, optional tool-expansion reruns,
+  optional refinement reruns, provisional candidate outcomes, and deterministic
+  merge/admission records for ordered duplicate gates.
 - `synthesis.datasets`: sample assembly, per-record run-profile attribution,
   manifests, artifact exports, generation failure rejection records, and quality
   report path plumbing.
@@ -141,8 +141,10 @@ trajectories, exports, or logs.
    scan, admission, restricted local execution, and redacted audit serialization.
    This fixture does not enable arbitrary generated tools, environments, or
    verifiers and does not change default accepted/rejected sample counts.
-16. Apply dataset-quality gates such as exact duplicate detection and logical
-   consistency checks.
+16. Merge provisional candidate outcomes in stable sequence order, applying
+   exact duplicate admission deterministically after execution so completion
+   order cannot choose the accepted sample. Logical consistency remains a
+   candidate-local gate before merge.
 17. Route failed samples by error class and optional review policy.
 18. Export accepted samples, rejections, source-event audits when enabled,
    sandbox audits when enabled, tool proposal events, branch lineage,
@@ -204,11 +206,18 @@ semantic duplicate detection deferred until their documented triggers are met.
 It does not activate `synthesis.orchestration` or change candidate-processing
 behavior.
 
-The candidate-processing boundary is orchestration-ready because it returns
-structured per-candidate samples, rejections, review records, tool proposal
-records, and accepted duplicate signatures for the synchronous pipeline to merge.
-It is not concurrency-safe yet. A future orchestration plan must define
-per-candidate environment checkpoint/reset isolation, curated tool registry
-mutation rules for tool-expansion reruns, deterministic duplicate admission when
-candidates complete out of order, and manifest/quality-report merge ordering for
-durable queues.
+Plan 0021 hardened the candidate-processing boundary for a future local async
+runner without activating `synthesis.orchestration`. The synchronous pipeline now
+builds `CandidateExecutionRequest` values, executes each candidate against a
+rebuilt contacts environment, candidate-local tool registry, and candidate-local
+adapter shim when enabled, then emits `ProvisionalCandidateOutcome` records.
+Tool-expansion admissions mutate only that candidate-local registry; proposal
+records are serialized by candidate sequence. `merge_candidate_outcomes()` sorts
+provisional outcomes by stable sequence index, admits the first duplicate
+signature, converts later duplicates into `quality_duplicate` rejections, and
+preserves review and tool-proposal ordering. Artifact writing remains centralized
+in `synthesis.datasets`.
+
+Remaining async work is still deferred to plan 0014: durable queues, workers,
+cancellation, resumption, external process isolation, and per-role async cost
+tracking are not active runtime behavior.

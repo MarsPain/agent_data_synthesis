@@ -7,12 +7,13 @@ from typing import Callable
 import httpx
 
 from synthesis.candidate_processing import (
+    CandidateExecutionRequest,
     CandidateProcessingContext,
     CandidateProcessingOptions,
-    CandidateProcessingOutcome,
     PolicyGenerator,
     ToolProposalGenerator,
     _maybe_route_review,
+    merge_candidate_outcomes,
     process_candidate_through_gates,
 )
 from synthesis.datasets import (
@@ -327,7 +328,7 @@ def run_foundation_pipeline(
     rejections: list[dict[str, object]] = []
     review_records: list[dict[str, object]] = []
     tool_proposal_records: list[dict[str, object]] = []
-    accepted_signatures: set[tuple[str, tuple[str, ...]]] = set()
+    accepted_signatures: frozenset[tuple[str, tuple[str, ...]]] = frozenset()
     try:
         _run_foundation_quality_gates(environment, registry)
     except FoundationGateError as exc:
@@ -388,21 +389,33 @@ def run_foundation_pipeline(
             rejected_count=artifacts.rejected_count,
         )
 
-    for raw_task in raw_tasks:
-        outcome = process_candidate_through_gates(
+    base_outcomes = []
+    for sequence_index, raw_task in enumerate(raw_tasks):
+        request = CandidateExecutionRequest(
+            sequence_index=sequence_index,
             raw_task=raw_task,
-            context=candidate_context,
-            accepted_signatures=accepted_signatures,
+        )
+        outcome = process_candidate_through_gates(
+            request=request,
+            context=_candidate_context_for_request(
+                base_context=candidate_context,
+                output_dir=output_dir,
+                request=request,
+                enable_mcp_adapter=enable_mcp_adapter,
+            ),
             options=candidate_options,
         )
-        _apply_candidate_outcome(
-            outcome,
-            samples=samples,
-            rejections=rejections,
-            review_records=review_records,
-            tool_proposal_records=tool_proposal_records,
-            accepted_signatures=accepted_signatures,
-        )
+        base_outcomes.append(outcome)
+
+    base_merge = merge_candidate_outcomes(
+        tuple(base_outcomes),
+        route_reviewable_failures=route_reviewable_failures,
+    )
+    samples.extend(base_merge.samples)
+    rejections.extend(base_merge.rejections)
+    review_records.extend(base_merge.review_records)
+    tool_proposal_records.extend(base_merge.tool_proposal_records)
+    accepted_signatures = base_merge.accepted_signatures
 
     if enable_task_expansion:
         expansion = generate_task_expansion(seed)
@@ -422,21 +435,34 @@ def run_foundation_pipeline(
                 rejection,
                 route_reviewable_failures=route_reviewable_failures,
             )
-        for expanded_task in expansion.candidates:
-            outcome = process_candidate_through_gates(
+        expanded_outcomes = []
+        start_index = len(raw_tasks)
+        for offset, expanded_task in enumerate(expansion.candidates):
+            request = CandidateExecutionRequest(
+                sequence_index=start_index + offset,
                 raw_task=expanded_task,
-                context=candidate_context,
-                accepted_signatures=accepted_signatures,
+            )
+            outcome = process_candidate_through_gates(
+                request=request,
+                context=_candidate_context_for_request(
+                    base_context=candidate_context,
+                    output_dir=output_dir,
+                    request=request,
+                    enable_mcp_adapter=enable_mcp_adapter,
+                ),
                 options=candidate_options,
             )
-            _apply_candidate_outcome(
-                outcome,
-                samples=samples,
-                rejections=rejections,
-                review_records=review_records,
-                tool_proposal_records=tool_proposal_records,
-                accepted_signatures=accepted_signatures,
-            )
+            expanded_outcomes.append(outcome)
+        expanded_merge = merge_candidate_outcomes(
+            tuple(expanded_outcomes),
+            initial_accepted_signatures=accepted_signatures,
+            route_reviewable_failures=route_reviewable_failures,
+        )
+        samples.extend(expanded_merge.samples)
+        rejections.extend(expanded_merge.rejections)
+        review_records.extend(expanded_merge.review_records)
+        tool_proposal_records.extend(expanded_merge.tool_proposal_records)
+        accepted_signatures = expanded_merge.accepted_signatures
 
     _attach_source_governance_to_rejections(rejections, source_provenance)
     sandbox_audits = (
@@ -471,28 +497,41 @@ def run_foundation_pipeline(
     )
 
 
-def _apply_candidate_outcome(
-    outcome: CandidateProcessingOutcome,
+def _candidate_context_for_request(
     *,
-    samples: list[dict[str, object]],
-    rejections: list[dict[str, object]],
-    review_records: list[dict[str, object]],
-    tool_proposal_records: list[dict[str, object]],
-    accepted_signatures: set[tuple[str, tuple[str, ...]]],
-) -> None:
-    has_sample = outcome.sample is not None
-    has_rejection = outcome.rejection is not None
-    if has_sample == has_rejection:
-        raise RuntimeError("Candidate processing outcome must contain exactly one sample or rejection.")
+    base_context: CandidateProcessingContext,
+    output_dir: Path,
+    request: CandidateExecutionRequest,
+    enable_mcp_adapter: bool,
+) -> CandidateProcessingContext:
+    candidate_id = getattr(request.raw_task, "candidate_id", "unknown_candidate")
+    environment = base_context.environment.rebuild(
+        output_dir
+        / "candidate-environments"
+        / f"{request.sequence_index:04d}-{_path_safe_candidate_id(str(candidate_id))}"
+    )
+    registry = build_contact_tool_registry(environment)
+    adapter_shim = (
+        LocalContactsAdapterShim(environment=environment, registry=registry)
+        if enable_mcp_adapter
+        else None
+    )
+    return CandidateProcessingContext(
+        dataset_version=base_context.dataset_version,
+        environment=environment,
+        registry=registry,
+        adapter_shim=adapter_shim,
+        verifier=base_context.verifier,
+        llm_config=base_context.llm_config,
+        generate_policy=base_context.generate_policy,
+    )
 
-    if outcome.sample is not None:
-        samples.append(outcome.sample)
-        if outcome.accepted_signature is not None:
-            accepted_signatures.add(outcome.accepted_signature)
-    if outcome.rejection is not None:
-        rejections.append(outcome.rejection)
-    review_records.extend(outcome.review_records)
-    tool_proposal_records.extend(outcome.tool_proposal_records)
+
+def _path_safe_candidate_id(candidate_id: str) -> str:
+    return "".join(
+        character if character.isalnum() or character in {"-", "_"} else "_"
+        for character in candidate_id
+    )[:80] or "unknown_candidate"
 
 
 def _attach_source_governance_to_rejections(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Callable
 
 from synthesis.contracts import ContractValidationError, validate_candidate_task
@@ -30,6 +30,7 @@ from synthesis.quality import (
     build_review_record,
     candidate_duplicate_signature,
     final_answer_is_logically_supported,
+    retry_eligible,
     reviewable,
 )
 from synthesis.refinement import Refiner, RefinementAttempt, RefinementContext, repairable
@@ -70,12 +71,39 @@ class CandidateProcessingOptions:
 
 
 @dataclass(frozen=True)
-class CandidateProcessingOutcome:
-    sample: dict[str, object] | None
-    rejection: dict[str, object] | None
+class CandidateExecutionRequest:
+    sequence_index: int
+    raw_task: CandidateTask
+
+
+@dataclass(frozen=True)
+class ProvisionalCandidateOutcome:
+    sequence_index: int = 0
+    candidate_id: str = "unknown_candidate"
+    sample: dict[str, object] | None = None
+    rejection: dict[str, object] | None = None
     review_records: tuple[dict[str, object], ...] = ()
     tool_proposal_records: tuple[dict[str, object], ...] = ()
-    accepted_signature: tuple[str, tuple[str, ...]] | None = None
+    duplicate_signature: tuple[str, tuple[str, ...]] | None = None
+    environment_isolation: dict[str, object] = field(default_factory=dict)
+    registry_mutations: tuple[dict[str, object], ...] = ()
+    task_record: dict[str, object] | None = None
+
+    @property
+    def accepted_signature(self) -> tuple[str, tuple[str, ...]] | None:
+        return self.duplicate_signature
+
+
+CandidateProcessingOutcome = ProvisionalCandidateOutcome
+
+
+@dataclass(frozen=True)
+class CandidateMergeResult:
+    samples: tuple[dict[str, object], ...]
+    rejections: tuple[dict[str, object], ...]
+    review_records: tuple[dict[str, object], ...]
+    tool_proposal_records: tuple[dict[str, object], ...]
+    accepted_signatures: frozenset[tuple[str, tuple[str, ...]]]
 
 
 @dataclass(frozen=True)
@@ -89,29 +117,44 @@ class _CandidateAttemptResult:
 
 def process_candidate_through_gates(
     *,
-    raw_task: CandidateTask,
+    raw_task: CandidateTask | None = None,
+    request: CandidateExecutionRequest | None = None,
     context: CandidateProcessingContext,
-    accepted_signatures: set[tuple[str, tuple[str, ...]]],
+    accepted_signatures: set[tuple[str, tuple[str, ...]]] | None = None,
     options: CandidateProcessingOptions,
-) -> CandidateProcessingOutcome:
+) -> ProvisionalCandidateOutcome:
+    # Kept for compatibility with callers from the pre-merge-boundary API.
+    _ = accepted_signatures
+    if request is None:
+        if raw_task is None:
+            raise ValueError("raw_task or request is required")
+        request = CandidateExecutionRequest(sequence_index=0, raw_task=raw_task)
+    sequence_index = request.sequence_index
+    raw_task = request.raw_task
     review_records: list[dict[str, object]] = []
     tool_proposal_records: list[dict[str, object]] = []
     try:
         task = validate_candidate_task(raw_task)
     except ContractValidationError as exc:
-        return CandidateProcessingOutcome(
+        return ProvisionalCandidateOutcome(
+            sequence_index=sequence_index,
+            candidate_id="unknown_candidate",
             sample=None,
             rejection=assemble_candidate_schema_rejection(error=exc),
+            environment_isolation=_environment_isolation_record(context),
         )
     task = _ensure_generation_lineage(task, context.llm_config)
 
     attempt_result = _run_candidate_attempt(
         task=task,
         context=context,
-        accepted_signatures=accepted_signatures,
     )
     sample_outcome = _sample_outcome_if_present(
         attempt_result,
+        sequence_index=sequence_index,
+        candidate_id=task.candidate_id,
+        task_record=task.export(),
+        environment_isolation=_environment_isolation_record(context),
         review_records=review_records,
         tool_proposal_records=tool_proposal_records,
     )
@@ -123,13 +166,16 @@ def process_candidate_through_gates(
         attempt_result=attempt_result,
         task=task,
         context=context,
-        accepted_signatures=accepted_signatures,
         tool_proposal_generator=options.tool_proposal_generator,
         tool_proposal_records=tool_proposal_records,
     )
     if tool_expanded is not None:
         sample_outcome = _sample_outcome_if_present(
             tool_expanded,
+            sequence_index=sequence_index,
+            candidate_id=task.candidate_id,
+            task_record=task.export(),
+            environment_isolation=_environment_isolation_record(context),
             review_records=review_records,
             tool_proposal_records=tool_proposal_records,
         )
@@ -141,11 +187,15 @@ def process_candidate_through_gates(
             tool_expanded.rejection,
             route_reviewable_failures=options.route_reviewable_failures,
         )
-        return CandidateProcessingOutcome(
+        return ProvisionalCandidateOutcome(
+            sequence_index=sequence_index,
+            candidate_id=task.candidate_id,
             sample=None,
             rejection=tool_expanded.rejection,
             review_records=tuple(review_records),
             tool_proposal_records=tuple(tool_proposal_records),
+            environment_isolation=_environment_isolation_record(context),
+            task_record=task.export(),
         )
 
     try:
@@ -156,7 +206,9 @@ def process_candidate_through_gates(
             source_policy=attempt_result.policy,
         )
     except LLMProviderError as exc:
-        return CandidateProcessingOutcome(
+        return ProvisionalCandidateOutcome(
+            sequence_index=sequence_index,
+            candidate_id=task.candidate_id,
             sample=None,
             rejection=assemble_quality_gate_rejection(
                 task=task,
@@ -175,6 +227,8 @@ def process_candidate_through_gates(
             ),
             review_records=tuple(review_records),
             tool_proposal_records=tuple(tool_proposal_records),
+            environment_isolation=_environment_isolation_record(context),
+            task_record=task.export(),
         )
     if refinement_attempt is None:
         _maybe_route_review(
@@ -182,23 +236,30 @@ def process_candidate_through_gates(
             attempt_result.rejection,
             route_reviewable_failures=options.route_reviewable_failures,
         )
-        return CandidateProcessingOutcome(
+        return ProvisionalCandidateOutcome(
+            sequence_index=sequence_index,
+            candidate_id=task.candidate_id,
             sample=None,
             rejection=attempt_result.rejection,
             review_records=tuple(review_records),
             tool_proposal_records=tuple(tool_proposal_records),
+            environment_isolation=_environment_isolation_record(context),
+            task_record=task.export(),
         )
 
     refined_task = refinement_attempt.revised_candidate or task
     refined_result = _run_candidate_attempt(
         task=refined_task,
         context=context,
-        accepted_signatures=accepted_signatures,
         policy_override=refinement_attempt.revised_policy,
         refinement_attempt=refinement_attempt,
     )
     sample_outcome = _sample_outcome_if_present(
         refined_result,
+        sequence_index=sequence_index,
+        candidate_id=refined_task.candidate_id,
+        task_record=refined_task.export(),
+        environment_isolation=_environment_isolation_record(context),
         review_records=review_records,
         tool_proposal_records=tool_proposal_records,
     )
@@ -215,29 +276,42 @@ def process_candidate_through_gates(
         rejection,
         route_reviewable_failures=options.route_reviewable_failures,
     )
-    return CandidateProcessingOutcome(
+    return ProvisionalCandidateOutcome(
+        sequence_index=sequence_index,
+        candidate_id=refined_task.candidate_id,
         sample=None,
         rejection=rejection,
         review_records=tuple(review_records),
         tool_proposal_records=tuple(tool_proposal_records),
+        environment_isolation=_environment_isolation_record(context),
+        task_record=refined_task.export(),
     )
 
 
 def _sample_outcome_if_present(
     attempt_result: _CandidateAttemptResult,
     *,
+    sequence_index: int,
+    candidate_id: str,
+    task_record: dict[str, object],
+    environment_isolation: dict[str, object],
     review_records: list[dict[str, object]],
     tool_proposal_records: list[dict[str, object]],
-) -> CandidateProcessingOutcome | None:
+) -> ProvisionalCandidateOutcome | None:
     if attempt_result.sample is None:
         return None
     assert attempt_result.signature is not None
-    return CandidateProcessingOutcome(
+    return ProvisionalCandidateOutcome(
+        sequence_index=sequence_index,
+        candidate_id=candidate_id,
         sample=attempt_result.sample,
         rejection=None,
         review_records=tuple(review_records),
         tool_proposal_records=tuple(tool_proposal_records),
-        accepted_signature=attempt_result.signature,
+        duplicate_signature=attempt_result.signature,
+        environment_isolation=environment_isolation,
+        registry_mutations=_registry_mutations_from_tool_proposals(tool_proposal_records),
+        task_record=task_record,
     )
 
 
@@ -245,7 +319,6 @@ def _run_candidate_attempt(
     *,
     task: CandidateTask,
     context: CandidateProcessingContext,
-    accepted_signatures: set[tuple[str, tuple[str, ...]]],
     policy_override: SolutionPolicy | None = None,
     refinement_attempt: RefinementAttempt | None = None,
     tool_expansion: dict[str, object] | None = None,
@@ -400,20 +473,6 @@ def _run_candidate_attempt(
         instruction=task.instruction,
         trajectory=execution.trajectory,
     )
-    if signature in accepted_signatures:
-        return _CandidateAttemptResult(
-            sample=None,
-            rejection=assemble_quality_gate_rejection(
-                task=task,
-                cause="quality_duplicate",
-                message="Accepted candidate duplicates a prior task instruction and tool sequence.",
-                details={"signature": list(signature)},
-                policy=policy,
-            ),
-            signature=None,
-            policy=policy,
-            capability_gap=None,
-        )
     if not final_answer_is_logically_supported(sample):
         return _CandidateAttemptResult(
             sample=None,
@@ -441,7 +500,6 @@ def _maybe_expand_tool_and_rerun(
     attempt_result: _CandidateAttemptResult,
     task: CandidateTask,
     context: CandidateProcessingContext,
-    accepted_signatures: set[tuple[str, tuple[str, ...]]],
     tool_proposal_generator: ToolProposalGenerator | None,
     tool_proposal_records: list[dict[str, object]],
 ) -> _CandidateAttemptResult | None:
@@ -496,7 +554,6 @@ def _maybe_expand_tool_and_rerun(
     rerun = _run_candidate_attempt(
         task=task,
         context=context,
-        accepted_signatures=accepted_signatures,
         policy_override=attempt_result.policy,
         tool_expansion=proposal_record,
     )
@@ -594,3 +651,153 @@ def _maybe_route_review(
             source_artifact="rejections.jsonl",
         )
     )
+
+
+def merge_candidate_outcomes(
+    outcomes: tuple[ProvisionalCandidateOutcome, ...] | list[ProvisionalCandidateOutcome],
+    *,
+    initial_accepted_signatures: set[tuple[str, tuple[str, ...]]] | frozenset[tuple[str, tuple[str, ...]]] | None = None,
+    route_reviewable_failures: bool = False,
+) -> CandidateMergeResult:
+    samples: list[dict[str, object]] = []
+    rejections: list[dict[str, object]] = []
+    review_records: list[dict[str, object]] = []
+    tool_proposal_records: list[dict[str, object]] = []
+    accepted_signatures: set[tuple[str, tuple[str, ...]]] = set(initial_accepted_signatures or set())
+
+    for outcome in sorted(outcomes, key=lambda item: item.sequence_index):
+        _validate_provisional_outcome(outcome)
+        if outcome.sample is not None:
+            signature = outcome.duplicate_signature
+            if signature is not None and signature in accepted_signatures:
+                duplicate_rejection = _duplicate_rejection_from_outcome(outcome, signature)
+                rejections.append(duplicate_rejection)
+                _maybe_route_review(
+                    review_records,
+                    duplicate_rejection,
+                    route_reviewable_failures=route_reviewable_failures,
+                )
+            else:
+                samples.append(outcome.sample)
+                if signature is not None:
+                    accepted_signatures.add(signature)
+        else:
+            assert outcome.rejection is not None
+            rejections.append(outcome.rejection)
+        review_records.extend(outcome.review_records)
+        tool_proposal_records.extend(outcome.tool_proposal_records)
+
+    return CandidateMergeResult(
+        samples=tuple(samples),
+        rejections=tuple(rejections),
+        review_records=tuple(review_records),
+        tool_proposal_records=tuple(tool_proposal_records),
+        accepted_signatures=frozenset(accepted_signatures),
+    )
+
+
+def _validate_provisional_outcome(outcome: ProvisionalCandidateOutcome) -> None:
+    has_sample = outcome.sample is not None
+    has_rejection = outcome.rejection is not None
+    if has_sample == has_rejection:
+        raise ValueError("Provisional candidate outcome must contain exactly one sample or rejection.")
+
+
+def _duplicate_rejection_from_outcome(
+    outcome: ProvisionalCandidateOutcome,
+    signature: tuple[str, tuple[str, ...]],
+) -> dict[str, object]:
+    sample = outcome.sample or {}
+    details: dict[str, object] = {
+        "message": "Accepted candidate duplicates a prior task instruction and tool sequence.",
+        "retry_eligible": retry_eligible("quality_duplicate"),
+        "signature": [signature[0], list(signature[1])],
+    }
+    lineage = sample.get("lineage", {})
+    if isinstance(lineage, dict):
+        role_lineages = _role_lineages_from_sample_lineage(lineage)
+        if role_lineages:
+            details["role_lineages"] = role_lineages
+        refinement = _refinement_rejection_metadata_from_sample_lineage(lineage)
+        if refinement:
+            details["refinement"] = refinement
+    return {
+        "candidate_id": outcome.candidate_id,
+        "cause": "quality_duplicate",
+        "task": outcome.task_record or sample.get("task", {}),
+        "details": details,
+    }
+
+
+def _role_lineages_from_sample_lineage(lineage: dict[str, object]) -> dict[str, object]:
+    role_lineages: dict[str, object] = {}
+    for key in ("generator", "solution_policy"):
+        value = lineage.get(key)
+        if isinstance(value, dict):
+            role_lineages[key] = dict(value)
+    return role_lineages
+
+
+def _refinement_rejection_metadata_from_sample_lineage(
+    lineage: dict[str, object],
+) -> dict[str, object] | None:
+    refinement = lineage.get("refinement")
+    if not isinstance(refinement, dict):
+        return None
+    return {
+        "outcome": "rejected",
+        "original_candidate_id": refinement.get("original_candidate_id"),
+        "attempt_number": refinement.get("attempt_number"),
+        "source_failure_cause": refinement.get("source_failure_cause"),
+        "critic_diagnosis": refinement.get("critic_diagnosis"),
+        "repair_decision": refinement.get("repair_decision"),
+        "lineage": {
+            key: value
+            for key, value in refinement.items()
+            if key
+            in {
+                "role",
+                "role_version",
+                "output_type",
+                "provider_host",
+                "model",
+                "config_hash",
+            }
+        },
+    }
+
+
+def _environment_isolation_record(
+    context: CandidateProcessingContext,
+) -> dict[str, object]:
+    metadata = context.environment.metadata()
+    return {
+        "schema_version": "candidate_environment_isolation_v1",
+        "environment_id": metadata.environment_id,
+        "environment_version": metadata.version,
+        "reset_recipe": dict(metadata.reset_recipe),
+        "adapter_rebuilt": context.adapter_shim is not None,
+        "registry_tools": context.registry.tool_names(),
+    }
+
+
+def _registry_mutations_from_tool_proposals(
+    tool_proposal_records: list[dict[str, object]],
+) -> tuple[dict[str, object], ...]:
+    mutations: list[dict[str, object]] = []
+    for record in tool_proposal_records:
+        admission = record.get("admission")
+        if not isinstance(admission, dict) or admission.get("outcome") != "accepted":
+            continue
+        mutation: dict[str, object] = {
+            "schema_version": "candidate_registry_mutation_v1",
+            "candidate_id": str(record.get("candidate_id", "unknown_candidate")),
+            "mutation_type": "curated_tool_admission",
+            "tool_name": str(admission.get("tool_name", record.get("tool_name", "unknown_tool"))),
+            "outcome": str(admission.get("outcome")),
+        }
+        tool_version = admission.get("tool_version")
+        if tool_version:
+            mutation["tool_version"] = str(tool_version)
+        mutations.append(mutation)
+    return tuple(mutations)

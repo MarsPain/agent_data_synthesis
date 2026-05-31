@@ -78,7 +78,7 @@ class CandidateProcessingRecordTest(unittest.TestCase):
         outcome = CandidateProcessingOutcome(
             sample={"candidate_id": "candidate_test"},
             rejection=None,
-            accepted_signature=("instruction", ("lookup_contact_email",)),
+            duplicate_signature=("instruction", ("lookup_contact_email",)),
         )
 
         self.assertEqual(context.dataset_version, "dataset_candidate_boundary_test")
@@ -157,34 +157,42 @@ class CandidateProcessingRecordTest(unittest.TestCase):
         self.assertIsNotNone(outcome.rejection)
         self.assertEqual(outcome.rejection["cause"], "candidate_schema_error")
 
-    def test_review_routing_returns_records_only_when_enabled(self) -> None:
+    def test_review_routing_returns_records_for_merge_admitted_duplicates_when_enabled(self) -> None:
         from synthesis.candidate_processing import (
             CandidateProcessingOptions,
+            CandidateExecutionRequest,
+            merge_candidate_outcomes,
             process_candidate_through_gates,
         )
 
-        existing_signature = (
-            "find alice zhang's email address using the contact database.",
-            ("lookup_contact_email",),
-        )
         with tempfile.TemporaryDirectory() as tmpdir:
             context = self._context(Path(tmpdir))
-            disabled = process_candidate_through_gates(
-                raw_task=self._candidate(),
+            first = process_candidate_through_gates(
+                request=CandidateExecutionRequest(
+                    sequence_index=0,
+                    raw_task=self._candidate(candidate_id="candidate_first"),
+                ),
                 context=context,
-                accepted_signatures={existing_signature},
                 options=CandidateProcessingOptions(route_reviewable_failures=False),
             )
-            enabled = process_candidate_through_gates(
-                raw_task=self._candidate(),
+            duplicate = process_candidate_through_gates(
+                request=CandidateExecutionRequest(
+                    sequence_index=1,
+                    raw_task=self._candidate(candidate_id="candidate_duplicate"),
+                ),
                 context=context,
-                accepted_signatures={existing_signature},
                 options=CandidateProcessingOptions(route_reviewable_failures=True),
             )
 
-        self.assertEqual(disabled.rejection["cause"], "quality_duplicate")
+        disabled = merge_candidate_outcomes((first, duplicate))
+        enabled = merge_candidate_outcomes(
+            (first, duplicate),
+            route_reviewable_failures=True,
+        )
+
+        self.assertEqual(disabled.rejections[0]["cause"], "quality_duplicate")
         self.assertEqual(disabled.review_records, ())
-        self.assertEqual(enabled.rejection["cause"], "quality_duplicate")
+        self.assertEqual(enabled.rejections[0]["cause"], "quality_duplicate")
         self.assertEqual(len(enabled.review_records), 1)
         self.assertEqual(enabled.review_records[0]["cause"], "quality_duplicate")
 
@@ -252,11 +260,24 @@ class CandidateProcessingRecordTest(unittest.TestCase):
             "accepted",
         )
         self.assertEqual(
+            outcome.registry_mutations,
+            (
+                {
+                    "schema_version": "candidate_registry_mutation_v1",
+                    "candidate_id": "candidate_list_contacts",
+                    "mutation_type": "curated_tool_admission",
+                    "tool_name": "list_contact_names",
+                    "outcome": "accepted",
+                    "tool_version": "tool_list_contact_names_v1",
+                },
+            ),
+        )
+        self.assertEqual(
             outcome.sample["lineage"]["tool_expansion"]["admission"]["outcome"],
             "accepted",
         )
 
-    def test_duplicate_candidate_returns_quality_duplicate_rejection(self) -> None:
+    def test_duplicate_candidate_returns_provisional_sample_for_merge_admission(self) -> None:
         from synthesis.candidate_processing import (
             CandidateProcessingOptions,
             process_candidate_through_gates,
@@ -276,9 +297,15 @@ class CandidateProcessingRecordTest(unittest.TestCase):
                 options=CandidateProcessingOptions(),
             )
 
-        self.assertIsNone(outcome.sample)
-        self.assertIsNone(outcome.accepted_signature)
-        self.assertEqual(outcome.rejection["cause"], "quality_duplicate")
+        self.assertIsNotNone(outcome.sample)
+        self.assertIsNone(outcome.rejection)
+        self.assertEqual(
+            outcome.duplicate_signature,
+            (
+                "find alice zhang's email address using the contact database.",
+                ("lookup_contact_email",),
+            ),
+        )
 
 
 if __name__ == "__main__":

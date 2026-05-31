@@ -45,4 +45,5 @@
 - [exec-plans/completed/0018-profile-driven-source-admission-and-contacts-environment-overrides.md](exec-plans/completed/0018-profile-driven-source-admission-and-contacts-environment-overrides.md): profile-driven local contacts source admission, environment overrides, sanitized run-profile source metadata, and source-governed synchronous runs.
 - [exec-plans/completed/0019-profile-attributed-quality-and-comparison.md](exec-plans/completed/0019-profile-attributed-quality-and-comparison.md): sanitized per-record run-profile attribution, profile quality slices, and parent-comparison visibility.
 - [exec-plans/completed/0020-profile-decision-gates-and-benchmark-reporting.md](exec-plans/completed/0020-profile-decision-gates-and-benchmark-reporting.md): profile decision gates and benchmark reporting over synchronous profile artifacts.
+- [exec-plans/completed/0021-candidate-isolation-and-deterministic-merge.md](exec-plans/completed/0021-candidate-isolation-and-deterministic-merge.md): candidate isolation and deterministic merge admission over provisional outcomes.
 - [exec-plans/tech-debt/README.md](exec-plans/tech-debt/README.md): technical debt bucket.
