@@ -373,6 +373,53 @@ class DatasetContractTest(unittest.TestCase):
 
         validate_sample_record(sample)
 
+    def test_evaluation_report_contract_accepts_minimal_valid_record(self) -> None:
+        from synthesis.contracts import validate_evaluation_report_record
+
+        validate_evaluation_report_record(_valid_evaluation_report())
+
+    def test_evaluation_report_contract_rejects_malformed_schema_version(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_evaluation_report_record
+
+        report = _valid_evaluation_report()
+        report["schema_version"] = "evaluation_report_v2"
+
+        with self.assertRaisesRegex(ContractValidationError, "schema_version"):
+            validate_evaluation_report_record(report)
+
+    def test_evaluation_report_contract_rejects_invalid_counts_and_rates(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_evaluation_report_record
+
+        invalid_reports = (
+            {"counts": {"total": 2, "passed": 2, "failed": 1}},
+            {"rates": {"pass_rate": 1.5}},
+        )
+        for override in invalid_reports:
+            with self.subTest(override=override):
+                report = _valid_evaluation_report()
+                for key, value in override.items():
+                    report[key].update(value)
+
+                with self.assertRaisesRegex(ContractValidationError, "counts|pass_rate"):
+                    validate_evaluation_report_record(report)
+
+    def test_evaluation_report_contract_rejects_invalid_task_result_status(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_evaluation_report_record
+
+        report = _valid_evaluation_report()
+        report["task_results"][0]["status"] = "skipped"
+
+        with self.assertRaisesRegex(ContractValidationError, "status"):
+            validate_evaluation_report_record(report)
+
+    def test_manifest_contract_accepts_evaluation_report_artifact(self) -> None:
+        from synthesis.contracts import validate_manifest_record
+
+        manifest = _valid_manifest()
+        manifest["artifacts"]["evaluation_report"] = "evaluation_report.json"
+
+        validate_manifest_record(manifest)
+
 
 def _valid_sample() -> dict[str, object]:
     return {
@@ -720,6 +767,61 @@ def _valid_adapter_lineage() -> dict[str, object]:
         "call_id": "call_lookup_alice",
         "execution_status": "succeeded",
         "rejection_cause": None,
+    }
+
+
+def _valid_evaluation_report() -> dict[str, object]:
+    return {
+        "schema_version": "evaluation_report_v1",
+        "dataset_version": "dataset_test",
+        "suite": {
+            "suite_id": "contacts_heldout_v1",
+            "suite_version": "contacts_heldout_v1",
+            "task_count": 1,
+        },
+        "profile": None,
+        "inputs": {
+            "manifest_path": "manifest.json",
+            "quality_report_path": "quality_report.json",
+            "parent_evaluation_report_path": None,
+        },
+        "counts": {
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "regressed": 0,
+            "improved": 0,
+            "unchanged": 1,
+        },
+        "rates": {"pass_rate": 1.0},
+        "capability_slices": {
+            "contact_lookup": {
+                "total": 1,
+                "passed": 1,
+                "failed": 0,
+                "pass_rate": 1.0,
+            }
+        },
+        "task_results": [
+            {
+                "task_id": "heldout_contacts_lookup_alice",
+                "capability_tags": ["contact_lookup"],
+                "status": "passed",
+                "failure_cause": None,
+            }
+        ],
+        "thresholds": {
+            "mvp_min_heldout_pass_rate": 0.8,
+            "max_regression_count": 0,
+        },
+        "decision": {
+            "status": "passed",
+            "reasons": [
+                "pass_rate 1.0 is at or above mvp_min_heldout_pass_rate 0.8",
+                "regressed 0 is at or below max_regression_count 0",
+            ],
+            "triggered_by": ["pass_rate", "regressed"],
+        },
     }
 
 

@@ -121,6 +121,8 @@ and a quality report:
   auditing is enabled.
 - `sandbox_audits.jsonl`: optional generated-code sandbox audit records written
   only when the deterministic sandbox fixture is explicitly enabled.
+- `evaluation_report.json`: optional held-out benchmark report written only
+  when explicitly requested.
 - `profile_decision_report.json`: optional benchmark decision report written
   only when explicitly requested for a profile run.
 
@@ -145,9 +147,11 @@ enabled, it also references `tool_proposals`, `parent_comparison`, and
 `review_queue`. When source auditing is enabled, it references
 `source_events`; manifests also include `source_policy_hashes` when samples or
 source-gated rejections carry source provenance. When the generated-code sandbox
-fixture is enabled, the manifest references `sandbox_audits`. When profile
-decision reporting is explicitly requested, the manifest references
-`profile_decision_report`.
+fixture is enabled, the manifest references `sandbox_audits`. When held-out
+evaluation is explicitly requested, the manifest references `evaluation_report`.
+When profile decision reporting is explicitly requested, the manifest references
+`profile_decision_report`; if both reports are requested, the profile decision
+report records the evaluation input name and held-out evidence summary.
 
 When a run is configured by a `run_profile_v1` file, `manifest.json` includes an
 optional `run_profile` object. This object is sanitized metadata only:
@@ -267,16 +271,41 @@ suggester and editor metadata do not overwrite those fields.
   Profile slices are populated only from per-record run-profile attribution;
   no-profile records do not create synthetic `unknown` profile slices.
 
+### Evaluation Report Contract
+
+`evaluation_report.json` uses `schema_version: evaluation_report_v1` and is
+generated only when explicitly requested. The first suite is
+`contacts_heldout_v1`, a deterministic contacts benchmark that is separate from
+generated candidates and scale-probe duplicate patterns. It executes fixed
+held-out tasks through the local contacts environment, tool registry, scripted
+policy execution, and verifier contracts.
+
+The report records sanitized dataset/profile identity, artifact input names,
+suite id/version/task count, per-task pass/fail results, capability slices,
+aggregate counts, pass rate, optional parent evaluation comparison, and a
+threshold decision. The MVP thresholds are `mvp_min_heldout_pass_rate` and
+`max_regression_count`. Without a parent report, regression and improvement
+counts are zero and unchanged equals the current task count. With a parent
+report, matching task ids are compared by status, and missing parent task ids
+are listed without failing report generation.
+
+Held-out task records store only task id, capability tags, status, and sanitized
+failure cause. Evaluation reports must not include raw local profile paths, raw
+source payloads, contact emails beyond existing synthetic fixture values,
+prompts, provider payloads, headers, API keys, or arbitrary profile JSON.
+
 ### Profile Decision Report Contract
 
 `profile_decision_report.json` uses `schema_version:
 profile_decision_report_v1` and is generated only when explicitly requested. The
-report reads existing `manifest.json`, `quality_report.json`, and optional
-`parent_comparison.json` artifacts, then records dataset/profile identity,
+report reads existing `manifest.json`, `quality_report.json`, optional
+`parent_comparison.json`, and optional `evaluation_report.json` artifacts, then
+records dataset/profile identity,
 artifact input names, observed candidate counts, success and executable rates,
 exact duplicate counts/rates, infrastructure and source-policy rejection
-counts/rates, optional runtime seconds, profile slice count, the thresholds used,
-and deterministic decisions for `async_orchestration`,
+counts/rates, optional runtime seconds, optional held-out evaluation status,
+profile slice count, the thresholds used, and deterministic decisions for
+`async_orchestration`,
 `semantic_duplicate_detection`, and `mvp_quality_floor`.
 
 Decision statuses are machine-readable. Async orchestration is `activate` only
@@ -285,8 +314,10 @@ when candidate count or runtime meets the configured threshold; otherwise it is
 exact-duplicate-rate thresholds are met; low volume keeps it deferred even when
 the exact duplicate rate is high. The MVP quality floor is `passed` when success
 and executable rates meet minimums and infrastructure/source-policy rejection
-rates stay within caps, `failed` when observed rates miss those thresholds, and
-`insufficient_evidence` when required quality rates are absent or malformed.
+rates stay within caps and any supplied held-out evaluation has passed,
+`failed` when observed rates miss those thresholds or a supplied held-out
+evaluation fails, and `insufficient_evidence` when required quality rates or
+supplied evaluation evidence are absent or malformed.
 The report stores sanitized profile metadata only and must not include raw
 profile files, source paths, payload rows, contact emails, prompts, headers, API
 keys, or arbitrary profile JSON.

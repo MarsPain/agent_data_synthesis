@@ -9,6 +9,8 @@ No active implementation plan.
 
 ## Completed
 
+- [0022-held-out-evaluation-and-profile-benchmarking](../completed/0022-held-out-evaluation-and-profile-benchmarking.md):
+  completed on 2026-05-31.
 - [0021-candidate-isolation-and-deterministic-merge](../completed/0021-candidate-isolation-and-deterministic-merge.md):
   completed on 2026-05-31.
 - [0020-profile-decision-gates-and-benchmark-reporting](../completed/0020-profile-decision-gates-and-benchmark-reporting.md):

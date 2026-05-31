@@ -18,6 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--quality-report", type=Path, required=True)
     parser.add_argument("--parent-comparison", type=Path, default=None)
+    parser.add_argument("--evaluation-report", type=Path, default=None)
     parser.add_argument("--runtime-seconds", type=float, default=None)
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--async-candidate-count", type=int, default=100)
@@ -47,6 +48,7 @@ def main() -> int:
         manifest_path=args.manifest,
         quality_report_path=args.quality_report,
         parent_comparison_path=args.parent_comparison,
+        evaluation_report_path=args.evaluation_report,
         runtime_seconds=args.runtime_seconds,
         output_path=args.output,
         thresholds=thresholds,

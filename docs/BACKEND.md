@@ -45,9 +45,12 @@ The first backend should be a local Python pipeline with explicit modules and du
   future roles from making provider calls before an explicit enabling plan.
 - `synthesis.quality`: quality reports, metric slices, duplicate signatures,
   logical consistency checks, human-review records, and parent-version comparison.
+- `synthesis.evaluation`: deterministic held-out benchmark suites and
+  sanitized evaluation-report construction over existing environment, tool,
+  execution, and verifier boundaries.
 - `synthesis.profile_decisions`: opt-in profile benchmark decision reports built
-  from manifest, quality report, optional parent comparison, runtime, and
-  deterministic thresholds.
+  from manifest, quality report, optional parent comparison, optional held-out
+  evaluation evidence, runtime, and deterministic thresholds.
 - `synthesis.candidate_processing`: single-candidate validation, policy
   execution, verification, logical gates, optional tool-expansion reruns,
   optional refinement reruns, provisional candidate outcomes, and deterministic
@@ -151,9 +154,14 @@ trajectories, exports, or logs.
    task-expansion lineage, quality reports, lineage, sanitized run-profile
    manifest metadata, and narrow per-record run-profile attribution when a
    profile is supplied.
-19. When `--write-profile-decision-report` is explicitly supplied, read the
+19. When `--write-evaluation-report` is explicitly supplied, run the
+   deterministic contacts held-out suite, write `evaluation_report.json`, and
+   rewrite only the manifest artifact map to reference that report.
+20. When `--write-profile-decision-report` is explicitly supplied, read the
    exported manifest and quality report, write `profile_decision_report.json`,
-   and rewrite only the manifest artifact map to reference that report.
+   include held-out evaluation evidence when an evaluation report was also
+   requested, and rewrite only the manifest artifact map to reference that
+   report.
 
 The run-profile boundary is declarative and synchronous. `--run-profile` supports
 the existing foundation fixture, remote LLM-backed generation when `--use-llm` is
@@ -217,6 +225,14 @@ provisional outcomes by stable sequence index, admits the first duplicate
 signature, converts later duplicates into `quality_duplicate` rejections, and
 preserves review and tool-proposal ordering. Artifact writing remains centralized
 in `synthesis.datasets`.
+
+Plan 0022 added an opt-in held-out evaluation report before async
+orchestration. `evaluation_report.json` runs deterministic contacts benchmark
+tasks over the existing local execution/verifier boundaries, records
+capability-level slices and optional parent evaluation comparisons, and feeds
+held-out pass/regression evidence into profile decision reports when both
+reports are requested. It does not change candidate generation, acceptance,
+source governance, sandbox admission, or default synchronous output.
 
 Remaining async work is still deferred to plan 0014: durable queues, workers,
 cancellation, resumption, external process isolation, and per-role async cost

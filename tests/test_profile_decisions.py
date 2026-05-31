@@ -124,6 +124,55 @@ class ProfileDecisionReportTest(unittest.TestCase):
             "insufficient_evidence",
         )
 
+    def test_evaluation_passed_report_keeps_mvp_quality_floor_passed(self) -> None:
+        from synthesis.profile_decisions import build_profile_decision_report
+
+        report = build_profile_decision_report(
+            **_report_inputs(total=10, accepted=5, rejected=5),
+            evaluation_report=_evaluation_report(status="passed"),
+            evaluation_report_path=Path("evaluation_report.json"),
+        )
+
+        self.assertEqual(report["evaluation"]["decision_status"], "passed")
+        self.assertEqual(report["evaluation"]["heldout_pass_rate"], 0.8)
+        self.assertEqual(report["evaluation"]["regression_count"], 0)
+        self.assertEqual(report["decisions"]["mvp_quality_floor"]["status"], "passed")
+        self.assertEqual(report["inputs"]["evaluation_report_path"], "evaluation_report.json")
+
+    def test_evaluation_failed_report_fails_mvp_quality_floor(self) -> None:
+        from synthesis.profile_decisions import build_profile_decision_report
+
+        report = build_profile_decision_report(
+            **_report_inputs(total=10, accepted=5, rejected=5),
+            evaluation_report=_evaluation_report(status="failed", pass_rate=0.6),
+            evaluation_report_path=Path("evaluation_report.json"),
+        )
+
+        self.assertEqual(report["evaluation"]["decision_status"], "failed")
+        self.assertEqual(report["decisions"]["mvp_quality_floor"]["status"], "failed")
+        self.assertIn(
+            "held-out evaluation decision failed",
+            report["decisions"]["mvp_quality_floor"]["reasons"],
+        )
+
+    def test_malformed_evaluation_report_produces_insufficient_evidence(self) -> None:
+        from synthesis.profile_decisions import build_profile_decision_report
+
+        evaluation_report = _evaluation_report(status="passed")
+        evaluation_report["rates"].pop("pass_rate")
+
+        report = build_profile_decision_report(
+            **_report_inputs(total=10, accepted=5, rejected=5),
+            evaluation_report=evaluation_report,
+            evaluation_report_path=Path("evaluation_report.json"),
+        )
+
+        self.assertEqual(report["evaluation"]["decision_status"], "insufficient_evidence")
+        self.assertEqual(
+            report["decisions"]["mvp_quality_floor"]["status"],
+            "insufficient_evidence",
+        )
+
     def test_cli_writes_sanitized_profile_decision_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
@@ -173,6 +222,44 @@ class ProfileDecisionReportTest(unittest.TestCase):
             self.assertNotIn("Authorization", exported)
             report = json.loads(exported)
             self.assertEqual(report["observed"]["runtime_seconds"], 12.5)
+
+    def test_cli_accepts_optional_evaluation_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            inputs = _report_inputs(total=10, accepted=5, rejected=5)
+            manifest_path = tmp_path / "manifest.json"
+            quality_report_path = tmp_path / "quality_report.json"
+            evaluation_report_path = tmp_path / "evaluation_report.json"
+            output_path = tmp_path / "decision.json"
+            manifest_path.write_text(json.dumps(inputs["manifest"]), encoding="utf-8")
+            quality_report_path.write_text(json.dumps(inputs["quality_report"]), encoding="utf-8")
+            evaluation_report_path.write_text(
+                json.dumps(_evaluation_report(status="passed")),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/profile_decision_report.py",
+                    "--manifest",
+                    str(manifest_path),
+                    "--quality-report",
+                    str(quality_report_path),
+                    "--evaluation-report",
+                    str(evaluation_report_path),
+                    "--output",
+                    str(output_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            report = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["inputs"]["evaluation_report_path"], "evaluation_report.json")
+            self.assertEqual(report["evaluation"]["decision_status"], "passed")
 
 
 def _scale_probe_artifacts() -> tuple[dict[str, object], dict[str, object]]:
@@ -261,6 +348,59 @@ def _report_inputs(
         },
         "manifest_path": Path("manifest.json"),
         "quality_report_path": Path("quality_report.json"),
+    }
+
+
+def _evaluation_report(
+    *,
+    status: str,
+    pass_rate: float = 0.8,
+    regressed: int = 0,
+) -> dict[str, object]:
+    passed = int(pass_rate * 5)
+    failed = 5 - passed
+    return {
+        "schema_version": "evaluation_report_v1",
+        "dataset_version": "dataset_test",
+        "suite": {
+            "suite_id": "contacts_heldout_v1",
+            "suite_version": "contacts_heldout_v1",
+            "task_count": 5,
+        },
+        "profile": None,
+        "inputs": {
+            "manifest_path": "manifest.json",
+            "quality_report_path": "quality_report.json",
+            "parent_evaluation_report_path": None,
+        },
+        "counts": {
+            "total": 5,
+            "passed": passed,
+            "failed": failed,
+            "regressed": regressed,
+            "improved": 0,
+            "unchanged": 5 - regressed,
+        },
+        "rates": {"pass_rate": pass_rate},
+        "capability_slices": {
+            "contact_lookup": {
+                "total": 5,
+                "passed": passed,
+                "failed": failed,
+                "pass_rate": pass_rate,
+            }
+        },
+        "task_results": [
+            {
+                "task_id": f"heldout_task_{index}",
+                "capability_tags": ["contact_lookup"],
+                "status": "passed" if index <= passed else "failed",
+                "failure_cause": None if index <= passed else "verification_failed",
+            }
+            for index in range(1, 6)
+        ],
+        "thresholds": {"mvp_min_heldout_pass_rate": 0.8, "max_regression_count": 0},
+        "decision": {"status": status, "reasons": ["evaluation"], "triggered_by": []},
     }
 
 

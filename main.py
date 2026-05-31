@@ -5,7 +5,11 @@ import sys
 import time
 from pathlib import Path
 
-from synthesis.datasets import attach_profile_decision_report_to_manifest
+from synthesis.datasets import (
+    attach_evaluation_report_to_manifest,
+    attach_profile_decision_report_to_manifest,
+)
+from synthesis.evaluation import write_evaluation_report
 from synthesis.llm import LLMConfigurationError, LLMProviderError
 from synthesis.pipeline import (
     build_llm_candidate_generator,
@@ -135,6 +139,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Write profile_decision_report.json and reference it from the manifest.",
     )
+    parser.add_argument(
+        "--write-evaluation-report",
+        action="store_true",
+        help="Write evaluation_report.json and reference it from the manifest.",
+    )
     args = parser.parse_args()
     args.loaded_run_profile = _load_profile_or_error(parser, args.run_profile)
     if args.loaded_run_profile is None:
@@ -246,6 +255,17 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
+    evaluation_report_path = None
+    if args.write_evaluation_report:
+        evaluation_report_path = write_evaluation_report(
+            manifest_path=result.manifest_path,
+            quality_report_path=result.quality_report_path,
+        )
+        attach_evaluation_report_to_manifest(
+            manifest_path=result.manifest_path,
+            report_path=evaluation_report_path,
+        )
+
     profile_decision_report_path = None
     if args.write_profile_decision_report:
         assert start_time is not None
@@ -253,6 +273,7 @@ def main() -> int:
             manifest_path=result.manifest_path,
             quality_report_path=result.quality_report_path,
             parent_comparison_path=result.parent_comparison_path,
+            evaluation_report_path=evaluation_report_path,
             runtime_seconds=time.perf_counter() - start_time,
         )
         attach_profile_decision_report_to_manifest(
@@ -265,6 +286,11 @@ def main() -> int:
         f"accepted={result.accepted_count} "
         f"rejected={result.rejected_count} "
         f"manifest={result.manifest_path}"
+        + (
+            f" evaluation_report={evaluation_report_path}"
+            if evaluation_report_path is not None
+            else ""
+        )
         + (
             f" profile_decision_report={profile_decision_report_path}"
             if profile_decision_report_path is not None

@@ -89,6 +89,20 @@ RUN_PROFILE_FEATURE_KEYS = {
     "enable_sandbox_fixture",
     "enable_source_governance_fixture",
 }
+MANIFEST_ARTIFACT_KEYS = {
+    "samples",
+    "rejections",
+    "quality_report",
+    "parent_comparison",
+    "review_queue",
+    "tool_proposals",
+    "source_events",
+    "sandbox_audits",
+    "profile_decision_report",
+    "evaluation_report",
+}
+EVALUATION_TASK_STATUSES = {"passed", "failed"}
+EVALUATION_DECISION_STATUSES = {"passed", "failed", "insufficient_evidence"}
 
 
 def validate_candidate_task(task: object) -> CandidateTask:
@@ -152,7 +166,7 @@ def validate_manifest_record(record: Mapping[str, Any]) -> None:
         _require_non_empty_string(parent, "parent_dataset_version")
     _require_int(record.get("accepted_count"), "accepted_count")
     _require_int(record.get("rejected_count"), "rejected_count")
-    _require_mapping(record.get("artifacts"), "artifacts")
+    _validate_manifest_artifacts(record.get("artifacts"))
     quality = _require_mapping(record.get("quality"), "quality")
     _require_number(quality.get("success_rate"), "quality.success_rate")
     _require_number(quality.get("executable_rate"), "quality.executable_rate")
@@ -189,6 +203,10 @@ def validate_profile_decision_report_record(record: Mapping[str, Any]) -> None:
     if parent_path is not None:
         artifact_name = _require_non_empty_string(parent_path, "inputs.parent_comparison_path")
         _validate_artifact_filename(artifact_name, "inputs.parent_comparison_path")
+    evaluation_path = inputs.get("evaluation_report_path")
+    if evaluation_path is not None:
+        artifact_name = _require_non_empty_string(evaluation_path, "inputs.evaluation_report_path")
+        _validate_artifact_filename(artifact_name, "inputs.evaluation_report_path")
 
     observed = _require_mapping(record.get("observed"), "observed")
     for field in (
@@ -235,6 +253,99 @@ def validate_profile_decision_report_record(record: Mapping[str, Any]) -> None:
         "mvp_quality_floor",
     ):
         _validate_profile_decision(decisions.get(decision_name), f"decisions.{decision_name}")
+    if "evaluation" in record:
+        _validate_profile_decision_evaluation(record.get("evaluation"))
+
+
+def validate_evaluation_report_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "evaluation_report")
+    if _contains_raw_secret(record):
+        raise ContractValidationError("evaluation_report contains raw secret material")
+    schema_version = _require_non_empty_string(record.get("schema_version"), "schema_version")
+    if schema_version != "evaluation_report_v1":
+        raise ContractValidationError("schema_version is unsupported")
+    _require_non_empty_string(record.get("dataset_version"), "dataset_version")
+
+    suite = _require_mapping(record.get("suite"), "suite")
+    _require_non_empty_string(suite.get("suite_id"), "suite.suite_id")
+    _require_non_empty_string(suite.get("suite_version"), "suite.suite_version")
+    suite_task_count = _require_int(suite.get("task_count"), "suite.task_count")
+
+    profile = record.get("profile")
+    if profile is not None:
+        _validate_profile_decision_profile(profile)
+
+    inputs = _require_mapping(record.get("inputs"), "inputs")
+    for field in ("manifest_path", "quality_report_path"):
+        artifact_name = _require_non_empty_string(inputs.get(field), f"inputs.{field}")
+        _validate_artifact_filename(artifact_name, f"inputs.{field}")
+    parent_path = inputs.get("parent_evaluation_report_path")
+    if parent_path is not None:
+        artifact_name = _require_non_empty_string(
+            parent_path,
+            "inputs.parent_evaluation_report_path",
+        )
+        _validate_artifact_filename(artifact_name, "inputs.parent_evaluation_report_path")
+
+    counts = _require_mapping(record.get("counts"), "counts")
+    total = _require_int(counts.get("total"), "counts.total")
+    passed = _require_int(counts.get("passed"), "counts.passed")
+    failed = _require_int(counts.get("failed"), "counts.failed")
+    regressed = _require_int(counts.get("regressed"), "counts.regressed")
+    improved = _require_int(counts.get("improved"), "counts.improved")
+    unchanged = _require_int(counts.get("unchanged"), "counts.unchanged")
+    if passed + failed != total:
+        raise ContractValidationError("counts.passed + counts.failed must equal counts.total")
+    if regressed + improved + unchanged > total:
+        raise ContractValidationError("counts comparison totals must not exceed counts.total")
+    if suite_task_count != total:
+        raise ContractValidationError("suite.task_count must equal counts.total")
+
+    rates = _require_mapping(record.get("rates"), "rates")
+    pass_rate = _require_number(rates.get("pass_rate"), "rates.pass_rate")
+    _validate_rate(pass_rate, "rates.pass_rate")
+
+    task_results = _require_sequence(record.get("task_results"), "task_results")
+    if len(task_results) != total:
+        raise ContractValidationError("task_results length must equal counts.total")
+    result_counts = {"passed": 0, "failed": 0}
+    seen_task_ids: set[str] = set()
+    for index, raw_result in enumerate(task_results):
+        result = _require_mapping(raw_result, f"task_results.{index}")
+        task_id = _require_non_empty_string(
+            result.get("task_id"),
+            f"task_results.{index}.task_id",
+        )
+        if task_id in seen_task_ids:
+            raise ContractValidationError(f"task_results.{index}.task_id is duplicated")
+        seen_task_ids.add(task_id)
+        tags = _require_non_empty_string_sequence(
+            result.get("capability_tags"),
+            f"task_results.{index}.capability_tags",
+        )
+        status = _require_non_empty_string(
+            result.get("status"),
+            f"task_results.{index}.status",
+        )
+        if status not in EVALUATION_TASK_STATUSES:
+            raise ContractValidationError(f"task_results.{index}.status is unsupported")
+        result_counts[status] += 1
+        failure_cause = result.get("failure_cause")
+        if status == "passed":
+            if failure_cause is not None:
+                raise ContractValidationError(
+                    f"task_results.{index}.failure_cause must be null when passed"
+                )
+        else:
+            _require_non_empty_string(failure_cause, f"task_results.{index}.failure_cause")
+        for tag_index, tag in enumerate(tags):
+            _require_non_empty_string(tag, f"task_results.{index}.capability_tags.{tag_index}")
+    if result_counts["passed"] != passed or result_counts["failed"] != failed:
+        raise ContractValidationError("counts must match task_results statuses")
+
+    _validate_evaluation_capability_slices(record.get("capability_slices"), total=total)
+    _validate_evaluation_thresholds(record.get("thresholds"))
+    _validate_evaluation_decision(record.get("decision"))
 
 
 def validate_source_record(record: Mapping[str, Any]) -> None:
@@ -1394,6 +1505,88 @@ def _validate_profile_decision_profile(raw: object) -> None:
     _validate_content_hash(profile.get("config_hash"), "profile.config_hash")
 
 
+def _validate_profile_decision_evaluation(raw: object) -> None:
+    evaluation = _require_mapping(raw, "evaluation")
+    status = _require_non_empty_string(
+        evaluation.get("decision_status"),
+        "evaluation.decision_status",
+    )
+    if status not in EVALUATION_DECISION_STATUSES:
+        raise ContractValidationError("evaluation.decision_status is unsupported")
+    pass_rate = evaluation.get("heldout_pass_rate")
+    if pass_rate is not None:
+        _validate_rate(_require_number(pass_rate, "evaluation.heldout_pass_rate"), "evaluation.heldout_pass_rate")
+    regression_count = evaluation.get("regression_count")
+    if regression_count is not None:
+        _require_int(regression_count, "evaluation.regression_count")
+
+
+def _validate_manifest_artifacts(raw: object) -> None:
+    artifacts = _require_mapping(raw, "artifacts")
+    for raw_key, raw_value in artifacts.items():
+        key = _require_non_empty_string(raw_key, "artifacts key")
+        if key not in MANIFEST_ARTIFACT_KEYS:
+            raise ContractValidationError(f"artifacts.{key} is unsupported")
+        value = _require_non_empty_string(raw_value, f"artifacts.{key}")
+        _validate_artifact_filename(value, f"artifacts.{key}")
+
+
+def _validate_evaluation_capability_slices(raw: object, *, total: int) -> None:
+    slices = _require_mapping(raw, "capability_slices")
+    if not slices and total:
+        raise ContractValidationError("capability_slices must not be empty")
+    for raw_tag, raw_slice in slices.items():
+        tag = _require_non_empty_string(raw_tag, "capability_slices key")
+        capability_slice = _require_mapping(raw_slice, f"capability_slices.{tag}")
+        slice_total = _require_int(capability_slice.get("total"), f"capability_slices.{tag}.total")
+        slice_passed = _require_int(
+            capability_slice.get("passed"),
+            f"capability_slices.{tag}.passed",
+        )
+        slice_failed = _require_int(
+            capability_slice.get("failed"),
+            f"capability_slices.{tag}.failed",
+        )
+        if slice_passed + slice_failed != slice_total:
+            raise ContractValidationError(
+                f"capability_slices.{tag}.passed + failed must equal total"
+            )
+        _validate_rate(
+            _require_number(
+                capability_slice.get("pass_rate"),
+                f"capability_slices.{tag}.pass_rate",
+            ),
+            f"capability_slices.{tag}.pass_rate",
+        )
+
+
+def _validate_evaluation_thresholds(raw: object) -> None:
+    thresholds = _require_mapping(raw, "thresholds")
+    _validate_rate(
+        _require_number(
+            thresholds.get("mvp_min_heldout_pass_rate"),
+            "thresholds.mvp_min_heldout_pass_rate",
+        ),
+        "thresholds.mvp_min_heldout_pass_rate",
+    )
+    _require_int(thresholds.get("max_regression_count"), "thresholds.max_regression_count")
+
+
+def _validate_evaluation_decision(raw: object) -> None:
+    decision = _require_mapping(raw, "decision")
+    status = _require_non_empty_string(decision.get("status"), "decision.status")
+    if status not in EVALUATION_DECISION_STATUSES:
+        raise ContractValidationError("decision.status is unsupported")
+    reasons = _require_sequence(decision.get("reasons"), "decision.reasons")
+    if not reasons:
+        raise ContractValidationError("decision.reasons must contain at least one reason")
+    for index, reason in enumerate(reasons):
+        _require_non_empty_string(reason, f"decision.reasons.{index}")
+    triggered_by = _require_sequence(decision.get("triggered_by"), "decision.triggered_by")
+    for index, trigger in enumerate(triggered_by):
+        _require_non_empty_string(trigger, f"decision.triggered_by.{index}")
+
+
 def _validate_artifact_filename(raw: str, path: str) -> None:
     if "/" in raw or "\\" in raw:
         raise ContractValidationError(f"{path} must be a relative artifact name")
@@ -1442,6 +1635,11 @@ def _require_number(raw: object, path: str) -> float:
     if not isinstance(raw, (int, float)) or isinstance(raw, bool):
         raise ContractValidationError(f"{path} must be a number")
     return float(raw)
+
+
+def _validate_rate(raw: float, path: str) -> None:
+    if raw < 0.0 or raw > 1.0:
+        raise ContractValidationError(f"{path} must be between 0.0 and 1.0")
 
 
 def _validate_content_hash(raw: object, path: str) -> None:

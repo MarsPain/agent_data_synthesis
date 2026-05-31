@@ -534,8 +534,39 @@ class FoundationCliTest(unittest.TestCase):
             self.assertEqual(report["rejection_causes"]["quality_duplicate"], 3)
             self.assertEqual(report["rejection_causes"]["solution_logic_error"], 4)
             self.assertNotIn("profile_decision_report", manifest["artifacts"])
+            self.assertNotIn("evaluation_report", manifest["artifacts"])
             self.assertFalse((output_dir / "profile_decision_report.json").exists())
+            self.assertFalse((output_dir / "evaluation_report.json").exists())
             self.assertIn("accepted=14", result.stdout)
+
+    def test_main_can_write_evaluation_report_for_scale_probe_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation-scale-probe"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/foundation-scale-probe-25.json",
+                    "--write-evaluation-report",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            report_path = output_dir / "evaluation_report.json"
+            self.assertTrue(report_path.exists(), result.stdout)
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["schema_version"], "evaluation_report_v1")
+            self.assertEqual(report["decision"]["status"], "passed")
+            self.assertEqual(manifest["artifacts"]["evaluation_report"], "evaluation_report.json")
+            self.assertIn("evaluation_report=", result.stdout)
 
     def test_main_can_write_profile_decision_report_for_scale_probe_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -572,6 +603,68 @@ class FoundationCliTest(unittest.TestCase):
                 "profile_decision_report.json",
             )
             self.assertIn("profile_decision_report=", result.stdout)
+
+    def test_main_can_write_evaluation_and_profile_decision_reports_together(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation-scale-probe"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/foundation-scale-probe-25.json",
+                    "--write-evaluation-report",
+                    "--write-profile-decision-report",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            decision_report = json.loads(
+                (output_dir / "profile_decision_report.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["artifacts"]["evaluation_report"], "evaluation_report.json")
+            self.assertEqual(
+                manifest["artifacts"]["profile_decision_report"],
+                "profile_decision_report.json",
+            )
+            self.assertEqual(
+                decision_report["inputs"]["evaluation_report_path"],
+                "evaluation_report.json",
+            )
+            self.assertEqual(decision_report["evaluation"]["decision_status"], "passed")
+
+    def test_evaluation_report_for_profile_local_source_is_sanitized(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation-profile-local"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/profile-local-contacts.json",
+                    "--write-evaluation-report",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            exported = (output_dir / "evaluation_report.json").read_text(encoding="utf-8")
+            self.assertNotIn("contacts-profile.json", exported)
+            self.assertNotIn(str(Path.cwd()), exported)
+            self.assertNotIn("alice.zhang@example.test", exported)
+            self.assertNotIn("ben.carter@example.test", exported)
 
     def test_use_llm_requires_provider_configuration(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

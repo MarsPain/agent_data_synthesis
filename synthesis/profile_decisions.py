@@ -6,7 +6,11 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from synthesis.contracts import validate_profile_decision_report_record
+from synthesis.contracts import (
+    ContractValidationError,
+    validate_evaluation_report_record,
+    validate_profile_decision_report_record,
+)
 
 
 PROFILE_DECISION_REPORT_SCHEMA_VERSION = "profile_decision_report_v1"
@@ -37,6 +41,8 @@ class ProfileDecisionInputs:
     quality_report_path: Path
     parent_comparison: Mapping[str, Any] | None = None
     parent_comparison_path: Path | None = None
+    evaluation_report: Mapping[str, Any] | None = None
+    evaluation_report_path: Path | None = None
     runtime_seconds: float | None = None
 
 
@@ -48,6 +54,8 @@ def build_profile_decision_report(
     quality_report_path: Path = Path("quality_report.json"),
     parent_comparison: Mapping[str, Any] | None = None,
     parent_comparison_path: Path | None = None,
+    evaluation_report: Mapping[str, Any] | None = None,
+    evaluation_report_path: Path | None = None,
     runtime_seconds: float | None = None,
     thresholds: DecisionThresholds | None = None,
 ) -> dict[str, object]:
@@ -56,6 +64,11 @@ def build_profile_decision_report(
         manifest=manifest,
         quality_report=quality_report,
         runtime_seconds=runtime_seconds,
+    )
+    evaluation = (
+        _evaluation_summary(evaluation_report)
+        if evaluation_report is not None
+        else None
     )
     report: dict[str, object] = {
         "schema_version": PROFILE_DECISION_REPORT_SCHEMA_VERSION,
@@ -76,9 +89,17 @@ def build_profile_decision_report(
                 observed,
                 thresholds,
             ),
-            "mvp_quality_floor": _mvp_quality_decision(observed, thresholds),
+            "mvp_quality_floor": _mvp_quality_decision(
+                observed,
+                thresholds,
+                evaluation=evaluation,
+            ),
         },
     }
+    if evaluation_report_path is not None and evaluation_report is not None:
+        report["inputs"]["evaluation_report_path"] = evaluation_report_path.name
+    if evaluation is not None:
+        report["evaluation"] = evaluation
     validate_profile_decision_report_record(report)
     return report
 
@@ -88,11 +109,17 @@ def load_profile_decision_inputs(
     manifest_path: Path,
     quality_report_path: Path,
     parent_comparison_path: Path | None = None,
+    evaluation_report_path: Path | None = None,
     runtime_seconds: float | None = None,
 ) -> ProfileDecisionInputs:
     parent_comparison = (
         json.loads(parent_comparison_path.read_text(encoding="utf-8"))
         if parent_comparison_path is not None
+        else None
+    )
+    evaluation_report = (
+        json.loads(evaluation_report_path.read_text(encoding="utf-8"))
+        if evaluation_report_path is not None
         else None
     )
     return ProfileDecisionInputs(
@@ -102,6 +129,8 @@ def load_profile_decision_inputs(
         quality_report_path=quality_report_path,
         parent_comparison=parent_comparison,
         parent_comparison_path=parent_comparison_path,
+        evaluation_report=evaluation_report,
+        evaluation_report_path=evaluation_report_path,
         runtime_seconds=runtime_seconds,
     )
 
@@ -111,6 +140,7 @@ def write_profile_decision_report(
     manifest_path: Path,
     quality_report_path: Path,
     parent_comparison_path: Path | None = None,
+    evaluation_report_path: Path | None = None,
     runtime_seconds: float | None = None,
     output_path: Path | None = None,
     thresholds: DecisionThresholds | None = None,
@@ -119,6 +149,7 @@ def write_profile_decision_report(
         manifest_path=manifest_path,
         quality_report_path=quality_report_path,
         parent_comparison_path=parent_comparison_path,
+        evaluation_report_path=evaluation_report_path,
         runtime_seconds=runtime_seconds,
     )
     report = build_profile_decision_report(
@@ -128,6 +159,8 @@ def write_profile_decision_report(
         quality_report_path=inputs.quality_report_path,
         parent_comparison=inputs.parent_comparison,
         parent_comparison_path=inputs.parent_comparison_path,
+        evaluation_report=inputs.evaluation_report,
+        evaluation_report_path=inputs.evaluation_report_path,
         runtime_seconds=inputs.runtime_seconds,
         thresholds=thresholds,
     )
@@ -279,6 +312,8 @@ def _semantic_duplicate_decision(
 def _mvp_quality_decision(
     observed: Mapping[str, object],
     thresholds: DecisionThresholds,
+    *,
+    evaluation: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     required_rates = {
         "success_rate": observed.get("success_rate"),
@@ -351,11 +386,56 @@ def _mvp_quality_decision(
             reasons.append(
                 f"{metric} {observed_value} does not meet {threshold_name} {threshold_value}"
             )
+    if evaluation is not None:
+        decision_status = _string_value(
+            evaluation.get("decision_status"),
+            "evaluation.decision_status",
+        )
+        if decision_status == "insufficient_evidence":
+            return {
+                "status": "insufficient_evidence",
+                "reasons": reasons + ["held-out evaluation evidence is insufficient"],
+                "triggered_by": [],
+            }
+        if decision_status == "failed":
+            failed = True
+            reasons.append("held-out evaluation decision failed")
+        else:
+            triggered_by.append("heldout_evaluation")
+            reasons.append("held-out evaluation decision passed")
     return {
         "status": "failed" if failed else "passed",
         "reasons": reasons,
         "triggered_by": [] if failed else triggered_by,
     }
+
+
+def _evaluation_summary(evaluation_report: Mapping[str, Any]) -> dict[str, object]:
+    try:
+        validate_evaluation_report_record(evaluation_report)
+        rates = _mapping_value(evaluation_report.get("rates"), "evaluation_report.rates")
+        counts = _mapping_value(evaluation_report.get("counts"), "evaluation_report.counts")
+        decision = _mapping_value(evaluation_report.get("decision"), "evaluation_report.decision")
+        return {
+            "decision_status": _string_value(
+                decision.get("status"),
+                "evaluation_report.decision.status",
+            ),
+            "heldout_pass_rate": _number_value(
+                rates.get("pass_rate"),
+                "evaluation_report.rates.pass_rate",
+            ),
+            "regression_count": _int_value(
+                counts.get("regressed"),
+                "evaluation_report.counts.regressed",
+            ),
+        }
+    except (ContractValidationError, ValueError):
+        return {
+            "decision_status": "insufficient_evidence",
+            "heldout_pass_rate": None,
+            "regression_count": None,
+        }
 
 
 def _profile_summary(manifest: Mapping[str, Any]) -> dict[str, object] | None:

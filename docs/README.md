@@ -46,4 +46,5 @@
 - [exec-plans/completed/0019-profile-attributed-quality-and-comparison.md](exec-plans/completed/0019-profile-attributed-quality-and-comparison.md): sanitized per-record run-profile attribution, profile quality slices, and parent-comparison visibility.
 - [exec-plans/completed/0020-profile-decision-gates-and-benchmark-reporting.md](exec-plans/completed/0020-profile-decision-gates-and-benchmark-reporting.md): profile decision gates and benchmark reporting over synchronous profile artifacts.
 - [exec-plans/completed/0021-candidate-isolation-and-deterministic-merge.md](exec-plans/completed/0021-candidate-isolation-and-deterministic-merge.md): candidate isolation and deterministic merge admission over provisional outcomes.
+- [exec-plans/completed/0022-held-out-evaluation-and-profile-benchmarking.md](exec-plans/completed/0022-held-out-evaluation-and-profile-benchmarking.md): held-out evaluation reports and profile benchmarking evidence.
 - [exec-plans/tech-debt/README.md](exec-plans/tech-debt/README.md): technical debt bucket.

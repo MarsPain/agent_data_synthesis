@@ -90,6 +90,10 @@
   orchestration. Implemented in plan 0021 with per-candidate environment,
   registry, and adapter rebuilds, candidate-local tool expansion, and stable
   sequence-ordered duplicate admission over provisional outcomes.
+- Add held-out evaluation and profile benchmarking before async orchestration.
+  Implemented in plan 0022 with opt-in deterministic contacts evaluation
+  reports, capability slices, parent evaluation comparison, and
+  profile-decision evidence without changing default synchronous generation.
 - Add async orchestration with durable queues.
 - Evaluate Ray-style distributed workers if throughput requires it.
 - Add monitoring dashboards and cost controls.
