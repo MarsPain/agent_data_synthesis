@@ -327,6 +327,7 @@ class FoundationPipelineTest(unittest.TestCase):
             manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
             self.assertEqual(manifest["run_profile"]["profile_id"], "foundation_fixture_profile")
             self.assertEqual(manifest["run_profile"]["generation_mode"], "foundation_fixture")
+            self.assertEqual(manifest["run_profile"]["profile_purpose"], "release_candidate")
             self.assertEqual(manifest["run_profile"]["target_candidate_count"], None)
             self.assertEqual(manifest["run_profile"]["enabled_features"], [])
             self.assertRegex(manifest["run_profile"]["config_hash"], r"^sha256:[0-9a-f]{64}$")
@@ -341,6 +342,7 @@ class FoundationPipelineTest(unittest.TestCase):
                     "profile_schema_version": "run_profile_v1",
                     "profile_id": "foundation_fixture_profile",
                     "generation_mode": "foundation_fixture",
+                    "profile_purpose": "release_candidate",
                     "config_hash": manifest["run_profile"]["config_hash"],
                 },
             )

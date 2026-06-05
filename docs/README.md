@@ -33,6 +33,7 @@
 ## Execution Plans
 
 - [exec-plans/active/README.md](exec-plans/active/README.md): active plan bucket.
+- [exec-plans/active/0024-profile-purpose-and-dataset-release-admission.md](exec-plans/active/0024-profile-purpose-and-dataset-release-admission.md): active profile-purpose and dataset release admission plan.
 - [exec-plans/completed/README.md](exec-plans/completed/README.md): completed plan bucket.
 - [exec-plans/deferred/README.md](exec-plans/deferred/README.md): deferred plan bucket.
 - [exec-plans/deferred/0014-async-local-orchestration-with-durable-queues.md](exec-plans/deferred/0014-async-local-orchestration-with-durable-queues.md): deferred async local orchestration with durable queues plan.

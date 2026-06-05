@@ -13,6 +13,7 @@ from synthesis.seeds import DomainSeed
 RUN_PROFILE_SCHEMA_VERSION = "run_profile_v1"
 RUN_PROFILE_SCHEMA_VERSIONS = {"run_profile_v1", "run_profile_v2"}
 GENERATION_MODES = {"foundation_fixture", "deterministic_scale_probe", "llm"}
+PROFILE_PURPOSES = {"diagnostic_probe", "release_candidate", "benchmark"}
 SOURCE_KINDS = {"local_contacts_json"}
 SOURCE_KEYS = {"kind", "source_id", "path", "license_label", "max_bytes"}
 DEFAULT_SOURCE_MAX_BYTES = 65536
@@ -82,6 +83,7 @@ class RunProfile:
     schema_version: str
     profile_id: str
     dataset_version: str
+    profile_purpose: str
     seed: DomainSeed
     generation: RunProfileGeneration
     features: RunProfileFeatures
@@ -97,6 +99,7 @@ class RunProfile:
             "schema_version": self.schema_version,
             "profile_id": self.profile_id,
             "generation_mode": self.generation.mode,
+            "profile_purpose": self.profile_purpose,
             "target_candidate_count": self.generation.target_candidate_count,
             "config_hash": self.config_hash,
             "enabled_features": self.features.enabled_feature_names(),
@@ -110,6 +113,7 @@ class RunProfile:
             schema_version=self.schema_version,
             profile_id=self.profile_id,
             dataset_version=self.dataset_version,
+            profile_purpose=self.profile_purpose,
             seed=self.seed,
             generation=self.generation,
             features=self.features,
@@ -137,12 +141,17 @@ def load_run_profile(path: Path) -> RunProfile:
     dataset_version = _require_string(raw.get("dataset_version"), "dataset_version")
     seed = _load_seed(raw.get("seed"))
     generation = _load_generation(raw.get("generation"))
+    profile_purpose = _load_profile_purpose(
+        raw.get("profile_purpose"),
+        generation_mode=generation.mode,
+    )
     features = _load_features(raw.get("features", {}))
     source = _load_source(raw.get("source"), schema_version=schema_version, profile_path=path)
     canonical = _canonical_profile_mapping(
         schema_version=schema_version,
         profile_id=profile_id,
         dataset_version=dataset_version,
+        profile_purpose=profile_purpose,
         seed=seed,
         generation=generation,
         features=features,
@@ -152,6 +161,7 @@ def load_run_profile(path: Path) -> RunProfile:
         schema_version=schema_version,
         profile_id=profile_id,
         dataset_version=dataset_version,
+        profile_purpose=profile_purpose,
         seed=seed,
         generation=generation,
         features=features,
@@ -217,6 +227,23 @@ def _load_features(raw_features: object) -> RunProfileFeatures:
     return RunProfileFeatures(**values)
 
 
+def _load_profile_purpose(value: object, *, generation_mode: str) -> str:
+    if value is None:
+        return _default_profile_purpose(generation_mode)
+    purpose = _require_string(value, "profile_purpose")
+    if purpose not in PROFILE_PURPOSES:
+        raise RunProfileValidationError(
+            f"profile_purpose must be one of {sorted(PROFILE_PURPOSES)}"
+        )
+    return purpose
+
+
+def _default_profile_purpose(generation_mode: str) -> str:
+    if generation_mode == "deterministic_scale_probe":
+        return "diagnostic_probe"
+    return "release_candidate"
+
+
 def _load_source(
     raw_source: object,
     *,
@@ -275,6 +302,7 @@ def _canonical_profile_mapping(
     schema_version: str,
     profile_id: str,
     dataset_version: str,
+    profile_purpose: str,
     seed: DomainSeed,
     generation: RunProfileGeneration,
     features: RunProfileFeatures,
@@ -284,6 +312,7 @@ def _canonical_profile_mapping(
         "schema_version": schema_version,
         "profile_id": profile_id,
         "dataset_version": dataset_version,
+        "profile_purpose": profile_purpose,
         "seed": {
             "seed_id": seed.seed_id,
             "domain": seed.domain,

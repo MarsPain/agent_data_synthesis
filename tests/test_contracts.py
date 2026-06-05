@@ -125,6 +125,18 @@ class DatasetContractTest(unittest.TestCase):
                 with self.assertRaisesRegex(ContractValidationError, "run_profile"):
                     validate_rejection_record(rejection)
 
+    def test_run_profile_attribution_rejects_unsupported_profile_purpose(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_sample_record
+
+        sample = _valid_sample()
+        sample["lineage"]["run_profile"] = {
+            **_valid_run_profile_attribution(),
+            "profile_purpose": "demo",
+        }
+
+        with self.assertRaisesRegex(ContractValidationError, "profile_purpose"):
+            validate_sample_record(sample)
+
     def test_manifest_contract_requires_version_comparison_fields(self) -> None:
         from synthesis.contracts import ContractValidationError, validate_manifest_record
 
@@ -147,12 +159,30 @@ class DatasetContractTest(unittest.TestCase):
             "schema_version": "run_profile_v1",
             "profile_id": "foundation_scale_probe_25",
             "generation_mode": "deterministic_scale_probe",
+            "profile_purpose": "diagnostic_probe",
             "target_candidate_count": 25,
             "config_hash": "sha256:" + "1" * 64,
             "enabled_features": ["enable_mcp_adapter"],
         }
 
         validate_manifest_record(manifest)
+
+    def test_manifest_contract_rejects_unsupported_profile_purpose(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_manifest_record
+
+        manifest = _valid_manifest()
+        manifest["run_profile"] = {
+            "schema_version": "run_profile_v1",
+            "profile_id": "foundation_scale_probe_25",
+            "generation_mode": "deterministic_scale_probe",
+            "profile_purpose": "demo",
+            "target_candidate_count": 25,
+            "config_hash": "sha256:" + "1" * 64,
+            "enabled_features": [],
+        }
+
+        with self.assertRaisesRegex(ContractValidationError, "profile_purpose"):
+            validate_manifest_record(manifest)
 
     def test_manifest_contract_accepts_v2_profile_source_summary(self) -> None:
         from synthesis.contracts import validate_manifest_record
@@ -444,11 +474,60 @@ class DatasetContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ContractValidationError, "profile_promotion.status"):
             validate_profile_decision_report_record(report)
 
+    def test_dataset_release_report_contract_accepts_release_decision(self) -> None:
+        from synthesis.contracts import validate_dataset_release_report_record
+
+        validate_dataset_release_report_record(_valid_dataset_release_report())
+
+    def test_dataset_release_report_contract_rejects_unsupported_status(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_dataset_release_report_record
+
+        report = _valid_dataset_release_report()
+        report["decisions"]["dataset_release"]["status"] = "maybe"
+
+        with self.assertRaisesRegex(ContractValidationError, "dataset_release.status"):
+            validate_dataset_release_report_record(report)
+
+    def test_dataset_release_report_contract_requires_input_artifact_names(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_dataset_release_report_record
+
+        report = _valid_dataset_release_report()
+        report["inputs"].pop("evaluation_report_path")
+
+        with self.assertRaisesRegex(ContractValidationError, "evaluation_report_path"):
+            validate_dataset_release_report_record(report)
+
+    def test_dataset_release_report_contract_rejects_raw_secret_like_keys(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_dataset_release_report_record
+
+        report = _valid_dataset_release_report()
+        report["profile"]["api_key"] = "secret-test-key"
+
+        with self.assertRaisesRegex(ContractValidationError, "raw secret"):
+            validate_dataset_release_report_record(report)
+
+    def test_dataset_release_report_contract_rejects_passed_diagnostic_profile(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_dataset_release_report_record
+
+        report = _valid_dataset_release_report()
+        report["profile"]["profile_purpose"] = "diagnostic_probe"
+
+        with self.assertRaisesRegex(ContractValidationError, "profile_purpose"):
+            validate_dataset_release_report_record(report)
+
     def test_manifest_contract_accepts_evaluation_report_artifact(self) -> None:
         from synthesis.contracts import validate_manifest_record
 
         manifest = _valid_manifest()
         manifest["artifacts"]["evaluation_report"] = "evaluation_report.json"
+
+        validate_manifest_record(manifest)
+
+    def test_manifest_contract_accepts_dataset_release_report_artifact(self) -> None:
+        from synthesis.contracts import validate_manifest_record
+
+        manifest = _valid_manifest()
+        manifest["artifacts"]["dataset_release_report"] = "dataset_release_report.json"
 
         validate_manifest_record(manifest)
 
@@ -933,6 +1012,51 @@ def _valid_profile_decision_report() -> dict[str, object]:
                     "scale_deferral",
                 ],
             },
+        },
+    }
+
+
+def _valid_dataset_release_report() -> dict[str, object]:
+    return {
+        "schema_version": "dataset_release_report_v1",
+        "dataset_version": "dataset_release",
+        "profile": {
+            "schema_version": "run_profile_v1",
+            "profile_id": "release_profile",
+            "generation_mode": "foundation_fixture",
+            "profile_purpose": "release_candidate",
+            "config_hash": "sha256:" + "a" * 64,
+        },
+        "inputs": {
+            "manifest_path": "manifest.json",
+            "quality_report_path": "quality_report.json",
+            "evaluation_report_path": "evaluation_report.json",
+            "profile_decision_report_path": "profile_decision_report.json",
+        },
+        "observed": {
+            "accepted": 3,
+            "rejected": 0,
+            "success_rate": 1.0,
+            "executable_rate": 1.0,
+            "source_policy_rejection_rate": 0.0,
+            "heldout_status": "passed",
+            "profile_promotion_status": "passed",
+            "async_orchestration_status": "defer",
+            "semantic_duplicate_detection_status": "defer",
+        },
+        "decisions": {
+            "dataset_release": {
+                "status": "passed",
+                "reasons": ["release admission passed"],
+                "triggered_by": ["profile_promotion", "heldout_evaluation"],
+            }
+        },
+        "release_artifacts": {
+            "samples": "samples.jsonl",
+            "rejections": "rejections.jsonl",
+            "quality_report": "quality_report.json",
+            "evaluation_report": "evaluation_report.json",
+            "profile_decision_report": "profile_decision_report.json",
         },
     }
 

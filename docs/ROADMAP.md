@@ -98,6 +98,10 @@
   async orchestration. Implemented in plan 0023 with controlled-failure
   benchmark semantics, per-capability thresholds, semantic duplicate watch
   rationale, and profile promotion separated from the MVP quality floor.
+- Add profile-purpose classification and dataset release admission before async
+  orchestration. Active in plan 0024 with explicit profile-purpose metadata and
+  opt-in dataset release admission so diagnostic profiles remain distinct from
+  releaseable dataset versions while preserving the synchronous artifact path.
 - Add async orchestration with durable queues.
 - Evaluate Ray-style distributed workers if throughput requires it.
 - Add monitoring dashboards and cost controls.

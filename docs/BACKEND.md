@@ -51,6 +51,9 @@ The first backend should be a local Python pipeline with explicit modules and du
 - `synthesis.profile_decisions`: opt-in profile benchmark decision reports built
   from manifest, quality report, optional parent comparison, optional held-out
   evaluation evidence, runtime, and deterministic thresholds.
+- `synthesis.dataset_release`: opt-in dataset release admission reports built
+  from manifest, quality, evaluation, and profile-decision artifacts. It
+  separates concrete artifact-set release eligibility from profile promotion.
 - `synthesis.candidate_processing`: single-candidate validation, policy
   execution, verification, logical gates, optional tool-expansion reruns,
   optional refinement reruns, provisional candidate outcomes, and deterministic
@@ -165,6 +168,12 @@ trajectories, exports, or logs.
    requested, separate the MVP quality-floor decision from the higher-level
    profile-promotion decision, and rewrite only the manifest artifact map to
    reference that report.
+21. When `--write-dataset-release-report` is explicitly supplied, require both
+   evaluation and profile-decision reports, read those existing artifacts, write
+   `dataset_release_report.json`, and rewrite only the manifest artifact map to
+   reference that report. Release admission distinguishes diagnostic probes from
+   release candidates and does not change candidate processing, evaluation, or
+   profile promotion.
 
 The run-profile boundary is declarative and synchronous. `--run-profile` supports
 the existing foundation fixture, remote LLM-backed generation when `--use-llm` is
@@ -244,6 +253,14 @@ quality floor separate from `profile_promotion`, which can pass, fail, block on
 activated scale work, or report insufficient evidence. Low-volume exact
 duplicate pressure is recorded as a watch rationale while semantic duplicate
 detection remains deferred below the volume threshold.
+
+Plan 0024 adds profile-purpose classification and an opt-in dataset release
+admission report. `diagnostic_probe` profiles can validate framework behavior
+and pass profile promotion without being treated as releaseable dataset
+versions. `dataset_release` can pass only for `release_candidate` profiles with
+passed profile promotion, passed held-out evaluation, deferred async and
+semantic-duplicate decisions, zero source-policy rejection rate, and complete
+release artifact references.
 
 Remaining async work is still deferred to plan 0014: durable queues, workers,
 cancellation, resumption, external process isolation, and per-role async cost

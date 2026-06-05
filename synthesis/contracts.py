@@ -81,6 +81,7 @@ SANDBOX_EXECUTION_STATUSES = {"succeeded", "failed"}
 SANDBOX_EXIT_CLASSES = {"zero", "nonzero", "timeout", "wrapper_error", "non_json"}
 ARTIFACT_ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 RUN_PROFILE_GENERATION_MODES = {"foundation_fixture", "deterministic_scale_probe", "llm"}
+RUN_PROFILE_PURPOSES = {"diagnostic_probe", "release_candidate", "benchmark"}
 RUN_PROFILE_FEATURE_KEYS = {
     "enable_branching",
     "enable_task_expansion",
@@ -100,11 +101,19 @@ MANIFEST_ARTIFACT_KEYS = {
     "sandbox_audits",
     "profile_decision_report",
     "evaluation_report",
+    "dataset_release_report",
 }
 EVALUATION_TASK_STATUSES = {"passed", "failed"}
 EVALUATION_DECISION_STATUSES = {"passed", "failed", "insufficient_evidence"}
 EVALUATION_EXPECTED_OUTCOMES = {"passed", "controlled_failure"}
 PROFILE_PROMOTION_STATUSES = {"passed", "failed", "blocked", "insufficient_evidence"}
+DATASET_RELEASE_STATUSES = {
+    "passed",
+    "failed",
+    "blocked",
+    "ineligible",
+    "insufficient_evidence",
+}
 
 
 def validate_candidate_task(task: object) -> CandidateTask:
@@ -262,6 +271,96 @@ def validate_profile_decision_report_record(record: Mapping[str, Any]) -> None:
     )
     if "evaluation" in record:
         _validate_profile_decision_evaluation(record.get("evaluation"))
+
+
+def validate_dataset_release_report_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "dataset_release_report")
+    if _contains_raw_secret(record):
+        raise ContractValidationError("dataset_release_report contains raw secret material")
+    schema_version = _require_non_empty_string(record.get("schema_version"), "schema_version")
+    if schema_version != "dataset_release_report_v1":
+        raise ContractValidationError("schema_version is unsupported")
+    _require_non_empty_string(record.get("dataset_version"), "dataset_version")
+
+    profile = _require_mapping(record.get("profile"), "profile")
+    _validate_profile_decision_profile(profile)
+    profile_purpose = _require_non_empty_string(
+        profile.get("profile_purpose"),
+        "profile.profile_purpose",
+    )
+    if profile_purpose not in RUN_PROFILE_PURPOSES:
+        raise ContractValidationError("profile.profile_purpose is unsupported")
+
+    inputs = _require_mapping(record.get("inputs"), "inputs")
+    required_inputs = (
+        "manifest_path",
+        "quality_report_path",
+        "evaluation_report_path",
+        "profile_decision_report_path",
+    )
+    for field in required_inputs:
+        artifact_name = _require_non_empty_string(inputs.get(field), f"inputs.{field}")
+        _validate_artifact_filename(artifact_name, f"inputs.{field}")
+
+    observed = _require_mapping(record.get("observed"), "observed")
+    for field in ("accepted", "rejected"):
+        _require_int(observed.get(field), f"observed.{field}")
+    for field in (
+        "success_rate",
+        "executable_rate",
+        "source_policy_rejection_rate",
+    ):
+        _validate_rate(_require_number(observed.get(field), f"observed.{field}"), f"observed.{field}")
+    for field in (
+        "heldout_status",
+        "profile_promotion_status",
+        "async_orchestration_status",
+        "semantic_duplicate_detection_status",
+    ):
+        _require_non_empty_string(observed.get(field), f"observed.{field}")
+
+    decisions = _require_mapping(record.get("decisions"), "decisions")
+    release_decision = _require_mapping(
+        decisions.get("dataset_release"),
+        "decisions.dataset_release",
+    )
+    _validate_profile_decision(
+        release_decision,
+        "decisions.dataset_release",
+        allowed_statuses=DATASET_RELEASE_STATUSES,
+    )
+    if (
+        profile_purpose != "release_candidate"
+        and release_decision.get("status") == "passed"
+    ):
+        raise ContractValidationError(
+            "profile.profile_purpose must be release_candidate when dataset_release passes"
+        )
+
+    release_artifacts = _require_mapping(record.get("release_artifacts"), "release_artifacts")
+    required_release_artifacts = {
+        "samples",
+        "rejections",
+        "quality_report",
+        "evaluation_report",
+        "profile_decision_report",
+    }
+    missing = sorted(required_release_artifacts.difference(release_artifacts))
+    if missing and release_decision.get("status") != "insufficient_evidence":
+        raise ContractValidationError(
+            f"release_artifacts missing required keys: {', '.join(missing)}"
+        )
+    unexpected = sorted(str(key) for key in release_artifacts if key not in required_release_artifacts)
+    if unexpected:
+        raise ContractValidationError(
+            f"release_artifacts contains unsupported keys: {', '.join(unexpected)}"
+        )
+    for field in sorted(key for key in required_release_artifacts if key in release_artifacts):
+        artifact_name = _require_non_empty_string(
+            release_artifacts.get(field),
+            f"release_artifacts.{field}",
+        )
+        _validate_artifact_filename(artifact_name, f"release_artifacts.{field}")
 
 
 def validate_evaluation_report_record(record: Mapping[str, Any]) -> None:
@@ -1334,6 +1433,7 @@ def _validate_run_profile_metadata(raw: object) -> None:
         "schema_version",
         "profile_id",
         "generation_mode",
+        "profile_purpose",
         "target_candidate_count",
         "config_hash",
         "enabled_features",
@@ -1357,6 +1457,11 @@ def _validate_run_profile_metadata(raw: object) -> None:
     )
     if mode not in RUN_PROFILE_GENERATION_MODES:
         raise ContractValidationError("run_profile.generation_mode is unsupported")
+    if "profile_purpose" in profile:
+        _validate_run_profile_purpose(
+            profile.get("profile_purpose"),
+            "run_profile.profile_purpose",
+        )
     target_count = profile.get("target_candidate_count")
     if target_count is not None:
         _require_positive_int(target_count, "run_profile.target_candidate_count")
@@ -1420,6 +1525,7 @@ def _validate_run_profile_attribution(raw: object, path: str) -> None:
         "profile_schema_version",
         "profile_id",
         "generation_mode",
+        "profile_purpose",
         "config_hash",
         "source",
     }
@@ -1447,6 +1553,11 @@ def _validate_run_profile_attribution(raw: object, path: str) -> None:
     )
     if mode not in RUN_PROFILE_GENERATION_MODES:
         raise ContractValidationError(f"{path}.generation_mode is unsupported")
+    if "profile_purpose" in attribution:
+        _validate_run_profile_purpose(
+            attribution.get("profile_purpose"),
+            f"{path}.profile_purpose",
+        )
     _validate_content_hash(attribution.get("config_hash"), f"{path}.config_hash")
     if "source" in attribution:
         _validate_run_profile_source_attribution(
@@ -1486,6 +1597,12 @@ def _validate_run_profile_source_attribution(raw: object, path: str) -> None:
     )
 
 
+def _validate_run_profile_purpose(raw: object, path: str) -> None:
+    purpose = _require_non_empty_string(raw, path)
+    if purpose not in RUN_PROFILE_PURPOSES:
+        raise ContractValidationError(f"{path} is unsupported")
+
+
 def _validate_profile_decision(
     raw: object,
     path: str,
@@ -1519,6 +1636,7 @@ def _validate_profile_decision_profile(raw: object) -> None:
         "schema_version",
         "profile_id",
         "generation_mode",
+        "profile_purpose",
         "target_candidate_count",
         "config_hash",
     }
@@ -1534,6 +1652,11 @@ def _validate_profile_decision_profile(raw: object) -> None:
     mode = _require_non_empty_string(profile.get("generation_mode"), "profile.generation_mode")
     if mode not in RUN_PROFILE_GENERATION_MODES:
         raise ContractValidationError("profile.generation_mode is unsupported")
+    if "profile_purpose" in profile:
+        _validate_run_profile_purpose(
+            profile.get("profile_purpose"),
+            "profile.profile_purpose",
+        )
     target_count = profile.get("target_candidate_count")
     if target_count is not None:
         _require_positive_int(target_count, "profile.target_candidate_count")

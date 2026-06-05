@@ -51,14 +51,10 @@ def attach_profile_decision_report_to_manifest(
     manifest_path: Path,
     report_path: Path,
 ) -> None:
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    artifacts = dict(manifest.get("artifacts", {}))
-    artifacts["profile_decision_report"] = report_path.name
-    manifest["artifacts"] = artifacts
-    validate_manifest_record(manifest)
-    manifest_path.write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+    _attach_artifact_to_manifest(
+        manifest_path=manifest_path,
+        artifact_key="profile_decision_report",
+        artifact_path=report_path,
     )
 
 
@@ -67,9 +63,34 @@ def attach_evaluation_report_to_manifest(
     manifest_path: Path,
     report_path: Path,
 ) -> None:
+    _attach_artifact_to_manifest(
+        manifest_path=manifest_path,
+        artifact_key="evaluation_report",
+        artifact_path=report_path,
+    )
+
+
+def attach_dataset_release_report_to_manifest(
+    *,
+    manifest_path: Path,
+    report_path: Path,
+) -> None:
+    _attach_artifact_to_manifest(
+        manifest_path=manifest_path,
+        artifact_key="dataset_release_report",
+        artifact_path=report_path,
+    )
+
+
+def _attach_artifact_to_manifest(
+    *,
+    manifest_path: Path,
+    artifact_key: str,
+    artifact_path: Path,
+) -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     artifacts = dict(manifest.get("artifacts", {}))
-    artifacts["evaluation_report"] = report_path.name
+    artifacts[artifact_key] = artifact_path.name
     manifest["artifacts"] = artifacts
     validate_manifest_record(manifest)
     manifest_path.write_text(
@@ -562,6 +583,8 @@ def _run_profile_attribution(
         "generation_mode": run_profile_metadata.get("generation_mode"),
         "config_hash": run_profile_metadata.get("config_hash"),
     }
+    if "profile_purpose" in run_profile_metadata:
+        attribution["profile_purpose"] = run_profile_metadata["profile_purpose"]
     source = run_profile_metadata.get("source")
     if isinstance(source, Mapping):
         attribution["source"] = {

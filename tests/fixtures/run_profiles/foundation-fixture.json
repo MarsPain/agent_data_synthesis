@@ -2,6 +2,7 @@
   "schema_version": "run_profile_v1",
   "profile_id": "foundation_fixture_profile",
   "dataset_version": "dataset_foundation_profile_v1",
+  "profile_purpose": "release_candidate",
   "seed": {
     "seed_id": "seed_contacts_v1",
     "domain": "contacts",

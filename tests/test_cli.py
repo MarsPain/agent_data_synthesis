@@ -650,6 +650,65 @@ class FoundationCliTest(unittest.TestCase):
                 "passed",
             )
 
+    def test_main_can_write_dataset_release_report_for_scale_probe_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation-scale-probe"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/foundation-scale-probe-25.json",
+                    "--write-evaluation-report",
+                    "--write-profile-decision-report",
+                    "--write-dataset-release-report",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            report = json.loads(
+                (output_dir / "dataset_release_report.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(report["decisions"]["dataset_release"]["status"], "ineligible")
+            self.assertEqual(report["profile"]["profile_purpose"], "diagnostic_probe")
+
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                manifest["artifacts"]["dataset_release_report"],
+                "dataset_release_report.json",
+            )
+            self.assertIn("dataset_release_report=", result.stdout)
+
+    def test_dataset_release_report_requires_profile_decision_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation-scale-probe"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/foundation-scale-probe-25.json",
+                    "--write-evaluation-report",
+                    "--write-dataset-release-report",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("--write-dataset-release-report", result.stderr)
+            self.assertIn("--write-profile-decision-report", result.stderr)
+
     def test_evaluation_report_for_profile_local_source_is_sanitized(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "foundation-profile-local"

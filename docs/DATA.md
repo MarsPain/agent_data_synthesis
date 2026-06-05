@@ -5,8 +5,10 @@
 - **Seed:** source material, domain description, task taxonomy, or prior accepted sample used to start generation.
 - **Run Profile:** versioned local-run configuration that names a profile id,
   dataset version, seed metadata, generation mode, target candidate count when
-  applicable, supported feature flags, and, for `run_profile_v2`, an optional
-  governed local contacts JSON source declaration.
+  applicable, profile purpose, supported feature flags, and, for
+  `run_profile_v2`, an optional governed local contacts JSON source
+  declaration. Profile purpose is one of `diagnostic_probe`,
+  `release_candidate`, or `benchmark`.
 - **Source Record:** provenance contract for fixture, synthetic, transformed, or
   external/local-file material, including source id, sanitized origin reference,
   content hash, license label, retrieval timestamp when applicable, and
@@ -125,6 +127,9 @@ and a quality report:
   when explicitly requested.
 - `profile_decision_report.json`: optional benchmark decision report written
   only when explicitly requested for a profile run.
+- `dataset_release_report.json`: optional dataset release admission report
+  written only when explicitly requested after evaluation and profile decision
+  reports are available.
 
 ```json
 {
@@ -152,11 +157,18 @@ evaluation is explicitly requested, the manifest references `evaluation_report`.
 When profile decision reporting is explicitly requested, the manifest references
 `profile_decision_report`; if both reports are requested, the profile decision
 report records the evaluation input name and held-out evidence summary.
+When dataset release reporting is explicitly requested, the manifest references
+`dataset_release_report`. This report is absent by default and does not change
+candidate processing, evaluation, or profile-promotion behavior.
 
 When a run is configured by a `run_profile_v1` file, `manifest.json` includes an
 optional `run_profile` object. This object is sanitized metadata only:
-`schema_version`, `profile_id`, `generation_mode`, `target_candidate_count`,
-`config_hash`, and `enabled_features`. It must not copy raw profile files,
+`schema_version`, `profile_id`, `generation_mode`, `profile_purpose`,
+`target_candidate_count`, `config_hash`, and `enabled_features`.
+`deterministic_scale_probe` profiles default to `diagnostic_probe`;
+`foundation_fixture` and `llm` profiles default to `release_candidate` when the
+field is omitted. The purpose participates in the profile config hash because it
+changes release eligibility. The metadata must not copy raw profile files,
 source payloads, authorization headers, provider prompts, API keys, or other
 secret-like fields. Non-profile runs omit `run_profile`.
 
@@ -171,12 +183,12 @@ Profile-configured runs also attach a narrow per-record attribution record under
 `lineage.run_profile` for accepted samples and `details.run_profile` for
 rejected candidates. This record uses `schema_version:
 run_profile_attribution_v1` and contains only `profile_schema_version`,
-`profile_id`, `generation_mode`, `config_hash`, and the optional sanitized
-source summary fields already admitted for manifest metadata. It intentionally
-omits manifest-only fields such as `target_candidate_count` and
-`enabled_features`, plus raw profile paths, source paths, payload rows,
-prompts, headers, API keys, and arbitrary profile JSON keys. Non-profile runs
-omit this per-record attribution entirely.
+`profile_id`, `generation_mode`, optional `profile_purpose`, `config_hash`, and
+the optional sanitized source summary fields already admitted for manifest
+metadata. It intentionally omits manifest-only fields such as
+`target_candidate_count` and `enabled_features`, plus raw profile paths, source
+paths, payload rows, prompts, headers, API keys, and arbitrary profile JSON
+keys. Non-profile runs omit this per-record attribution entirely.
 
 `lineage.source_provenance` records the source bundle id, source policy hash,
 source ids, source kinds, license labels, license outcomes, retention/export
@@ -335,6 +347,36 @@ quality or evaluation evidence is missing or malformed.
 The report stores sanitized profile metadata only and must not include raw
 profile files, source paths, payload rows, contact emails, prompts, headers, API
 keys, or arbitrary profile JSON.
+
+### Dataset Release Report Contract
+
+`dataset_release_report.json` uses `schema_version:
+dataset_release_report_v1` and is generated only when explicitly requested with
+`--write-dataset-release-report`. It reads existing `manifest.json`,
+`quality_report.json`, `evaluation_report.json`, and
+`profile_decision_report.json` artifacts and writes a deterministic release
+admission decision. It does not rerun candidates, change the quality report, or
+promote profiles.
+
+The report records sanitized dataset/profile identity, artifact input names,
+accepted/rejected counts, success and executable rates, source-policy rejection
+rate, held-out status, profile-promotion status, async-orchestration status,
+semantic-duplicate status, release artifact references, and
+`decisions.dataset_release`. Allowed release statuses are `passed`, `failed`,
+`blocked`, `ineligible`, and `insufficient_evidence`.
+
+`dataset_release` is narrower and later than `profile_promotion`.
+`mvp_quality_floor` decides whether the artifact metrics meet the local quality
+floor. `profile_promotion` decides whether a run profile is ready as a local MVP
+configuration using held-out evidence and scale deferrals. `dataset_release`
+decides whether the concrete artifact set can be treated as a releaseable local
+MVP dataset version. Release admission passes only for `profile_purpose:
+release_candidate`, passed profile promotion, passed held-out evaluation,
+deferred async orchestration, deferred semantic duplicate detection, zero
+source-policy rejection rate, and manifest references to `samples`,
+`rejections`, `quality_report`, `evaluation_report`, and
+`profile_decision_report`. Diagnostic probes and benchmark profiles are
+non-releaseable by default.
 
 Capability-gap records use `schema_version: capability_gap_v1` and preserve
 candidate id, policy id, gap type, tool name, rejection cause, message, schema

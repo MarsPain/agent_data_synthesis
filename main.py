@@ -6,9 +6,11 @@ import time
 from pathlib import Path
 
 from synthesis.datasets import (
+    attach_dataset_release_report_to_manifest,
     attach_evaluation_report_to_manifest,
     attach_profile_decision_report_to_manifest,
 )
+from synthesis.dataset_release import write_dataset_release_report
 from synthesis.evaluation import write_evaluation_report
 from synthesis.llm import LLMConfigurationError, LLMProviderError
 from synthesis.pipeline import (
@@ -144,7 +146,19 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Write evaluation_report.json and reference it from the manifest.",
     )
+    parser.add_argument(
+        "--write-dataset-release-report",
+        action="store_true",
+        help="Write dataset_release_report.json and reference it from the manifest.",
+    )
     args = parser.parse_args()
+    if args.write_dataset_release_report:
+        if not args.write_evaluation_report:
+            parser.error("--write-dataset-release-report requires --write-evaluation-report")
+        if not args.write_profile_decision_report:
+            parser.error(
+                "--write-dataset-release-report requires --write-profile-decision-report"
+            )
     args.loaded_run_profile = _load_profile_or_error(parser, args.run_profile)
     if args.loaded_run_profile is None:
         args.dataset_version = args.dataset_version or "dataset_foundation_v1"
@@ -281,6 +295,19 @@ def main() -> int:
             report_path=profile_decision_report_path,
         )
 
+    dataset_release_report_path = None
+    if args.write_dataset_release_report:
+        dataset_release_report_path = write_dataset_release_report(
+            manifest_path=result.manifest_path,
+            quality_report_path=result.quality_report_path,
+            evaluation_report_path=evaluation_report_path,
+            profile_decision_report_path=profile_decision_report_path,
+        )
+        attach_dataset_release_report_to_manifest(
+            manifest_path=result.manifest_path,
+            report_path=dataset_release_report_path,
+        )
+
     print(
         "Foundation pipeline complete: "
         f"accepted={result.accepted_count} "
@@ -294,6 +321,11 @@ def main() -> int:
         + (
             f" profile_decision_report={profile_decision_report_path}"
             if profile_decision_report_path is not None
+            else ""
+        )
+        + (
+            f" dataset_release_report={dataset_release_report_path}"
+            if dataset_release_report_path is not None
             else ""
         )
     )

@@ -5,7 +5,9 @@ is accepted as complete, move it to `../completed/` and update `../../PLANS.md`.
 
 ## Currently Executing
 
-No active implementation plan.
+- [0024-profile-purpose-and-dataset-release-admission](0024-profile-purpose-and-dataset-release-admission.md):
+  active plan for profile-purpose classification and opt-in dataset release
+  admission reporting.
 
 ## Completed
 

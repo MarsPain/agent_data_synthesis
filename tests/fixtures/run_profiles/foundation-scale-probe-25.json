@@ -2,6 +2,7 @@
   "schema_version": "run_profile_v1",
   "profile_id": "foundation_scale_probe_25",
   "dataset_version": "dataset_foundation_scale_probe_25",
+  "profile_purpose": "diagnostic_probe",
   "seed": {
     "seed_id": "seed_contacts_v1",
     "domain": "contacts",

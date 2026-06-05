@@ -534,6 +534,32 @@ class QualityPipelineTest(unittest.TestCase):
             self.assertEqual(report["counts"]["accepted"], 2)
             self.assertEqual(report["counts"]["rejected"], 1)
 
+    def test_run_profile_purpose_is_preserved_in_manifest_and_sample_lineage(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+        from synthesis.run_profiles import load_run_profile
+
+        profile = load_run_profile(Path("tests/fixtures/run_profiles/foundation-fixture.json"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir)
+            result = run_foundation_pipeline(
+                output_dir,
+                dataset_version=profile.dataset_version,
+                seed_override=profile.seed,
+                run_profile_metadata=profile.sanitized_metadata(),
+            )
+
+            manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["run_profile"]["profile_purpose"], "release_candidate")
+
+            sample = json.loads(
+                result.samples_path.read_text(encoding="utf-8").splitlines()[0]
+            )
+            self.assertEqual(
+                sample["lineage"]["run_profile"]["profile_purpose"],
+                "release_candidate",
+            )
+
     def test_rejects_later_duplicate_accepted_candidate(self) -> None:
         from synthesis.pipeline import run_foundation_pipeline
 
@@ -839,6 +865,7 @@ def _run_profile_attribution() -> dict[str, object]:
         "profile_schema_version": "run_profile_v1",
         "profile_id": "foundation_fixture_profile",
         "generation_mode": "foundation_fixture",
+        "profile_purpose": "release_candidate",
         "config_hash": "sha256:" + "1" * 64,
     }
 

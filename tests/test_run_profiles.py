@@ -70,15 +70,96 @@ class RunProfileTest(unittest.TestCase):
                     "schema_version",
                     "profile_id",
                     "generation_mode",
+                    "profile_purpose",
                     "target_candidate_count",
                     "config_hash",
                     "enabled_features",
                 },
             )
             self.assertEqual(metadata["generation_mode"], "deterministic_scale_probe")
+            self.assertEqual(metadata["profile_purpose"], "diagnostic_probe")
             self.assertEqual(metadata["target_candidate_count"], 25)
             self.assertEqual(metadata["enabled_features"], [])
             self.assertRegex(str(metadata["config_hash"]), r"^sha256:[0-9a-f]{64}$")
+
+    def test_load_run_profile_accepts_explicit_profile_purpose(self) -> None:
+        from synthesis.run_profiles import load_run_profile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "profile.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "run_profile_v1",
+                        "profile_id": "release_contacts",
+                        "dataset_version": "dataset_release_contacts",
+                        "profile_purpose": "release_candidate",
+                        "seed": {
+                            "seed_id": "seed_contacts",
+                            "domain": "contacts",
+                            "description": "Contacts release candidate.",
+                            "task_taxonomy": ["single_tool_lookup"],
+                        },
+                        "generation": {"mode": "foundation_fixture"},
+                        "features": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            profile = load_run_profile(path)
+
+            self.assertEqual(profile.profile_purpose, "release_candidate")
+            self.assertEqual(
+                profile.sanitized_metadata()["profile_purpose"],
+                "release_candidate",
+            )
+
+    def test_deterministic_scale_probe_defaults_to_diagnostic_purpose(self) -> None:
+        from synthesis.run_profiles import load_run_profile
+
+        profile = load_run_profile(
+            Path("tests/fixtures/run_profiles/foundation-scale-probe-25.json")
+        )
+
+        self.assertEqual(profile.profile_purpose, "diagnostic_probe")
+        self.assertEqual(
+            profile.sanitized_metadata()["profile_purpose"],
+            "diagnostic_probe",
+        )
+
+    def test_profile_purpose_participates_in_config_hash(self) -> None:
+        from synthesis.run_profiles import load_run_profile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = {
+                "schema_version": "run_profile_v1",
+                "profile_id": "purpose_hash",
+                "dataset_version": "dataset_purpose_hash",
+                "seed": {
+                    "seed_id": "seed_contacts",
+                    "domain": "contacts",
+                    "description": "Contacts release candidate.",
+                    "task_taxonomy": ["single_tool_lookup"],
+                },
+                "generation": {"mode": "foundation_fixture"},
+                "features": {},
+            }
+            release_path = Path(tmpdir) / "release.json"
+            diagnostic_path = Path(tmpdir) / "diagnostic.json"
+            release_path.write_text(
+                json.dumps({**base, "profile_purpose": "release_candidate"}),
+                encoding="utf-8",
+            )
+            diagnostic_path.write_text(
+                json.dumps({**base, "profile_purpose": "diagnostic_probe"}),
+                encoding="utf-8",
+            )
+
+            release_profile = load_run_profile(release_path)
+            diagnostic_profile = load_run_profile(diagnostic_path)
+
+            self.assertNotEqual(release_profile.config_hash, diagnostic_profile.config_hash)
 
     def test_rejects_invalid_schema_version(self) -> None:
         from synthesis.run_profiles import RunProfileValidationError, load_run_profile

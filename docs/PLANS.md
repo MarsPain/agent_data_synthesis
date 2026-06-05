@@ -9,7 +9,10 @@
 
 ## Active
 
-No active implementation plan.
+- [0024-profile-purpose-and-dataset-release-admission](exec-plans/active/0024-profile-purpose-and-dataset-release-admission.md):
+  add profile-purpose classification and an opt-in dataset release admission
+  report so diagnostic profiles cannot be mistaken for releaseable dataset
+  versions.
 
 ## Deferred
 
