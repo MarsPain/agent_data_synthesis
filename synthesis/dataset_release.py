@@ -20,6 +20,37 @@ REQUIRED_RELEASE_ARTIFACTS = (
 
 
 @dataclass(frozen=True)
+class ReleaseCompletenessThresholds:
+    min_accepted_samples: int
+    max_rejection_rate: float
+    required_task_types: tuple[str, ...]
+    required_tool_combinations: tuple[str, ...]
+
+    def export(self) -> dict[str, object]:
+        return {
+            "min_accepted_samples": self.min_accepted_samples,
+            "max_rejection_rate": self.max_rejection_rate,
+            "required_task_types": list(self.required_task_types),
+            "required_tool_combinations": list(self.required_tool_combinations),
+        }
+
+
+RELEASE_COMPLETENESS_THRESHOLDS = ReleaseCompletenessThresholds(
+    min_accepted_samples=5,
+    max_rejection_rate=0.2,
+    required_task_types=(
+        "lookup_contact_email",
+        "contact_followup",
+        "contact_branch_fallback",
+    ),
+    required_tool_combinations=(
+        "lookup_contact_email",
+        "lookup_contact_email+record_contact_followup",
+    ),
+)
+
+
+@dataclass(frozen=True)
 class DatasetReleaseInputs:
     manifest: Mapping[str, Any]
     quality_report: Mapping[str, Any]
@@ -49,6 +80,10 @@ def build_dataset_release_report(
         evaluation_report=evaluation_report,
         profile_decision_report=profile_decision_report,
     )
+    release_completeness = _release_completeness(
+        quality_report=quality_report,
+        observed=observed,
+    )
     report: dict[str, object] = {
         "schema_version": DATASET_RELEASE_REPORT_SCHEMA_VERSION,
         "dataset_version": _string_value(
@@ -71,6 +106,7 @@ def build_dataset_release_report(
             ),
         },
         "observed": observed,
+        "release_completeness": release_completeness,
         "decisions": {
             "dataset_release": _dataset_release_decision(
                 profile=profile,
@@ -79,6 +115,7 @@ def build_dataset_release_report(
                 evaluation_report=evaluation_report,
                 profile_decision_report=profile_decision_report,
                 observed=observed,
+                release_completeness=release_completeness,
             )
         },
         "release_artifacts": _release_artifacts(manifest),
@@ -156,6 +193,7 @@ def _dataset_release_decision(
     evaluation_report: Mapping[str, Any] | None,
     profile_decision_report: Mapping[str, Any] | None,
     observed: Mapping[str, object],
+    release_completeness: Mapping[str, object],
 ) -> dict[str, object]:
     missing = _missing_evidence(
         manifest=manifest,
@@ -218,6 +256,19 @@ def _dataset_release_decision(
             "status": "failed",
             "reasons": [f"{field} did not meet release admission" for field in failed_by],
             "triggered_by": failed_by,
+        }
+
+    completeness_decision = _mapping_or_empty(release_completeness.get("decision"))
+    if completeness_decision.get("status") != "passed":
+        reasons = [
+            str(reason)
+            for reason in completeness_decision.get("reasons", [])
+            if isinstance(reason, str) and reason.strip()
+        ]
+        return {
+            "status": "insufficient_evidence",
+            "reasons": reasons or ["release completeness did not meet admission"],
+            "triggered_by": ["release_completeness"],
         }
 
     return {
@@ -298,6 +349,132 @@ def _observed_summary(
             "semantic_duplicate_detection",
         ),
     }
+
+
+def _release_completeness(
+    *,
+    quality_report: Mapping[str, Any],
+    observed: Mapping[str, object],
+) -> dict[str, object]:
+    thresholds = RELEASE_COMPLETENESS_THRESHOLDS
+    accepted = _optional_int(observed.get("accepted"), 0)
+    rejected = _optional_int(observed.get("rejected"), 0)
+    total = accepted + rejected
+    rejection_rate = rejected / total if total else 0.0
+    slices = _mapping_or_empty(quality_report.get("slices"))
+    task_types = sorted(
+        _accepted_slice_keys(_mapping_or_empty(slices.get("task_type")))
+    )
+    tool_combinations = sorted(
+        _normalize_tool_combination(key)
+        for key in _accepted_slice_keys(_mapping_or_empty(slices.get("tool_combination")))
+    )
+    observed_summary = {
+        "accepted": accepted,
+        "rejected": rejected,
+        "rejection_rate": rejection_rate,
+        "task_types": task_types,
+        "tool_combinations": tool_combinations,
+    }
+    return {
+        "thresholds": thresholds.export(),
+        "observed": observed_summary,
+        "decision": _release_completeness_decision(
+            thresholds=thresholds,
+            accepted=accepted,
+            rejection_rate=rejection_rate,
+            task_types=task_types,
+            tool_combinations=tool_combinations,
+        ),
+    }
+
+
+def _release_completeness_decision(
+    *,
+    thresholds: ReleaseCompletenessThresholds,
+    accepted: int,
+    rejection_rate: float,
+    task_types: list[str],
+    tool_combinations: list[str],
+) -> dict[str, object]:
+    reasons: list[str] = []
+    triggered_by: list[str] = []
+
+    if accepted >= thresholds.min_accepted_samples:
+        reasons.append(
+            f"accepted {accepted} is at or above min_accepted_samples "
+            f"{thresholds.min_accepted_samples}"
+        )
+    else:
+        reasons.append(
+            f"accepted {accepted} is below min_accepted_samples "
+            f"{thresholds.min_accepted_samples}"
+        )
+        triggered_by.append("accepted")
+
+    if rejection_rate <= thresholds.max_rejection_rate:
+        reasons.append(
+            f"rejection_rate {rejection_rate} is at or below max_rejection_rate "
+            f"{thresholds.max_rejection_rate}"
+        )
+    else:
+        reasons.append(
+            f"rejection_rate {rejection_rate} is above max_rejection_rate "
+            f"{thresholds.max_rejection_rate}"
+        )
+        triggered_by.append("rejection_rate")
+
+    missing_task_types = sorted(set(thresholds.required_task_types).difference(task_types))
+    if missing_task_types:
+        reasons.append(f"required task types are missing: {', '.join(missing_task_types)}")
+        triggered_by.append("task_type_coverage")
+    else:
+        reasons.append("required task types are covered")
+
+    missing_tool_combinations = sorted(
+        set(thresholds.required_tool_combinations).difference(tool_combinations)
+    )
+    if missing_tool_combinations:
+        reasons.append(
+            "required tool combinations are missing: "
+            + ", ".join(missing_tool_combinations)
+        )
+        triggered_by.append("tool_combination_coverage")
+    else:
+        reasons.append("required tool combinations are covered")
+
+    if triggered_by:
+        return {
+            "status": "insufficient_evidence",
+            "reasons": reasons,
+            "triggered_by": triggered_by,
+        }
+    return {
+        "status": "passed",
+        "reasons": reasons,
+        "triggered_by": [
+            "accepted",
+            "rejection_rate",
+            "task_type_coverage",
+            "tool_combination_coverage",
+        ],
+    }
+
+
+def _accepted_slice_keys(slices: Mapping[str, Any]) -> list[str]:
+    keys: list[str] = []
+    for raw_key, raw_slice in slices.items():
+        if not isinstance(raw_key, str) or not raw_key.strip():
+            continue
+        slice_record = _mapping_or_empty(raw_slice)
+        if _optional_int(slice_record.get("accepted"), 0) > 0:
+            keys.append(raw_key)
+    return keys
+
+
+def _normalize_tool_combination(raw: str) -> str:
+    parts = [part.strip() for part in raw.replace(">", "+").split("+")]
+    return "+".join(part for part in parts if part)
 
 
 def _profile_summary(manifest: Mapping[str, Any]) -> dict[str, object]:

@@ -99,9 +99,19 @@
   benchmark semantics, per-capability thresholds, semantic duplicate watch
   rationale, and profile promotion separated from the MVP quality floor.
 - Add profile-purpose classification and dataset release admission before async
-  orchestration. Active in plan 0024 with explicit profile-purpose metadata and
+  orchestration. Implemented in plan 0024 with explicit profile-purpose metadata and
   opt-in dataset release admission so diagnostic profiles remain distinct from
   releaseable dataset versions while preserving the synchronous artifact path.
+- Tighten dataset release admission with release completeness gates before async
+  orchestration. Implemented in plan 0026 with minimum accepted-sample,
+  rejection-rate, task-type coverage, and tool-combination coverage gates so
+  small release-candidate smoke runs cannot be mistaken for sufficiently
+  covered local MVP dataset versions.
+- Prepare the environment layer for a future shared AWM runtime without
+  prematurely splitting it into a separate project. Deferred in plan 0025 until
+  reward-model-driven data quality evaluation, Agentic RL, a second domain
+  environment, or external MCP environment servers create a second real consumer
+  for the runtime boundary.
 - Add async orchestration with durable queues.
 - Evaluate Ray-style distributed workers if throughput requires it.
 - Add monitoring dashboards and cost controls.

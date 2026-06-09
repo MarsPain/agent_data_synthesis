@@ -361,7 +361,8 @@ promote profiles.
 The report records sanitized dataset/profile identity, artifact input names,
 accepted/rejected counts, success and executable rates, source-policy rejection
 rate, held-out status, profile-promotion status, async-orchestration status,
-semantic-duplicate status, release artifact references, and
+semantic-duplicate status, release completeness evidence, release artifact
+references, and
 `decisions.dataset_release`. Allowed release statuses are `passed`, `failed`,
 `blocked`, `ineligible`, and `insufficient_evidence`.
 
@@ -375,8 +376,47 @@ release_candidate`, passed profile promotion, passed held-out evaluation,
 deferred async orchestration, deferred semantic duplicate detection, zero
 source-policy rejection rate, and manifest references to `samples`,
 `rejections`, `quality_report`, `evaluation_report`, and
-`profile_decision_report`. Diagnostic probes and benchmark profiles are
-non-releaseable by default.
+`profile_decision_report`. It also requires release completeness evidence to
+pass. Diagnostic probes and benchmark profiles are non-releaseable by default.
+
+Release completeness is a deterministic evidence layer inside
+`dataset_release_report_v1`. It is computed from sanitized manifest counts and
+quality-report slices; it must not read raw samples, raw source payloads, local
+profile paths, prompts, provider payloads, headers, API keys, or arbitrary
+profile JSON. Current release completeness thresholds are:
+
+- `min_accepted_samples`: `5`.
+- `max_rejection_rate`: `0.2`.
+- `required_task_types`: `lookup_contact_email`, `contact_followup`, and
+  `contact_branch_fallback`.
+- `required_tool_combinations`: `lookup_contact_email` and
+  `lookup_contact_email+record_contact_followup`.
+
+The report records:
+
+- `release_completeness.thresholds.min_accepted_samples`: minimum accepted
+  samples required before a release-candidate artifact set has enough local
+  sample evidence.
+- `release_completeness.thresholds.max_rejection_rate`: maximum allowed
+  `rejected / (accepted + rejected)` rate for release admission.
+- `release_completeness.thresholds.required_task_types`: accepted task-type
+  slice keys that must be present in `quality_report.slices.task_type`.
+- `release_completeness.thresholds.required_tool_combinations`: accepted
+  tool-combination slice keys that must be present in
+  `quality_report.slices.tool_combination`. Dataset release reporting
+  normalizes the quality-report separator ` > ` to `+` in its own observed
+  release-completeness field.
+- `release_completeness.observed`: accepted/rejected counts, rejection rate,
+  observed accepted task types, and observed accepted tool combinations.
+- `release_completeness.decision`: machine-readable completeness status,
+  reasons, and trigger keys.
+
+When profile purpose, profile promotion, held-out evaluation, source policy,
+async orchestration, and semantic duplicate gates would otherwise allow release
+but `release_completeness.decision.status` is not `passed`,
+`decisions.dataset_release.status` must be `insufficient_evidence` and include
+`release_completeness` in `triggered_by`. A dataset release can pass only when
+both the earlier release gates and release completeness pass.
 
 Capability-gap records use `schema_version: capability_gap_v1` and preserve
 candidate id, policy id, gap type, tool name, rejection cause, message, schema

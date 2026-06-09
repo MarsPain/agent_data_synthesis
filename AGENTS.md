@@ -39,5 +39,5 @@ uv run python -m unittest
 
 - `main.py` runs the local foundation pipeline and writes runtime outputs to `artifacts/foundation/` by default.
 - The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
-- Current active work is tracked in [docs/PLANS.md](docs/PLANS.md); the active plan is [docs/exec-plans/active/0024-profile-purpose-and-dataset-release-admission.md](docs/exec-plans/active/0024-profile-purpose-and-dataset-release-admission.md).
-- Latest completed work is documented in [docs/exec-plans/completed/0023-evaluation-quality-ratchet-and-profile-promotion.md](docs/exec-plans/completed/0023-evaluation-quality-ratchet-and-profile-promotion.md).
+- Current active work is tracked in [docs/PLANS.md](docs/PLANS.md); there is no active implementation plan.
+- Latest completed work is documented in [docs/exec-plans/completed/0024-profile-purpose-and-dataset-release-admission.md](docs/exec-plans/completed/0024-profile-purpose-and-dataset-release-admission.md).

@@ -4,17 +4,69 @@ import unittest
 
 
 class DatasetReleaseTest(unittest.TestCase):
-    def test_release_candidate_with_passed_evidence_passes_release_admission(self) -> None:
+    def test_release_candidate_with_small_undercovered_evidence_is_insufficient(self) -> None:
         from synthesis.dataset_release import build_dataset_release_report
 
         report = build_dataset_release_report(
-            manifest=_manifest(profile_purpose="release_candidate"),
-            quality_report=_quality_report(),
+            manifest=_manifest(
+                profile_purpose="release_candidate",
+                accepted_count=2,
+                rejected_count=1,
+            ),
+            quality_report=_quality_report(
+                accepted=2,
+                rejected=1,
+                task_types=("lookup_contact_email", "contact_followup"),
+                tool_combinations=(
+                    "lookup_contact_email",
+                    "lookup_contact_email > record_contact_followup",
+                ),
+            ),
+            evaluation_report=_evaluation_report(status="passed"),
+            profile_decision_report=_profile_decision_report(profile_promotion_status="passed"),
+        )
+
+        self.assertEqual(
+            report["decisions"]["dataset_release"]["status"],
+            "insufficient_evidence",
+        )
+        self.assertEqual(
+            report["release_completeness"]["decision"]["status"],
+            "insufficient_evidence",
+        )
+        self.assertIn(
+            "release_completeness",
+            report["decisions"]["dataset_release"]["triggered_by"],
+        )
+
+    def test_release_candidate_with_complete_evidence_passes_release_admission(self) -> None:
+        from synthesis.dataset_release import build_dataset_release_report
+
+        report = build_dataset_release_report(
+            manifest=_manifest(
+                profile_purpose="release_candidate",
+                accepted_count=6,
+                rejected_count=1,
+            ),
+            quality_report=_quality_report(
+                accepted=6,
+                rejected=1,
+                task_types=(
+                    "lookup_contact_email",
+                    "contact_followup",
+                    "contact_branch_fallback",
+                ),
+                tool_combinations=(
+                    "lookup_contact_email",
+                    "lookup_contact_email > record_contact_followup",
+                ),
+            ),
             evaluation_report=_evaluation_report(status="passed"),
             profile_decision_report=_profile_decision_report(profile_promotion_status="passed"),
         )
 
         self.assertEqual(report["decisions"]["dataset_release"]["status"], "passed")
+        self.assertEqual(report["release_completeness"]["decision"]["status"], "passed")
 
     def test_diagnostic_profile_is_ineligible_for_release(self) -> None:
         from synthesis.dataset_release import build_dataset_release_report
@@ -151,8 +203,19 @@ def _quality_report(
     accepted: int = 3,
     rejected: int = 0,
     source_policy_rejections: int = 0,
+    task_types: tuple[str, ...] = (
+        "lookup_contact_email",
+        "contact_followup",
+        "contact_branch_fallback",
+    ),
+    tool_combinations: tuple[str, ...] = (
+        "lookup_contact_email",
+        "lookup_contact_email > record_contact_followup",
+    ),
 ) -> dict[str, object]:
     total = accepted + rejected
+    accepted_per_task_type = accepted // len(task_types) if task_types else 0
+    accepted_per_tool_combination = accepted // len(tool_combinations) if tool_combinations else 0
     return {
         "schema_version": "quality_report_v1",
         "dataset_version": "dataset_release",
@@ -170,6 +233,26 @@ def _quality_report(
             if source_policy_rejections
             else {}
         ),
+        "slices": {
+            "task_type": {
+                task_type: {
+                    "accepted": accepted_per_task_type,
+                    "rejected": 0,
+                    "total": accepted_per_task_type,
+                    "success_rate": 1.0,
+                }
+                for task_type in task_types
+            },
+            "tool_combination": {
+                tool_combination: {
+                    "accepted": accepted_per_tool_combination,
+                    "rejected": 0,
+                    "total": accepted_per_tool_combination,
+                    "success_rate": 1.0,
+                }
+                for tool_combination in tool_combinations
+            },
+        },
     }
 
 

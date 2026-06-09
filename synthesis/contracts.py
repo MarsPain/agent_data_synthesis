@@ -114,6 +114,7 @@ DATASET_RELEASE_STATUSES = {
     "ineligible",
     "insufficient_evidence",
 }
+RELEASE_COMPLETENESS_STATUSES = {"passed", "insufficient_evidence"}
 
 
 def validate_candidate_task(task: object) -> CandidateTask:
@@ -319,6 +320,10 @@ def validate_dataset_release_report_record(record: Mapping[str, Any]) -> None:
     ):
         _require_non_empty_string(observed.get(field), f"observed.{field}")
 
+    release_completeness = _validate_release_completeness(
+        record.get("release_completeness")
+    )
+
     decisions = _require_mapping(record.get("decisions"), "decisions")
     release_decision = _require_mapping(
         decisions.get("dataset_release"),
@@ -335,6 +340,13 @@ def validate_dataset_release_report_record(record: Mapping[str, Any]) -> None:
     ):
         raise ContractValidationError(
             "profile.profile_purpose must be release_candidate when dataset_release passes"
+        )
+    if (
+        release_decision.get("status") == "passed"
+        and release_completeness["decision_status"] != "passed"
+    ):
+        raise ContractValidationError(
+            "release_completeness.decision.status must be passed when dataset_release passes"
         )
 
     release_artifacts = _require_mapping(record.get("release_artifacts"), "release_artifacts")
@@ -361,6 +373,68 @@ def validate_dataset_release_report_record(record: Mapping[str, Any]) -> None:
             f"release_artifacts.{field}",
         )
         _validate_artifact_filename(artifact_name, f"release_artifacts.{field}")
+
+
+def _validate_release_completeness(raw: object) -> dict[str, str]:
+    release_completeness = _require_mapping(raw, "release_completeness")
+    thresholds = _require_mapping(
+        release_completeness.get("thresholds"),
+        "release_completeness.thresholds",
+    )
+    _require_positive_int(
+        thresholds.get("min_accepted_samples"),
+        "release_completeness.thresholds.min_accepted_samples",
+    )
+    _validate_rate(
+        _require_number(
+            thresholds.get("max_rejection_rate"),
+            "release_completeness.thresholds.max_rejection_rate",
+        ),
+        "release_completeness.thresholds.max_rejection_rate",
+    )
+    _require_non_empty_string_sequence(
+        thresholds.get("required_task_types"),
+        "release_completeness.thresholds.required_task_types",
+    )
+    _require_non_empty_string_sequence(
+        thresholds.get("required_tool_combinations"),
+        "release_completeness.thresholds.required_tool_combinations",
+    )
+
+    observed = _require_mapping(
+        release_completeness.get("observed"),
+        "release_completeness.observed",
+    )
+    _require_int(observed.get("accepted"), "release_completeness.observed.accepted")
+    _require_int(observed.get("rejected"), "release_completeness.observed.rejected")
+    _validate_rate(
+        _require_number(
+            observed.get("rejection_rate"),
+            "release_completeness.observed.rejection_rate",
+        ),
+        "release_completeness.observed.rejection_rate",
+    )
+    _require_non_empty_string_sequence(
+        observed.get("task_types"),
+        "release_completeness.observed.task_types",
+    )
+    _require_non_empty_string_sequence(
+        observed.get("tool_combinations"),
+        "release_completeness.observed.tool_combinations",
+    )
+
+    decision = _require_mapping(
+        release_completeness.get("decision"),
+        "release_completeness.decision",
+    )
+    _validate_profile_decision(
+        decision,
+        "release_completeness.decision",
+        allowed_statuses=RELEASE_COMPLETENESS_STATUSES,
+    )
+    return {
+        "decision_status": str(decision.get("status")),
+    }
 
 
 def validate_evaluation_report_record(record: Mapping[str, Any]) -> None:

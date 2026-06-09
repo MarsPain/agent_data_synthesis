@@ -5,12 +5,14 @@ is accepted as complete, move it to `../completed/` and update `../../PLANS.md`.
 
 ## Currently Executing
 
-- [0024-profile-purpose-and-dataset-release-admission](0024-profile-purpose-and-dataset-release-admission.md):
-  active plan for profile-purpose classification and opt-in dataset release
-  admission reporting.
+- None.
 
 ## Completed
 
+- [0026-dataset-release-coverage-and-admission-ratchet](../completed/0026-dataset-release-coverage-and-admission-ratchet.md):
+  completed on 2026-06-09.
+- [0024-profile-purpose-and-dataset-release-admission](../completed/0024-profile-purpose-and-dataset-release-admission.md):
+  completed on 2026-06-09.
 - [0023-evaluation-quality-ratchet-and-profile-promotion](../completed/0023-evaluation-quality-ratchet-and-profile-promotion.md):
   completed on 2026-05-31.
 - [0022-held-out-evaluation-and-profile-benchmarking](../completed/0022-held-out-evaluation-and-profile-benchmarking.md):

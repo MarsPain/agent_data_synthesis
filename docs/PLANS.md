@@ -9,10 +9,7 @@
 
 ## Active
 
-- [0024-profile-purpose-and-dataset-release-admission](exec-plans/active/0024-profile-purpose-and-dataset-release-admission.md):
-  add profile-purpose classification and an opt-in dataset release admission
-  report so diagnostic profiles cannot be mistaken for releaseable dataset
-  versions.
+- None.
 
 ## Deferred
 
@@ -21,6 +18,11 @@
   concurrency limits, cancellation, and per-role cost tracking; **deferred**
   until single runs exceed ~10 minutes or 100+ candidates. See the plan's
   "补充思考" section for the full deferral rationale.
+- [0025-awm-runtime-boundary-and-shared-environment-kernel](exec-plans/deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md):
+  staged extraction path for the future AWM environment runtime; **deferred**
+  until reward/data-quality evaluation, Agentic RL, a second domain environment,
+  or external MCP environment servers create a second real consumer for the
+  runtime boundary.
 
 ## Completed
 
@@ -46,6 +48,8 @@
 - [0021-candidate-isolation-and-deterministic-merge](exec-plans/completed/0021-candidate-isolation-and-deterministic-merge.md): added per-candidate environment/registry/adapter isolation and deterministic merge admission for provisional candidate outcomes. Completed on 2026-05-31.
 - [0022-held-out-evaluation-and-profile-benchmarking](exec-plans/completed/0022-held-out-evaluation-and-profile-benchmarking.md): added opt-in held-out evaluation reports, deterministic contacts benchmark tasks, capability slices, optional parent evaluation comparison, and profile-decision evidence before async orchestration or semantic duplicate detection. Completed on 2026-05-31.
 - [0023-evaluation-quality-ratchet-and-profile-promotion](exec-plans/completed/0023-evaluation-quality-ratchet-and-profile-promotion.md): tightened held-out evaluation semantics, added capability-level thresholds, introduced profile promotion decisions, and kept async orchestration plus semantic duplicate detection deferred until explicit triggers are met. Completed on 2026-05-31.
+- [0024-profile-purpose-and-dataset-release-admission](exec-plans/completed/0024-profile-purpose-and-dataset-release-admission.md): added profile-purpose classification and an opt-in dataset release admission report so diagnostic profiles cannot be mistaken for releaseable dataset versions. Completed on 2026-06-09.
+- [0026-dataset-release-coverage-and-admission-ratchet](exec-plans/completed/0026-dataset-release-coverage-and-admission-ratchet.md): tightened dataset release admission with release completeness thresholds, coverage observations, insufficient-evidence outcomes, and a deterministic release-candidate fixture. Completed on 2026-06-09.
 
 ## Technical Debt
 

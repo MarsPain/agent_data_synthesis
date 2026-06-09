@@ -33,10 +33,10 @@
 ## Execution Plans
 
 - [exec-plans/active/README.md](exec-plans/active/README.md): active plan bucket.
-- [exec-plans/active/0024-profile-purpose-and-dataset-release-admission.md](exec-plans/active/0024-profile-purpose-and-dataset-release-admission.md): active profile-purpose and dataset release admission plan.
 - [exec-plans/completed/README.md](exec-plans/completed/README.md): completed plan bucket.
 - [exec-plans/deferred/README.md](exec-plans/deferred/README.md): deferred plan bucket.
 - [exec-plans/deferred/0014-async-local-orchestration-with-durable-queues.md](exec-plans/deferred/0014-async-local-orchestration-with-durable-queues.md): deferred async local orchestration with durable queues plan.
+- [exec-plans/deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](exec-plans/deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md): deferred staged extraction path for a shared AWM environment runtime boundary.
 - [exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md](exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md): source provenance, license eligibility, default-deny network policy, sandbox policy, source-event audit artifacts, and reporting slices.
 - [exec-plans/completed/0012-controlled-network-backed-environment-synthesis.md](exec-plans/completed/0012-controlled-network-backed-environment-synthesis.md): controlled opt-in HTTPS source ingestion, allowlisted host enforcement, request budgets, payload limits, contacts environment-source admission, and sanitized fetch/admission audit events.
 - [exec-plans/completed/0013-mcp-compatible-environment-tool-adapters.md](exec-plans/completed/0013-mcp-compatible-environment-tool-adapters.md): local MCP-compatible adapter manifest, tool-call request/result envelopes, adapter lineage, quality slices, and in-process contacts shim.
@@ -49,4 +49,6 @@
 - [exec-plans/completed/0021-candidate-isolation-and-deterministic-merge.md](exec-plans/completed/0021-candidate-isolation-and-deterministic-merge.md): candidate isolation and deterministic merge admission over provisional outcomes.
 - [exec-plans/completed/0022-held-out-evaluation-and-profile-benchmarking.md](exec-plans/completed/0022-held-out-evaluation-and-profile-benchmarking.md): held-out evaluation reports and profile benchmarking evidence.
 - [exec-plans/completed/0023-evaluation-quality-ratchet-and-profile-promotion.md](exec-plans/completed/0023-evaluation-quality-ratchet-and-profile-promotion.md): held-out evaluation quality ratchets and profile promotion decisions.
+- [exec-plans/completed/0024-profile-purpose-and-dataset-release-admission.md](exec-plans/completed/0024-profile-purpose-and-dataset-release-admission.md): profile-purpose classification and opt-in dataset release admission reports.
+- [exec-plans/completed/0026-dataset-release-coverage-and-admission-ratchet.md](exec-plans/completed/0026-dataset-release-coverage-and-admission-ratchet.md): dataset release completeness gates and deterministic release-candidate admission.
 - [exec-plans/tech-debt/README.md](exec-plans/tech-debt/README.md): technical debt bucket.

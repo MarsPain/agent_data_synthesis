@@ -50,8 +50,10 @@ class FoundationCliTest(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue((output_dir / "manifest.json").exists(), result.stdout)
+            self.assertFalse((output_dir / "dataset_release_report.json").exists())
             manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["dataset_version"], "dataset_cli_test")
+            self.assertNotIn("dataset_release_report", manifest["artifacts"])
             self.assertIn("accepted=2", result.stdout)
             self.assertNotIn("secret-test-key", result.stdout)
 
@@ -684,6 +686,75 @@ class FoundationCliTest(unittest.TestCase):
                 "dataset_release_report.json",
             )
             self.assertIn("dataset_release_report=", result.stdout)
+
+    def test_smoke_release_candidate_profile_has_insufficient_release_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation-release-smoke"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/foundation-fixture.json",
+                    "--write-evaluation-report",
+                    "--write-profile-decision-report",
+                    "--write-dataset-release-report",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            report = json.loads(
+                (output_dir / "dataset_release_report.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                report["decisions"]["dataset_release"]["status"],
+                "insufficient_evidence",
+            )
+            self.assertEqual(
+                report["release_completeness"]["decision"]["status"],
+                "insufficient_evidence",
+            )
+
+    def test_release_candidate_profile_can_pass_dataset_release_admission(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation-release-candidate"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/foundation-release-candidate.json",
+                    "--write-evaluation-report",
+                    "--write-profile-decision-report",
+                    "--write-dataset-release-report",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            report = json.loads(
+                (output_dir / "dataset_release_report.json").read_text(encoding="utf-8")
+            )
+            completeness = report["release_completeness"]
+            self.assertEqual(report["decisions"]["dataset_release"]["status"], "passed")
+            self.assertEqual(completeness["decision"]["status"], "passed")
+            self.assertGreaterEqual(completeness["observed"]["accepted"], 5)
+            self.assertLessEqual(completeness["observed"]["rejection_rate"], 0.2)
+            self.assertEqual(
+                set(completeness["thresholds"]["required_task_types"]),
+                set(completeness["observed"]["task_types"]),
+            )
 
     def test_dataset_release_report_requires_profile_decision_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

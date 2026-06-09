@@ -515,6 +515,27 @@ class DatasetContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ContractValidationError, "profile_purpose"):
             validate_dataset_release_report_record(report)
 
+    def test_dataset_release_report_contract_rejects_malformed_release_completeness(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_dataset_release_report_record
+
+        malformed_reports = (
+            ("min_accepted_samples", {"thresholds": {"min_accepted_samples": 0}}),
+            ("release_completeness.decision.status", {"decision": {"status": "maybe"}}),
+            ("required_task_types", {"thresholds": {"required_task_types": "contact_followup"}}),
+            ("observed.task_types", {"observed": {"task_types": "contact_followup"}}),
+            (
+                "observed.tool_combinations",
+                {"observed": {"tool_combinations": "lookup_contact_email"}},
+            ),
+        )
+        for expected_error, override in malformed_reports:
+            with self.subTest(expected_error=expected_error):
+                report = _valid_dataset_release_report()
+                _deep_update(report["release_completeness"], override)
+
+                with self.assertRaisesRegex(ContractValidationError, expected_error):
+                    validate_dataset_release_report_record(report)
+
     def test_manifest_contract_accepts_evaluation_report_artifact(self) -> None:
         from synthesis.contracts import validate_manifest_record
 
@@ -1044,6 +1065,50 @@ def _valid_dataset_release_report() -> dict[str, object]:
             "async_orchestration_status": "defer",
             "semantic_duplicate_detection_status": "defer",
         },
+        "release_completeness": {
+            "thresholds": {
+                "min_accepted_samples": 5,
+                "max_rejection_rate": 0.2,
+                "required_task_types": [
+                    "lookup_contact_email",
+                    "contact_followup",
+                    "contact_branch_fallback",
+                ],
+                "required_tool_combinations": [
+                    "lookup_contact_email",
+                    "lookup_contact_email+record_contact_followup",
+                ],
+            },
+            "observed": {
+                "accepted": 6,
+                "rejected": 1,
+                "rejection_rate": 0.1428571429,
+                "task_types": [
+                    "contact_branch_fallback",
+                    "contact_followup",
+                    "lookup_contact_email",
+                ],
+                "tool_combinations": [
+                    "lookup_contact_email",
+                    "lookup_contact_email+record_contact_followup",
+                ],
+            },
+            "decision": {
+                "status": "passed",
+                "reasons": [
+                    "accepted 6 is at or above min_accepted_samples 5",
+                    "rejection_rate 0.1428571429 is at or below max_rejection_rate 0.2",
+                    "required task types are covered",
+                    "required tool combinations are covered",
+                ],
+                "triggered_by": [
+                    "accepted",
+                    "rejection_rate",
+                    "task_type_coverage",
+                    "tool_combination_coverage",
+                ],
+            },
+        },
         "decisions": {
             "dataset_release": {
                 "status": "passed",
@@ -1059,6 +1124,14 @@ def _valid_dataset_release_report() -> dict[str, object]:
             "profile_decision_report": "profile_decision_report.json",
         },
     }
+
+
+def _deep_update(target: dict[str, object], override: dict[str, object]) -> None:
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(target.get(key), dict):
+            _deep_update(target[key], value)  # type: ignore[arg-type]
+        else:
+            target[key] = value
 
 
 if __name__ == "__main__":

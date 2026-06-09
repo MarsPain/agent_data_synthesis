@@ -6,7 +6,7 @@
 
 ## Status
 
-Active.
+Completed on 2026-06-09.
 
 ## Goal
 
@@ -283,7 +283,7 @@ absent by default and present only when the report is written:
 - Modify: `tests/fixtures/run_profiles/foundation-scale-probe-25.json`
 - Modify: `tests/fixtures/run_profiles/foundation-fixture.json`
 
-- [ ] Add failing tests for explicit purpose and derived defaults.
+- [x] Add failing tests for explicit purpose and derived defaults.
 
   Add these test methods to `tests/test_run_profiles.py`:
 
@@ -362,7 +362,7 @@ absent by default and present only when the report is written:
           self.assertNotEqual(release_profile.config_hash, diagnostic_profile.config_hash)
   ```
 
-- [ ] Run profile tests and confirm they fail before implementation.
+- [x] Run profile tests and confirm they fail before implementation.
 
   ```bash
   uv run python -m unittest tests.test_run_profiles
@@ -371,7 +371,7 @@ absent by default and present only when the report is written:
   Expected failure: `RunProfile` has no `profile_purpose` attribute or sanitized
   metadata lacks `profile_purpose`.
 
-- [ ] Implement `profile_purpose` parsing and defaulting.
+- [x] Implement `profile_purpose` parsing and defaulting.
 
   Add these constants and field changes in `synthesis/run_profiles.py`:
 
@@ -412,14 +412,14 @@ absent by default and present only when the report is written:
       return "release_candidate"
   ```
 
-- [ ] Add explicit fixture purpose values.
+- [x] Add explicit fixture purpose values.
 
   Set `profile_purpose` in `tests/fixtures/run_profiles/foundation-scale-probe-25.json`
   to `diagnostic_probe`. Set `profile_purpose` in
   `tests/fixtures/run_profiles/foundation-fixture.json` to
   `release_candidate`.
 
-- [ ] Run the focused tests.
+- [x] Run the focused tests.
 
   ```bash
   uv run python -m unittest tests.test_run_profiles
@@ -436,7 +436,7 @@ absent by default and present only when the report is written:
 - Modify: `tests/test_quality_reporting.py`
 - Modify: `tests/test_contracts.py`
 
-- [ ] Add failing tests for sanitized metadata and per-record attribution.
+- [x] Add failing tests for sanitized metadata and per-record attribution.
 
   Add a quality-reporting test that runs a profile fixture and asserts:
 
@@ -454,7 +454,7 @@ absent by default and present only when the report is written:
   Add a contract test that rejects unsupported purpose values in
   `manifest["run_profile"]` and `lineage.run_profile`.
 
-- [ ] Run focused tests and confirm they fail.
+- [x] Run focused tests and confirm they fail.
 
   ```bash
   uv run python -m unittest tests.test_quality_reporting tests.test_contracts
@@ -462,7 +462,7 @@ absent by default and present only when the report is written:
 
   Expected failure: contract validation rejects or omits `profile_purpose`.
 
-- [ ] Extend sanitized attribution.
+- [x] Extend sanitized attribution.
 
   In `synthesis/datasets.py`, include `profile_purpose` in the narrow
   run-profile attribution record only when it is present in manifest metadata:
@@ -475,7 +475,7 @@ absent by default and present only when the report is written:
   Keep excluding profile paths, source paths, payload rows, prompts, headers,
   API keys, and arbitrary profile JSON keys.
 
-- [ ] Extend contract validation.
+- [x] Extend contract validation.
 
   In `synthesis/contracts.py`, add profile-purpose validation for manifest
   metadata and run-profile attribution:
@@ -487,7 +487,7 @@ absent by default and present only when the report is written:
   Require that any present `profile_purpose` is a non-empty string and a member
   of `RUN_PROFILE_PURPOSES`.
 
-- [ ] Run focused tests.
+- [x] Run focused tests.
 
   ```bash
   uv run python -m unittest tests.test_quality_reporting tests.test_contracts
@@ -503,7 +503,7 @@ absent by default and present only when the report is written:
 - Add: `tests/test_dataset_release.py`
 - Modify: `tests/test_contracts.py`
 
-- [ ] Write failing contract tests for `dataset_release_report_v1`.
+- [x] Write failing contract tests for `dataset_release_report_v1`.
 
   Add these cases:
 
@@ -559,7 +559,7 @@ absent by default and present only when the report is written:
   names, raw secret-like keys, and `profile.profile_purpose == "diagnostic_probe"`
   paired with `dataset_release.status == "passed"`.
 
-- [ ] Run contract tests and confirm they fail.
+- [x] Run contract tests and confirm they fail.
 
   ```bash
   uv run python -m unittest tests.test_contracts
@@ -567,7 +567,7 @@ absent by default and present only when the report is written:
 
   Expected failure: `validate_dataset_release_report_record` is not defined.
 
-- [ ] Implement contract validation.
+- [x] Implement contract validation.
 
   In `synthesis/contracts.py`, add:
 
@@ -594,7 +594,7 @@ absent by default and present only when the report is written:
   - `profile_purpose != "release_candidate"` cannot pair with
     `dataset_release.status == "passed"`.
 
-- [ ] Run contract tests.
+- [x] Run contract tests.
 
   ```bash
   uv run python -m unittest tests.test_contracts
@@ -609,7 +609,7 @@ absent by default and present only when the report is written:
 - Create: `synthesis/dataset_release.py`
 - Create: `tests/test_dataset_release.py`
 
-- [ ] Write failing report-builder tests.
+- [x] Write failing report-builder tests.
 
   Cover these cases in `tests/test_dataset_release.py`:
 
@@ -624,7 +624,7 @@ absent by default and present only when the report is written:
 
   Use small in-memory dictionaries rather than reading artifact fixtures.
 
-- [ ] Run report-builder tests and confirm they fail.
+- [x] Run report-builder tests and confirm they fail.
 
   ```bash
   uv run python -m unittest tests.test_dataset_release
@@ -632,7 +632,7 @@ absent by default and present only when the report is written:
 
   Expected failure: module `synthesis.dataset_release` is missing.
 
-- [ ] Implement `synthesis/dataset_release.py`.
+- [x] Implement `synthesis/dataset_release.py`.
 
   Add:
 
@@ -665,13 +665,13 @@ absent by default and present only when the report is written:
   5. return `failed` if source-policy rejection rate is above `0.0`;
   6. return `passed`.
 
-- [ ] Validate generated reports through contracts.
+- [x] Validate generated reports through contracts.
 
   Call `validate_dataset_release_report_record(report)` before writing the
   report. Write JSON with `ensure_ascii=False`, `indent=2`, and `sort_keys=True`
   to match existing report files.
 
-- [ ] Run report-builder tests.
+- [x] Run report-builder tests.
 
   ```bash
   uv run python -m unittest tests.test_dataset_release
@@ -688,7 +688,7 @@ absent by default and present only when the report is written:
 - Create: `scripts/dataset_release_report.py`
 - Modify: `tests/test_cli.py`
 
-- [ ] Write failing CLI tests.
+- [x] Write failing CLI tests.
 
   Add one test that runs:
 
@@ -713,7 +713,7 @@ absent by default and present only when the report is written:
   `--write-profile-decision-report` exits non-zero and prints a clear argparse
   error.
 
-- [ ] Run CLI tests and confirm they fail.
+- [x] Run CLI tests and confirm they fail.
 
   ```bash
   uv run python -m unittest tests.test_cli
@@ -721,7 +721,7 @@ absent by default and present only when the report is written:
 
   Expected failure: CLI does not recognize `--write-dataset-release-report`.
 
-- [ ] Add manifest attachment helper.
+- [x] Add manifest attachment helper.
 
   In `synthesis/datasets.py`, add:
 
@@ -741,14 +741,14 @@ absent by default and present only when the report is written:
   Reuse the same internal helper pattern as evaluation and profile decision
   report attachment.
 
-- [ ] Wire the CLI.
+- [x] Wire the CLI.
 
   In `main.py`, add `--write-dataset-release-report`. Validate that the flag
   requires both `--write-evaluation-report` and `--write-profile-decision-report`.
   After writing the profile decision report, call `write_dataset_release_report`
   and attach the report to the manifest.
 
-- [ ] Add the standalone script.
+- [x] Add the standalone script.
 
   Create `scripts/dataset_release_report.py` with arguments:
 
@@ -761,7 +761,7 @@ absent by default and present only when the report is written:
   The script should call `write_dataset_release_report()` and print the output
   path.
 
-- [ ] Run focused CLI and script tests.
+- [x] Run focused CLI and script tests.
 
   ```bash
   uv run python -m unittest tests.test_cli tests.test_dataset_release
@@ -781,30 +781,30 @@ absent by default and present only when the report is written:
 - Modify: `docs/exec-plans/active/README.md`
 - Modify: `AGENTS.md`
 
-- [ ] Update `docs/DATA.md`.
+- [x] Update `docs/DATA.md`.
 
   Document `profile_purpose`, `dataset_release_report_v1`, release decision
   statuses, release artifact references, and the difference between
   `profile_promotion` and `dataset_release`.
 
-- [ ] Update `docs/BACKEND.md`.
+- [x] Update `docs/BACKEND.md`.
 
   Add the optional dataset-release report step after profile decision reporting.
   State that release admission reads existing artifacts and does not change
   candidate processing.
 
-- [ ] Update `docs/ROADMAP.md`.
+- [x] Update `docs/ROADMAP.md`.
 
   Mark plan 0024 as the next release-boundary step before async orchestration.
   Keep async orchestration and semantic duplicate detection deferred.
 
-- [ ] Update plan indexes.
+- [x] Update plan indexes.
 
   Add this plan to `docs/PLANS.md`, `docs/exec-plans/active/README.md`, and
   `docs/README.md`. Update `AGENTS.md` so it no longer says there is no active
   implementation plan.
 
-- [ ] Run documentation validation.
+- [x] Run documentation validation.
 
   ```bash
   uv run python scripts/validate_docs.py
@@ -819,7 +819,7 @@ absent by default and present only when the report is written:
 - Runtime output under `artifacts/foundation-scale-probe-release/`
 - No source edits beyond implementation and docs files above.
 
-- [ ] Run the focused release command.
+- [x] Run the focused release command.
 
   ```bash
   uv run python main.py --run-profile tests/fixtures/run_profiles/foundation-scale-probe-25.json --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --output-dir artifacts/foundation-scale-probe-release
@@ -835,7 +835,7 @@ absent by default and present only when the report is written:
   - `profile_decision_report.decisions.async_orchestration.status == "defer"`;
   - `profile_decision_report.decisions.semantic_duplicate_detection.status == "defer"`.
 
-- [ ] Run documentation validation.
+- [x] Run documentation validation.
 
   ```bash
   uv run python scripts/validate_docs.py
@@ -843,13 +843,25 @@ absent by default and present only when the report is written:
 
   Expected result: `Documentation validation passed.`
 
-- [ ] Run the full test suite.
+- [x] Run the full test suite.
 
   ```bash
   uv run python -m unittest
   ```
 
   Expected result: all tests pass.
+
+## Completion Notes
+
+- Completed profile-purpose parsing, sanitized attribution, dataset release
+  report contracts, report generation, CLI wiring, standalone report scripting,
+  and manifest attachment.
+- Verified the scale-probe release command writes
+  `dataset_release_report.json` with `dataset_release.status == "ineligible"`
+  for the diagnostic profile while profile promotion remains passed.
+- Verification on 2026-06-09:
+  - `uv run python scripts/validate_docs.py`
+  - `uv run python -m unittest`
 
 ## Acceptance Criteria
 
