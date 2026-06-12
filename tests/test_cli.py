@@ -52,10 +52,14 @@ class FoundationCliTest(unittest.TestCase):
             self.assertTrue((output_dir / "manifest.json").exists(), result.stdout)
             self.assertFalse((output_dir / "dataset_release_report.json").exists())
             self.assertFalse((output_dir / "dataset_release_pack.json").exists())
+            self.assertFalse((output_dir / "release_quality_audit.json").exists())
+            self.assertFalse((output_dir / "dataset_release_card.md").exists())
             manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["dataset_version"], "dataset_cli_test")
             self.assertNotIn("dataset_release_report", manifest["artifacts"])
             self.assertNotIn("dataset_release_pack", manifest["artifacts"])
+            self.assertNotIn("release_quality_audit", manifest["artifacts"])
+            self.assertNotIn("dataset_release_card", manifest["artifacts"])
             self.assertIn("accepted=2", result.stdout)
             self.assertNotIn("secret-test-key", result.stdout)
 
@@ -877,6 +881,95 @@ class FoundationCliTest(unittest.TestCase):
             self.assertEqual(drifted.returncode, 1)
             drift_result = json.loads(drifted.stdout)
             self.assertEqual(drift_result["verification"]["status"], "failed")
+
+    def test_release_candidate_profile_can_write_quality_audit_and_card(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation-release-candidate-quality-audit"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/foundation-release-candidate.json",
+                    "--write-evaluation-report",
+                    "--write-profile-decision-report",
+                    "--write-dataset-release-report",
+                    "--write-release-quality-audit",
+                    "--write-dataset-release-card",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            audit_path = output_dir / "release_quality_audit.json"
+            card_path = output_dir / "dataset_release_card.md"
+            self.assertTrue(audit_path.exists(), result.stdout)
+            self.assertTrue(card_path.exists(), result.stdout)
+
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            audit = json.loads(audit_path.read_text(encoding="utf-8"))
+            card = card_path.read_text(encoding="utf-8")
+            self.assertEqual(
+                manifest["artifacts"]["release_quality_audit"],
+                "release_quality_audit.json",
+            )
+            self.assertEqual(
+                manifest["artifacts"]["dataset_release_card"],
+                "dataset_release_card.md",
+            )
+            self.assertIn(audit["decision"]["status"], {"clear", "watch"})
+            self.assertNotEqual(audit["decision"]["status"], "blocked")
+            self.assertIn("## Non-Claims", card)
+            self.assertIn("release_quality_audit_status:", card)
+            self.assertIn("release_quality_audit=", result.stdout)
+            self.assertIn("dataset_release_card=", result.stdout)
+
+    def test_release_quality_audit_requires_dataset_release_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/foundation-release-candidate.json",
+                    "--write-release-quality-audit",
+                    "--output-dir",
+                    str(Path(tmpdir) / "foundation-release-candidate"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("--write-release-quality-audit", result.stderr)
+            self.assertIn("--write-dataset-release-report", result.stderr)
+
+    def test_dataset_release_card_requires_dataset_release_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/foundation-release-candidate.json",
+                    "--write-dataset-release-card",
+                    "--output-dir",
+                    str(Path(tmpdir) / "foundation-release-candidate"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("--write-dataset-release-card", result.stderr)
+            self.assertIn("--write-dataset-release-report", result.stderr)
 
     def test_dataset_release_report_requires_profile_decision_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -112,6 +112,11 @@
   opt-in `dataset_release_pack.json`, artifact hashes and byte counts,
   manifest-aware pack creation, and offline drift detection without rerunning
   candidate generation.
+- Add release quality evidence audit and a human-readable dataset release card
+  before async orchestration. Implemented in plan 0028 with opt-in
+  `release_quality_audit.json`, duplicate-family risk signals, and
+  `dataset_release_card.md` without implementing full semantic duplicate
+  detection or changing default release admission.
 - Prepare the environment layer for a future shared AWM runtime without
   prematurely splitting it into a separate project. Deferred in plan 0025 until
   reward-model-driven data quality evaluation, Agentic RL, a second domain

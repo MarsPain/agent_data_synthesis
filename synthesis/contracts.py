@@ -103,6 +103,8 @@ MANIFEST_ARTIFACT_KEYS = {
     "evaluation_report",
     "dataset_release_report",
     "dataset_release_pack",
+    "release_quality_audit",
+    "dataset_release_card",
 }
 EVALUATION_TASK_STATUSES = {"passed", "failed"}
 EVALUATION_DECISION_STATUSES = {"passed", "failed", "insufficient_evidence"}
@@ -117,6 +119,12 @@ DATASET_RELEASE_STATUSES = {
 }
 RELEASE_COMPLETENESS_STATUSES = {"passed", "insufficient_evidence"}
 DATASET_RELEASE_PACK_STATUSES = {"passed", "failed", "insufficient_evidence"}
+RELEASE_QUALITY_AUDIT_STATUSES = {
+    "clear",
+    "watch",
+    "insufficient_evidence",
+    "blocked",
+}
 DATASET_RELEASE_PACK_ARTIFACT_KEYS = {
     "manifest",
     "samples",
@@ -446,6 +454,134 @@ def validate_dataset_release_pack_record(record: Mapping[str, Any]) -> None:
         raise ContractValidationError("verification.reasons must contain at least one reason")
     for index, reason in enumerate(reasons):
         _require_non_empty_string(reason, f"verification.reasons.{index}")
+
+
+def validate_release_quality_audit_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "release_quality_audit")
+    if _contains_raw_secret(record):
+        raise ContractValidationError("release_quality_audit contains raw secret material")
+    schema_version = _require_non_empty_string(record.get("schema_version"), "schema_version")
+    if schema_version != "release_quality_audit_v1":
+        raise ContractValidationError("schema_version is unsupported")
+    _require_non_empty_string(record.get("dataset_version"), "dataset_version")
+    _validate_profile_decision_profile(record.get("profile"))
+
+    inputs = _require_mapping(record.get("inputs"), "inputs")
+    for field in (
+        "manifest_path",
+        "quality_report_path",
+        "evaluation_report_path",
+        "profile_decision_report_path",
+        "dataset_release_report_path",
+        "samples_path",
+        "rejections_path",
+    ):
+        artifact_name = _require_non_empty_string(inputs.get(field), f"inputs.{field}")
+        _validate_artifact_filename(artifact_name, f"inputs.{field}")
+
+    observed = _require_mapping(record.get("observed"), "observed")
+    for field in (
+        "accepted",
+        "rejected",
+        "exact_duplicate_count",
+        "task_type_count",
+        "tool_combination_count",
+    ):
+        _require_int(observed.get(field), f"observed.{field}")
+    for field in (
+        "exact_duplicate_rate",
+        "largest_task_type_share",
+        "largest_tool_combination_share",
+    ):
+        _validate_rate(
+            _require_number(observed.get(field), f"observed.{field}"),
+            f"observed.{field}",
+        )
+    _require_non_empty_string(
+        observed.get("release_completeness_status"),
+        "observed.release_completeness_status",
+    )
+    _require_non_empty_string(
+        observed.get("semantic_duplicate_detection_status"),
+        "observed.semantic_duplicate_detection_status",
+    )
+
+    thresholds = _require_mapping(record.get("thresholds"), "thresholds")
+    for field in (
+        "small_release_watch_accepted_samples",
+        "max_duplicate_family_size",
+    ):
+        _require_positive_int(thresholds.get(field), f"thresholds.{field}")
+    for field in (
+        "max_largest_task_type_share",
+        "max_largest_tool_combination_share",
+        "max_exact_duplicate_rate",
+    ):
+        _validate_rate(
+            _require_number(thresholds.get(field), f"thresholds.{field}"),
+            f"thresholds.{field}",
+        )
+
+    duplicate_family_risks = _require_sequence(
+        record.get("duplicate_family_risks"),
+        "duplicate_family_risks",
+    )
+    for index, raw_risk in enumerate(duplicate_family_risks):
+        risk = _require_mapping(raw_risk, f"duplicate_family_risks.{index}")
+        _validate_content_hash(
+            risk.get("family_key"),
+            f"duplicate_family_risks.{index}.family_key",
+        )
+        _require_non_empty_string(
+            risk.get("risk_kind"),
+            f"duplicate_family_risks.{index}.risk_kind",
+        )
+        risk_level = _require_non_empty_string(
+            risk.get("risk_level"),
+            f"duplicate_family_risks.{index}.risk_level",
+        )
+        if risk_level not in {"watch"}:
+            raise ContractValidationError(
+                f"duplicate_family_risks.{index}.risk_level is unsupported"
+            )
+        sample_ids = _require_sequence(
+            risk.get("sample_ids"),
+            f"duplicate_family_risks.{index}.sample_ids",
+        )
+        if not sample_ids:
+            raise ContractValidationError(
+                f"duplicate_family_risks.{index}.sample_ids must not be empty"
+            )
+        for sample_index, sample_id in enumerate(sample_ids):
+            _require_non_empty_string(
+                sample_id,
+                f"duplicate_family_risks.{index}.sample_ids.{sample_index}",
+            )
+        sample_count = _require_positive_int(
+            risk.get("sample_count"),
+            f"duplicate_family_risks.{index}.sample_count",
+        )
+        if sample_count != len(sample_ids):
+            raise ContractValidationError(
+                f"duplicate_family_risks.{index}.sample_count must equal sample_ids length"
+            )
+        _require_non_empty_string(
+            risk.get("reason"),
+            f"duplicate_family_risks.{index}.reason",
+        )
+
+    decision = _require_mapping(record.get("decision"), "decision")
+    status = _require_non_empty_string(decision.get("status"), "decision.status")
+    if status not in RELEASE_QUALITY_AUDIT_STATUSES:
+        raise ContractValidationError("decision.status is unsupported")
+    reasons = _require_sequence(decision.get("reasons"), "decision.reasons")
+    if not reasons:
+        raise ContractValidationError("decision.reasons must contain at least one reason")
+    for index, reason in enumerate(reasons):
+        _require_non_empty_string(reason, f"decision.reasons.{index}")
+    triggered_by = _require_sequence(decision.get("triggered_by"), "decision.triggered_by")
+    for index, trigger in enumerate(triggered_by):
+        _require_non_empty_string(trigger, f"decision.triggered_by.{index}")
 
 
 def _validate_release_completeness(raw: object) -> dict[str, str]:

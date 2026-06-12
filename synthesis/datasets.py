@@ -94,6 +94,30 @@ def attach_dataset_release_pack_to_manifest(
     )
 
 
+def attach_release_quality_audit_to_manifest(
+    *,
+    manifest_path: Path,
+    audit_path: Path,
+) -> None:
+    _attach_artifact_to_manifest(
+        manifest_path=manifest_path,
+        artifact_key="release_quality_audit",
+        artifact_path=audit_path,
+    )
+
+
+def attach_dataset_release_card_to_manifest(
+    *,
+    manifest_path: Path,
+    card_path: Path,
+) -> None:
+    _attach_artifact_to_manifest(
+        manifest_path=manifest_path,
+        artifact_key="dataset_release_card",
+        artifact_path=card_path,
+    )
+
+
 def _attach_artifact_to_manifest(
     *,
     manifest_path: Path,

@@ -130,8 +130,13 @@ and a quality report:
 - `dataset_release_report.json`: optional dataset release admission report
   written only when explicitly requested after evaluation and profile decision
   reports are available.
+- `release_quality_audit.json`: optional release quality evidence report
+  written only when explicitly requested after a dataset release report is
+  available.
 - `dataset_release_pack.json`: optional hash-locked release pack written only
   when explicitly requested after a dataset release report passes.
+- `dataset_release_card.md`: optional human-readable release card written only
+  when explicitly requested after a dataset release report is available.
 
 ```json
 {
@@ -166,6 +171,11 @@ When dataset release pack writing is explicitly requested, the manifest
 references `dataset_release_pack` before the pack computes the final manifest
 hash. The pack is absent by default and can be written only after
 `dataset_release_report.json` passes dataset release admission.
+When release quality audit or dataset release card writing is explicitly
+requested, the manifest references `release_quality_audit` and
+`dataset_release_card` respectively. Both artifacts are absent by default and
+do not change candidate admission, profile promotion, or dataset release
+admission.
 
 When a run is configured by a `run_profile_v1` file, `manifest.json` includes an
 optional `run_profile` object. This object is sanitized metadata only:
@@ -423,6 +433,63 @@ but `release_completeness.decision.status` is not `passed`,
 `decisions.dataset_release.status` must be `insufficient_evidence` and include
 `release_completeness` in `triggered_by`. A dataset release can pass only when
 both the earlier release gates and release completeness pass.
+
+### Release Quality Audit and Card Contract
+
+`release_quality_audit.json` uses `schema_version:
+release_quality_audit_v1` and is generated only when explicitly requested with
+`--write-release-quality-audit`. It requires
+`--write-dataset-release-report`, reads existing sanitized release artifacts,
+and does not rerun candidate generation or change default dataset release
+admission.
+
+The audit records sanitized dataset/profile identity, input artifact names,
+accepted/rejected counts, exact duplicate count/rate, accepted task-type and
+tool-combination counts, largest accepted task-type and tool-combination
+shares, release completeness status, semantic duplicate decision status, the
+thresholds used, duplicate-family risk groups, and a machine-readable decision.
+
+Current audit thresholds are:
+
+- `small_release_watch_accepted_samples`: `8`.
+- `max_largest_task_type_share`: `0.75`.
+- `max_largest_tool_combination_share`: `0.8`.
+- `max_exact_duplicate_rate`: `0.0`.
+- `max_duplicate_family_size`: `2`.
+
+Audit decision statuses are:
+
+- `clear`: all required inputs are present and no configured watch threshold is
+  triggered.
+- `watch`: release admission can remain valid, but reviewers should inspect
+  small-release, exact-duplicate, concentration, or duplicate-family signals.
+- `insufficient_evidence`: required audit inputs are absent, unreadable, or
+  malformed.
+- `blocked`: profile decisions say `semantic_duplicate_detection.status` is
+  `activate`, so semantic duplicate detection must be implemented before
+  release use.
+
+Duplicate-family risk groups are deterministic review signals. Family keys are
+SHA-256 hashes derived from structured accepted-sample fields: task type,
+ordered tool names, verifier type, and difficulty level. Risk groups may
+include family hashes, risk kind, risk level, accepted sample ids, sample
+counts, and sanitized reason strings. They must not include raw task
+instructions, raw trajectory arguments, contact emails, local profile paths,
+source paths, raw source payloads, prompts, provider payloads, headers, API
+keys, credentials, or arbitrary profile JSON.
+
+`dataset_release_card.md` is generated only when explicitly requested with
+`--write-dataset-release-card`. It is a human-readable summary, not a machine
+contract. It includes stable headings for identity, release decision, artifact
+integrity, quality evidence, coverage and diversity, known limitations, and
+non-claims. Machine consumers should read `release_quality_audit.json`,
+`dataset_release_report.json`, and `dataset_release_pack.json`.
+
+The card must state that release admission, audit status, and pack verification
+evidence does not prove downstream model quality, transfer gain, or training
+utility. Like the audit, it must not persist raw sample contents, raw task
+instructions, local profile paths, source paths, source payloads, prompts,
+provider payloads, headers, API keys, credentials, or arbitrary profile JSON.
 
 ### Dataset Release Pack Contract
 

@@ -552,6 +552,15 @@ class DatasetContractTest(unittest.TestCase):
 
         validate_manifest_record(manifest)
 
+    def test_manifest_contract_accepts_release_quality_artifacts(self) -> None:
+        from synthesis.contracts import validate_manifest_record
+
+        manifest = _valid_manifest()
+        manifest["artifacts"]["release_quality_audit"] = "release_quality_audit.json"
+        manifest["artifacts"]["dataset_release_card"] = "dataset_release_card.md"
+
+        validate_manifest_record(manifest)
+
 
 def _valid_sample() -> dict[str, object]:
     return {

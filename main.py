@@ -7,10 +7,12 @@ import time
 from pathlib import Path
 
 from synthesis.datasets import (
+    attach_dataset_release_card_to_manifest,
     attach_dataset_release_report_to_manifest,
     attach_dataset_release_pack_to_manifest,
     attach_evaluation_report_to_manifest,
     attach_profile_decision_report_to_manifest,
+    attach_release_quality_audit_to_manifest,
 )
 from synthesis.dataset_release import write_dataset_release_report
 from synthesis.evaluation import write_evaluation_report
@@ -22,6 +24,12 @@ from synthesis.pipeline import (
 )
 from synthesis.profile_decisions import write_profile_decision_report
 from synthesis.release_pack import DATASET_RELEASE_PACK_FILENAME, write_dataset_release_pack
+from synthesis.release_quality import (
+    DATASET_RELEASE_CARD_FILENAME,
+    RELEASE_QUALITY_AUDIT_FILENAME,
+    write_dataset_release_card,
+    write_release_quality_audit,
+)
 from synthesis.refinement import deterministic_fixture_refiner
 from synthesis.run_profiles import RunProfile, RunProfileValidationError, load_run_profile
 from synthesis.sources import build_external_fixture_source_bundle
@@ -159,9 +167,23 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Write dataset_release_pack.json with artifact hashes and release evidence.",
     )
+    parser.add_argument(
+        "--write-release-quality-audit",
+        action="store_true",
+        help="Write release_quality_audit.json with release evidence risk signals.",
+    )
+    parser.add_argument(
+        "--write-dataset-release-card",
+        action="store_true",
+        help="Write dataset_release_card.md for human review of release evidence.",
+    )
     args = parser.parse_args()
     if args.write_dataset_release_pack and not args.write_dataset_release_report:
         parser.error("--write-dataset-release-pack requires --write-dataset-release-report")
+    if args.write_release_quality_audit and not args.write_dataset_release_report:
+        parser.error("--write-release-quality-audit requires --write-dataset-release-report")
+    if args.write_dataset_release_card and not args.write_dataset_release_report:
+        parser.error("--write-dataset-release-card requires --write-dataset-release-report")
     if args.write_dataset_release_report:
         if not args.write_evaluation_report:
             parser.error("--write-dataset-release-report requires --write-evaluation-report")
@@ -318,6 +340,19 @@ def main() -> int:
             report_path=dataset_release_report_path,
         )
 
+    release_quality_audit_path = None
+    if args.write_release_quality_audit:
+        assert dataset_release_report_path is not None
+        release_quality_audit_path = result.manifest_path.parent / RELEASE_QUALITY_AUDIT_FILENAME
+        release_quality_audit_path = write_release_quality_audit(
+            manifest_path=result.manifest_path,
+            output_path=release_quality_audit_path,
+        )
+        attach_release_quality_audit_to_manifest(
+            manifest_path=result.manifest_path,
+            audit_path=release_quality_audit_path,
+        )
+
     dataset_release_pack_path = None
     if args.write_dataset_release_pack:
         assert dataset_release_report_path is not None
@@ -339,6 +374,19 @@ def main() -> int:
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 1
+
+    dataset_release_card_path = None
+    if args.write_dataset_release_card:
+        assert dataset_release_report_path is not None
+        dataset_release_card_path = result.manifest_path.parent / DATASET_RELEASE_CARD_FILENAME
+        dataset_release_card_path = write_dataset_release_card(
+            manifest_path=result.manifest_path,
+            output_path=dataset_release_card_path,
+        )
+        attach_dataset_release_card_to_manifest(
+            manifest_path=result.manifest_path,
+            card_path=dataset_release_card_path,
+        )
 
     print(
         "Foundation pipeline complete: "
@@ -363,6 +411,16 @@ def main() -> int:
         + (
             f" dataset_release_pack={dataset_release_pack_path}"
             if dataset_release_pack_path is not None
+            else ""
+        )
+        + (
+            f" release_quality_audit={release_quality_audit_path}"
+            if release_quality_audit_path is not None
+            else ""
+        )
+        + (
+            f" dataset_release_card={dataset_release_card_path}"
+            if dataset_release_card_path is not None
             else ""
         )
     )
