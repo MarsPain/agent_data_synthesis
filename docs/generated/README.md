@@ -11,3 +11,7 @@ Runtime pipeline outputs such as generated samples, rejection logs, manifests, a
 Those runtime files are generated outputs. Re-run the command when validating the local runner rather than editing them by hand.
 
 Use `uv run python main.py --use-llm --output-dir artifacts/foundation-llm` to exercise the remote LLM-backed candidate generation path. This requires `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`; generated exports record provider host and model lineage without writing the API key.
+
+## Architecture Pressure Notes
+
+- [Mobile domain pipeline pressure](mobile-domain-pipeline-pressure.md): second-domain evidence from the synthetic phone messages/reminders/draft-reply probe.

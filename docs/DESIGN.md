@@ -65,6 +65,10 @@ Each final sample should contain:
 Start local and deterministic:
 
 - SQLite-backed environments.
+- Domain packs own their domain state, tool registry, deterministic candidates,
+  and scripted policy generation. The synchronous pipeline owns shared synthesis
+  flow: domain selection, candidate-local isolation, execution, verification,
+  deterministic merge, and artifact assembly.
 - Python callable tools with explicit schemas.
 - Local job runner with resumable manifests.
 - Remote LLM provider adapter configured by `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`.

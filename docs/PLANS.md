@@ -52,6 +52,7 @@ No active implementation plan.
 - [0026-dataset-release-coverage-and-admission-ratchet](exec-plans/completed/0026-dataset-release-coverage-and-admission-ratchet.md): tightened dataset release admission with release completeness thresholds, coverage observations, insufficient-evidence outcomes, and a deterministic release-candidate fixture. Completed on 2026-06-09.
 - [0027-dataset-release-pack-and-reproducibility-verification](exec-plans/completed/0027-dataset-release-pack-and-reproducibility-verification.md): added opt-in hash-locked release packs and standalone verification so passed release-candidate artifacts can be audited without rerunning generation. Completed on 2026-06-12.
 - [0028-release-quality-evidence-audit-and-card](exec-plans/completed/0028-release-quality-evidence-audit-and-card.md): added opt-in release quality evidence audits and human-readable dataset release cards for release-candidate artifact sets without implementing full semantic duplicate detection or changing default release admission. Completed on 2026-06-12.
+- [0029-mobile-agent-second-domain-pipeline-probe](exec-plans/completed/0029-mobile-agent-second-domain-pipeline-probe.md): added a deterministic phone-like messages/reminders/draft-reply domain, mobile tools, mobile state verification, and a minimal synchronous domain pipeline boundary while keeping full AWM runtime extraction deferred. Completed on 2026-06-12.
 
 ## Technical Debt
 

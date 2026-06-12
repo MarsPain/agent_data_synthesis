@@ -117,6 +117,12 @@
   `release_quality_audit.json`, duplicate-family risk signals, and
   `dataset_release_card.md` without implementing full semantic duplicate
   detection or changing default release admission.
+- Add a second deterministic mobile-agent-like domain before full AWM runtime
+  extraction. Implemented in plan 0029 with synthetic phone message threads,
+  reminders, draft replies, mobile tools, domain bundle selection,
+  candidate-local mobile isolation, mobile state verification, and
+  `mobile_fixture` run-profile support while keeping the runtime boundary
+  internal.
 - Prepare the environment layer for a future shared AWM runtime without
   prematurely splitting it into a separate project. Deferred in plan 0025 until
   reward-model-driven data quality evaluation, Agentic RL, a second domain

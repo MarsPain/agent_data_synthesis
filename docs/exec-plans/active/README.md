@@ -9,6 +9,8 @@ No active implementation plan.
 
 ## Completed
 
+- [0029-mobile-agent-second-domain-pipeline-probe](../completed/0029-mobile-agent-second-domain-pipeline-probe.md):
+  completed on 2026-06-12.
 - [0028-release-quality-evidence-audit-and-card](../completed/0028-release-quality-evidence-audit-and-card.md):
   completed on 2026-06-12.
 - [0027-dataset-release-pack-and-reproducibility-verification](../completed/0027-dataset-release-pack-and-reproducibility-verification.md):

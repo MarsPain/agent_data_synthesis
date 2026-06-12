@@ -51,4 +51,7 @@
 - [exec-plans/completed/0023-evaluation-quality-ratchet-and-profile-promotion.md](exec-plans/completed/0023-evaluation-quality-ratchet-and-profile-promotion.md): held-out evaluation quality ratchets and profile promotion decisions.
 - [exec-plans/completed/0024-profile-purpose-and-dataset-release-admission.md](exec-plans/completed/0024-profile-purpose-and-dataset-release-admission.md): profile-purpose classification and opt-in dataset release admission reports.
 - [exec-plans/completed/0026-dataset-release-coverage-and-admission-ratchet.md](exec-plans/completed/0026-dataset-release-coverage-and-admission-ratchet.md): dataset release completeness gates and deterministic release-candidate admission.
+- [exec-plans/completed/0027-dataset-release-pack-and-reproducibility-verification.md](exec-plans/completed/0027-dataset-release-pack-and-reproducibility-verification.md): hash-locked dataset release packs and standalone reproducibility verification.
+- [exec-plans/completed/0028-release-quality-evidence-audit-and-card.md](exec-plans/completed/0028-release-quality-evidence-audit-and-card.md): release quality evidence audit and human-readable dataset release card.
+- [exec-plans/completed/0029-mobile-agent-second-domain-pipeline-probe.md](exec-plans/completed/0029-mobile-agent-second-domain-pipeline-probe.md): deterministic mobile messages/reminders/draft-reply domain probe and minimal domain pipeline boundary.
 - [exec-plans/tech-debt/README.md](exec-plans/tech-debt/README.md): technical debt bucket.

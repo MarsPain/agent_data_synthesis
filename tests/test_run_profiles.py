@@ -128,6 +128,22 @@ class RunProfileTest(unittest.TestCase):
             "diagnostic_probe",
         )
 
+    def test_mobile_fixture_profile_loads_as_diagnostic_probe(self) -> None:
+        from synthesis.run_profiles import load_run_profile
+
+        profile = load_run_profile(
+            Path("tests/fixtures/run_profiles/mobile-agent-fixture.json")
+        )
+
+        self.assertEqual(profile.profile_id, "mobile_agent_fixture")
+        self.assertEqual(profile.seed.domain, "mobile_messages_fixture")
+        self.assertEqual(profile.generation.mode, "mobile_fixture")
+        self.assertEqual(profile.profile_purpose, "diagnostic_probe")
+        self.assertEqual(
+            profile.sanitized_metadata()["generation_mode"],
+            "mobile_fixture",
+        )
+
     def test_profile_purpose_participates_in_config_hash(self) -> None:
         from synthesis.run_profiles import load_run_profile
 

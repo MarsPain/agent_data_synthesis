@@ -296,6 +296,96 @@ class FoundationCliTest(unittest.TestCase):
             self.assertEqual(manifest["run_profile"]["generation_mode"], "foundation_fixture")
             self.assertIn("accepted=2", result.stdout)
 
+    def test_main_can_run_mobile_fixture_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "mobile-agent-fixture"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/mobile-agent-fixture.json",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            for artifact_name in (
+                "samples.jsonl",
+                "rejections.jsonl",
+                "manifest.json",
+                "quality_report.json",
+            ):
+                self.assertTrue((output_dir / artifact_name).exists(), artifact_name)
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["dataset_version"], "dataset_mobile_agent_fixture")
+            self.assertEqual(manifest["accepted_count"], 4)
+            self.assertEqual(manifest["rejected_count"], 0)
+            self.assertEqual(manifest["run_profile"]["generation_mode"], "mobile_fixture")
+            samples = [
+                json.loads(line)
+                for line in (output_dir / "samples.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertTrue(
+                all(sample["environment"]["id"] == "mobile_messages_fixture" for sample in samples)
+            )
+            tool_names = {tool["name"] for tool in samples[0]["tools"]}
+            self.assertIn("search_phone_messages", tool_names)
+            self.assertIn("create_phone_reminder", tool_names)
+            self.assertIn("draft_message_reply", tool_names)
+            self.assertIn("accepted=4", result.stdout)
+
+    def test_default_main_output_remains_contacts_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation-default"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--output-dir",
+                    str(output_dir),
+                    "--dataset-version",
+                    "dataset_cli_default_contacts_only",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            samples_text = (output_dir / "samples.jsonl").read_text(encoding="utf-8")
+            self.assertIn("contacts_fixture", samples_text)
+            self.assertIn("lookup_contact_email", samples_text)
+            self.assertNotIn("mobile_messages_fixture", samples_text)
+            self.assertNotIn("search_phone_messages", samples_text)
+
+    def test_main_rejects_mobile_profile_with_mcp_adapter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/mobile-agent-fixture.json",
+                    "--enable-mcp-adapter",
+                    "--output-dir",
+                    str(Path(tmpdir) / "mobile-agent-fixture"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("MCP adapter", result.stderr)
+            self.assertIn("mobile_messages_fixture", result.stderr)
+
     def test_main_dataset_version_overrides_profile_dataset_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "foundation"

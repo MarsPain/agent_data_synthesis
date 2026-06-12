@@ -24,15 +24,13 @@ from synthesis.datasets import (
     assemble_task_suggestion_rejection,
     write_dataset_artifacts,
 )
-from synthesis.environments import ContactEnvironment
 from synthesis.environments import ContactsEnvironmentInput
-from synthesis.execution import (
-    scripted_solution_policy,
+from synthesis.domain_pipeline import (
+    DomainPipelineBundle,
+    build_domain_pipeline_bundle,
+    rebuild_domain_pipeline_bundle,
 )
 from synthesis.llm import LLMConfig, LLMProviderError, OpenAICompatibleClient
-from synthesis.mcp import (
-    LocalContactsAdapterShim,
-)
 from synthesis.refinement import Refiner, RefinementAttempt, RefinementContext
 from synthesis.refinement import generate_llm_backed_refinement
 from synthesis.roles import RoleRegistry, default_role_registry
@@ -52,15 +50,12 @@ from synthesis.tasks import (
     TaskExpansionResult,
     generate_deterministic_task_expansion,
     generate_llm_backed_edited_task,
-    generate_foundation_candidates,
     generate_llm_backed_candidates,
     generate_llm_backed_task_suggestions,
 )
 from synthesis.tools import (
     ToolRegistry,
-    build_contact_tool_registry,
 )
-from synthesis.verification import ExactAnswerVerifier
 
 
 @dataclass(frozen=True)
@@ -229,10 +224,13 @@ def run_foundation_pipeline(
     if contacts_environment_input is not None:
         source_provenance["environment_source_admission"] = "accepted"
         try:
-            environment = ContactEnvironment.create_from_input(
+            domain_bundle = build_domain_pipeline_bundle(
+                seed,
                 output_dir / "environment",
-                contacts_environment_input,
                 source_provenance=source_provenance,
+                contacts_environment_input=contacts_environment_input,
+                enable_mcp_adapter=enable_mcp_adapter,
+                include_branching=enable_branching,
             )
         except Exception as exc:
             rejected_provenance = dict(source_result.provenance)
@@ -288,32 +286,28 @@ def run_foundation_pipeline(
                 )
             )
     else:
-        environment = ContactEnvironment.create_fixture(
+        domain_bundle = build_domain_pipeline_bundle(
+            seed,
             output_dir / "environment",
             source_provenance=source_provenance,
-        )
-    registry = build_contact_tool_registry(environment)
-    adapter_shim = (
-        LocalContactsAdapterShim(environment=environment, registry=registry)
-        if enable_mcp_adapter
-        else None
-    )
-    verifier = ExactAnswerVerifier()
-    llm_config = LLMConfig.from_env()
-    if candidate_generator is None:
-        generate_candidates = lambda current_seed: generate_foundation_candidates(
-            current_seed,
+            enable_mcp_adapter=enable_mcp_adapter,
             include_branching=enable_branching,
         )
+    environment = domain_bundle.environment
+    registry = domain_bundle.registry
+    verifier = domain_bundle.verifier
+    llm_config = LLMConfig.from_env()
+    if candidate_generator is None:
+        generate_candidates = domain_bundle.candidate_generator
     else:
         generate_candidates = candidate_generator
     generate_task_expansion = task_expansion_generator or generate_deterministic_task_expansion
-    generate_policy = policy_generator or scripted_solution_policy
+    generate_policy = policy_generator or domain_bundle.policy_generator
     candidate_context = CandidateProcessingContext(
         dataset_version=dataset_version,
         environment=environment,
         registry=registry,
-        adapter_shim=adapter_shim,
+        adapter_shim=domain_bundle.adapter_shim,
         verifier=verifier,
         llm_config=llm_config,
         generate_policy=generate_policy,
@@ -330,7 +324,7 @@ def run_foundation_pipeline(
     tool_proposal_records: list[dict[str, object]] = []
     accepted_signatures: frozenset[tuple[str, tuple[str, ...]]] = frozenset()
     try:
-        _run_foundation_quality_gates(environment, registry)
+        _run_foundation_quality_gates(domain_bundle.domain_id, environment, registry)
     except FoundationGateError as exc:
         rejections.append(assemble_pipeline_gate_rejection(error=exc))
         _attach_source_governance_to_rejections(rejections, source_provenance)
@@ -398,6 +392,7 @@ def run_foundation_pipeline(
         outcome = process_candidate_through_gates(
             request=request,
             context=_candidate_context_for_request(
+                base_bundle=domain_bundle,
                 base_context=candidate_context,
                 output_dir=output_dir,
                 request=request,
@@ -445,6 +440,7 @@ def run_foundation_pipeline(
             outcome = process_candidate_through_gates(
                 request=request,
                 context=_candidate_context_for_request(
+                    base_bundle=domain_bundle,
                     base_context=candidate_context,
                     output_dir=output_dir,
                     request=request,
@@ -499,28 +495,25 @@ def run_foundation_pipeline(
 
 def _candidate_context_for_request(
     *,
+    base_bundle: DomainPipelineBundle,
     base_context: CandidateProcessingContext,
     output_dir: Path,
     request: CandidateExecutionRequest,
     enable_mcp_adapter: bool,
 ) -> CandidateProcessingContext:
     candidate_id = getattr(request.raw_task, "candidate_id", "unknown_candidate")
-    environment = base_context.environment.rebuild(
+    candidate_bundle = rebuild_domain_pipeline_bundle(
+        base_bundle,
         output_dir
         / "candidate-environments"
-        / f"{request.sequence_index:04d}-{_path_safe_candidate_id(str(candidate_id))}"
-    )
-    registry = build_contact_tool_registry(environment)
-    adapter_shim = (
-        LocalContactsAdapterShim(environment=environment, registry=registry)
-        if enable_mcp_adapter
-        else None
+        / f"{request.sequence_index:04d}-{_path_safe_candidate_id(str(candidate_id))}",
+        enable_mcp_adapter=enable_mcp_adapter,
     )
     return CandidateProcessingContext(
         dataset_version=base_context.dataset_version,
-        environment=environment,
-        registry=registry,
-        adapter_shim=adapter_shim,
+        environment=candidate_bundle.environment,
+        registry=candidate_bundle.registry,
+        adapter_shim=candidate_bundle.adapter_shim,
         verifier=base_context.verifier,
         llm_config=base_context.llm_config,
         generate_policy=base_context.generate_policy,
@@ -561,7 +554,8 @@ def _redact_source_payload_values(value: object) -> object:
 
 
 def _run_foundation_quality_gates(
-    environment: ContactEnvironment,
+    domain_id: str,
+    environment: object,
     registry: ToolRegistry,
 ) -> None:
     metadata = environment.metadata()
@@ -572,12 +566,27 @@ def _run_foundation_quality_gates(
     if not tools:
         raise FoundationGateError("registered tool smoke check found no tools")
     names = {str(tool.get("name")) for tool in tools}
-    if "lookup_contact_email" not in names:
-        raise FoundationGateError("lookup_contact_email is not registered")
-
-    try:
-        result = registry.execute("lookup_contact_email", {"name": "Alice Zhang"})
-    except Exception as exc:
-        raise FoundationGateError(f"lookup_contact_email smoke check failed: {exc}") from exc
-    if result.get("email") != "alice.zhang@example.test":
-        raise FoundationGateError("lookup_contact_email smoke check returned unexpected data")
+    if domain_id == "contacts_fixture":
+        if "lookup_contact_email" not in names:
+            raise FoundationGateError("lookup_contact_email is not registered")
+        try:
+            result = registry.execute("lookup_contact_email", {"name": "Alice Zhang"})
+        except Exception as exc:
+            raise FoundationGateError(f"lookup_contact_email smoke check failed: {exc}") from exc
+        if result.get("email") != "alice.zhang@example.test":
+            raise FoundationGateError("lookup_contact_email smoke check returned unexpected data")
+        return
+    if domain_id == "mobile_messages_fixture":
+        if "search_phone_messages" not in names:
+            raise FoundationGateError("search_phone_messages is not registered")
+        try:
+            result = registry.execute(
+                "search_phone_messages",
+                {"query": "project update", "participant": "Maya"},
+            )
+        except Exception as exc:
+            raise FoundationGateError(f"search_phone_messages smoke check failed: {exc}") from exc
+        if result.get("message_id") != "msg_maya_project_update":
+            raise FoundationGateError("search_phone_messages smoke check returned unexpected data")
+        return
+    raise FoundationGateError(f"unsupported pipeline domain: {domain_id}")

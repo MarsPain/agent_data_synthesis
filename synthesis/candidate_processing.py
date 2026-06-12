@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Callable
+from typing import Any, Callable
 
 from synthesis.contracts import ContractValidationError, validate_candidate_task
 from synthesis.datasets import (
@@ -12,7 +12,6 @@ from synthesis.datasets import (
     assemble_sample,
     attach_refinement_to_rejection,
 )
-from synthesis.environments import ContactEnvironment
 from synthesis.execution import (
     BranchExecutionError,
     PolicyValidationError,
@@ -24,7 +23,6 @@ from synthesis.mcp import (
     ADAPTER_VERSION,
     PROTOCOL_LABEL,
     AdapterExecutionError,
-    LocalContactsAdapterShim,
 )
 from synthesis.quality import (
     build_review_record,
@@ -55,9 +53,9 @@ ToolProposalGenerator = Callable[[CapabilityGap], ToolProposal]
 @dataclass(frozen=True)
 class CandidateProcessingContext:
     dataset_version: str
-    environment: ContactEnvironment
+    environment: Any
     registry: ToolRegistry
-    adapter_shim: LocalContactsAdapterShim | None
+    adapter_shim: Any | None
     verifier: ExactAnswerVerifier
     llm_config: LLMConfig
     generate_policy: PolicyGenerator

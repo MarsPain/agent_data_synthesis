@@ -32,10 +32,18 @@
 - **Contacts Environment Input:** typed contacts rows and optional follow-up rows
   derived from an admitted source bundle, plus source bundle id, source policy
   hash, and validation errors.
+- **Mobile Messages Environment:** deterministic synthetic phone-like fixture
+  with message threads, messages, reminders, and draft replies. It uses
+  `environment.id: mobile_messages_fixture` and supports checkpoint/restore and
+  candidate-local rebuilds without real mobile OS access.
 - **Seed Transformation:** bounded expansion record that maps a source seed to a
   target taxonomy node, capability target, and intended difficulty movement.
 - **Environment:** executable stateful world with reset/checkpoint behavior.
 - **Tool:** typed callable action exposed to the Agent.
+- **Mobile Tool:** domain-owned callable in the mobile fixture. Current tools
+  are `search_phone_messages`, `create_phone_reminder`, and
+  `draft_message_reply`; draft tools create local draft state only and do not
+  send real messages.
 - **Task:** user-facing goal plus structured constraints and difficulty metadata.
 - **Task Suggestion:** intent-level task proposal with required capabilities,
   target tools, constraints, verification expectation, suggestion outcome, and
@@ -181,10 +189,11 @@ When a run is configured by a `run_profile_v1` file, `manifest.json` includes an
 optional `run_profile` object. This object is sanitized metadata only:
 `schema_version`, `profile_id`, `generation_mode`, `profile_purpose`,
 `target_candidate_count`, `config_hash`, and `enabled_features`.
-`deterministic_scale_probe` profiles default to `diagnostic_probe`;
-`foundation_fixture` and `llm` profiles default to `release_candidate` when the
-field is omitted. The purpose participates in the profile config hash because it
-changes release eligibility. The metadata must not copy raw profile files,
+`deterministic_scale_probe` and `mobile_fixture` profiles default to
+`diagnostic_probe`; `foundation_fixture` and `llm` profiles default to
+`release_candidate` when the field is omitted. The purpose participates in the
+profile config hash because it changes release eligibility. The metadata must
+not copy raw profile files,
 source payloads, authorization headers, provider prompts, API keys, or other
 secret-like fields. Non-profile runs omit `run_profile`.
 
@@ -228,6 +237,12 @@ Trajectory events currently supported by the contract are:
 `lineage.solution_policy` is present when a scripted or remote policy generator
 is used separately from task generation. It follows the same sanitized role
 metadata shape as `lineage.generator`.
+
+Expected-state verification currently recognizes `contact_followup`,
+`mobile_reminder`, and `mobile_draft_reply`. Mobile reminder checks compare
+title, optional due time, and optional source message id against the active
+mobile environment. Mobile draft checks compare thread id and body against the
+active mobile environment.
 
 `lineage.refinement` is present only for accepted samples produced by a repaired
 rerun. It records the original candidate id, attempt number, source failure

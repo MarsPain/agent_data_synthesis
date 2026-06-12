@@ -12,7 +12,12 @@ from synthesis.seeds import DomainSeed
 
 RUN_PROFILE_SCHEMA_VERSION = "run_profile_v1"
 RUN_PROFILE_SCHEMA_VERSIONS = {"run_profile_v1", "run_profile_v2"}
-GENERATION_MODES = {"foundation_fixture", "deterministic_scale_probe", "llm"}
+GENERATION_MODES = {
+    "foundation_fixture",
+    "deterministic_scale_probe",
+    "mobile_fixture",
+    "llm",
+}
 PROFILE_PURPOSES = {"diagnostic_probe", "release_candidate", "benchmark"}
 SOURCE_KINDS = {"local_contacts_json"}
 SOURCE_KEYS = {"kind", "source_id", "path", "license_label", "max_bytes"}
@@ -239,7 +244,7 @@ def _load_profile_purpose(value: object, *, generation_mode: str) -> str:
 
 
 def _default_profile_purpose(generation_mode: str) -> str:
-    if generation_mode == "deterministic_scale_probe":
+    if generation_mode in {"deterministic_scale_probe", "mobile_fixture"}:
         return "diagnostic_probe"
     return "release_candidate"
 

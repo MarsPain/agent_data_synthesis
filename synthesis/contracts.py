@@ -80,7 +80,12 @@ GENERATED_CODE_SCAN_STATUSES = {"passed", "rejected"}
 SANDBOX_EXECUTION_STATUSES = {"succeeded", "failed"}
 SANDBOX_EXIT_CLASSES = {"zero", "nonzero", "timeout", "wrapper_error", "non_json"}
 ARTIFACT_ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
-RUN_PROFILE_GENERATION_MODES = {"foundation_fixture", "deterministic_scale_probe", "llm"}
+RUN_PROFILE_GENERATION_MODES = {
+    "foundation_fixture",
+    "deterministic_scale_probe",
+    "mobile_fixture",
+    "llm",
+}
 RUN_PROFILE_PURPOSES = {"diagnostic_probe", "release_candidate", "benchmark"}
 RUN_PROFILE_FEATURE_KEYS = {
     "enable_branching",
