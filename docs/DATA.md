@@ -130,6 +130,8 @@ and a quality report:
 - `dataset_release_report.json`: optional dataset release admission report
   written only when explicitly requested after evaluation and profile decision
   reports are available.
+- `dataset_release_pack.json`: optional hash-locked release pack written only
+  when explicitly requested after a dataset release report passes.
 
 ```json
 {
@@ -160,6 +162,10 @@ report records the evaluation input name and held-out evidence summary.
 When dataset release reporting is explicitly requested, the manifest references
 `dataset_release_report`. This report is absent by default and does not change
 candidate processing, evaluation, or profile-promotion behavior.
+When dataset release pack writing is explicitly requested, the manifest
+references `dataset_release_pack` before the pack computes the final manifest
+hash. The pack is absent by default and can be written only after
+`dataset_release_report.json` passes dataset release admission.
 
 When a run is configured by a `run_profile_v1` file, `manifest.json` includes an
 optional `run_profile` object. This object is sanitized metadata only:
@@ -417,6 +423,39 @@ but `release_completeness.decision.status` is not `passed`,
 `decisions.dataset_release.status` must be `insufficient_evidence` and include
 `release_completeness` in `triggered_by`. A dataset release can pass only when
 both the earlier release gates and release completeness pass.
+
+### Dataset Release Pack Contract
+
+`dataset_release_pack.json` uses `schema_version:
+dataset_release_pack_v1` and is generated only when explicitly requested with
+`--write-dataset-release-pack`. It requires
+`--write-dataset-release-report`, reads existing sanitized release artifacts,
+and does not rerun candidate generation.
+
+The pack records `dataset_version`, deterministic `release_id`, sanitized
+profile identity, input artifact names, release evidence, and file records for
+`samples`, `rejections`, `manifest`, `quality_report`, `evaluation_report`,
+`profile_decision_report`, and `dataset_release_report`. Each file record stores
+only the relative artifact name, `sha256:<64 lowercase hex chars>`, and byte
+count. `release_id` is deterministic from the dataset version and sorted
+artifact hashes.
+
+Verification statuses are:
+
+- `passed`: referenced files exist, hashes and byte counts match, manifest
+  release artifact references are present, dataset/profile metadata is
+  consistent across the pack and reports, dataset release admission passed, and
+  release completeness passed.
+- `failed`: the pack is readable, but referenced files drifted or release
+  evidence no longer agrees.
+- `insufficient_evidence`: the pack or referenced JSON artifacts are absent,
+  unreadable, or malformed.
+
+Release-pack verification proves artifact integrity and release-admission
+consistency for the local artifact directory. It does not prove downstream model
+quality, training gain, or benchmark improvement. The pack must not store raw
+sample contents, raw source payloads, local profile paths, provider prompts,
+provider payloads, headers, API keys, arbitrary profile JSON, or credentials.
 
 Capability-gap records use `schema_version: capability_gap_v1` and preserve
 candidate id, policy id, gap type, tool name, rejection cause, message, schema

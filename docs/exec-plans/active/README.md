@@ -5,10 +5,12 @@ is accepted as complete, move it to `../completed/` and update `../../PLANS.md`.
 
 ## Currently Executing
 
-- None.
+No active implementation plan.
 
 ## Completed
 
+- [0027-dataset-release-pack-and-reproducibility-verification](../completed/0027-dataset-release-pack-and-reproducibility-verification.md):
+  completed on 2026-06-12.
 - [0026-dataset-release-coverage-and-admission-ratchet](../completed/0026-dataset-release-coverage-and-admission-ratchet.md):
   completed on 2026-06-09.
 - [0024-profile-purpose-and-dataset-release-admission](../completed/0024-profile-purpose-and-dataset-release-admission.md):

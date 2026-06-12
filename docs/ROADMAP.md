@@ -107,6 +107,11 @@
   rejection-rate, task-type coverage, and tool-combination coverage gates so
   small release-candidate smoke runs cannot be mistaken for sufficiently
   covered local MVP dataset versions.
+- Add hash-locked dataset release packs and standalone reproducibility
+  verification before async orchestration. Implemented in plan 0027 with
+  opt-in `dataset_release_pack.json`, artifact hashes and byte counts,
+  manifest-aware pack creation, and offline drift detection without rerunning
+  candidate generation.
 - Prepare the environment layer for a future shared AWM runtime without
   prematurely splitting it into a separate project. Deferred in plan 0025 until
   reward-model-driven data quality evaluation, Agentic RL, a second domain

@@ -102,6 +102,7 @@ MANIFEST_ARTIFACT_KEYS = {
     "profile_decision_report",
     "evaluation_report",
     "dataset_release_report",
+    "dataset_release_pack",
 }
 EVALUATION_TASK_STATUSES = {"passed", "failed"}
 EVALUATION_DECISION_STATUSES = {"passed", "failed", "insufficient_evidence"}
@@ -115,6 +116,16 @@ DATASET_RELEASE_STATUSES = {
     "insufficient_evidence",
 }
 RELEASE_COMPLETENESS_STATUSES = {"passed", "insufficient_evidence"}
+DATASET_RELEASE_PACK_STATUSES = {"passed", "failed", "insufficient_evidence"}
+DATASET_RELEASE_PACK_ARTIFACT_KEYS = {
+    "manifest",
+    "samples",
+    "rejections",
+    "quality_report",
+    "evaluation_report",
+    "profile_decision_report",
+    "dataset_release_report",
+}
 
 
 def validate_candidate_task(task: object) -> CandidateTask:
@@ -373,6 +384,68 @@ def validate_dataset_release_report_record(record: Mapping[str, Any]) -> None:
             f"release_artifacts.{field}",
         )
         _validate_artifact_filename(artifact_name, f"release_artifacts.{field}")
+
+
+def validate_dataset_release_pack_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "dataset_release_pack")
+    if _contains_raw_secret(record):
+        raise ContractValidationError("dataset_release_pack contains raw secret material")
+    schema_version = _require_non_empty_string(record.get("schema_version"), "schema_version")
+    if schema_version != "dataset_release_pack_v1":
+        raise ContractValidationError("schema_version is unsupported")
+    dataset_version = _require_non_empty_string(record.get("dataset_version"), "dataset_version")
+    release_id = _require_non_empty_string(record.get("release_id"), "release_id")
+    expected_prefix = f"{dataset_version}:sha256:"
+    if not release_id.startswith(expected_prefix) or len(release_id) != len(expected_prefix) + 64:
+        raise ContractValidationError("release_id must be dataset_version:sha256:<digest>")
+    release_digest = release_id.removeprefix(expected_prefix)
+    if any(character not in "0123456789abcdef" for character in release_digest):
+        raise ContractValidationError("release_id must be dataset_version:sha256:<digest>")
+
+    _validate_profile_decision_profile(record.get("profile"))
+    inputs = _require_mapping(record.get("inputs"), "inputs")
+    for field in ("manifest_path", "dataset_release_report_path"):
+        artifact_name = _require_non_empty_string(inputs.get(field), f"inputs.{field}")
+        _validate_artifact_filename(artifact_name, f"inputs.{field}")
+
+    artifacts = _require_mapping(record.get("artifacts"), "artifacts")
+    missing = sorted(DATASET_RELEASE_PACK_ARTIFACT_KEYS.difference(artifacts))
+    if missing:
+        raise ContractValidationError(f"artifacts missing required keys: {', '.join(missing)}")
+    unexpected = sorted(str(key) for key in artifacts if key not in DATASET_RELEASE_PACK_ARTIFACT_KEYS)
+    if unexpected:
+        raise ContractValidationError(
+            f"artifacts contains unsupported keys: {', '.join(unexpected)}"
+        )
+    for key in sorted(DATASET_RELEASE_PACK_ARTIFACT_KEYS):
+        artifact = _require_mapping(artifacts.get(key), f"artifacts.{key}")
+        path = _require_non_empty_string(artifact.get("path"), f"artifacts.{key}.path")
+        _validate_artifact_filename(path, f"artifacts.{key}.path")
+        _validate_content_hash(artifact.get("sha256"), f"artifacts.{key}.sha256")
+        _require_int(artifact.get("byte_count"), f"artifacts.{key}.byte_count")
+
+    evidence = _require_mapping(record.get("evidence"), "evidence")
+    for field in ("accepted", "rejected"):
+        _require_int(evidence.get(field), f"evidence.{field}")
+    for field in (
+        "heldout_status",
+        "profile_promotion_status",
+        "dataset_release_status",
+        "release_completeness_status",
+        "async_orchestration_status",
+        "semantic_duplicate_detection_status",
+    ):
+        _require_non_empty_string(evidence.get(field), f"evidence.{field}")
+
+    verification = _require_mapping(record.get("verification"), "verification")
+    status = _require_non_empty_string(verification.get("status"), "verification.status")
+    if status not in DATASET_RELEASE_PACK_STATUSES:
+        raise ContractValidationError("verification.status is unsupported")
+    reasons = _require_sequence(verification.get("reasons"), "verification.reasons")
+    if not reasons:
+        raise ContractValidationError("verification.reasons must contain at least one reason")
+    for index, reason in enumerate(reasons):
+        _require_non_empty_string(reason, f"verification.reasons.{index}")
 
 
 def _validate_release_completeness(raw: object) -> dict[str, str]:

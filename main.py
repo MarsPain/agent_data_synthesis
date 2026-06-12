@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
 
 from synthesis.datasets import (
     attach_dataset_release_report_to_manifest,
+    attach_dataset_release_pack_to_manifest,
     attach_evaluation_report_to_manifest,
     attach_profile_decision_report_to_manifest,
 )
@@ -19,6 +21,7 @@ from synthesis.pipeline import (
     run_foundation_pipeline,
 )
 from synthesis.profile_decisions import write_profile_decision_report
+from synthesis.release_pack import DATASET_RELEASE_PACK_FILENAME, write_dataset_release_pack
 from synthesis.refinement import deterministic_fixture_refiner
 from synthesis.run_profiles import RunProfile, RunProfileValidationError, load_run_profile
 from synthesis.sources import build_external_fixture_source_bundle
@@ -151,7 +154,14 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Write dataset_release_report.json and reference it from the manifest.",
     )
+    parser.add_argument(
+        "--write-dataset-release-pack",
+        action="store_true",
+        help="Write dataset_release_pack.json with artifact hashes and release evidence.",
+    )
     args = parser.parse_args()
+    if args.write_dataset_release_pack and not args.write_dataset_release_report:
+        parser.error("--write-dataset-release-pack requires --write-dataset-release-report")
     if args.write_dataset_release_report:
         if not args.write_evaluation_report:
             parser.error("--write-dataset-release-report requires --write-evaluation-report")
@@ -308,6 +318,28 @@ def main() -> int:
             report_path=dataset_release_report_path,
         )
 
+    dataset_release_pack_path = None
+    if args.write_dataset_release_pack:
+        assert dataset_release_report_path is not None
+        dataset_release_pack_path = result.manifest_path.parent / DATASET_RELEASE_PACK_FILENAME
+        release_pack_error = _dataset_release_pack_preflight_error(dataset_release_report_path)
+        if release_pack_error is not None:
+            print(release_pack_error, file=sys.stderr)
+            return 1
+        attach_dataset_release_pack_to_manifest(
+            manifest_path=result.manifest_path,
+            pack_path=dataset_release_pack_path,
+        )
+        try:
+            write_dataset_release_pack(
+                manifest_path=result.manifest_path,
+                dataset_release_report_path=dataset_release_report_path,
+                output_path=dataset_release_pack_path,
+            )
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+
     print(
         "Foundation pipeline complete: "
         f"accepted={result.accepted_count} "
@@ -326,6 +358,11 @@ def main() -> int:
         + (
             f" dataset_release_report={dataset_release_report_path}"
             if dataset_release_report_path is not None
+            else ""
+        )
+        + (
+            f" dataset_release_pack={dataset_release_pack_path}"
+            if dataset_release_pack_path is not None
             else ""
         )
     )
@@ -396,6 +433,29 @@ def _feature_enabled(
     cli_enabled = bool(getattr(args, feature_name))
     profile_enabled = bool(getattr(profile.features, feature_name)) if profile else False
     return cli_enabled or profile_enabled
+
+
+def _dataset_release_pack_preflight_error(dataset_release_report_path: Path) -> str | None:
+    report = json.loads(dataset_release_report_path.read_text(encoding="utf-8"))
+    if not isinstance(report, dict):
+        return "dataset_release_report must be a JSON object"
+    decisions = report.get("decisions")
+    if not isinstance(decisions, dict):
+        return "dataset_release_report decisions must be an object"
+    dataset_release = decisions.get("dataset_release")
+    if not isinstance(dataset_release, dict):
+        return "dataset_release_report decisions.dataset_release must be an object"
+    if dataset_release.get("status") != "passed":
+        return "dataset_release_report decisions.dataset_release.status must be passed"
+    release_completeness = report.get("release_completeness")
+    if not isinstance(release_completeness, dict):
+        return "dataset_release_report release_completeness must be an object"
+    completeness_decision = release_completeness.get("decision")
+    if not isinstance(completeness_decision, dict):
+        return "dataset_release_report release_completeness.decision must be an object"
+    if completeness_decision.get("status") != "passed":
+        return "dataset_release_report release_completeness.decision.status must be passed"
+    return None
 
 
 class _FixtureHttpResponse:

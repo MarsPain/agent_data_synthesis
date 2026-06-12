@@ -82,6 +82,18 @@ def attach_dataset_release_report_to_manifest(
     )
 
 
+def attach_dataset_release_pack_to_manifest(
+    *,
+    manifest_path: Path,
+    pack_path: Path,
+) -> None:
+    _attach_artifact_to_manifest(
+        manifest_path=manifest_path,
+        artifact_key="dataset_release_pack",
+        artifact_path=pack_path,
+    )
+
+
 def _attach_artifact_to_manifest(
     *,
     manifest_path: Path,

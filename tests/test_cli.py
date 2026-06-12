@@ -51,9 +51,11 @@ class FoundationCliTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue((output_dir / "manifest.json").exists(), result.stdout)
             self.assertFalse((output_dir / "dataset_release_report.json").exists())
+            self.assertFalse((output_dir / "dataset_release_pack.json").exists())
             manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["dataset_version"], "dataset_cli_test")
             self.assertNotIn("dataset_release_report", manifest["artifacts"])
+            self.assertNotIn("dataset_release_pack", manifest["artifacts"])
             self.assertIn("accepted=2", result.stdout)
             self.assertNotIn("secret-test-key", result.stdout)
 
@@ -755,6 +757,126 @@ class FoundationCliTest(unittest.TestCase):
                 set(completeness["thresholds"]["required_task_types"]),
                 set(completeness["observed"]["task_types"]),
             )
+
+    def test_release_pack_requires_dataset_release_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/foundation-release-candidate.json",
+                    "--write-dataset-release-pack",
+                    "--output-dir",
+                    str(Path(tmpdir) / "foundation-release-candidate"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("--write-dataset-release-pack", result.stderr)
+            self.assertIn("--write-dataset-release-report", result.stderr)
+
+    def test_release_pack_is_not_attached_when_release_report_does_not_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation-scale-probe"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/foundation-scale-probe-25.json",
+                    "--write-evaluation-report",
+                    "--write-profile-decision-report",
+                    "--write-dataset-release-report",
+                    "--write-dataset-release-pack",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("dataset_release", result.stderr)
+            self.assertFalse((output_dir / "dataset_release_pack.json").exists())
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertNotIn("dataset_release_pack", manifest["artifacts"])
+
+    def test_release_candidate_profile_can_write_and_verify_release_pack(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation-release-candidate"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/foundation-release-candidate.json",
+                    "--write-evaluation-report",
+                    "--write-profile-decision-report",
+                    "--write-dataset-release-report",
+                    "--write-dataset-release-pack",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            pack_path = output_dir / "dataset_release_pack.json"
+            self.assertTrue(pack_path.exists(), result.stdout)
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            pack = json.loads(pack_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                manifest["artifacts"]["dataset_release_pack"],
+                "dataset_release_pack.json",
+            )
+            self.assertEqual(pack["verification"]["status"], "passed")
+            self.assertEqual(
+                pack["artifacts"]["manifest"]["path"],
+                "manifest.json",
+            )
+            self.assertIn("dataset_release_pack=", result.stdout)
+
+            verification = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/verify_dataset_release.py",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(verification.returncode, 0, verification.stdout + verification.stderr)
+            verified = json.loads(verification.stdout)
+            self.assertEqual(verified["verification"]["status"], "passed")
+
+            (output_dir / "samples.jsonl").write_text('{"drift": true}\n', encoding="utf-8")
+            drifted = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/verify_dataset_release.py",
+                    "--release-pack",
+                    str(pack_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(drifted.returncode, 1)
+            drift_result = json.loads(drifted.stdout)
+            self.assertEqual(drift_result["verification"]["status"], "failed")
 
     def test_dataset_release_report_requires_profile_decision_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
