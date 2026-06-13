@@ -24,6 +24,7 @@ from synthesis.datasets import (
     assemble_task_suggestion_rejection,
     write_dataset_artifacts,
 )
+from synthesis.episode_quality import EPISODES_FILENAME, write_episode_logs as write_episode_log_jsonl
 from synthesis.environments import ContactsEnvironmentInput
 from synthesis.domain_pipeline import (
     DomainPipelineBundle,
@@ -69,6 +70,7 @@ class PipelineResult:
     sandbox_audits_path: Path | None
     parent_comparison_path: Path | None
     review_queue_path: Path | None
+    episode_logs_path: Path | None
     accepted_count: int
     rejected_count: int
 
@@ -178,6 +180,7 @@ def run_foundation_pipeline(
     enable_sandbox_fixture: bool = False,
     seed_override: DomainSeed | None = None,
     run_profile_metadata: dict[str, object] | None = None,
+    write_episode_logs: bool = False,
 ) -> PipelineResult:
     seed = seed_override or foundation_seed()
     source_event_records: list[dict[str, object]] = list(source_events or [])
@@ -214,6 +217,7 @@ def run_foundation_pipeline(
             sandbox_audits_path=artifacts.sandbox_audits_path,
             parent_comparison_path=artifacts.parent_comparison_path,
             review_queue_path=artifacts.review_queue_path,
+            episode_logs_path=None,
             accepted_count=artifacts.accepted_count,
             rejected_count=artifacts.rejected_count,
         )
@@ -273,6 +277,7 @@ def run_foundation_pipeline(
                 sandbox_audits_path=artifacts.sandbox_audits_path,
                 parent_comparison_path=artifacts.parent_comparison_path,
                 review_queue_path=artifacts.review_queue_path,
+                episode_logs_path=None,
                 accepted_count=artifacts.accepted_count,
                 rejected_count=artifacts.rejected_count,
             )
@@ -322,6 +327,7 @@ def run_foundation_pipeline(
     rejections: list[dict[str, object]] = []
     review_records: list[dict[str, object]] = []
     tool_proposal_records: list[dict[str, object]] = []
+    episode_logs: list[dict[str, object]] = []
     accepted_signatures: frozenset[tuple[str, tuple[str, ...]]] = frozenset()
     try:
         _run_foundation_quality_gates(domain_bundle.domain_id, environment, registry)
@@ -349,6 +355,7 @@ def run_foundation_pipeline(
             sandbox_audits_path=artifacts.sandbox_audits_path,
             parent_comparison_path=artifacts.parent_comparison_path,
             review_queue_path=artifacts.review_queue_path,
+            episode_logs_path=None,
             accepted_count=artifacts.accepted_count,
             rejected_count=artifacts.rejected_count,
         )
@@ -379,6 +386,7 @@ def run_foundation_pipeline(
             sandbox_audits_path=artifacts.sandbox_audits_path,
             parent_comparison_path=artifacts.parent_comparison_path,
             review_queue_path=artifacts.review_queue_path,
+            episode_logs_path=None,
             accepted_count=artifacts.accepted_count,
             rejected_count=artifacts.rejected_count,
         )
@@ -410,6 +418,7 @@ def run_foundation_pipeline(
     rejections.extend(base_merge.rejections)
     review_records.extend(base_merge.review_records)
     tool_proposal_records.extend(base_merge.tool_proposal_records)
+    episode_logs.extend(base_merge.episode_logs)
     accepted_signatures = base_merge.accepted_signatures
 
     if enable_task_expansion:
@@ -458,6 +467,7 @@ def run_foundation_pipeline(
         rejections.extend(expanded_merge.rejections)
         review_records.extend(expanded_merge.review_records)
         tool_proposal_records.extend(expanded_merge.tool_proposal_records)
+        episode_logs.extend(expanded_merge.episode_logs)
         accepted_signatures = expanded_merge.accepted_signatures
 
     _attach_source_governance_to_rejections(rejections, source_provenance)
@@ -478,6 +488,11 @@ def run_foundation_pipeline(
         sandbox_audits=sandbox_audits,
         run_profile_metadata=run_profile_metadata,
     )
+    episode_logs_path = (
+        write_episode_log_jsonl(output_dir / EPISODES_FILENAME, episode_logs)
+        if write_episode_logs
+        else None
+    )
     return PipelineResult(
         samples_path=artifacts.samples_path,
         manifest_path=artifacts.manifest_path,
@@ -488,6 +503,7 @@ def run_foundation_pipeline(
         sandbox_audits_path=artifacts.sandbox_audits_path,
         parent_comparison_path=artifacts.parent_comparison_path,
         review_queue_path=artifacts.review_queue_path,
+        episode_logs_path=episode_logs_path,
         accepted_count=artifacts.accepted_count,
         rejected_count=artifacts.rejected_count,
     )

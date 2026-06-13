@@ -10,11 +10,18 @@ from synthesis.datasets import (
     attach_dataset_release_card_to_manifest,
     attach_dataset_release_report_to_manifest,
     attach_dataset_release_pack_to_manifest,
+    attach_episode_quality_report_to_manifest,
+    attach_episodes_to_manifest,
     attach_evaluation_report_to_manifest,
     attach_profile_decision_report_to_manifest,
     attach_release_quality_audit_to_manifest,
 )
 from synthesis.dataset_release import write_dataset_release_report
+from synthesis.episode_quality import (
+    EPISODE_QUALITY_REPORT_FILENAME,
+    read_episode_logs,
+    write_episode_quality_report,
+)
 from synthesis.evaluation import write_evaluation_report
 from synthesis.llm import LLMConfigurationError, LLMProviderError
 from synthesis.pipeline import (
@@ -158,6 +165,11 @@ def parse_args() -> argparse.Namespace:
         help="Write evaluation_report.json and reference it from the manifest.",
     )
     parser.add_argument(
+        "--write-episode-quality-report",
+        action="store_true",
+        help="Write episodes.jsonl and episode_quality_report.json for runtime episode evidence scoring.",
+    )
+    parser.add_argument(
         "--write-dataset-release-report",
         action="store_true",
         help="Write dataset_release_report.json and reference it from the manifest.",
@@ -296,10 +308,32 @@ def main() -> int:
                 if profile is not None
                 else None
             ),
+            write_episode_logs=args.write_episode_quality_report,
         )
     except (LLMConfigurationError, LLMProviderError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
+
+    episode_quality_report_path = None
+    if args.write_episode_quality_report:
+        assert result.episode_logs_path is not None
+        episodes = read_episode_logs(result.episode_logs_path)
+        episode_quality_report_path = result.manifest_path.parent / EPISODE_QUALITY_REPORT_FILENAME
+        episode_quality_report_path = write_episode_quality_report(
+            episode_quality_report_path,
+            dataset_version=args.dataset_version,
+            episodes=episodes,
+            manifest_path=result.manifest_path,
+            episodes_path=result.episode_logs_path,
+        )
+        attach_episodes_to_manifest(
+            manifest_path=result.manifest_path,
+            episodes_path=result.episode_logs_path,
+        )
+        attach_episode_quality_report_to_manifest(
+            manifest_path=result.manifest_path,
+            report_path=episode_quality_report_path,
+        )
 
     evaluation_report_path = None
     if args.write_evaluation_report:
@@ -396,6 +430,11 @@ def main() -> int:
         + (
             f" evaluation_report={evaluation_report_path}"
             if evaluation_report_path is not None
+            else ""
+        )
+        + (
+            f" episode_quality_report={episode_quality_report_path}"
+            if episode_quality_report_path is not None
             else ""
         )
         + (

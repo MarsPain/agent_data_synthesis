@@ -1,6 +1,6 @@
 # Mobile Domain Pipeline Pressure
 
-Generated during plan 0029 on 2026-06-12. Updated by plan 0030 on
+Generated during plan 0029 on 2026-06-12. Updated by plans 0030 and 0031 on
 2026-06-13.
 
 ## What Changed
@@ -71,6 +71,27 @@ The larger 0025 extraction pressure remains unresolved:
 - `CandidateTask` still mixes task intent, policy hints, expected answer, and
   expected state; 0030 documents that pressure but does not migrate the schema.
 
+## Plan 0031 Episode-Quality Consumer Update
+
+Plan 0031 partially resolves the in-memory-only episode pressure by adding a
+repo-local, opt-in consumer:
+
+- `--write-episode-quality-report` writes validated `episodes.jsonl` records for
+  admitted samples and non-duplicate rejected execution attempts.
+- `episode_quality_report_v1` scores contract validity, action/observation
+  presence, accepted final-response and error consistency, state-change support,
+  and known runtime ids across contacts and mobile episodes.
+- The report summaries contain ids, runtime/outcome fields, transition counts,
+  tool names, and failed check names only; they omit raw arguments,
+  observations, final responses, prompts, provider payloads, source payloads,
+  credentials, and host paths.
+- Manifest references for `episodes` and `episode_quality_report` are attached
+  only when the report is explicitly requested.
+
+This does not resolve executable replay, reward-label export, Agentic RL rollout
+collection, external MCP environment servers, mobile source-governed input, or
+the `CandidateTask` intent/policy/expected-state split.
+
 ## Evidence
 
 - `tests.test_mobile_environment` covers mobile SQLite fixture construction,
@@ -86,5 +107,8 @@ The larger 0025 extraction pressure remains unresolved:
 - `tests.test_episode_logs` covers episode transition mapping, deterministic
   hashing, redaction, contract validation, and the diagnostic episode quality
   summary reader.
+- `tests.test_episode_quality` covers opt-in episode JSONL round trips,
+  deterministic episode-quality decisions, report validation, and sanitized
+  summaries for contacts and mobile episodes.
 - `tests.test_cli` covers the mobile run profile and confirms default CLI output
-  remains contacts-only.
+  remains contacts-only; it also covers opt-in episode-quality report writing.

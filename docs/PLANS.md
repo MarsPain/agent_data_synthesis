@@ -20,9 +20,10 @@ No active implementation plan is currently open.
   "补充思考" section for the full deferral rationale.
 - [0025-awm-runtime-boundary-and-shared-environment-kernel](exec-plans/deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md):
   staged extraction path for the future AWM environment runtime; **deferred**
-  until reward/data-quality evaluation, Agentic RL, a second domain environment,
-  or external MCP environment servers create a real production consumer for the
-  runtime boundary. Completed plan
+  after plan 0031 added a repo-local episode data-quality consumer, until
+  executable replay, reward/RL workflows, external MCP environment servers, or
+  stronger cross-consumer package-boundary pressure justifies extraction.
+  Completed plan
   [0030-runtime-contract-and-episode-evidence](exec-plans/completed/0030-runtime-contract-and-episode-evidence.md)
   implemented only the internal runtime-contract and episode-evidence phase.
 
@@ -56,6 +57,7 @@ No active implementation plan is currently open.
 - [0028-release-quality-evidence-audit-and-card](exec-plans/completed/0028-release-quality-evidence-audit-and-card.md): added opt-in release quality evidence audits and human-readable dataset release cards for release-candidate artifact sets without implementing full semantic duplicate detection or changing default release admission. Completed on 2026-06-12.
 - [0029-mobile-agent-second-domain-pipeline-probe](exec-plans/completed/0029-mobile-agent-second-domain-pipeline-probe.md): added a deterministic phone-like messages/reminders/draft-reply domain, mobile tools, mobile state verification, and a minimal synchronous domain pipeline boundary while keeping full AWM runtime extraction deferred. Completed on 2026-06-12.
 - [0030-runtime-contract-and-episode-evidence](exec-plans/completed/0030-runtime-contract-and-episode-evidence.md): added shared runtime metadata, contacts/mobile runtime protocol coverage, sanitized in-memory episode evidence, and a diagnostic episode summary reader while keeping full AWM runtime extraction deferred. Completed on 2026-06-13.
+- [0031-episode-replay-and-data-quality-scoring-consumer](exec-plans/completed/0031-episode-replay-and-data-quality-scoring-consumer.md): added opt-in episode JSONL export and deterministic episode quality scoring as the first repo-local runtime/episode consumer after plan 0030. Completed on 2026-06-13.
 
 ## Technical Debt
 

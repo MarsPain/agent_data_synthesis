@@ -129,11 +129,17 @@
   sanitized in-memory `episode_log_v1` evidence, and a diagnostic episode
   summary reader while keeping package extraction, reward/RL consumers, async
   orchestration, and semantic duplicate detection deferred.
+- Add the first real runtime/episode consumer before full AWM runtime
+  extraction. Implemented in plan 0031 with opt-in `episodes.jsonl` export and
+  deterministic `episode_quality_report_v1` scoring over contacts/mobile
+  episode evidence while keeping executable replay, reward training, Agentic
+  RL, async orchestration, release admission changes, and package extraction
+  deferred.
 - Prepare the environment layer for a future shared AWM runtime without
-  prematurely splitting it into a separate project. Deferred in plan 0025 until
-  reward-model-driven data quality evaluation, Agentic RL, a second domain
-  environment, or external MCP environment servers create a second real consumer
-  for the runtime boundary.
+  prematurely splitting it into a separate project. Deferred in plan 0025 after
+  plan 0031 supplied a repo-local data-quality consumer; extraction still needs
+  stronger replay, adapter, Agentic RL, or cross-consumer package-boundary
+  pressure.
 - Add async orchestration with durable queues.
 - Evaluate Ray-style distributed workers if throughput requires it.
 - Add monitoring dashboards and cost controls.

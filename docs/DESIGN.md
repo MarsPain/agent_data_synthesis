@@ -44,12 +44,23 @@ Owns policy execution, tool call recording, observation capture, retries, and er
 Execution can now derive internal `episode_log_v1` evidence from existing
 trajectories. Episode evidence records ordered actions, observations,
 state-change summaries, final responses, runtime identity, policy identity, and
-verifier identity for diagnostics. It is not part of the default dataset sample
-schema and is not a release artifact.
+verifier identity for diagnostics and opt-in quality scoring. It is not part of
+the default dataset sample schema and is not a release artifact.
 
 ### Verification
 
 Owns executable checks, logical checks, LLM-as-judge checks, diversity checks, and human review routing.
+
+### Episode Quality
+
+Owns the first non-synthesis consumer of runtime episode evidence. It reads
+opt-in `episodes.jsonl` records, validates the `episode_log_v1` contract, scores
+transition completeness and state-change support, and writes
+`episode_quality_report_v1` summaries without raw arguments, observations,
+final responses, prompts, provider payloads, credentials, source payloads, or
+host paths. It consumes `synthesis.runtime` and `synthesis.episodes`; it does
+not own candidate admission, dataset release, profile promotion, reward model
+training, executable replay, or Agentic RL rollout collection.
 
 ### Dataset Assembly
 
@@ -84,6 +95,9 @@ Start local and deterministic:
   Runtime-aware code should use `runtime_metadata()` for environment identity,
   reset recipe class, state backend, and checkpoint strategy; sample assembly
   continues to use `metadata()` for the public dataset environment field.
+- Episode-quality reporting is a repo-local, synchronous runtime evidence
+  consumer. It proves the episode boundary can serve another data-quality
+  reader while keeping full AWM runtime package extraction deferred.
 - Python callable tools with explicit schemas.
 - Local job runner with resumable manifests.
 - Remote LLM provider adapter configured by `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`.

@@ -167,6 +167,15 @@ class DatasetContractTest(unittest.TestCase):
 
         validate_manifest_record(manifest)
 
+    def test_manifest_contract_accepts_episode_quality_artifacts(self) -> None:
+        from synthesis.contracts import validate_manifest_record
+
+        manifest = _valid_manifest()
+        manifest["artifacts"]["episodes"] = "episodes.jsonl"
+        manifest["artifacts"]["episode_quality_report"] = "episode_quality_report.json"
+
+        validate_manifest_record(manifest)
+
     def test_manifest_contract_rejects_unsupported_profile_purpose(self) -> None:
         from synthesis.contracts import ContractValidationError, validate_manifest_record
 

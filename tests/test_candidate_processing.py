@@ -221,6 +221,36 @@ class CandidateProcessingRecordTest(unittest.TestCase):
         self.assertEqual(len(enabled.review_records), 1)
         self.assertEqual(enabled.review_records[0]["cause"], "quality_duplicate")
 
+    def test_merge_returns_episode_logs_for_admitted_outcomes_only(self) -> None:
+        from synthesis.candidate_processing import (
+            ProvisionalCandidateOutcome,
+            merge_candidate_outcomes,
+        )
+
+        result = merge_candidate_outcomes(
+            (
+                ProvisionalCandidateOutcome(
+                    sequence_index=0,
+                    candidate_id="candidate_first",
+                    sample={"sample_id": "sample_first"},
+                    duplicate_signature=("same instruction", ("lookup_contact_email",)),
+                    episode_log={"episode_id": "episode_first"},
+                ),
+                ProvisionalCandidateOutcome(
+                    sequence_index=1,
+                    candidate_id="candidate_duplicate",
+                    sample={"sample_id": "sample_duplicate"},
+                    duplicate_signature=("same instruction", ("lookup_contact_email",)),
+                    episode_log={"episode_id": "episode_duplicate"},
+                ),
+            )
+        )
+
+        self.assertEqual(len(result.samples), 1)
+        self.assertEqual(len(result.rejections), 1)
+        self.assertEqual(result.rejections[0]["cause"], "quality_duplicate")
+        self.assertEqual(result.episode_logs, ({"episode_id": "episode_first"},))
+
     def test_tool_proposal_rerun_returns_proposal_record_with_accepted_sample(self) -> None:
         from synthesis.candidate_processing import (
             CandidateProcessingOptions,

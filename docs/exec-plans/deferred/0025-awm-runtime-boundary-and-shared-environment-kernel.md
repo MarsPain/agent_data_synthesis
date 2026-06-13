@@ -2,9 +2,11 @@
 
 ## Status
 
-Planned on 2026-06-09. **Deferred** until a second real consumer besides data
-synthesis needs the environment runtime contract, such as reward-model-driven
-Agent data quality evaluation or Agentic RL rollout execution.
+Planned on 2026-06-09. **Deferred** after plan 0031 supplied a second
+repo-local data-quality consumer of episode evidence. Extraction still waits
+for stronger pressure from executable replay, reward-label/training workflows,
+Agentic RL rollout execution, external MCP environment servers, or clear
+cross-consumer package-boundary criteria.
 
 ## Goal
 
@@ -18,10 +20,11 @@ Adopt the staged extraction path:
 1. First stabilize the AWM runtime boundary inside this repository.
 2. Keep data synthesis as the first consumer while preventing dataset-specific
    concerns from leaking into the environment runtime.
-3. Add at least one additional consumer, such as reward/data-quality evaluation
-   or Agentic RL, against the same runtime interface.
+3. Add additional consumers against the same runtime interface. Plan 0031 adds
+   the first repo-local episode data-quality scoring consumer, but it does not
+   replay actions against fresh runtime state or drive reward/RL workflows.
 4. Split the runtime into a separate project only after the shared contract is
-   validated by multiple consumers.
+   validated by multiple consumers whose needs justify a package boundary.
 
 The intended future split is an `awm_runtime`-style project or package, not a
 contacts-domain fixture project. The shared unit should be the execution
@@ -44,17 +47,24 @@ contract, adapter surface, state lifecycle, and episode logging model.
   state inspection, and episode-level evidence. Those needs overlap with data
   synthesis, but their training loops and evaluation policies must remain
   separate from the environment runtime.
+- [../completed/0031-episode-replay-and-data-quality-scoring-consumer.md](../completed/0031-episode-replay-and-data-quality-scoring-consumer.md)
+  adds an opt-in `episode_quality_report_v1` consumer over `episode_log_v1`.
+  This supplies second-consumer evidence for sanitized episode scoring, but it
+  deliberately excludes executable replay, reward model training, Agentic RL,
+  external MCP servers, and package extraction.
 
 ## Trigger Conditions
 
 Move this plan from `deferred/` to `active/` when one of these is true:
 
-- reward-model-driven Agent data quality evaluation needs to replay or score
-  trajectories against executable environment state;
+- reward-model-driven Agent data quality evaluation needs to replay
+  trajectories against executable environment state or produce reward labels
+  beyond the repo-local episode-quality scoring report;
 - Agentic RL needs reset/step/checkpoint/restore or rollout logging over the
   same environments used for synthesis;
-- a second domain environment is introduced and the contacts-specific class
-  shape starts duplicating lifecycle, adapter, or episode-log behavior;
+- more domain environments or adapters start duplicating lifecycle,
+  reset/checkpoint, or episode-log behavior beyond the contacts/mobile shared
+  protocol;
 - external MCP environment servers become an implementation target rather than
   a manifest-only compatibility contract.
 

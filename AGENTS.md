@@ -41,4 +41,4 @@ uv run python -m unittest
 - The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
 - Current active work is tracked in [docs/PLANS.md](docs/PLANS.md); no active
   implementation plan is currently open.
-- Latest completed work is documented in [docs/exec-plans/completed/0030-runtime-contract-and-episode-evidence.md](docs/exec-plans/completed/0030-runtime-contract-and-episode-evidence.md).
+- Latest completed work is documented in [docs/exec-plans/completed/0031-episode-replay-and-data-quality-scoring-consumer.md](docs/exec-plans/completed/0031-episode-replay-and-data-quality-scoring-consumer.md).

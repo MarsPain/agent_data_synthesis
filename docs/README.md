@@ -55,4 +55,5 @@
 - [exec-plans/completed/0028-release-quality-evidence-audit-and-card.md](exec-plans/completed/0028-release-quality-evidence-audit-and-card.md): release quality evidence audit and human-readable dataset release card.
 - [exec-plans/completed/0029-mobile-agent-second-domain-pipeline-probe.md](exec-plans/completed/0029-mobile-agent-second-domain-pipeline-probe.md): deterministic mobile messages/reminders/draft-reply domain probe and minimal domain pipeline boundary.
 - [exec-plans/completed/0030-runtime-contract-and-episode-evidence.md](exec-plans/completed/0030-runtime-contract-and-episode-evidence.md): internal runtime contract and episode evidence phase before full AWM runtime extraction.
+- [exec-plans/completed/0031-episode-replay-and-data-quality-scoring-consumer.md](exec-plans/completed/0031-episode-replay-and-data-quality-scoring-consumer.md): opt-in episode JSONL export and deterministic episode quality scoring as the first repo-local runtime/episode consumer.
 - [exec-plans/tech-debt/README.md](exec-plans/tech-debt/README.md): technical debt bucket.

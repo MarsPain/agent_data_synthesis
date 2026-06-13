@@ -25,6 +25,11 @@ The first backend should be a local Python pipeline with explicit modules and du
 - `synthesis.episodes`: internal `episode_log_v1` construction, deterministic
   transition hashing, redaction, and diagnostic episode summaries over existing
   trajectories.
+- `synthesis.episode_quality`: opt-in `episodes.jsonl` persistence and
+  `episode_quality_report_v1` construction over sanitized episode logs. It
+  validates runtime/episode evidence, scores transition completeness and
+  state-change support, and writes compact summaries without raw tool payloads,
+  prompts, credentials, or host paths.
 - `synthesis.tools`: tool definitions, schema generation, registry, dependency
   graph, capability-gap records, bounded tool proposals, and curated local tool
   admission.
@@ -141,10 +146,9 @@ trajectories, exports, or logs.
    clean environment checkpoint until one terminal path succeeds, preserving
    rejected branch outcomes separately from the selected trajectory.
 12. Verify outputs and expected state changes independently.
-13. Build in-memory episode evidence for accepted executions and rejected
-   executions that already have a trajectory. Episode evidence is a diagnostic
-   runtime contract consumer only; it is not written to default dataset
-   artifacts or release artifacts.
+13. Build internal episode evidence for accepted executions and rejected
+   executions that already have a trajectory. Episode evidence is not written to
+   default dataset artifacts or release artifacts.
 14. For repairable verification or logical-support failures, optionally run one
    `critic_refinement` attempt and rerun validation, execution, verification,
    and quality gates through the normal path.
@@ -167,18 +171,24 @@ trajectories, exports, or logs.
    task-expansion lineage, quality reports, lineage, sanitized run-profile
    manifest metadata, and narrow per-record run-profile attribution when a
    profile is supplied.
-20. When `--write-evaluation-report` is explicitly supplied, run the
+20. When `--write-episode-quality-report` is explicitly supplied, write
+   `episodes.jsonl`, score it into `episode_quality_report.json`, and rewrite
+   only the manifest artifact map to reference both opt-in artifacts. This
+   local synchronous consumer validates and scores runtime episode evidence; it
+   does not replay actions against fresh state, train reward models, collect RL
+   rollouts, or change candidate admission.
+21. When `--write-evaluation-report` is explicitly supplied, run the
    deterministic contacts held-out suite, write `evaluation_report.json`, and
    rewrite only the manifest artifact map to reference that report. The
    evaluation report includes controlled expected-failure benchmark semantics
    and per-capability threshold decisions.
-21. When `--write-profile-decision-report` is explicitly supplied, read the
+22. When `--write-profile-decision-report` is explicitly supplied, read the
    exported manifest and quality report, write `profile_decision_report.json`,
    include held-out evaluation evidence when an evaluation report was also
    requested, separate the MVP quality-floor decision from the higher-level
    profile-promotion decision, and rewrite only the manifest artifact map to
    reference that report.
-22. When `--write-dataset-release-report` is explicitly supplied, require both
+23. When `--write-dataset-release-report` is explicitly supplied, require both
    evaluation and profile-decision reports, read those existing artifacts, write
    `dataset_release_report.json`, and rewrite only the manifest artifact map to
    reference that report. Release admission distinguishes diagnostic probes from
@@ -282,3 +292,11 @@ runtime protocol and accepted executions can produce sanitized in-memory episode
 logs. This remains local synchronous behavior; reward model training, Agentic
 RL rollout collection, external MCP environment servers, and durable async
 workers remain deferred.
+
+Plan 0031 adds the first repo-local non-synthesis consumer of those episode
+logs. The consumer is still synchronous and opt-in: it persists `episodes.jsonl`
+only for the report run, writes `episode_quality_report.json`, and attaches both
+artifact names to the manifest. It gives plan 0025 second-consumer evidence, but
+does not activate `synthesis.orchestration`, executable state replay, reward
+training, Agentic RL, external MCP environment servers, or runtime package
+extraction.

@@ -305,6 +305,40 @@ class FoundationPipelineTest(unittest.TestCase):
                 quality_report["slices"]["tool_combination"],
             )
 
+    def test_episode_logs_are_opt_in_and_kept_out_of_public_samples(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            default = run_foundation_pipeline(
+                root / "default",
+                dataset_version="dataset_default_episode_opt_in",
+            )
+            opt_in = run_foundation_pipeline(
+                root / "opt-in",
+                dataset_version="dataset_episode_opt_in",
+                write_episode_logs=True,
+            )
+
+            self.assertIsNone(default.episode_logs_path)
+            self.assertFalse((root / "default" / "episodes.jsonl").exists())
+            self.assertIsNotNone(opt_in.episode_logs_path)
+            assert opt_in.episode_logs_path is not None
+            self.assertTrue(opt_in.episode_logs_path.exists())
+            episodes = [
+                json.loads(line)
+                for line in opt_in.episode_logs_path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(len(episodes), opt_in.accepted_count + opt_in.rejected_count)
+            self.assertTrue(
+                all(episode["runtime"]["runtime_id"] == "contacts_fixture" for episode in episodes)
+            )
+            samples = [
+                json.loads(line)
+                for line in opt_in.samples_path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertTrue(all("episode_log" not in sample for sample in samples))
+
     def test_pipeline_uses_seed_override_and_writes_sanitized_run_profile_metadata(self) -> None:
         from synthesis.pipeline import run_foundation_pipeline
         from synthesis.run_profiles import load_run_profile

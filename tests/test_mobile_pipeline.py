@@ -179,6 +179,47 @@ class MobilePipelineTest(unittest.TestCase):
             quality_report["slices"]["tool_combination"],
         )
 
+    def test_mobile_pipeline_can_write_episode_logs_with_state_changes(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_foundation_pipeline(
+                Path(tmpdir),
+                dataset_version="dataset_mobile_episode_logs",
+                seed_override=mobile_seed(),
+                write_episode_logs=True,
+            )
+
+            self.assertIsNotNone(result.episode_logs_path)
+            assert result.episode_logs_path is not None
+            episodes = [
+                json.loads(line)
+                for line in result.episode_logs_path.read_text(encoding="utf-8").splitlines()
+            ]
+
+        self.assertEqual(len(episodes), 4)
+        self.assertTrue(
+            any(
+                episode["runtime"]["runtime_id"] == "mobile_messages_fixture"
+                for episode in episodes
+            )
+        )
+        stateful_episodes = [
+            episode
+            for episode in episodes
+            if any(
+                transition.get("tool_name") in {"create_phone_reminder", "draft_message_reply"}
+                for transition in episode["transitions"]
+            )
+        ]
+        self.assertTrue(stateful_episodes)
+        self.assertTrue(
+            all(
+                any(transition["event_type"] == "state_change" for transition in episode["transitions"])
+                for episode in stateful_episodes
+            )
+        )
+
     def test_mobile_candidate_carries_internal_episode_log_without_public_sample_field(self) -> None:
         from synthesis.candidate_processing import (
             CandidateProcessingContext,

@@ -69,8 +69,13 @@
 - **Episode Log:** internal evidence view derived from a trajectory. It records
   ordered transitions, deterministic hashes over sanitized JSON payloads,
   runtime identity, policy identity, verifier identity, and accepted/rejected or
-  failed outcome. It is kept in memory during candidate processing in this plan
-  and is not written to default public artifacts.
+  failed outcome. It is kept internal by default and is written to
+  `episodes.jsonl` only when episode-quality reporting is explicitly requested.
+- **Episode Quality Report:** opt-in data-quality consumer report over
+  `episode_log_v1`. It validates and scores episode transition completeness,
+  state-change support, runtime identity, and accepted-outcome consistency
+  without reading or writing raw prompts, raw payloads, tool arguments,
+  observations, final-response text, credentials, or host paths.
 - **Verifier:** independent checks that decide whether a trajectory satisfies the task.
 - **Refinement Attempt:** bounded critic diagnosis plus one revised candidate or
   solution policy used to rerun a failed candidate.
@@ -156,6 +161,13 @@ and a quality report:
   when explicitly requested after a dataset release report passes.
 - `dataset_release_card.md`: optional human-readable release card written only
   when explicitly requested after a dataset release report is available.
+- `episodes.jsonl`: optional internal episode evidence export written only when
+  `--write-episode-quality-report` is explicitly requested. It contains
+  validated `episode_log_v1` records aligned to admitted samples and
+  non-duplicate rejected execution attempts.
+- `episode_quality_report.json`: optional deterministic quality report over
+  `episodes.jsonl`, written only when explicitly requested. It is not a dataset
+  release, profile-promotion, reward-model, or downstream model-quality proof.
 
 ```json
 {
@@ -195,6 +207,10 @@ requested, the manifest references `release_quality_audit` and
 `dataset_release_card` respectively. Both artifacts are absent by default and
 do not change candidate admission, profile promotion, or dataset release
 admission.
+When episode-quality reporting is explicitly requested, the manifest references
+`episodes` and `episode_quality_report`. These references are absent by default
+and do not change `samples.jsonl`, `rejections.jsonl`, release admission, or
+profile promotion.
 
 When a run is configured by a `run_profile_v1` file, `manifest.json` includes an
 optional `run_profile` object. This object is sanitized metadata only:
@@ -281,8 +297,37 @@ Allowed episode transition types are `action`, `observation`, `state_change`,
 over sorted sanitized JSON. Allowed outcomes are `accepted`, `rejected`, and
 `failed`. Episode redaction removes local/source paths, profile fields, provider
 prompts, provider payloads, headers, API keys, environment variables, and
-secret-like values. Episode logs are not persisted to `samples.jsonl`,
-`rejections.jsonl`, `manifest.json`, or release artifacts in this phase.
+secret-like values. Episode logs are never persisted to `samples.jsonl` or
+`rejections.jsonl`; the opt-in `episodes.jsonl` export is an internal evidence
+artifact used by `episode_quality_report.json`.
+
+### Episode Quality Report Contract
+
+`episode_quality_report.json` uses `schema_version:
+episode_quality_report_v1` and is generated only when explicitly requested. It
+reads validated `episode_log_v1` records from `episodes.jsonl` and records:
+
+- artifact input names for `manifest.json` and `episodes.jsonl`;
+- observed episode counts by outcome and runtime;
+- unique tool names;
+- fixed checks for `contract_valid`, `has_action`, `has_observation`,
+  `accepted_has_final_response`, `accepted_has_no_error`,
+  `state_change_supported`, and `runtime_known`;
+- per-episode summaries containing ids, runtime id, outcome status, transition
+  counts, tool names, and failed check names only;
+- a decision status of `passed`, `watch`, `failed`, or
+  `insufficient_evidence`.
+
+Required failures in contract validity, action/observation presence,
+accepted-final-response count, or accepted-error absence produce `failed`.
+Failures in state-change support or known-runtime diagnostics produce `watch`.
+No episodes produce `insufficient_evidence`.
+
+Report validators reject absolute or nested input paths, unsupported check
+names, unsupported summary keys, raw secrets, provider/prompt payload material,
+and host-path-like artifact references. Episode summaries must not contain raw
+instructions, tool arguments, observations, final-response content, source
+payloads, provider payloads, prompts, credentials, or local paths.
 
 `lineage.source_provenance` records the source bundle id, source policy hash,
 source ids, source kinds, license labels, license outcomes, retention/export

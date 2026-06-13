@@ -9,6 +9,8 @@ No active implementation plan is currently open.
 
 ## Completed
 
+- [0031-episode-replay-and-data-quality-scoring-consumer](../completed/0031-episode-replay-and-data-quality-scoring-consumer.md):
+  completed on 2026-06-13.
 - [0030-runtime-contract-and-episode-evidence](../completed/0030-runtime-contract-and-episode-evidence.md):
   completed on 2026-06-13.
 - [0029-mobile-agent-second-domain-pipeline-probe](../completed/0029-mobile-agent-second-domain-pipeline-probe.md):
