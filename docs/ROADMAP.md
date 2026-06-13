@@ -135,11 +135,17 @@
   episode evidence while keeping executable replay, reward training, Agentic
   RL, async orchestration, release admission changes, and package extraction
   deferred.
+- Add an executable episode replay consistency probe before full AWM runtime
+  extraction. Implemented in plan 0032 with opt-in replay of `episode_log_v1`
+  against fresh contacts/mobile runtimes and `episode_replay_report_v1`
+  package-boundary evidence while keeping reward/RL, external MCP servers,
+  async orchestration, release admission changes, and package extraction
+  deferred.
 - Prepare the environment layer for a future shared AWM runtime without
   prematurely splitting it into a separate project. Deferred in plan 0025 after
-  plan 0031 supplied a repo-local data-quality consumer; extraction still needs
-  stronger replay, adapter, Agentic RL, or cross-consumer package-boundary
-  pressure.
+  plans 0031 and 0032 supplied repo-local data-quality and executable replay
+  consumers; extraction still needs stronger reward/RL, external MCP, adapter,
+  or cross-consumer package-boundary pressure.
 - Add async orchestration with durable queues.
 - Evaluate Ray-style distributed workers if throughput requires it.
 - Add monitoring dashboards and cost controls.

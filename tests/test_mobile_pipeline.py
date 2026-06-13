@@ -220,6 +220,40 @@ class MobilePipelineTest(unittest.TestCase):
             )
         )
 
+    def test_mobile_episode_logs_can_build_passed_replay_report(self) -> None:
+        from synthesis.episode_quality import read_episode_logs
+        from synthesis.episode_replay import build_episode_replay_report
+        from synthesis.pipeline import run_foundation_pipeline
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_foundation_pipeline(
+                Path(tmpdir),
+                dataset_version="dataset_mobile_episode_replay",
+                seed_override=mobile_seed(),
+                write_episode_logs=True,
+            )
+
+            assert result.episode_logs_path is not None
+            report = build_episode_replay_report(
+                dataset_version="dataset_mobile_episode_replay",
+                episodes=read_episode_logs(result.episode_logs_path),
+                manifest_path=result.manifest_path,
+                episodes_path=result.episode_logs_path,
+            )
+
+        self.assertEqual(report["decision"]["status"], "passed")
+        self.assertGreater(
+            report["observed"]["runtime_counts"]["mobile_messages_fixture"],
+            0,
+        )
+        self.assertIn("create_phone_reminder", report["observed"]["tool_names"])
+        self.assertTrue(
+            any(
+                summary["state_change_match_count"] > 0
+                for summary in report["episode_summaries"]
+            )
+        )
+
     def test_mobile_candidate_carries_internal_episode_log_without_public_sample_field(self) -> None:
         from synthesis.candidate_processing import (
             CandidateProcessingContext,

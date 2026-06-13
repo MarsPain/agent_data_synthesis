@@ -11,6 +11,7 @@ from synthesis.datasets import (
     attach_dataset_release_report_to_manifest,
     attach_dataset_release_pack_to_manifest,
     attach_episode_quality_report_to_manifest,
+    attach_episode_replay_report_to_manifest,
     attach_episodes_to_manifest,
     attach_evaluation_report_to_manifest,
     attach_profile_decision_report_to_manifest,
@@ -21,6 +22,10 @@ from synthesis.episode_quality import (
     EPISODE_QUALITY_REPORT_FILENAME,
     read_episode_logs,
     write_episode_quality_report,
+)
+from synthesis.episode_replay import (
+    EPISODE_REPLAY_REPORT_FILENAME,
+    write_episode_replay_report,
 )
 from synthesis.evaluation import write_evaluation_report
 from synthesis.llm import LLMConfigurationError, LLMProviderError
@@ -170,6 +175,11 @@ def parse_args() -> argparse.Namespace:
         help="Write episodes.jsonl and episode_quality_report.json for runtime episode evidence scoring.",
     )
     parser.add_argument(
+        "--write-episode-replay-report",
+        action="store_true",
+        help="Write episode_replay_report.json by replaying sanitized episode logs against fresh runtimes.",
+    )
+    parser.add_argument(
         "--write-dataset-release-report",
         action="store_true",
         help="Write dataset_release_report.json and reference it from the manifest.",
@@ -308,7 +318,10 @@ def main() -> int:
                 if profile is not None
                 else None
             ),
-            write_episode_logs=args.write_episode_quality_report,
+            write_episode_logs=(
+                args.write_episode_quality_report
+                or args.write_episode_replay_report
+            ),
         )
     except (LLMConfigurationError, LLMProviderError) as exc:
         print(str(exc), file=sys.stderr)
@@ -333,6 +346,27 @@ def main() -> int:
         attach_episode_quality_report_to_manifest(
             manifest_path=result.manifest_path,
             report_path=episode_quality_report_path,
+        )
+
+    episode_replay_report_path = None
+    if args.write_episode_replay_report:
+        assert result.episode_logs_path is not None
+        episodes = read_episode_logs(result.episode_logs_path)
+        episode_replay_report_path = result.manifest_path.parent / EPISODE_REPLAY_REPORT_FILENAME
+        episode_replay_report_path = write_episode_replay_report(
+            episode_replay_report_path,
+            dataset_version=args.dataset_version,
+            episodes=episodes,
+            manifest_path=result.manifest_path,
+            episodes_path=result.episode_logs_path,
+        )
+        attach_episodes_to_manifest(
+            manifest_path=result.manifest_path,
+            episodes_path=result.episode_logs_path,
+        )
+        attach_episode_replay_report_to_manifest(
+            manifest_path=result.manifest_path,
+            report_path=episode_replay_report_path,
         )
 
     evaluation_report_path = None
@@ -435,6 +469,11 @@ def main() -> int:
         + (
             f" episode_quality_report={episode_quality_report_path}"
             if episode_quality_report_path is not None
+            else ""
+        )
+        + (
+            f" episode_replay_report={episode_replay_report_path}"
+            if episode_replay_report_path is not None
             else ""
         )
         + (

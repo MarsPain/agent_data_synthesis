@@ -94,6 +94,18 @@ def attach_episode_quality_report_to_manifest(
     )
 
 
+def attach_episode_replay_report_to_manifest(
+    *,
+    manifest_path: Path,
+    report_path: Path,
+) -> None:
+    _attach_artifact_to_manifest(
+        manifest_path=manifest_path,
+        artifact_key="episode_replay_report",
+        artifact_path=report_path,
+    )
+
+
 def attach_dataset_release_report_to_manifest(
     *,
     manifest_path: Path,

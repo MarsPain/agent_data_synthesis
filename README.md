@@ -15,6 +15,9 @@ Agent Data Synthesis is an early-stage Python project for building an automated 
 - Runs can optionally write a sanitized `evaluation_report.json` from a
   deterministic held-out contacts suite; profile decision reports include that
   evidence when both report flags are supplied.
+- Runs can optionally write sanitized `episodes.jsonl`,
+  `episode_quality_report.json`, and `episode_replay_report.json` artifacts for
+  runtime episode evidence scoring and executable replay consistency checks.
 - The planned synthesis pipeline is LLM-driven through a remote OpenAI-compatible API. It does not include local LLM cluster deployment.
 
 ## Documentation Map
@@ -36,6 +39,7 @@ uv run python main.py --enable-refinement --output-dir artifacts/foundation-refi
 uv run python main.py --enable-branching --output-dir artifacts/foundation-branching
 uv run python main.py --enable-task-expansion --output-dir artifacts/foundation-task-expansion
 uv run python main.py --enable-source-governance-fixture --output-dir artifacts/foundation-source-governance
+uv run python main.py --write-episode-replay-report --output-dir artifacts/foundation-episode-replay
 uv run python main.py --run-profile tests/fixtures/run_profiles/foundation-scale-probe-25.json --write-evaluation-report --write-profile-decision-report --output-dir artifacts/foundation-scale-probe
 uv run python main.py --use-llm --output-dir artifacts/foundation-llm
 uv run python scripts/evaluation_report.py --manifest artifacts/foundation/manifest.json --quality-report artifacts/foundation/quality_report.json

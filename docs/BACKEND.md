@@ -30,6 +30,11 @@ The first backend should be a local Python pipeline with explicit modules and du
   validates runtime/episode evidence, scores transition completeness and
   state-change support, and writes compact summaries without raw tool payloads,
   prompts, credentials, or host paths.
+- `synthesis.episode_replay`: opt-in `episode_replay_report_v1` construction
+  over sanitized episode logs. It rebuilds fresh contacts/mobile fixture
+  runtimes, re-executes action transitions through `ToolRegistry.execute()`,
+  compares observation/state-change hashes, and writes compact summaries without
+  raw tool payloads, prompts, credentials, or host paths.
 - `synthesis.tools`: tool definitions, schema generation, registry, dependency
   graph, capability-gap records, bounded tool proposals, and curated local tool
   admission.
@@ -177,7 +182,14 @@ trajectories, exports, or logs.
    local synchronous consumer validates and scores runtime episode evidence; it
    does not replay actions against fresh state, train reward models, collect RL
    rollouts, or change candidate admission.
-21. When `--write-evaluation-report` is explicitly supplied, run the
+21. When `--write-episode-replay-report` is explicitly supplied, write
+   `episodes.jsonl`, replay it into `episode_replay_report.json`, and rewrite
+   only the manifest artifact map to reference both opt-in artifacts. This
+   local synchronous consumer rebuilds fixture runtimes and executes tool
+   transitions; it does not train reward models, collect RL rollouts, call
+   external MCP environment servers, change release admission, or extract an
+   AWM runtime package.
+22. When `--write-evaluation-report` is explicitly supplied, run the
    deterministic contacts held-out suite, write `evaluation_report.json`, and
    rewrite only the manifest artifact map to reference that report. The
    evaluation report includes controlled expected-failure benchmark semantics
@@ -300,3 +312,11 @@ artifact names to the manifest. It gives plan 0025 second-consumer evidence, but
 does not activate `synthesis.orchestration`, executable state replay, reward
 training, Agentic RL, external MCP environment servers, or runtime package
 extraction.
+
+Plan 0032 adds the first repo-local execution-facing consumer of those episode
+logs. The consumer is synchronous and opt-in: it persists `episodes.jsonl` only
+for the report run, rebuilds fresh contacts/mobile fixture runtimes, writes
+`episode_replay_report.json`, and attaches both artifact names to the manifest.
+It gives plan 0025 stronger package-boundary evidence, but still does not
+activate `synthesis.orchestration`, reward training, Agentic RL, external MCP
+environment servers, release admission changes, or runtime package extraction.

@@ -322,6 +322,7 @@ class FoundationPipelineTest(unittest.TestCase):
 
             self.assertIsNone(default.episode_logs_path)
             self.assertFalse((root / "default" / "episodes.jsonl").exists())
+            self.assertFalse((root / "default" / "episode_replay_report.json").exists())
             self.assertIsNotNone(opt_in.episode_logs_path)
             assert opt_in.episode_logs_path is not None
             self.assertTrue(opt_in.episode_logs_path.exists())

@@ -70,12 +70,19 @@
   ordered transitions, deterministic hashes over sanitized JSON payloads,
   runtime identity, policy identity, verifier identity, and accepted/rejected or
   failed outcome. It is kept internal by default and is written to
-  `episodes.jsonl` only when episode-quality reporting is explicitly requested.
+  `episodes.jsonl` only when episode-quality or episode-replay reporting is
+  explicitly requested.
 - **Episode Quality Report:** opt-in data-quality consumer report over
   `episode_log_v1`. It validates and scores episode transition completeness,
   state-change support, runtime identity, and accepted-outcome consistency
   without reading or writing raw prompts, raw payloads, tool arguments,
   observations, final-response text, credentials, or host paths.
+- **Episode Replay Report:** opt-in execution-consistency consumer report over
+  `episode_log_v1`. It rebuilds fresh contacts/mobile fixture runtimes,
+  re-executes action transitions through the runtime tool registry, compares
+  replayed observation/state-change hashes, and writes sanitized summaries
+  without raw prompts, payloads, tool arguments, observations, final-response
+  text, credentials, or host paths.
 - **Verifier:** independent checks that decide whether a trajectory satisfies the task.
 - **Refinement Attempt:** bounded critic diagnosis plus one revised candidate or
   solution policy used to rerun a failed candidate.
@@ -162,12 +169,16 @@ and a quality report:
 - `dataset_release_card.md`: optional human-readable release card written only
   when explicitly requested after a dataset release report is available.
 - `episodes.jsonl`: optional internal episode evidence export written only when
-  `--write-episode-quality-report` is explicitly requested. It contains
-  validated `episode_log_v1` records aligned to admitted samples and
-  non-duplicate rejected execution attempts.
+  `--write-episode-quality-report` or `--write-episode-replay-report` is
+  explicitly requested. It contains validated `episode_log_v1` records aligned
+  to admitted samples and non-duplicate rejected execution attempts.
 - `episode_quality_report.json`: optional deterministic quality report over
   `episodes.jsonl`, written only when explicitly requested. It is not a dataset
   release, profile-promotion, reward-model, or downstream model-quality proof.
+- `episode_replay_report.json`: optional deterministic executable replay report
+  over `episodes.jsonl`, written only when explicitly requested. It is package
+  boundary evidence for runtime extraction decisions, not a dataset release,
+  profile-promotion, reward-model, or downstream model-quality proof.
 
 ```json
 {
@@ -211,6 +222,10 @@ When episode-quality reporting is explicitly requested, the manifest references
 `episodes` and `episode_quality_report`. These references are absent by default
 and do not change `samples.jsonl`, `rejections.jsonl`, release admission, or
 profile promotion.
+When episode-replay reporting is explicitly requested, the manifest references
+`episodes` and `episode_replay_report`. These references are absent by default
+and do not change `samples.jsonl`, `rejections.jsonl`, release admission,
+profile promotion, or reward/RL workflows.
 
 When a run is configured by a `run_profile_v1` file, `manifest.json` includes an
 optional `run_profile` object. This object is sanitized metadata only:
@@ -299,7 +314,8 @@ over sorted sanitized JSON. Allowed outcomes are `accepted`, `rejected`, and
 prompts, provider payloads, headers, API keys, environment variables, and
 secret-like values. Episode logs are never persisted to `samples.jsonl` or
 `rejections.jsonl`; the opt-in `episodes.jsonl` export is an internal evidence
-artifact used by `episode_quality_report.json`.
+artifact used by `episode_quality_report.json` and
+`episode_replay_report.json`.
 
 ### Episode Quality Report Contract
 
@@ -328,6 +344,40 @@ names, unsupported summary keys, raw secrets, provider/prompt payload material,
 and host-path-like artifact references. Episode summaries must not contain raw
 instructions, tool arguments, observations, final-response content, source
 payloads, provider payloads, prompts, credentials, or local paths.
+
+### Episode Replay Report Contract
+
+`episode_replay_report.json` uses `schema_version:
+episode_replay_report_v1` and is generated only when explicitly requested. It
+reads validated `episode_log_v1` records from `episodes.jsonl`, rebuilds fresh
+fixture runtimes for `contacts_fixture` and `mobile_messages_fixture`, executes
+action transitions through `ToolRegistry.execute()`, and records:
+
+- artifact input names for `manifest.json` and `episodes.jsonl`;
+- observed episode counts by runtime and unique tool names;
+- fixed checks for `contract_valid`, `runtime_supported`, `runtime_rebuilt`,
+  `actions_replayed`, `accepted_has_final_response`,
+  `observation_hash_match`, `state_change_hash_match`, and
+  `runtime_metadata_stable`;
+- per-episode summaries containing ids, runtime id, outcome status, action and
+  replay counts, observation/state-change match counts, final-response count,
+  tool names, and failed check names only;
+- runtime-boundary evidence containing allowlisted runtime methods
+  (`rebuild`, `runtime_metadata`) and registry methods (`execute`);
+- a decision status of `passed`, `watch`, `failed`, or
+  `insufficient_evidence`.
+
+Required failures in contract validity, runtime support, runtime rebuild,
+action execution, or accepted-final-response count produce `failed`. Optional
+diagnostic mismatches in observation hashes, state-change hashes, or runtime
+metadata produce `watch`. No episodes produce `insufficient_evidence`.
+
+Report validators reject absolute or nested input paths, unsupported check
+names, unsupported summary keys, unsupported runtime/registry method names, raw
+secrets, provider/prompt payload material, and host-path-like artifact
+references. Replay summaries must not contain raw instructions, tool arguments,
+observations, final-response content, source payloads, provider payloads,
+prompts, credentials, or local paths.
 
 `lineage.source_provenance` records the source bundle id, source policy hash,
 source ids, source kinds, license labels, license outcomes, retention/export

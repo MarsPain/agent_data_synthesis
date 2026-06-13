@@ -52,6 +52,7 @@ class FoundationCliTest(unittest.TestCase):
             self.assertTrue((output_dir / "manifest.json").exists(), result.stdout)
             self.assertFalse((output_dir / "episodes.jsonl").exists())
             self.assertFalse((output_dir / "episode_quality_report.json").exists())
+            self.assertFalse((output_dir / "episode_replay_report.json").exists())
             self.assertFalse((output_dir / "dataset_release_report.json").exists())
             self.assertFalse((output_dir / "dataset_release_pack.json").exists())
             self.assertFalse((output_dir / "release_quality_audit.json").exists())
@@ -60,6 +61,7 @@ class FoundationCliTest(unittest.TestCase):
             self.assertEqual(manifest["dataset_version"], "dataset_cli_test")
             self.assertNotIn("episodes", manifest["artifacts"])
             self.assertNotIn("episode_quality_report", manifest["artifacts"])
+            self.assertNotIn("episode_replay_report", manifest["artifacts"])
             self.assertNotIn("dataset_release_report", manifest["artifacts"])
             self.assertNotIn("dataset_release_pack", manifest["artifacts"])
             self.assertNotIn("release_quality_audit", manifest["artifacts"])
@@ -101,6 +103,40 @@ class FoundationCliTest(unittest.TestCase):
             self.assertGreater(report["observed"]["runtime_counts"]["contacts_fixture"], 0)
             self.assertIn("episode_quality_report=", result.stdout)
 
+    def test_main_can_write_episode_replay_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--write-episode-replay-report",
+                    "--output-dir",
+                    str(output_dir),
+                    "--dataset-version",
+                    "dataset_cli_episode_replay",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((output_dir / "episodes.jsonl").exists(), result.stdout)
+            report_path = output_dir / "episode_replay_report.json"
+            self.assertTrue(report_path.exists(), result.stdout)
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["artifacts"]["episodes"], "episodes.jsonl")
+            self.assertEqual(
+                manifest["artifacts"]["episode_replay_report"],
+                "episode_replay_report.json",
+            )
+            self.assertEqual(report["decision"]["status"], "passed")
+            self.assertGreater(report["observed"]["runtime_counts"]["contacts_fixture"], 0)
+            self.assertIn("episode_replay_report=", result.stdout)
+
     def test_mobile_profile_can_write_episode_quality_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "mobile-agent-fixture"
@@ -123,6 +159,35 @@ class FoundationCliTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             report = json.loads(
                 (output_dir / "episode_quality_report.json").read_text(encoding="utf-8")
+            )
+            self.assertGreater(
+                report["observed"]["runtime_counts"]["mobile_messages_fixture"],
+                0,
+            )
+            self.assertEqual(report["decision"]["status"], "passed")
+
+    def test_mobile_profile_can_write_episode_replay_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "mobile-agent-fixture"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/mobile-agent-fixture.json",
+                    "--write-episode-replay-report",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            report = json.loads(
+                (output_dir / "episode_replay_report.json").read_text(encoding="utf-8")
             )
             self.assertGreater(
                 report["observed"]["runtime_counts"]["mobile_messages_fixture"],

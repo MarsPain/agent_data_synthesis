@@ -101,6 +101,7 @@ MANIFEST_ARTIFACT_KEYS = {
     "episodes",
     "quality_report",
     "episode_quality_report",
+    "episode_replay_report",
     "parent_comparison",
     "review_queue",
     "tool_proposals",
@@ -171,6 +172,24 @@ EPISODE_QUALITY_CHECK_NAMES = {
     "state_change_supported",
     "runtime_known",
 }
+EPISODE_REPLAY_DECISION_STATUSES = {
+    "passed",
+    "watch",
+    "failed",
+    "insufficient_evidence",
+}
+EPISODE_REPLAY_CHECK_NAMES = {
+    "contract_valid",
+    "runtime_supported",
+    "runtime_rebuilt",
+    "actions_replayed",
+    "accepted_has_final_response",
+    "observation_hash_match",
+    "state_change_hash_match",
+    "runtime_metadata_stable",
+}
+EPISODE_REPLAY_RUNTIME_METHODS = {"rebuild", "runtime_metadata"}
+EPISODE_REPLAY_REGISTRY_METHODS = {"execute"}
 
 
 def validate_candidate_task(task: object) -> CandidateTask:
@@ -440,6 +459,155 @@ def validate_episode_quality_report_record(record: Mapping[str, Any]) -> None:
     decision = _require_mapping(record.get("decision"), "decision")
     status = _require_non_empty_string(decision.get("status"), "decision.status")
     if status not in EPISODE_QUALITY_DECISION_STATUSES:
+        raise ContractValidationError("decision.status is unsupported")
+    for field in ("reasons", "triggered_by"):
+        values = _require_sequence(decision.get(field), f"decision.{field}")
+        for index, value in enumerate(values):
+            _require_non_empty_string(value, f"decision.{field}.{index}")
+
+
+def validate_episode_replay_report_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "episode_replay_report")
+    if _contains_raw_secret(record):
+        raise ContractValidationError("episode_replay_report contains raw secret material")
+    schema_version = _require_non_empty_string(record.get("schema_version"), "schema_version")
+    if schema_version != "episode_replay_report_v1":
+        raise ContractValidationError("schema_version is unsupported")
+    _require_non_empty_string(record.get("dataset_version"), "dataset_version")
+
+    inputs = _require_mapping(record.get("inputs"), "inputs")
+    for field in ("manifest_path", "episodes_path"):
+        artifact_name = _require_non_empty_string(inputs.get(field), f"inputs.{field}")
+        _validate_artifact_filename(artifact_name, f"inputs.{field}")
+
+    observed = _require_mapping(record.get("observed"), "observed")
+    for field in ("episode_count", "replayed"):
+        _require_int(observed.get(field), f"observed.{field}")
+    _validate_string_count_mapping(observed.get("runtime_counts"), "observed.runtime_counts")
+    tool_names = _require_sequence(observed.get("tool_names"), "observed.tool_names")
+    for index, tool_name in enumerate(tool_names):
+        _require_non_empty_string(tool_name, f"observed.tool_names.{index}")
+
+    seen_checks: set[str] = set()
+    for index, raw_check in enumerate(_require_sequence(record.get("checks"), "checks")):
+        check = _require_mapping(raw_check, f"checks.{index}")
+        name = _require_non_empty_string(check.get("name"), f"checks.{index}.name")
+        if name not in EPISODE_REPLAY_CHECK_NAMES:
+            raise ContractValidationError(f"checks.{index}.name is unsupported")
+        if name in seen_checks:
+            raise ContractValidationError(f"checks.{index}.name is duplicated")
+        seen_checks.add(name)
+        status = _require_non_empty_string(check.get("status"), f"checks.{index}.status")
+        if status not in {"passed", "failed"}:
+            raise ContractValidationError(f"checks.{index}.status is unsupported")
+        _require_int(check.get("passed"), f"checks.{index}.passed")
+        _require_int(check.get("failed"), f"checks.{index}.failed")
+        if not isinstance(check.get("required"), bool):
+            raise ContractValidationError(f"checks.{index}.required must be a bool")
+
+    allowed_summary_keys = {
+        "episode_id",
+        "candidate_id",
+        "runtime_id",
+        "outcome_status",
+        "action_count",
+        "replayed_action_count",
+        "observation_match_count",
+        "observation_mismatch_count",
+        "state_change_match_count",
+        "state_change_mismatch_count",
+        "final_response_count",
+        "tool_names",
+        "failed_checks",
+    }
+    for index, raw_summary in enumerate(
+        _require_sequence(record.get("episode_summaries"), "episode_summaries")
+    ):
+        summary = _require_mapping(raw_summary, f"episode_summaries.{index}")
+        unexpected = sorted(str(key) for key in summary if key not in allowed_summary_keys)
+        if unexpected:
+            raise ContractValidationError(
+                f"episode_summaries.{index} contains unsupported keys: {', '.join(unexpected)}"
+            )
+        for field in ("episode_id", "candidate_id", "runtime_id", "outcome_status"):
+            _require_non_empty_string(summary.get(field), f"episode_summaries.{index}.{field}")
+        for field in (
+            "action_count",
+            "replayed_action_count",
+            "observation_match_count",
+            "observation_mismatch_count",
+            "state_change_match_count",
+            "state_change_mismatch_count",
+            "final_response_count",
+        ):
+            _require_int(summary.get(field), f"episode_summaries.{index}.{field}")
+        for tool_index, tool_name in enumerate(
+            _require_sequence(
+                summary.get("tool_names"),
+                f"episode_summaries.{index}.tool_names",
+            )
+        ):
+            _require_non_empty_string(
+                tool_name,
+                f"episode_summaries.{index}.tool_names.{tool_index}",
+            )
+        for check_index, check_name in enumerate(
+            _require_sequence(
+                summary.get("failed_checks"),
+                f"episode_summaries.{index}.failed_checks",
+            )
+        ):
+            name = _require_non_empty_string(
+                check_name,
+                f"episode_summaries.{index}.failed_checks.{check_index}",
+            )
+            if name not in EPISODE_REPLAY_CHECK_NAMES:
+                raise ContractValidationError(
+                    f"episode_summaries.{index}.failed_checks.{check_index} is unsupported"
+                )
+
+    boundary = _require_mapping(
+        record.get("runtime_boundary_evidence"),
+        "runtime_boundary_evidence",
+    )
+    runtime_methods = _require_sequence(
+        boundary.get("runtime_methods_used"),
+        "runtime_boundary_evidence.runtime_methods_used",
+    )
+    for index, method_name in enumerate(runtime_methods):
+        name = _require_non_empty_string(
+            method_name,
+            f"runtime_boundary_evidence.runtime_methods_used.{index}",
+        )
+        if name not in EPISODE_REPLAY_RUNTIME_METHODS:
+            raise ContractValidationError(
+                f"runtime_boundary_evidence.runtime_methods_used.{index} is unsupported"
+            )
+    registry_methods = _require_sequence(
+        boundary.get("registry_methods_used"),
+        "runtime_boundary_evidence.registry_methods_used",
+    )
+    for index, method_name in enumerate(registry_methods):
+        name = _require_non_empty_string(
+            method_name,
+            f"runtime_boundary_evidence.registry_methods_used.{index}",
+        )
+        if name not in EPISODE_REPLAY_REGISTRY_METHODS:
+            raise ContractValidationError(
+                f"runtime_boundary_evidence.registry_methods_used.{index} is unsupported"
+            )
+    if not isinstance(boundary.get("requires_external_package"), bool):
+        raise ContractValidationError(
+            "runtime_boundary_evidence.requires_external_package must be a bool"
+        )
+    _require_non_empty_string(
+        boundary.get("extraction_signal"),
+        "runtime_boundary_evidence.extraction_signal",
+    )
+
+    decision = _require_mapping(record.get("decision"), "decision")
+    status = _require_non_empty_string(decision.get("status"), "decision.status")
+    if status not in EPISODE_REPLAY_DECISION_STATUSES:
         raise ContractValidationError("decision.status is unsupported")
     for field in ("reasons", "triggered_by"):
         values = _require_sequence(decision.get(field), f"decision.{field}")

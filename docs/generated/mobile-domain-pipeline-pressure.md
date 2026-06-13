@@ -1,7 +1,7 @@
 # Mobile Domain Pipeline Pressure
 
-Generated during plan 0029 on 2026-06-12. Updated by plans 0030 and 0031 on
-2026-06-13.
+Generated during plan 0029 on 2026-06-12. Updated by plans 0030, 0031, and
+0032 on 2026-06-13.
 
 ## What Changed
 
@@ -92,6 +92,29 @@ This does not resolve executable replay, reward-label export, Agentic RL rollout
 collection, external MCP environment servers, mobile source-governed input, or
 the `CandidateTask` intent/policy/expected-state split.
 
+## Plan 0032 Executable Replay Update
+
+Plan 0032 resolves the narrow executable replay pressure by adding a repo-local,
+opt-in consumer:
+
+- `--write-episode-replay-report` writes validated `episodes.jsonl` records and
+  replays them against fresh contacts/mobile fixture runtimes.
+- `episode_replay_report_v1` validates the episode contract, checks runtime
+  support/rebuild, executes action transitions through `ToolRegistry.execute()`,
+  compares observation and state-change hashes, and records final-response
+  presence for accepted episodes.
+- The report summaries contain ids, runtime/outcome fields, action/replay
+  counts, observation/state-change match counts, tool names, and failed check
+  names only; they omit raw arguments, observations, final responses, prompts,
+  provider payloads, source payloads, credentials, and host paths.
+- Runtime-boundary evidence records allowlisted runtime methods
+  (`rebuild`, `runtime_metadata`) and registry methods (`execute`) without
+  extracting a separate `awm_runtime` package.
+
+This leaves reward-label export, Agentic RL rollout collection, external MCP
+environment servers, mobile source-governed input, and the `CandidateTask`
+intent/policy/expected-state split unresolved.
+
 ## Evidence
 
 - `tests.test_mobile_environment` covers mobile SQLite fixture construction,
@@ -110,5 +133,9 @@ the `CandidateTask` intent/policy/expected-state split.
 - `tests.test_episode_quality` covers opt-in episode JSONL round trips,
   deterministic episode-quality decisions, report validation, and sanitized
   summaries for contacts and mobile episodes.
+- `tests.test_episode_replay` covers executable contacts/mobile replay,
+  state-change hash matching, insufficient evidence, and sanitized report
+  validation.
 - `tests.test_cli` covers the mobile run profile and confirms default CLI output
-  remains contacts-only; it also covers opt-in episode-quality report writing.
+  remains contacts-only; it also covers opt-in episode-quality and
+  episode-replay report writing.

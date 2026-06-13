@@ -62,6 +62,20 @@ host paths. It consumes `synthesis.runtime` and `synthesis.episodes`; it does
 not own candidate admission, dataset release, profile promotion, reward model
 training, executable replay, or Agentic RL rollout collection.
 
+### Episode Replay
+
+Owns the first execution-facing consumer of runtime episode evidence. It reads
+opt-in `episodes.jsonl` records, validates `episode_log_v1`, rebuilds fresh
+contacts/mobile fixture runtimes, re-executes action transitions through
+`ToolRegistry.execute()`, compares replayed observation and state-change hashes,
+and writes `episode_replay_report_v1` summaries without raw arguments,
+observations, final responses, prompts, provider payloads, credentials, source
+payloads, or host paths. It consumes `synthesis.runtime`, `synthesis.episodes`,
+`synthesis.episode_quality`, and `synthesis.domain_pipeline`; it does not own
+candidate admission, dataset release, profile promotion, reward model training,
+external MCP environment servers, async orchestration, or AWM runtime package
+extraction.
+
 ### Dataset Assembly
 
 Owns canonical output format, split assignment, versioning, deduplication, manifest generation, and export adapters for training.
@@ -98,6 +112,10 @@ Start local and deterministic:
 - Episode-quality reporting is a repo-local, synchronous runtime evidence
   consumer. It proves the episode boundary can serve another data-quality
   reader while keeping full AWM runtime package extraction deferred.
+- Episode-replay reporting is a repo-local, synchronous execution consistency
+  consumer. It proves the current runtime boundary can serve a non-synthesis
+  executor that rebuilds fixture runtimes and calls registries directly, while
+  keeping full AWM runtime package extraction deferred.
 - Python callable tools with explicit schemas.
 - Local job runner with resumable manifests.
 - Remote LLM provider adapter configured by `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`.

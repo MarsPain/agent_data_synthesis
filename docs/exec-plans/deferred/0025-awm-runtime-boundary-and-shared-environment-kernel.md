@@ -2,11 +2,11 @@
 
 ## Status
 
-Planned on 2026-06-09. **Deferred** after plan 0031 supplied a second
-repo-local data-quality consumer of episode evidence. Extraction still waits
-for stronger pressure from executable replay, reward-label/training workflows,
-Agentic RL rollout execution, external MCP environment servers, or clear
-cross-consumer package-boundary criteria.
+Planned on 2026-06-09. **Deferred** after plans 0031 and 0032 supplied
+repo-local data-quality and executable replay consumers of episode evidence.
+Extraction still waits for stronger pressure from reward-label/training
+workflows, Agentic RL rollout execution, external MCP environment servers, or
+clear cross-consumer package-boundary criteria.
 
 ## Goal
 
@@ -21,8 +21,9 @@ Adopt the staged extraction path:
 2. Keep data synthesis as the first consumer while preventing dataset-specific
    concerns from leaking into the environment runtime.
 3. Add additional consumers against the same runtime interface. Plan 0031 adds
-   the first repo-local episode data-quality scoring consumer, but it does not
-   replay actions against fresh runtime state or drive reward/RL workflows.
+   the first repo-local episode data-quality scoring consumer. Plan 0032 adds a
+   repo-local executable replay consumer, but it still does not drive reward/RL
+   workflows, external MCP environment servers, or package extraction.
 4. Split the runtime into a separate project only after the shared contract is
    validated by multiple consumers whose needs justify a package boundary.
 
@@ -52,6 +53,12 @@ contract, adapter surface, state lifecycle, and episode logging model.
   This supplies second-consumer evidence for sanitized episode scoring, but it
   deliberately excludes executable replay, reward model training, Agentic RL,
   external MCP servers, and package extraction.
+- [../completed/0032-executable-episode-replay-consistency-probe.md](../completed/0032-executable-episode-replay-consistency-probe.md)
+  adds an opt-in `episode_replay_report_v1` consumer that rebuilds fresh
+  contacts/mobile fixture runtimes and executes actions through the tool
+  registry. This supplies execution-facing consumer evidence, but package
+  extraction remains deferred until reward/RL, external MCP, or clearer
+  cross-consumer package-boundary pressure appears.
 
 ## Trigger Conditions
 
