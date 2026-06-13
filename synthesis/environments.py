@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from synthesis.contracts import validate_contacts_environment_input_record
+from synthesis.runtime import RuntimeMetadata, runtime_metadata_from_environment
 
 
 @dataclass(frozen=True)
@@ -272,3 +273,6 @@ class ContactEnvironment:
             reset_recipe=reset_recipe,
             source_provenance=self.source_provenance,
         )
+
+    def runtime_metadata(self) -> RuntimeMetadata:
+        return runtime_metadata_from_environment(self.metadata())

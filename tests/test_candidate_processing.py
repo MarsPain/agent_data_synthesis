@@ -138,6 +138,31 @@ class CandidateProcessingRecordTest(unittest.TestCase):
         )
         self.assertEqual(accepted_signatures, set())
 
+    def test_accepted_candidate_carries_internal_episode_log_without_changing_sample_shape(self) -> None:
+        from synthesis.candidate_processing import (
+            CandidateProcessingOptions,
+            process_candidate_through_gates,
+        )
+        from synthesis.contracts import validate_episode_log_record
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            context = self._context(Path(tmpdir))
+            outcome = process_candidate_through_gates(
+                raw_task=self._candidate(),
+                context=context,
+                accepted_signatures=set(),
+                options=CandidateProcessingOptions(),
+            )
+
+        self.assertIsNotNone(outcome.sample)
+        self.assertIsNotNone(outcome.episode_log)
+        assert outcome.episode_log is not None
+        validate_episode_log_record(outcome.episode_log)
+        self.assertEqual(outcome.episode_log["outcome"]["status"], "accepted")
+        self.assertEqual(outcome.episode_log["runtime"]["runtime_id"], "contacts_fixture")
+        assert outcome.sample is not None
+        self.assertNotIn("episode_log", outcome.sample)
+
     def test_invalid_candidate_schema_returns_rejection_without_sample(self) -> None:
         from synthesis.candidate_processing import (
             CandidateProcessingOptions,

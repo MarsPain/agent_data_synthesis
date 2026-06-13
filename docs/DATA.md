@@ -39,6 +39,12 @@
 - **Seed Transformation:** bounded expansion record that maps a source seed to a
   target taxonomy node, capability target, and intended difficulty movement.
 - **Environment:** executable stateful world with reset/checkpoint behavior.
+- **Runtime Metadata:** internal lifecycle record for an environment runtime. It
+  records runtime id/version, environment id/version, reset recipe class, state
+  backend, checkpoint strategy, and optional sanitized source/sandbox/adapter
+  summaries. It deliberately excludes dataset version, profile decisions,
+  release status, provider prompts, raw payloads, credentials, environment
+  variables, and host paths.
 - **Tool:** typed callable action exposed to the Agent.
 - **Mobile Tool:** domain-owned callable in the mobile fixture. Current tools
   are `search_phone_messages`, `create_phone_reminder`, and
@@ -60,6 +66,11 @@
   trajectory events.
 - **Trajectory:** ordered interaction events including tool calls, observations,
   state changes, and final responses.
+- **Episode Log:** internal evidence view derived from a trajectory. It records
+  ordered transitions, deterministic hashes over sanitized JSON payloads,
+  runtime identity, policy identity, verifier identity, and accepted/rejected or
+  failed outcome. It is kept in memory during candidate processing in this plan
+  and is not written to default public artifacts.
 - **Verifier:** independent checks that decide whether a trajectory satisfies the task.
 - **Refinement Attempt:** bounded critic diagnosis plus one revised candidate or
   solution policy used to rerun a failed candidate.
@@ -214,6 +225,64 @@ metadata. It intentionally omits manifest-only fields such as
 `target_candidate_count` and `enabled_features`, plus raw profile paths, source
 paths, payload rows, prompts, headers, API keys, and arbitrary profile JSON
 keys. Non-profile runs omit this per-record attribution entirely.
+
+`runtime_metadata_v1` is the runtime-owned lifecycle contract:
+
+```json
+{
+  "schema_version": "runtime_metadata_v1",
+  "runtime_id": "contacts_fixture",
+  "runtime_version": "env_contacts_v2",
+  "environment_id": "contacts_fixture",
+  "environment_version": "env_contacts_v2",
+  "reset_recipe": "sqlite_fixture:contacts",
+  "state_backend": "sqlite",
+  "checkpoint_strategy": "sqlite_backup",
+  "source_provenance": {},
+  "sandbox_policy": {},
+  "adapter": {}
+}
+```
+
+`runtime_metadata_v1` must stay separate from dataset manifests, run-profile
+metadata, profile decisions, release reports, release packs, and release cards.
+Validators reject release/profile fields, raw source payloads, provider prompts
+or payloads, headers, API keys, environment variables, database paths, and
+absolute host paths.
+
+`episode_log_v1` is internal episode evidence derived from accepted or selected
+rejected execution trajectories:
+
+```json
+{
+  "schema_version": "episode_log_v1",
+  "episode_id": "episode_sample_candidate_contacts_alice",
+  "candidate_id": "candidate_contacts_alice",
+  "runtime": {
+    "schema_version": "runtime_metadata_v1",
+    "runtime_id": "contacts_fixture",
+    "runtime_version": "env_contacts_v2"
+  },
+  "policy": {
+    "policy_id": "policy_candidate_contacts_alice",
+    "role": "scripted_solution_policy"
+  },
+  "verifier": {
+    "id": "exact_answer_verifier",
+    "version": "verifier_exact_answer_state_v2"
+  },
+  "transitions": [],
+  "outcome": {"status": "accepted", "failure_cause": null}
+}
+```
+
+Allowed episode transition types are `action`, `observation`, `state_change`,
+`final_response`, and `error`. Transition hashes are `sha256:` values computed
+over sorted sanitized JSON. Allowed outcomes are `accepted`, `rejected`, and
+`failed`. Episode redaction removes local/source paths, profile fields, provider
+prompts, provider payloads, headers, API keys, environment variables, and
+secret-like values. Episode logs are not persisted to `samples.jsonl`,
+`rejections.jsonl`, `manifest.json`, or release artifacts in this phase.
 
 `lineage.source_provenance` records the source bundle id, source policy hash,
 source ids, source kinds, license labels, license outcomes, retention/export

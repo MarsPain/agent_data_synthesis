@@ -9,7 +9,7 @@
 
 ## Active
 
-No active implementation plan.
+No active implementation plan is currently open.
 
 ## Deferred
 
@@ -21,8 +21,10 @@ No active implementation plan.
 - [0025-awm-runtime-boundary-and-shared-environment-kernel](exec-plans/deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md):
   staged extraction path for the future AWM environment runtime; **deferred**
   until reward/data-quality evaluation, Agentic RL, a second domain environment,
-  or external MCP environment servers create a second real consumer for the
-  runtime boundary.
+  or external MCP environment servers create a real production consumer for the
+  runtime boundary. Completed plan
+  [0030-runtime-contract-and-episode-evidence](exec-plans/completed/0030-runtime-contract-and-episode-evidence.md)
+  implemented only the internal runtime-contract and episode-evidence phase.
 
 ## Completed
 
@@ -53,6 +55,7 @@ No active implementation plan.
 - [0027-dataset-release-pack-and-reproducibility-verification](exec-plans/completed/0027-dataset-release-pack-and-reproducibility-verification.md): added opt-in hash-locked release packs and standalone verification so passed release-candidate artifacts can be audited without rerunning generation. Completed on 2026-06-12.
 - [0028-release-quality-evidence-audit-and-card](exec-plans/completed/0028-release-quality-evidence-audit-and-card.md): added opt-in release quality evidence audits and human-readable dataset release cards for release-candidate artifact sets without implementing full semantic duplicate detection or changing default release admission. Completed on 2026-06-12.
 - [0029-mobile-agent-second-domain-pipeline-probe](exec-plans/completed/0029-mobile-agent-second-domain-pipeline-probe.md): added a deterministic phone-like messages/reminders/draft-reply domain, mobile tools, mobile state verification, and a minimal synchronous domain pipeline boundary while keeping full AWM runtime extraction deferred. Completed on 2026-06-12.
+- [0030-runtime-contract-and-episode-evidence](exec-plans/completed/0030-runtime-contract-and-episode-evidence.md): added shared runtime metadata, contacts/mobile runtime protocol coverage, sanitized in-memory episode evidence, and a diagnostic episode summary reader while keeping full AWM runtime extraction deferred. Completed on 2026-06-13.
 
 ## Technical Debt
 

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from synthesis.environments import EnvironmentMetadata
+from synthesis.runtime import RuntimeMetadata, runtime_metadata_from_environment
 
 
 @dataclass(frozen=True)
@@ -347,6 +348,9 @@ class MobileMessagesEnvironment:
                 ],
             },
         )
+
+    def runtime_metadata(self) -> RuntimeMetadata:
+        return runtime_metadata_from_environment(self.metadata())
 
 
 def _stable_id(value: str) -> str:

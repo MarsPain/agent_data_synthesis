@@ -1,6 +1,7 @@
 # Mobile Domain Pipeline Pressure
 
-Generated during plan 0029 on 2026-06-12.
+Generated during plan 0029 on 2026-06-12. Updated by plan 0030 on
+2026-06-13.
 
 ## What Changed
 
@@ -41,6 +42,35 @@ assembly, and quality reporting.
 - The domain bundle is an internal synchronous boundary, not a separate AWM
   runtime package.
 
+## Plan 0030 Runtime Boundary Update
+
+Plan 0030 resolved the narrow lifecycle pressure exposed by the second domain:
+
+- `ContactEnvironment` and `MobileMessagesEnvironment` now satisfy a shared
+  internal runtime protocol with `metadata()`, `runtime_metadata()`,
+  checkpoint/restore, rebuild, and SQLite database path semantics.
+- `synthesis.domain_pipeline` depends on the shared runtime protocol instead of
+  a local contacts/mobile placeholder protocol.
+- Runtime-owned `runtime_metadata_v1` records identify runtime id/version,
+  environment id/version, reset recipe class, state backend, and checkpoint
+  strategy without dataset-release, profile-decision, provider, credential, or
+  host-path fields.
+- Existing contacts and mobile trajectories can be converted into sanitized
+  `episode_log_v1` evidence for diagnostic quality readers without changing
+  `samples.jsonl`, `rejections.jsonl`, or manifest output.
+
+The larger 0025 extraction pressure remains unresolved:
+
+- The runtime boundary is still repo-local and synchronous, not a separate
+  `awm_runtime` package.
+- Episode evidence is an in-memory diagnostic contract consumer, not a replay
+  engine, reward/data-quality trainer, Agentic RL collector, or release
+  artifact.
+- MCP adapter support remains contacts-only, and mobile source-governed input
+  remains outside scope.
+- `CandidateTask` still mixes task intent, policy hints, expected answer, and
+  expected state; 0030 documents that pressure but does not migrate the schema.
+
 ## Evidence
 
 - `tests.test_mobile_environment` covers mobile SQLite fixture construction,
@@ -50,5 +80,11 @@ assembly, and quality reporting.
 - `tests.test_mobile_pipeline` covers deterministic mobile candidates, scripted
   policies, domain bundle selection, mobile state verification, sample contract
   validation, and quality slices.
+- `tests.test_runtime_contract` covers shared runtime metadata, safety
+  validation, and checkpoint/restore/rebuild protocol behavior across contacts
+  and mobile environments.
+- `tests.test_episode_logs` covers episode transition mapping, deterministic
+  hashing, redaction, contract validation, and the diagnostic episode quality
+  summary reader.
 - `tests.test_cli` covers the mobile run profile and confirms default CLI output
   remains contacts-only.

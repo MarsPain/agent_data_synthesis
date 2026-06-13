@@ -179,6 +179,63 @@ class MobilePipelineTest(unittest.TestCase):
             quality_report["slices"]["tool_combination"],
         )
 
+    def test_mobile_candidate_carries_internal_episode_log_without_public_sample_field(self) -> None:
+        from synthesis.candidate_processing import (
+            CandidateProcessingContext,
+            CandidateProcessingOptions,
+            process_candidate_through_gates,
+        )
+        from synthesis.contracts import validate_episode_log_record
+        from synthesis.llm import LLMConfig
+        from synthesis.mobile_environment import MobileMessagesEnvironment
+        from synthesis.mobile_tasks import scripted_mobile_solution_policy
+        from synthesis.mobile_tools import build_mobile_tool_registry
+        from synthesis.verification import ExactAnswerVerifier
+
+        seed = mobile_seed()
+        task = next(
+            candidate
+            for candidate in __import__(
+                "synthesis.mobile_tasks",
+                fromlist=["generate_mobile_fixture_candidates"],
+            ).generate_mobile_fixture_candidates(seed)
+            if candidate.candidate_id == "candidate_mobile_maya_reminder"
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            environment = MobileMessagesEnvironment.create_fixture(Path(tmpdir))
+            outcome = process_candidate_through_gates(
+                raw_task=task,
+                context=CandidateProcessingContext(
+                    dataset_version="dataset_mobile_episode_test",
+                    environment=environment,
+                    registry=build_mobile_tool_registry(environment),
+                    adapter_shim=None,
+                    verifier=ExactAnswerVerifier(),
+                    llm_config=LLMConfig(base_url=None),
+                    generate_policy=scripted_mobile_solution_policy,
+                ),
+                accepted_signatures=set(),
+                options=CandidateProcessingOptions(),
+            )
+
+        self.assertIsNotNone(outcome.sample)
+        self.assertIsNotNone(outcome.episode_log)
+        assert outcome.episode_log is not None
+        validate_episode_log_record(outcome.episode_log)
+        self.assertEqual(
+            outcome.episode_log["runtime"]["runtime_id"],
+            "mobile_messages_fixture",
+        )
+        self.assertTrue(
+            any(
+                transition["event_type"] == "state_change"
+                for transition in outcome.episode_log["transitions"]
+            )
+        )
+        assert outcome.sample is not None
+        self.assertNotIn("episode_log", outcome.sample)
+
 
 if __name__ == "__main__":
     unittest.main()

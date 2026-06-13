@@ -19,6 +19,12 @@ The first backend should be a local Python pipeline with explicit modules and du
   and sanitized source-event records.
 - `synthesis.environments`: environment builders, typed contacts environment
   input records, reset/checkpoint operations, and state adapters.
+- `synthesis.runtime`: internal environment runtime protocol and sanitized
+  `runtime_metadata_v1` construction for lifecycle evidence shared by contacts
+  and mobile domain environments.
+- `synthesis.episodes`: internal `episode_log_v1` construction, deterministic
+  transition hashing, redaction, and diagnostic episode summaries over existing
+  trajectories.
 - `synthesis.tools`: tool definitions, schema generation, registry, dependency
   graph, capability-gap records, bounded tool proposals, and curated local tool
   admission.
@@ -135,40 +141,44 @@ trajectories, exports, or logs.
    clean environment checkpoint until one terminal path succeeds, preserving
    rejected branch outcomes separately from the selected trajectory.
 12. Verify outputs and expected state changes independently.
-13. For repairable verification or logical-support failures, optionally run one
+13. Build in-memory episode evidence for accepted executions and rejected
+   executions that already have a trajectory. Episode evidence is a diagnostic
+   runtime contract consumer only; it is not written to default dataset
+   artifacts or release artifacts.
+14. For repairable verification or logical-support failures, optionally run one
    `critic_refinement` attempt and rerun validation, execution, verification,
    and quality gates through the normal path.
-14. When execution exposes a capability gap such as a missing tool or schema
+15. When execution exposes a capability gap such as a missing tool or schema
    mismatch, optionally request one `tool_generation` proposal, admit only a
    matching curated local implementation, and rerun through the normal execution,
    verification, and quality gates.
-15. When `--enable-sandbox-fixture` or `enable_sandbox_fixture=True` is
+16. When `--enable-sandbox-fixture` or `enable_sandbox_fixture=True` is
    explicitly set, run a deterministic generated-code fixture through static
    scan, admission, restricted local execution, and redacted audit serialization.
    This fixture does not enable arbitrary generated tools, environments, or
    verifiers and does not change default accepted/rejected sample counts.
-16. Merge provisional candidate outcomes in stable sequence order, applying
+17. Merge provisional candidate outcomes in stable sequence order, applying
    exact duplicate admission deterministically after execution so completion
    order cannot choose the accepted sample. Logical consistency remains a
    candidate-local gate before merge.
-17. Route failed samples by error class and optional review policy.
-18. Export accepted samples, rejections, source-event audits when enabled,
+18. Route failed samples by error class and optional review policy.
+19. Export accepted samples, rejections, source-event audits when enabled,
    sandbox audits when enabled, tool proposal events, branch lineage,
    task-expansion lineage, quality reports, lineage, sanitized run-profile
    manifest metadata, and narrow per-record run-profile attribution when a
    profile is supplied.
-19. When `--write-evaluation-report` is explicitly supplied, run the
+20. When `--write-evaluation-report` is explicitly supplied, run the
    deterministic contacts held-out suite, write `evaluation_report.json`, and
    rewrite only the manifest artifact map to reference that report. The
    evaluation report includes controlled expected-failure benchmark semantics
    and per-capability threshold decisions.
-20. When `--write-profile-decision-report` is explicitly supplied, read the
+21. When `--write-profile-decision-report` is explicitly supplied, read the
    exported manifest and quality report, write `profile_decision_report.json`,
    include held-out evaluation evidence when an evaluation report was also
    requested, separate the MVP quality-floor decision from the higher-level
    profile-promotion decision, and rewrite only the manifest artifact map to
    reference that report.
-21. When `--write-dataset-release-report` is explicitly supplied, require both
+22. When `--write-dataset-release-report` is explicitly supplied, require both
    evaluation and profile-decision reports, read those existing artifacts, write
    `dataset_release_report.json`, and rewrite only the manifest artifact map to
    reference that report. Release admission distinguishes diagnostic probes from
@@ -265,3 +275,10 @@ release artifact references.
 Remaining async work is still deferred to plan 0014: durable queues, workers,
 cancellation, resumption, external process isolation, and per-role async cost
 tracking are not active runtime behavior.
+
+Plan 0030 stabilizes the internal runtime contract before any AWM runtime
+package extraction. Contacts and mobile environments now satisfy the same
+runtime protocol and accepted executions can produce sanitized in-memory episode
+logs. This remains local synchronous behavior; reward model training, Agentic
+RL rollout collection, external MCP environment servers, and durable async
+workers remain deferred.

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Callable
 
 from synthesis.environments import ContactEnvironment, ContactsEnvironmentInput
 from synthesis.execution import SolutionPolicy, scripted_solution_policy
@@ -13,33 +13,22 @@ from synthesis.mobile_tasks import (
     scripted_mobile_solution_policy,
 )
 from synthesis.mobile_tools import build_mobile_tool_registry
+from synthesis.runtime import EnvironmentRuntime
 from synthesis.seeds import DomainSeed
 from synthesis.tasks import CandidateTask, generate_foundation_candidates
 from synthesis.tools import ToolRegistry, build_contact_tool_registry
 from synthesis.verification import ExactAnswerVerifier
 
 
-class PipelineEnvironment(Protocol):
-    database_path: Path
-
-    def metadata(self): ...
-
-    def checkpoint(self) -> object: ...
-
-    def restore_checkpoint(self, checkpoint: object) -> None: ...
-
-    def rebuild(self, output_dir: Path): ...
-
-
 CandidateGenerator = Callable[[DomainSeed], list[CandidateTask]]
 PolicyGenerator = Callable[[CandidateTask], SolutionPolicy]
-RegistryBuilder = Callable[[PipelineEnvironment], ToolRegistry]
+RegistryBuilder = Callable[[EnvironmentRuntime], ToolRegistry]
 
 
 @dataclass(frozen=True)
 class DomainPipelineBundle:
     domain_id: str
-    environment: PipelineEnvironment
+    environment: EnvironmentRuntime
     registry: ToolRegistry
     verifier: ExactAnswerVerifier
     candidate_generator: CandidateGenerator

@@ -24,6 +24,11 @@ Owns source registration, task taxonomy selection, domain constraints, and seed 
 
 Owns executable environment construction, state schema, fixture generation, reset/checkpoint behavior, and environment versioning.
 
+Environment implementations also satisfy the internal runtime boundary. Contacts
+and mobile fixtures expose `runtime_metadata_v1`, checkpoint/restore, and
+candidate-local rebuild semantics through the same protocol while keeping
+domain-owned SQLite state and tool behavior inside their domain modules.
+
 ### Tool Registry
 
 Owns tool schemas, typed parameters, return types, side-effect declarations, dependency graph edges, and compatibility rules.
@@ -35,6 +40,12 @@ Owns task generation, difficulty scoring, ambiguity controls, persona controls, 
 ### Trajectory Execution
 
 Owns policy execution, tool call recording, observation capture, retries, and error classification.
+
+Execution can now derive internal `episode_log_v1` evidence from existing
+trajectories. Episode evidence records ordered actions, observations,
+state-change summaries, final responses, runtime identity, policy identity, and
+verifier identity for diagnostics. It is not part of the default dataset sample
+schema and is not a release artifact.
 
 ### Verification
 
@@ -69,6 +80,10 @@ Start local and deterministic:
   and scripted policy generation. The synchronous pipeline owns shared synthesis
   flow: domain selection, candidate-local isolation, execution, verification,
   deterministic merge, and artifact assembly.
+- Runtime metadata is lifecycle evidence, not dataset or release metadata.
+  Runtime-aware code should use `runtime_metadata()` for environment identity,
+  reset recipe class, state backend, and checkpoint strategy; sample assembly
+  continues to use `metadata()` for the public dataset environment field.
 - Python callable tools with explicit schemas.
 - Local job runner with resumable manifests.
 - Remote LLM provider adapter configured by `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`.

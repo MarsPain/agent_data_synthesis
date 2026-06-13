@@ -123,6 +123,12 @@
   candidate-local mobile isolation, mobile state verification, and
   `mobile_fixture` run-profile support while keeping the runtime boundary
   internal.
+- Stabilize the internal runtime contract and episode evidence before full AWM
+  runtime extraction. Implemented in plan 0030 with explicit
+  `runtime_metadata_v1`, shared contacts/mobile runtime protocol coverage,
+  sanitized in-memory `episode_log_v1` evidence, and a diagnostic episode
+  summary reader while keeping package extraction, reward/RL consumers, async
+  orchestration, and semantic duplicate detection deferred.
 - Prepare the environment layer for a future shared AWM runtime without
   prematurely splitting it into a separate project. Deferred in plan 0025 until
   reward-model-driven data quality evaluation, Agentic RL, a second domain

@@ -139,6 +139,21 @@ DATASET_RELEASE_PACK_ARTIFACT_KEYS = {
     "profile_decision_report",
     "dataset_release_report",
 }
+RUNTIME_METADATA_KEYS = {
+    "schema_version",
+    "runtime_id",
+    "runtime_version",
+    "environment_id",
+    "environment_version",
+    "reset_recipe",
+    "state_backend",
+    "checkpoint_strategy",
+    "source_provenance",
+    "sandbox_policy",
+    "adapter",
+}
+EPISODE_OUTCOMES = {"accepted", "rejected", "failed"}
+EPISODE_EVENT_TYPES = {"action", "observation", "state_change", "final_response", "error"}
 
 
 def validate_candidate_task(task: object) -> CandidateTask:
@@ -218,6 +233,182 @@ def validate_manifest_record(record: Mapping[str, Any]) -> None:
         )
     if "run_profile" in record:
         _validate_run_profile_metadata(record.get("run_profile"))
+
+
+def validate_runtime_metadata_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "runtime_metadata")
+    from synthesis.runtime import validate_runtime_metadata_safety
+
+    validate_runtime_metadata_safety(record)
+    unexpected = sorted(str(key) for key in record if key not in RUNTIME_METADATA_KEYS)
+    if unexpected:
+        raise ContractValidationError(
+            f"runtime_metadata contains unsupported keys: {', '.join(unexpected)}"
+        )
+    missing = sorted(RUNTIME_METADATA_KEYS.difference(record))
+    if missing:
+        raise ContractValidationError(
+            f"runtime_metadata missing required keys: {', '.join(missing)}"
+        )
+    schema_version = _require_non_empty_string(
+        record.get("schema_version"),
+        "runtime_metadata.schema_version",
+    )
+    if schema_version != "runtime_metadata_v1":
+        raise ContractValidationError("runtime_metadata.schema_version is unsupported")
+    _require_non_empty_string(record.get("runtime_id"), "runtime_metadata.runtime_id")
+    _require_non_empty_string(record.get("runtime_version"), "runtime_metadata.runtime_version")
+    _require_non_empty_string(record.get("environment_id"), "runtime_metadata.environment_id")
+    _require_non_empty_string(
+        record.get("environment_version"),
+        "runtime_metadata.environment_version",
+    )
+    reset_recipe = _require_non_empty_string(
+        record.get("reset_recipe"),
+        "runtime_metadata.reset_recipe",
+    )
+    if ":" not in reset_recipe:
+        raise ContractValidationError("runtime_metadata.reset_recipe is unsupported")
+    state_backend = _require_non_empty_string(
+        record.get("state_backend"),
+        "runtime_metadata.state_backend",
+    )
+    if state_backend != "sqlite":
+        raise ContractValidationError("runtime_metadata.state_backend is unsupported")
+    checkpoint_strategy = _require_non_empty_string(
+        record.get("checkpoint_strategy"),
+        "runtime_metadata.checkpoint_strategy",
+    )
+    if checkpoint_strategy != "sqlite_backup":
+        raise ContractValidationError("runtime_metadata.checkpoint_strategy is unsupported")
+    _require_mapping(record.get("source_provenance"), "runtime_metadata.source_provenance")
+    _require_mapping(record.get("sandbox_policy"), "runtime_metadata.sandbox_policy")
+    _require_mapping(record.get("adapter"), "runtime_metadata.adapter")
+
+
+def validate_episode_log_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "episode_log")
+    schema_version = _require_non_empty_string(
+        record.get("schema_version"),
+        "episode_log.schema_version",
+    )
+    if schema_version != "episode_log_v1":
+        raise ContractValidationError("episode_log.schema_version is unsupported")
+    _require_non_empty_string(record.get("episode_id"), "episode_log.episode_id")
+    _require_non_empty_string(record.get("candidate_id"), "episode_log.candidate_id")
+    _validate_episode_runtime(record.get("runtime"))
+    policy = _require_mapping(record.get("policy"), "episode_log.policy")
+    _require_non_empty_string(policy.get("policy_id"), "episode_log.policy.policy_id")
+    _require_non_empty_string(policy.get("role"), "episode_log.policy.role")
+    verifier = _require_mapping(record.get("verifier"), "episode_log.verifier")
+    _require_non_empty_string(verifier.get("id"), "episode_log.verifier.id")
+    _require_non_empty_string(verifier.get("version"), "episode_log.verifier.version")
+    transitions = _require_sequence(record.get("transitions"), "episode_log.transitions")
+    if not transitions:
+        raise ContractValidationError("episode_log.transitions must contain at least one entry")
+    for expected_index, raw_transition in enumerate(transitions, start=1):
+        _validate_episode_transition(raw_transition, expected_index)
+    outcome = _require_mapping(record.get("outcome"), "episode_log.outcome")
+    status = _require_non_empty_string(outcome.get("status"), "episode_log.outcome.status")
+    if status not in EPISODE_OUTCOMES:
+        raise ContractValidationError("episode_log.outcome.status is unsupported")
+    failure_cause = outcome.get("failure_cause")
+    if status == "accepted":
+        if failure_cause is not None:
+            raise ContractValidationError(
+                "episode_log.outcome.failure_cause must be null when accepted"
+            )
+    elif not isinstance(failure_cause, str) or not failure_cause.strip():
+        raise ContractValidationError(
+            "episode_log.outcome.failure_cause must be a non-empty string"
+        )
+
+
+def _validate_episode_runtime(raw: object) -> None:
+    runtime = _require_mapping(raw, "episode_log.runtime")
+    allowed_keys = {"schema_version", "runtime_id", "runtime_version"}
+    unexpected = sorted(str(key) for key in runtime if key not in allowed_keys)
+    if unexpected:
+        raise ContractValidationError(
+            f"episode_log.runtime contains unsupported keys: {', '.join(unexpected)}"
+        )
+    schema_version = _require_non_empty_string(
+        runtime.get("schema_version"),
+        "episode_log.runtime.schema_version",
+    )
+    if schema_version != "runtime_metadata_v1":
+        raise ContractValidationError("episode_log.runtime.schema_version is unsupported")
+    _require_non_empty_string(runtime.get("runtime_id"), "episode_log.runtime.runtime_id")
+    _require_non_empty_string(
+        runtime.get("runtime_version"),
+        "episode_log.runtime.runtime_version",
+    )
+
+
+def _validate_episode_transition(raw: object, expected_index: int) -> None:
+    transition = _require_mapping(raw, f"episode_log.transitions.{expected_index - 1}")
+    transition_index = _require_positive_int(
+        transition.get("transition_index"),
+        f"episode_log.transitions.{expected_index - 1}.transition_index",
+    )
+    if transition_index != expected_index:
+        raise ContractValidationError("episode_log.transition_index must be ordered")
+    event_type = _require_non_empty_string(
+        transition.get("event_type"),
+        f"episode_log.transitions.{expected_index - 1}.event_type",
+    )
+    if event_type not in EPISODE_EVENT_TYPES:
+        raise ContractValidationError("episode_log.transition event_type is unsupported")
+    if event_type in {"action", "observation", "state_change"}:
+        _require_non_empty_string(
+            transition.get("tool_name"),
+            f"episode_log.transitions.{expected_index - 1}.tool_name",
+        )
+    if event_type == "action":
+        _validate_content_hash(
+            transition.get("arguments_hash"),
+            f"episode_log.transitions.{expected_index - 1}.arguments_hash",
+        )
+        _require_mapping(
+            transition.get("arguments"),
+            f"episode_log.transitions.{expected_index - 1}.arguments",
+        )
+    elif event_type == "observation":
+        _validate_content_hash(
+            transition.get("observation_hash"),
+            f"episode_log.transitions.{expected_index - 1}.observation_hash",
+        )
+        _require_mapping(
+            transition.get("observation"),
+            f"episode_log.transitions.{expected_index - 1}.observation",
+        )
+    elif event_type == "state_change":
+        _validate_content_hash(
+            transition.get("change_hash"),
+            f"episode_log.transitions.{expected_index - 1}.change_hash",
+        )
+        _require_mapping(
+            transition.get("change"),
+            f"episode_log.transitions.{expected_index - 1}.change",
+        )
+    elif event_type == "final_response":
+        _validate_content_hash(
+            transition.get("content_hash"),
+            f"episode_log.transitions.{expected_index - 1}.content_hash",
+        )
+        _require_non_empty_string(
+            transition.get("content"),
+            f"episode_log.transitions.{expected_index - 1}.content",
+        )
+    elif event_type == "error":
+        _validate_content_hash(
+            transition.get("error_hash"),
+            f"episode_log.transitions.{expected_index - 1}.error_hash",
+        )
+        _require_mapping(
+            transition.get("error"),
+            f"episode_log.transitions.{expected_index - 1}.error",
+        )
 
 
 def validate_profile_decision_report_record(record: Mapping[str, Any]) -> None:

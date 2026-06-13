@@ -5,10 +5,12 @@ is accepted as complete, move it to `../completed/` and update `../../PLANS.md`.
 
 ## Currently Executing
 
-No active implementation plan.
+No active implementation plan is currently open.
 
 ## Completed
 
+- [0030-runtime-contract-and-episode-evidence](../completed/0030-runtime-contract-and-episode-evidence.md):
+  completed on 2026-06-13.
 - [0029-mobile-agent-second-domain-pipeline-probe](../completed/0029-mobile-agent-second-domain-pipeline-probe.md):
   completed on 2026-06-12.
 - [0028-release-quality-evidence-audit-and-card](../completed/0028-release-quality-evidence-audit-and-card.md):

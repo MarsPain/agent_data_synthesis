@@ -14,10 +14,12 @@ from synthesis.datasets import (
 )
 from synthesis.execution import (
     BranchExecutionError,
+    ExecutionResult,
     PolicyValidationError,
     SolutionPolicy,
     execute_candidate,
 )
+from synthesis.episodes import build_episode_log
 from synthesis.llm import LLMConfig, LLMProviderError
 from synthesis.mcp import (
     ADAPTER_VERSION,
@@ -86,6 +88,7 @@ class ProvisionalCandidateOutcome:
     environment_isolation: dict[str, object] = field(default_factory=dict)
     registry_mutations: tuple[dict[str, object], ...] = ()
     task_record: dict[str, object] | None = None
+    episode_log: dict[str, object] | None = None
 
     @property
     def accepted_signature(self) -> tuple[str, tuple[str, ...]] | None:
@@ -111,6 +114,7 @@ class _CandidateAttemptResult:
     signature: tuple[str, tuple[str, ...]] | None
     policy: SolutionPolicy | None
     capability_gap: CapabilityGap | None = None
+    episode_log: dict[str, object] | None = None
 
 
 def process_candidate_through_gates(
@@ -155,6 +159,7 @@ def process_candidate_through_gates(
         environment_isolation=_environment_isolation_record(context),
         review_records=review_records,
         tool_proposal_records=tool_proposal_records,
+        episode_log=attempt_result.episode_log,
     )
     if sample_outcome is not None:
         return sample_outcome
@@ -176,6 +181,7 @@ def process_candidate_through_gates(
             environment_isolation=_environment_isolation_record(context),
             review_records=review_records,
             tool_proposal_records=tool_proposal_records,
+            episode_log=tool_expanded.episode_log,
         )
         if sample_outcome is not None:
             return sample_outcome
@@ -194,6 +200,7 @@ def process_candidate_through_gates(
             tool_proposal_records=tuple(tool_proposal_records),
             environment_isolation=_environment_isolation_record(context),
             task_record=task.export(),
+            episode_log=tool_expanded.episode_log,
         )
 
     try:
@@ -227,6 +234,7 @@ def process_candidate_through_gates(
             tool_proposal_records=tuple(tool_proposal_records),
             environment_isolation=_environment_isolation_record(context),
             task_record=task.export(),
+            episode_log=attempt_result.episode_log,
         )
     if refinement_attempt is None:
         _maybe_route_review(
@@ -260,6 +268,7 @@ def process_candidate_through_gates(
         environment_isolation=_environment_isolation_record(context),
         review_records=review_records,
         tool_proposal_records=tool_proposal_records,
+        episode_log=refined_result.episode_log,
     )
     if sample_outcome is not None:
         return sample_outcome
@@ -283,6 +292,7 @@ def process_candidate_through_gates(
         tool_proposal_records=tuple(tool_proposal_records),
         environment_isolation=_environment_isolation_record(context),
         task_record=refined_task.export(),
+        episode_log=refined_result.episode_log,
     )
 
 
@@ -295,6 +305,7 @@ def _sample_outcome_if_present(
     environment_isolation: dict[str, object],
     review_records: list[dict[str, object]],
     tool_proposal_records: list[dict[str, object]],
+    episode_log: dict[str, object] | None,
 ) -> ProvisionalCandidateOutcome | None:
     if attempt_result.sample is None:
         return None
@@ -310,6 +321,7 @@ def _sample_outcome_if_present(
         environment_isolation=environment_isolation,
         registry_mutations=_registry_mutations_from_tool_proposals(tool_proposal_records),
         task_record=task_record,
+        episode_log=episode_log,
     )
 
 
@@ -448,12 +460,21 @@ def _run_candidate_attempt(
         environment=context.environment,
     )
     if not verification.passed:
+        failure_cause = _verification_failure_cause(verification.export())
         return _CandidateAttemptResult(
             sample=None,
             rejection=assemble_rejection(task=task, verification=verification, policy=policy),
             signature=None,
             policy=policy,
             capability_gap=None,
+            episode_log=_build_attempt_episode_log(
+                task=task,
+                context=context,
+                policy=policy,
+                execution=execution,
+                outcome_status="rejected",
+                failure_cause=failure_cause,
+            ),
         )
 
     sample = assemble_sample(
@@ -483,6 +504,14 @@ def _run_candidate_attempt(
             signature=None,
             policy=policy,
             capability_gap=None,
+            episode_log=_build_attempt_episode_log(
+                task=task,
+                context=context,
+                policy=policy,
+                execution=execution,
+                outcome_status="rejected",
+                failure_cause="solution_logic_error",
+            ),
         )
     return _CandidateAttemptResult(
         sample=sample,
@@ -490,7 +519,49 @@ def _run_candidate_attempt(
         signature=signature,
         policy=policy,
         capability_gap=None,
+        episode_log=_build_attempt_episode_log(
+            task=task,
+            context=context,
+            policy=policy,
+            execution=execution,
+            outcome_status="accepted",
+            failure_cause=None,
+        ),
     )
+
+
+def _build_attempt_episode_log(
+    *,
+    task: CandidateTask,
+    context: CandidateProcessingContext,
+    policy: SolutionPolicy,
+    execution: ExecutionResult,
+    outcome_status: str,
+    failure_cause: str | None,
+) -> dict[str, object] | None:
+    if not hasattr(context.environment, "runtime_metadata"):
+        return None
+    return build_episode_log(
+        candidate_id=task.candidate_id,
+        runtime_metadata=context.environment.runtime_metadata(),
+        policy=policy,
+        verifier=context.verifier,
+        trajectory=execution.trajectory,
+        outcome_status=outcome_status,
+        failure_cause=failure_cause,
+    ).export()
+
+
+def _verification_failure_cause(verification: dict[str, object]) -> str:
+    checks = verification.get("checks")
+    if not isinstance(checks, list):
+        return "verification_failed"
+    failed_check = next(
+        (check for check in checks if isinstance(check, dict) and not check.get("passed")),
+        {},
+    )
+    cause = failed_check.get("cause") if isinstance(failed_check, dict) else None
+    return str(cause or "verification_failed")
 
 
 def _maybe_expand_tool_and_rerun(
@@ -547,6 +618,7 @@ def _maybe_expand_tool_and_rerun(
             signature=None,
             policy=attempt_result.policy,
             capability_gap=gap,
+            episode_log=attempt_result.episode_log,
         )
 
     rerun = _run_candidate_attempt(
@@ -562,6 +634,7 @@ def _maybe_expand_tool_and_rerun(
             signature=None,
             policy=rerun.policy,
             capability_gap=rerun.capability_gap,
+            episode_log=rerun.episode_log,
         )
     return rerun
 
