@@ -86,6 +86,18 @@ class DatasetContractTest(unittest.TestCase):
 
         validate_rejection_record(rejection)
 
+    def test_sample_contract_accepts_mobile_run_profile_source_attribution(self) -> None:
+        from synthesis.contracts import validate_sample_record
+
+        sample = _valid_sample()
+        sample["lineage"]["run_profile"] = _valid_run_profile_attribution(
+            profile_schema_version="run_profile_v2",
+            include_source=True,
+            source_kind="local_mobile_messages_json",
+        )
+
+        validate_sample_record(sample)
+
     def test_run_profile_attribution_rejects_invalid_hashes_and_unknown_keys(self) -> None:
         from synthesis.contracts import ContractValidationError, validate_sample_record
 
@@ -95,6 +107,13 @@ class DatasetContractTest(unittest.TestCase):
             {"enabled_features": []},
             {"source": {**_valid_run_profile_source_attribution(), "path": "contacts-profile.json"}},
             {"source": {**_valid_run_profile_source_attribution(), "raw_payload": {"contacts": []}}},
+            {"source": {**_valid_run_profile_source_attribution("local_mobile_messages_json"), "messages": []}},
+            {
+                "source": {
+                    **_valid_run_profile_source_attribution("local_mobile_messages_json"),
+                    "body": "Can you remind me to send the project update tomorrow at 9 AM?",
+                }
+            },
         )
         for override in invalid_records:
             with self.subTest(override=override):
@@ -286,6 +305,29 @@ class DatasetContractTest(unittest.TestCase):
 
         validate_manifest_record(manifest)
 
+    def test_manifest_contract_accepts_v2_mobile_profile_source_summary(self) -> None:
+        from synthesis.contracts import validate_manifest_record
+
+        manifest = _valid_manifest()
+        manifest["run_profile"] = {
+            "schema_version": "run_profile_v2",
+            "profile_id": "profile_local_mobile_messages",
+            "generation_mode": "mobile_fixture",
+            "profile_purpose": "diagnostic_probe",
+            "target_candidate_count": None,
+            "config_hash": "sha256:" + "1" * 64,
+            "enabled_features": [],
+            "source": {
+                "kind": "local_mobile_messages_json",
+                "source_id": "source_profile_mobile_messages_v1",
+                "content_hash": "sha256:" + "2" * 64,
+                "license_label": "cc-by-4.0",
+                "source_policy_hash": "sha256:" + "3" * 64,
+            },
+        }
+
+        validate_manifest_record(manifest)
+
     def test_manifest_contract_rejects_raw_profile_source_metadata(self) -> None:
         from synthesis.contracts import ContractValidationError, validate_manifest_record
 
@@ -295,6 +337,8 @@ class DatasetContractTest(unittest.TestCase):
             ("authorization", "Bearer secret-test-key"),
             ("api_key", "secret-test-key"),
             ("contact_name", "Alice Zhang"),
+            ("messages", [{"body": "Can you remind me to send the project update tomorrow at 9 AM?"}]),
+            ("body", "Can you remind me to send the project update tomorrow at 9 AM?"),
         )
         for key, value in forbidden_pairs:
             with self.subTest(key=key):
@@ -737,6 +781,7 @@ def _valid_run_profile_attribution(
     *,
     profile_schema_version: str = "run_profile_v1",
     include_source: bool = False,
+    source_kind: str = "local_contacts_json",
 ) -> dict[str, object]:
     attribution: dict[str, object] = {
         "schema_version": "run_profile_attribution_v1",
@@ -746,13 +791,15 @@ def _valid_run_profile_attribution(
         "config_hash": "sha256:" + "1" * 64,
     }
     if include_source:
-        attribution["source"] = _valid_run_profile_source_attribution()
+        attribution["source"] = _valid_run_profile_source_attribution(source_kind)
     return attribution
 
 
-def _valid_run_profile_source_attribution() -> dict[str, object]:
+def _valid_run_profile_source_attribution(
+    kind: str = "local_contacts_json",
+) -> dict[str, object]:
     return {
-        "kind": "local_contacts_json",
+        "kind": kind,
         "source_id": "source_profile_contacts_v1",
         "content_hash": "sha256:" + "2" * 64,
         "license_label": "cc-by-4.0",

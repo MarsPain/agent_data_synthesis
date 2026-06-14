@@ -78,6 +78,11 @@
   Implemented in plan 0018 with `run_profile_v2`, profile-relative contacts JSON
   ingestion through source governance, sanitized source metadata, and environment
   overrides over the existing synchronous pipeline.
+- Generalize profile-local source admission across domains before adding more
+  source-backed domains. Implemented in plan 0035 with a domain source importer
+  protocol, contacts compatibility importer, mobile messages importer, and
+  generic `domain_environment_input` pipeline plumbing while keeping controlled
+  network ingestion contacts-only.
 - Add profile-attributed quality and comparison before async orchestration.
   Implemented in plan 0019 with sanitized per-record profile attribution,
   profile quality slices, and parent-comparison visibility over profile slice

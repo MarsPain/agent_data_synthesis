@@ -5,6 +5,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
+from synthesis.contracts import validate_mobile_messages_environment_input_record
 from synthesis.environments import EnvironmentMetadata
 from synthesis.runtime import RuntimeMetadata, runtime_metadata_from_environment
 
@@ -70,6 +71,27 @@ class DraftReplyRecord:
         }
 
 
+@dataclass(frozen=True)
+class MobileMessagesEnvironmentInput:
+    threads: tuple[MessageThreadRecord, ...]
+    messages: tuple[MessageRecord, ...]
+    reminders: tuple[ReminderRecord, ...] = ()
+    draft_replies: tuple[DraftReplyRecord, ...] = ()
+    source_bundle_id: str | None = None
+    source_policy_hash: str | None = None
+
+    def export(self) -> dict[str, object]:
+        return {
+            "schema_version": "mobile_messages_environment_input_v1",
+            "threads": [thread.export() for thread in self.threads],
+            "messages": [message.export() for message in self.messages],
+            "reminders": [reminder.export() for reminder in self.reminders],
+            "draft_replies": [draft.export() for draft in self.draft_replies],
+            "source_bundle_id": self.source_bundle_id,
+            "source_policy_hash": self.source_policy_hash,
+        }
+
+
 class MobileMessagesEnvironment:
     environment_id = "mobile_messages_fixture"
     version = "env_mobile_messages_v1"
@@ -84,90 +106,44 @@ class MobileMessagesEnvironment:
         environment = cls(database_path)
         with closing(environment.connect()) as connection:
             with connection:
-                connection.execute(
-                    """
-                    CREATE TABLE message_threads (
-                        thread_id TEXT PRIMARY KEY,
-                        participant TEXT NOT NULL
-                    )
-                    """
-                )
-                connection.execute(
-                    """
-                    CREATE TABLE messages (
-                        message_id TEXT PRIMARY KEY,
-                        thread_id TEXT NOT NULL,
-                        sender TEXT NOT NULL,
-                        body TEXT NOT NULL,
-                        received_at TEXT NOT NULL,
-                        FOREIGN KEY(thread_id) REFERENCES message_threads(thread_id)
-                    )
-                    """
-                )
-                connection.execute(
-                    """
-                    CREATE TABLE reminders (
-                        reminder_id TEXT PRIMARY KEY,
-                        title TEXT NOT NULL,
-                        due_at TEXT,
-                        source_message_id TEXT,
-                        created_at TEXT NOT NULL,
-                        FOREIGN KEY(source_message_id) REFERENCES messages(message_id)
-                    )
-                    """
-                )
-                connection.execute(
-                    """
-                    CREATE TABLE draft_replies (
-                        draft_id TEXT PRIMARY KEY,
-                        thread_id TEXT NOT NULL,
-                        body TEXT NOT NULL,
-                        created_at TEXT NOT NULL,
-                        FOREIGN KEY(thread_id) REFERENCES message_threads(thread_id)
-                    )
-                    """
-                )
-                connection.executemany(
-                    "INSERT INTO message_threads(thread_id, participant) VALUES (?, ?)",
-                    [
-                        ("thread_maya", "Maya"),
-                        ("thread_alex", "Alex"),
-                        ("thread_delivery", "Delivery"),
-                    ],
-                )
-                connection.executemany(
-                    """
-                    INSERT INTO messages(message_id, thread_id, sender, body, received_at)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    [
-                        (
-                            "msg_maya_project_update",
-                            "thread_maya",
-                            "Maya",
-                            "Can you remind me to send the project update tomorrow at 9 AM?",
-                            "2026-06-12T08:00:00Z",
-                        ),
-                        (
-                            "msg_alex_late_reply",
-                            "thread_alex",
-                            "Alex",
-                            "Please reply that I will be five minutes late.",
-                            "2026-06-12T08:05:00Z",
-                        ),
-                        (
-                            "msg_delivery_pickup_code",
-                            "thread_delivery",
-                            "Delivery",
-                            "Your pickup code is 4821. Ask the desk if the sender is missing.",
-                            "2026-06-12T08:10:00Z",
-                        ),
-                    ],
-                )
+                _create_schema(connection)
+                _insert_mobile_input(connection, _fixture_input())
         return environment
 
-    def __init__(self, database_path: Path) -> None:
+    @classmethod
+    def create_from_input(
+        cls,
+        output_dir: Path,
+        environment_input: MobileMessagesEnvironmentInput,
+        *,
+        source_provenance: dict[str, object] | None = None,
+    ) -> "MobileMessagesEnvironment":
+        validate_mobile_messages_environment_input_record(environment_input.export())
+        output_dir.mkdir(parents=True, exist_ok=True)
+        database_path = output_dir / "mobile_messages.sqlite3"
+        if database_path.exists():
+            database_path.unlink()
+        environment = cls(
+            database_path,
+            source_provenance=source_provenance,
+            source_input=environment_input,
+        )
+        with closing(environment.connect()) as connection:
+            with connection:
+                _create_schema(connection)
+                _insert_mobile_input(connection, environment_input)
+        return environment
+
+    def __init__(
+        self,
+        database_path: Path,
+        *,
+        source_provenance: dict[str, object] | None = None,
+        source_input: MobileMessagesEnvironmentInput | None = None,
+    ) -> None:
         self.database_path = database_path
+        self.source_provenance = source_provenance
+        self.source_input = source_input
 
     def connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.database_path)
@@ -179,6 +155,12 @@ class MobileMessagesEnvironment:
         self.database_path.write_bytes(checkpoint)
 
     def rebuild(self, output_dir: Path) -> "MobileMessagesEnvironment":
+        if self.source_input is not None:
+            return type(self).create_from_input(
+                output_dir,
+                self.source_input,
+                source_provenance=self.source_provenance,
+            )
         return type(self).create_fixture(output_dir)
 
     def search_messages(
@@ -333,11 +315,20 @@ class MobileMessagesEnvironment:
         return row is not None
 
     def metadata(self) -> EnvironmentMetadata:
-        return EnvironmentMetadata(
-            environment_id=self.environment_id,
-            version=self.version,
-            reset_recipe={
-                "type": "sqlite_fixture",
+        reset_recipe: dict[str, object] = {
+            "type": "sqlite_fixture",
+            "fixture": "mobile_messages",
+            "database": self.database_path.name,
+            "tables": [
+                "message_threads",
+                "messages",
+                "reminders",
+                "draft_replies",
+            ],
+        }
+        if self.source_input is not None:
+            reset_recipe = {
+                "type": "sqlite_mobile_messages_source_input",
                 "fixture": "mobile_messages",
                 "database": self.database_path.name,
                 "tables": [
@@ -346,7 +337,18 @@ class MobileMessagesEnvironment:
                     "reminders",
                     "draft_replies",
                 ],
-            },
+                "source_bundle_id": self.source_input.source_bundle_id,
+                "source_policy_hash": self.source_input.source_policy_hash,
+                "thread_count": len(self.source_input.threads),
+                "message_count": len(self.source_input.messages),
+                "reminder_count": len(self.source_input.reminders),
+                "draft_reply_count": len(self.source_input.draft_replies),
+            }
+        return EnvironmentMetadata(
+            environment_id=self.environment_id,
+            version=self.version,
+            reset_recipe=reset_recipe,
+            source_provenance=self.source_provenance,
         )
 
     def runtime_metadata(self) -> RuntimeMetadata:
@@ -355,3 +357,137 @@ class MobileMessagesEnvironment:
 
 def _stable_id(value: str) -> str:
     return "".join(character.lower() if character.isalnum() else "_" for character in value).strip("_")
+
+
+def _create_schema(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE message_threads (
+            thread_id TEXT PRIMARY KEY,
+            participant TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE messages (
+            message_id TEXT PRIMARY KEY,
+            thread_id TEXT NOT NULL,
+            sender TEXT NOT NULL,
+            body TEXT NOT NULL,
+            received_at TEXT NOT NULL,
+            FOREIGN KEY(thread_id) REFERENCES message_threads(thread_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE reminders (
+            reminder_id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            due_at TEXT,
+            source_message_id TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(source_message_id) REFERENCES messages(message_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE draft_replies (
+            draft_id TEXT PRIMARY KEY,
+            thread_id TEXT NOT NULL,
+            body TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(thread_id) REFERENCES message_threads(thread_id)
+        )
+        """
+    )
+
+
+def _insert_mobile_input(
+    connection: sqlite3.Connection,
+    environment_input: MobileMessagesEnvironmentInput,
+) -> None:
+    connection.executemany(
+        "INSERT INTO message_threads(thread_id, participant) VALUES (?, ?)",
+        [
+            (thread.thread_id, thread.participant)
+            for thread in environment_input.threads
+        ],
+    )
+    connection.executemany(
+        """
+        INSERT INTO messages(message_id, thread_id, sender, body, received_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                message.message_id,
+                message.thread_id,
+                message.sender,
+                message.body,
+                message.received_at,
+            )
+            for message in environment_input.messages
+        ],
+    )
+    connection.executemany(
+        """
+        INSERT INTO reminders(reminder_id, title, due_at, source_message_id, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                reminder.reminder_id,
+                reminder.title,
+                reminder.due_at,
+                reminder.source_message_id,
+                reminder.created_at,
+            )
+            for reminder in environment_input.reminders
+        ],
+    )
+    connection.executemany(
+        """
+        INSERT INTO draft_replies(draft_id, thread_id, body, created_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        [
+            (draft.draft_id, draft.thread_id, draft.body, draft.created_at)
+            for draft in environment_input.draft_replies
+        ],
+    )
+
+
+def _fixture_input() -> MobileMessagesEnvironmentInput:
+    return MobileMessagesEnvironmentInput(
+        threads=(
+            MessageThreadRecord("thread_maya", "Maya"),
+            MessageThreadRecord("thread_alex", "Alex"),
+            MessageThreadRecord("thread_delivery", "Delivery"),
+        ),
+        messages=(
+            MessageRecord(
+                message_id="msg_maya_project_update",
+                thread_id="thread_maya",
+                sender="Maya",
+                body="Can you remind me to send the project update tomorrow at 9 AM?",
+                received_at="2026-06-12T08:00:00Z",
+            ),
+            MessageRecord(
+                message_id="msg_alex_late_reply",
+                thread_id="thread_alex",
+                sender="Alex",
+                body="Please reply that I will be five minutes late.",
+                received_at="2026-06-12T08:05:00Z",
+            ),
+            MessageRecord(
+                message_id="msg_delivery_pickup_code",
+                thread_id="thread_delivery",
+                sender="Delivery",
+                body="Your pickup code is 4821. Ask the desk if the sender is missing.",
+                received_at="2026-06-12T08:10:00Z",
+            ),
+        ),
+    )

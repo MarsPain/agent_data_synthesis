@@ -25,7 +25,6 @@ from synthesis.datasets import (
     write_dataset_artifacts,
 )
 from synthesis.episode_quality import EPISODES_FILENAME, write_episode_logs as write_episode_log_jsonl
-from synthesis.environments import ContactsEnvironmentInput
 from synthesis.domain_pipeline import (
     DomainPipelineBundle,
     build_domain_pipeline_bundle,
@@ -174,7 +173,7 @@ def run_foundation_pipeline(
     task_expansion_generator: TaskExpansionGenerator | None = None,
     source_bundle: SourceBundle | None = None,
     enable_source_audit: bool = False,
-    contacts_environment_input: ContactsEnvironmentInput | None = None,
+    domain_environment_input: object | None = None,
     source_events: list[dict[str, object]] | None = None,
     enable_mcp_adapter: bool = False,
     enable_sandbox_fixture: bool = False,
@@ -225,14 +224,14 @@ def run_foundation_pipeline(
         source_event_records.extend(source_result.events)
 
     source_provenance = dict(source_result.provenance)
-    if contacts_environment_input is not None:
+    if domain_environment_input is not None:
         source_provenance["environment_source_admission"] = "accepted"
         try:
             domain_bundle = build_domain_pipeline_bundle(
                 seed,
                 output_dir / "environment",
                 source_provenance=source_provenance,
-                contacts_environment_input=contacts_environment_input,
+                domain_environment_input=domain_environment_input,
                 enable_mcp_adapter=enable_mcp_adapter,
                 include_branching=enable_branching,
             )

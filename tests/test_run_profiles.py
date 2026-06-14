@@ -228,6 +228,72 @@ class RunProfileTest(unittest.TestCase):
         self.assertEqual(metadata["source"]["source_id"], "source_profile_contacts_v1")
         self.assertNotIn("path", metadata["source"])
 
+    def test_v2_profile_loads_local_mobile_source_with_sanitized_metadata(self) -> None:
+        from synthesis.run_profiles import load_run_profile
+
+        profile = load_run_profile(
+            Path("tests/fixtures/run_profiles/profile-local-mobile-messages.json")
+        )
+
+        self.assertEqual(profile.schema_version, "run_profile_v2")
+        self.assertIsNotNone(profile.source)
+        assert profile.source is not None
+        self.assertEqual(profile.seed.domain, "mobile_messages_fixture")
+        self.assertEqual(profile.source.kind, "local_mobile_messages_json")
+        self.assertEqual(
+            profile.source.source_id,
+            "source_profile_mobile_messages_v1",
+        )
+        self.assertEqual(profile.source.relative_path, "mobile-messages-profile.json")
+        self.assertEqual(profile.source.resolved_path.name, "mobile-messages-profile.json")
+        self.assertNotIn("mobile-messages-profile.json", json.dumps(profile.sanitized_metadata()))
+        self.assertNotIn("project update tomorrow", json.dumps(profile.sanitized_metadata()))
+
+        metadata = profile.sanitized_metadata(
+            source_summary={
+                "kind": "local_mobile_messages_json",
+                "source_id": "source_profile_mobile_messages_v1",
+                "content_hash": "sha256:" + "1" * 64,
+                "license_label": "cc-by-4.0",
+                "source_policy_hash": "sha256:" + "2" * 64,
+            }
+        )
+        self.assertEqual(metadata["source"]["kind"], "local_mobile_messages_json")
+        self.assertNotIn("path", metadata["source"])
+
+    def test_v2_source_rejects_domain_source_kind_mismatches(self) -> None:
+        from synthesis.run_profiles import RunProfileValidationError, load_run_profile
+
+        mismatches = (
+            ("contacts", "local_mobile_messages_json"),
+            ("mobile_messages_fixture", "local_contacts_json"),
+        )
+        for domain, source_kind in mismatches:
+            with self.subTest(domain=domain, source_kind=source_kind):
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = self._write_profile(
+                        Path(tmp),
+                        overrides={
+                            "schema_version": "run_profile_v2",
+                            "seed": {
+                                "seed_id": "seed_mismatch",
+                                "domain": domain,
+                                "description": "Mismatch probe.",
+                                "task_taxonomy": ["probe"],
+                            },
+                            "generation": {"mode": "foundation_fixture"},
+                            "source": {
+                                "kind": source_kind,
+                                "source_id": "source_profile_mismatch",
+                                "path": "source.json",
+                                "license_label": "cc-by-4.0",
+                            },
+                        },
+                    )
+
+                    with self.assertRaisesRegex(RunProfileValidationError, "source.kind"):
+                        load_run_profile(path)
+
     def test_v2_source_declaration_changes_config_hash(self) -> None:
         from synthesis.run_profiles import load_run_profile
 

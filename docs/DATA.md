@@ -278,10 +278,13 @@ secret-like fields. Non-profile runs omit `run_profile`.
 
 `run_profile_v2` preserves the same manifest metadata and may add
 `run_profile.source` after source admission. That summary contains only `kind`,
-`source_id`, `content_hash`, `license_label`, and `source_policy_hash`. The
+`source_id`, `content_hash`, `license_label`, and `source_policy_hash`.
+Supported profile-local source kinds are `local_contacts_json` for the contacts
+domain and `local_mobile_messages_json` for `mobile_messages_fixture`. The
 profile-local source path is used only at runtime to read the declared JSON file
 relative to the profile directory; manifests, quality reports, source events,
-and rejection metadata must not persist raw local paths or raw contacts payloads.
+and rejection metadata must not persist raw local paths, raw contacts payloads,
+raw mobile message payloads, or mobile message bodies.
 
 Profile-configured runs also attach a narrow per-record attribution record under
 `lineage.run_profile` for accepted samples and `details.run_profile` for
@@ -447,15 +450,22 @@ instructions, expected answers, expected state, tool arguments, observations,
 final responses, source/provider payloads, prompts, credentials, environment
 variables, and host paths.
 
+`mobile_messages_environment_input_v1` is the typed mobile source environment
+input. It contains non-empty `threads` and `messages`, optional `reminders` and
+`draft_replies`, and optional `source_bundle_id`/`source_policy_hash`. Message
+threads and source ids must be internally consistent before the environment is
+created. This contract is domain-owned; shared source governance does not
+understand mobile table semantics.
+
 `lineage.source_provenance` records the source bundle id, source policy hash,
 source ids, source kinds, license labels, license outcomes, retention/export
 eligibility, `external_source_eligible`, and, for source-backed contacts inputs,
 `environment_source_admission`. Environment metadata carries the same source
 provenance so environment versions can be traced back to the policy hash that
 admitted their source bundle. Network-backed and profile-local environment reset
-recipes also record source bundle id, source policy hash, contact count, and
-follow-up count; they do not record raw source URLs, raw local paths, or payload
-text. Rejected external/local-file source material and rejected
+recipes also record source bundle id, source policy hash, and sanitized row
+counts; they do not record raw source URLs, raw local paths, or payload text.
+Rejected external/local-file source material and rejected
 environment-source inputs use `source_policy_rejected` and store sanitized source
 governance details under `details.source_governance`.
 

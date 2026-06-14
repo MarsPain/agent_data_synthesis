@@ -5,10 +5,12 @@ is accepted as complete, move it to `../completed/` and update `../../PLANS.md`.
 
 ## Currently Executing
 
-No active implementation plan.
+- No active implementation plan.
 
 ## Completed
 
+- [0035-domain-source-admission-interface](../completed/0035-domain-source-admission-interface.md):
+  completed on 2026-06-14.
 - [0034-reward-label-export-and-runtime-scoring-consumer](../completed/0034-reward-label-export-and-runtime-scoring-consumer.md):
   completed on 2026-06-14.
 - [0033-task-intent-policy-verifier-contract-split](../completed/0033-task-intent-policy-verifier-contract-split.md):

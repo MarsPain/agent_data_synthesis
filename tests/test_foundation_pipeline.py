@@ -113,7 +113,7 @@ class FoundationPipelineTest(unittest.TestCase):
             )
             return {
                 "source_bundle": source_input.source_bundle,
-                "contacts_environment_input": source_input.environment_input,
+                "domain_environment_input": source_input.environment_input,
                 "source_events": source_input.events,
                 "enable_source_audit": True,
             }
@@ -505,7 +505,7 @@ class FoundationPipelineTest(unittest.TestCase):
                 Path(tmpdir),
                 dataset_version=profile.dataset_version,
                 source_bundle=source_input.source_bundle,
-                contacts_environment_input=source_input.environment_input,
+                domain_environment_input=source_input.environment_input,
                 source_events=source_input.events,
                 enable_source_audit=True,
                 seed_override=profile.seed,

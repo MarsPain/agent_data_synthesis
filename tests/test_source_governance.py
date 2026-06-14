@@ -242,7 +242,7 @@ class SourceGovernancePipelineTest(unittest.TestCase):
                 Path(tmpdir),
                 dataset_version="dataset_network_contacts",
                 source_bundle=source_input.source_bundle,
-                contacts_environment_input=source_input.environment_input,
+                domain_environment_input=source_input.environment_input,
                 source_events=source_input.events,
                 enable_source_audit=True,
             )
@@ -375,7 +375,7 @@ class SourceGovernancePipelineTest(unittest.TestCase):
                 Path(tmpdir),
                 dataset_version="dataset_profile_local_bad_schema",
                 source_bundle=source_input.source_bundle,
-                contacts_environment_input=source_input.environment_input,
+                domain_environment_input=source_input.environment_input,
                 source_events=source_input.events,
                 enable_source_audit=True,
             )
@@ -424,7 +424,7 @@ class SourceGovernancePipelineTest(unittest.TestCase):
                 Path(tmpdir),
                 dataset_version="dataset_bad_environment_source",
                 source_bundle=source_input.source_bundle,
-                contacts_environment_input=source_input.environment_input,
+                domain_environment_input=source_input.environment_input,
                 source_events=source_input.events,
                 enable_source_audit=True,
             )

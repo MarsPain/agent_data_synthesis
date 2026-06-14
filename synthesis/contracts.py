@@ -216,6 +216,10 @@ REWARD_LABEL_CHECK_NAMES = {
     "sanitized_summaries",
 }
 REWARD_LABEL_RUNTIMES = {"contacts_fixture", "mobile_messages_fixture"}
+RUN_PROFILE_SOURCE_KINDS = {
+    "local_contacts_json",
+    "local_mobile_messages_json",
+}
 
 
 def validate_candidate_task(task: object) -> CandidateTask:
@@ -1731,6 +1735,107 @@ def validate_contacts_environment_input_record(record: Mapping[str, Any]) -> Non
         _require_non_empty_string(error, f"validation_errors.{index}")
 
 
+def validate_mobile_messages_environment_input_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "mobile_messages_environment_input")
+    schema_version = _require_non_empty_string(record.get("schema_version"), "schema_version")
+    if schema_version != "mobile_messages_environment_input_v1":
+        raise ContractValidationError("schema_version is unsupported")
+
+    threads = _require_sequence(record.get("threads"), "threads")
+    if not threads:
+        raise ContractValidationError("threads must contain at least one thread")
+    thread_ids: set[str] = set()
+    for index, raw_thread in enumerate(threads):
+        thread = _require_mapping(raw_thread, f"threads.{index}")
+        thread_id = _require_non_empty_string(
+            thread.get("thread_id"),
+            f"threads.{index}.thread_id",
+        )
+        if thread_id in thread_ids:
+            raise ContractValidationError(f"threads.{index}.thread_id must be unique")
+        thread_ids.add(thread_id)
+        _require_non_empty_string(thread.get("participant"), f"threads.{index}.participant")
+
+    messages = _require_sequence(record.get("messages"), "messages")
+    if not messages:
+        raise ContractValidationError("messages must contain at least one message")
+    message_ids: set[str] = set()
+    for index, raw_message in enumerate(messages):
+        message = _require_mapping(raw_message, f"messages.{index}")
+        message_id = _require_non_empty_string(
+            message.get("message_id"),
+            f"messages.{index}.message_id",
+        )
+        if message_id in message_ids:
+            raise ContractValidationError(f"messages.{index}.message_id must be unique")
+        message_ids.add(message_id)
+        thread_id = _require_non_empty_string(
+            message.get("thread_id"),
+            f"messages.{index}.thread_id",
+        )
+        if thread_id not in thread_ids:
+            raise ContractValidationError(
+                f"messages.{index}.thread_id must reference a thread"
+            )
+        _require_non_empty_string(message.get("sender"), f"messages.{index}.sender")
+        _require_non_empty_string(message.get("body"), f"messages.{index}.body")
+        _require_non_empty_string(
+            message.get("received_at"),
+            f"messages.{index}.received_at",
+        )
+
+    reminders = _require_sequence(record.get("reminders"), "reminders")
+    for index, raw_reminder in enumerate(reminders):
+        reminder = _require_mapping(raw_reminder, f"reminders.{index}")
+        _require_non_empty_string(
+            reminder.get("reminder_id"),
+            f"reminders.{index}.reminder_id",
+        )
+        _require_non_empty_string(reminder.get("title"), f"reminders.{index}.title")
+        due_at = reminder.get("due_at")
+        if due_at is not None:
+            _require_non_empty_string(due_at, f"reminders.{index}.due_at")
+        source_message_id = reminder.get("source_message_id")
+        if source_message_id is not None:
+            source_id = _require_non_empty_string(
+                source_message_id,
+                f"reminders.{index}.source_message_id",
+            )
+            if source_id not in message_ids:
+                raise ContractValidationError(
+                    f"reminders.{index}.source_message_id must reference a message"
+                )
+        _require_non_empty_string(
+            reminder.get("created_at"),
+            f"reminders.{index}.created_at",
+        )
+
+    draft_replies = _require_sequence(record.get("draft_replies"), "draft_replies")
+    for index, raw_draft in enumerate(draft_replies):
+        draft = _require_mapping(raw_draft, f"draft_replies.{index}")
+        _require_non_empty_string(draft.get("draft_id"), f"draft_replies.{index}.draft_id")
+        thread_id = _require_non_empty_string(
+            draft.get("thread_id"),
+            f"draft_replies.{index}.thread_id",
+        )
+        if thread_id not in thread_ids:
+            raise ContractValidationError(
+                f"draft_replies.{index}.thread_id must reference a thread"
+            )
+        _require_non_empty_string(draft.get("body"), f"draft_replies.{index}.body")
+        _require_non_empty_string(
+            draft.get("created_at"),
+            f"draft_replies.{index}.created_at",
+        )
+
+    source_bundle_id = record.get("source_bundle_id")
+    if source_bundle_id is not None:
+        _require_non_empty_string(source_bundle_id, "source_bundle_id")
+    source_policy_hash = record.get("source_policy_hash")
+    if source_policy_hash is not None:
+        _validate_content_hash(source_policy_hash, "source_policy_hash")
+
+
 def validate_adapter_manifest_record(record: Mapping[str, Any]) -> None:
     _require_mapping(record, "adapter_manifest")
     _require_non_empty_string(record.get("schema_version"), "schema_version")
@@ -2474,7 +2579,7 @@ def _validate_run_profile_source_metadata(raw: object) -> None:
             f"run_profile.source contains unsupported keys: {', '.join(unexpected)}"
         )
     kind = _require_non_empty_string(source.get("kind"), "run_profile.source.kind")
-    if kind != "local_contacts_json":
+    if kind not in RUN_PROFILE_SOURCE_KINDS:
         raise ContractValidationError("run_profile.source.kind is unsupported")
     _require_non_empty_string(source.get("source_id"), "run_profile.source.source_id")
     _validate_content_hash(source.get("content_hash"), "run_profile.source.content_hash")
@@ -2555,7 +2660,7 @@ def _validate_run_profile_source_attribution(raw: object, path: str) -> None:
             f"{path} contains unsupported keys: {', '.join(unexpected)}"
         )
     kind = _require_non_empty_string(source.get("kind"), f"{path}.kind")
-    if kind != "local_contacts_json":
+    if kind not in RUN_PROFILE_SOURCE_KINDS:
         raise ContractValidationError(f"{path}.kind is unsupported")
     _require_non_empty_string(source.get("source_id"), f"{path}.source_id")
     _validate_content_hash(source.get("content_hash"), f"{path}.content_hash")

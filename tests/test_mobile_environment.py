@@ -8,6 +8,68 @@ from pathlib import Path
 
 
 class MobileMessagesEnvironmentTest(unittest.TestCase):
+    def test_mobile_environment_input_export_is_contract_valid(self) -> None:
+        from synthesis.contracts import validate_mobile_messages_environment_input_record
+        from synthesis.mobile_environment import (
+            MessageRecord,
+            MessageThreadRecord,
+            MobileMessagesEnvironmentInput,
+        )
+
+        environment_input = MobileMessagesEnvironmentInput(
+            threads=(MessageThreadRecord("thread_maya", "Maya"),),
+            messages=(
+                MessageRecord(
+                    message_id="msg_maya_project_update",
+                    thread_id="thread_maya",
+                    sender="Maya",
+                    body="Can you remind me to send the project update tomorrow at 9 AM?",
+                    received_at="2026-06-12T08:00:00Z",
+                ),
+            ),
+            source_bundle_id="bundle_source_mobile_messages_v1",
+            source_policy_hash="sha256:" + "1" * 64,
+        )
+
+        validate_mobile_messages_environment_input_record(environment_input.export())
+
+    def test_mobile_environment_can_create_from_source_input(self) -> None:
+        from synthesis.mobile_environment import (
+            MessageRecord,
+            MessageThreadRecord,
+            MobileMessagesEnvironment,
+            MobileMessagesEnvironmentInput,
+        )
+
+        environment_input = MobileMessagesEnvironmentInput(
+            threads=(MessageThreadRecord("thread_maya", "Maya"),),
+            messages=(
+                MessageRecord(
+                    message_id="msg_maya_project_update",
+                    thread_id="thread_maya",
+                    sender="Maya",
+                    body="Can you remind me to send the project update tomorrow at 9 AM?",
+                    received_at="2026-06-12T08:00:00Z",
+                ),
+            ),
+            source_bundle_id="bundle_source_mobile_messages_v1",
+            source_policy_hash="sha256:" + "1" * 64,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            environment = MobileMessagesEnvironment.create_from_input(
+                Path(tmpdir),
+                environment_input,
+                source_provenance={"source_policy_hash": "sha256:" + "1" * 64},
+            )
+            match = environment.search_messages(query="project update", participant="Maya")
+
+        self.assertEqual(match["message_id"], "msg_maya_project_update")
+        self.assertEqual(
+            environment.metadata().source_provenance["source_policy_hash"],
+            "sha256:" + "1" * 64,
+        )
+
     def test_fixture_creates_tables_and_deterministic_data(self) -> None:
         from synthesis.mobile_environment import MobileMessagesEnvironment
 
@@ -139,6 +201,86 @@ class MobileMessagesEnvironmentTest(unittest.TestCase):
             self.assertEqual(metadata.reset_recipe["type"], "sqlite_fixture")
             self.assertEqual(metadata.reset_recipe["database"], "mobile_messages.sqlite3")
             self.assertNotIn(str(tmpdir), repr(metadata.reset_recipe))
+
+    def test_mobile_environment_input_contract_rejects_invalid_references(self) -> None:
+        from synthesis.contracts import (
+            ContractValidationError,
+            validate_mobile_messages_environment_input_record,
+        )
+
+        invalid_records = (
+            ({"threads": []}, "threads must contain at least one"),
+            ({"messages": []}, "messages must contain at least one"),
+            (
+                {
+                    "messages": [
+                        {
+                            "message_id": "msg_unknown",
+                            "thread_id": "missing_thread",
+                            "sender": "Maya",
+                            "body": "Body",
+                            "received_at": "2026-06-12T08:00:00Z",
+                        }
+                    ]
+                },
+                "messages.0.thread_id",
+            ),
+            (
+                {
+                    "reminders": [
+                        {
+                            "reminder_id": "reminder_missing",
+                            "title": "Follow up",
+                            "due_at": None,
+                            "source_message_id": "missing_message",
+                            "created_at": "1970-01-01T00:00:00Z",
+                        }
+                    ]
+                },
+                "reminders.0.source_message_id",
+            ),
+            (
+                {
+                    "draft_replies": [
+                        {
+                            "draft_id": "draft_missing",
+                            "thread_id": "missing_thread",
+                            "body": "Reply",
+                            "created_at": "1970-01-01T00:00:00Z",
+                        }
+                    ]
+                },
+                "draft_replies.0.thread_id",
+            ),
+            ({"source_policy_hash": "not-a-hash"}, "source_policy_hash"),
+        )
+
+        for override, message in invalid_records:
+            with self.subTest(message=message):
+                record = _valid_mobile_environment_input()
+                record.update(override)
+                with self.assertRaisesRegex(ContractValidationError, message):
+                    validate_mobile_messages_environment_input_record(record)
+
+
+def _valid_mobile_environment_input() -> dict[str, object]:
+    return {
+        "schema_version": "mobile_messages_environment_input_v1",
+        "threads": [{"thread_id": "thread_maya", "participant": "Maya"}],
+        "messages": [
+            {
+                "message_id": "msg_maya_project_update",
+                "thread_id": "thread_maya",
+                "sender": "Maya",
+                "body": "Can you remind me to send the project update tomorrow at 9 AM?",
+                "received_at": "2026-06-12T08:00:00Z",
+            }
+        ],
+        "reminders": [],
+        "draft_replies": [],
+        "source_bundle_id": "bundle_source_mobile_messages_v1",
+        "source_policy_hash": "sha256:" + "1" * 64,
+    }
 
 
 if __name__ == "__main__":

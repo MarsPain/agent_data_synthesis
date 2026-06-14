@@ -62,7 +62,7 @@ LLM-backed generation and judge steps should read these environment variables:
 - `AGENT_DATA_API_KEY`: API key for the configured remote LLM provider.
 - `AGENT_DATA_LLM_MODEL`: model id used by the synthesis pipeline.
 
-The default local runner uses deterministic fixture candidates so it can run without provider credentials. Pass `--enable-refinement` to enable the deterministic one-shot critic/refinement fixture loop. Pass `--enable-branching` to include the deterministic multi-path branching fixture. Pass `--enable-task-expansion` to include deterministic seed transformation and task suggester/editor expansion. Pass `--enable-source-governance-fixture` to exercise deterministic no-network external-source governance and write `source_events.jsonl`. Pass `--use-llm` to generate candidates through the configured remote OpenAI-compatible `/chat/completions` API.
+The default local runner uses deterministic fixture candidates so it can run without provider credentials. Pass `--enable-refinement` to enable the deterministic one-shot critic/refinement fixture loop. Pass `--enable-branching` to include the deterministic multi-path branching fixture. Pass `--enable-task-expansion` to include deterministic seed transformation and task suggester/editor expansion. Pass `--enable-source-governance-fixture` to exercise deterministic no-network external-source governance and write `source_events.jsonl`. `run_profile_v2` profile-local sources support contacts and mobile messages through domain importers. Pass `--use-llm` to generate candidates through the configured remote OpenAI-compatible `/chat/completions` API.
 
 ## Repository Rules
 

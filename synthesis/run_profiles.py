@@ -19,7 +19,7 @@ GENERATION_MODES = {
     "llm",
 }
 PROFILE_PURPOSES = {"diagnostic_probe", "release_candidate", "benchmark"}
-SOURCE_KINDS = {"local_contacts_json"}
+SOURCE_KINDS = {"local_contacts_json", "local_mobile_messages_json"}
 SOURCE_KEYS = {"kind", "source_id", "path", "license_label", "max_bytes"}
 DEFAULT_SOURCE_MAX_BYTES = 65536
 FEATURE_KEYS = (
@@ -152,6 +152,7 @@ def load_run_profile(path: Path) -> RunProfile:
     )
     features = _load_features(raw.get("features", {}))
     source = _load_source(raw.get("source"), schema_version=schema_version, profile_path=path)
+    _validate_source_domain_compatibility(seed, source)
     canonical = _canonical_profile_mapping(
         schema_version=schema_version,
         profile_id=profile_id,
@@ -300,6 +301,27 @@ def _load_source(
         license_label=license_label,
         max_bytes=max_bytes,
     )
+
+
+def _validate_source_domain_compatibility(
+    seed: DomainSeed,
+    source: RunProfileSource | None,
+) -> None:
+    if source is None:
+        return
+    normalized_domain = (
+        "contacts_fixture"
+        if seed.domain in {"contacts", "contacts_fixture"}
+        else seed.domain
+    )
+    allowed = {
+        "contacts_fixture": {"local_contacts_json"},
+        "mobile_messages_fixture": {"local_mobile_messages_json"},
+    }
+    if source.kind not in allowed.get(normalized_domain, set()):
+        raise RunProfileValidationError(
+            f"source.kind {source.kind!r} is not supported for seed.domain {seed.domain!r}"
+        )
 
 
 def _canonical_profile_mapping(

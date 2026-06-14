@@ -1,7 +1,7 @@
 # Mobile Domain Pipeline Pressure
 
 Generated during plan 0029 on 2026-06-12. Updated by plans 0030, 0031, and
-0032 on 2026-06-13, and plan 0033 on 2026-06-14.
+0032 on 2026-06-13, and plans 0033, 0034, and 0035 on 2026-06-14.
 
 ## What Changed
 
@@ -37,8 +37,9 @@ assembly, and quality reporting.
   answer, and expected state before execution and verification.
 - MCP adapter support remains contacts-only. Mobile profiles that request the
   adapter are rejected instead of silently falling back.
-- Source-governed environment input remains contacts-only. Mobile local source
-  ingestion is outside this plan.
+- Source-governed profile-local environment input is no longer contacts-only:
+  contacts and mobile messages now use one domain importer interface after
+  shared source governance admits the local JSON payload.
 - The domain bundle is an internal synchronous boundary, not a separate AWM
   runtime package.
 
@@ -66,8 +67,7 @@ The larger 0025 extraction pressure remains unresolved:
 - Episode evidence is an in-memory diagnostic contract consumer, not a replay
   engine, reward/data-quality trainer, Agentic RL collector, or release
   artifact.
-- MCP adapter support remains contacts-only, and mobile source-governed input
-  remains outside scope.
+- MCP adapter support remains contacts-only.
 - `CandidateTask` still exposed task intent, policy hints, expected answer, and
   expected state through one compatibility record; 0030 documented that
   pressure but did not migrate the internal boundary.
@@ -90,7 +90,7 @@ repo-local, opt-in consumer:
   only when the report is explicitly requested.
 
 This does not resolve executable replay, reward-label export, Agentic RL rollout
-collection, external MCP environment servers, mobile source-governed input, or
+collection, external MCP environment servers, or
 the internal `CandidateTask` intent/policy/expected-state split that was later
 addressed by plan 0033.
 
@@ -114,7 +114,7 @@ opt-in consumer:
   extracting a separate `awm_runtime` package.
 
 This left reward-label export, Agentic RL rollout collection, external MCP
-environment servers, mobile source-governed input, and the `CandidateTask`
+environment servers, and the `CandidateTask`
 intent/policy/expected-state split unresolved.
 
 ## Plan 0033 Task-Contract Split Update
@@ -158,9 +158,31 @@ repo-local, opt-in consumer:
   reward-label scoring. Their artifacts are attached to the manifest only when
   their own flags are explicitly requested.
 
-This leaves Agentic RL rollout collection, external MCP environment servers,
+This left Agentic RL rollout collection, external MCP environment servers,
 mobile source-governed input, semantic duplicate detection, async orchestration,
 and full AWM runtime package extraction unresolved.
+
+## Plan 0035 Domain Source Admission Update
+
+Plan 0035 resolves the narrow mobile source-governed input pressure by adding a
+domain source importer boundary:
+
+- `synthesis.sources` keeps shared source governance: profile-relative path
+  admission, byte limits, license decisions, source bundles, source-policy
+  hashes, and sanitized source events.
+- `synthesis.domain_sources` resolves `(domain_id, source.kind)` pairs and
+  calls domain importers after source governance admits bytes.
+- Contacts keep compatibility through `local_contacts_json`; mobile messages
+  add `local_mobile_messages_json` and `MobileMessagesEnvironmentInput`.
+- `synthesis.domain_pipeline` and `synthesis.pipeline` accept generic
+  `domain_environment_input` instead of a contacts-specific source parameter.
+- CLI `run_profile_v2` profile-local source runs now work for both contacts and
+  `mobile_messages_fixture`; controlled network ingestion remains contacts-only.
+
+This still leaves Agentic RL rollout collection, external MCP environment
+servers, semantic duplicate detection, async orchestration, controlled network
+source import for non-contacts domains, and full AWM runtime package extraction
+unresolved.
 
 ## Evidence
 
@@ -189,6 +211,9 @@ and full AWM runtime package extraction unresolved.
 - `tests.test_task_contracts` covers contacts/mobile contract conversion,
   branch-plan validation reuse, unsafe value rejection, contract-aware scripted
   policies, and contract-aware verification.
+- `tests.test_domain_sources` covers generic profile-local domain source
+  admission, contacts/mobile importer resolution, mismatch rejection, and
+  sanitized source events.
 - `tests.test_cli` covers the mobile run profile and confirms default CLI output
   remains contacts-only; it also covers opt-in episode-quality, episode-replay,
-  and reward-label report writing.
+  reward-label report writing, and profile-local mobile source admission.

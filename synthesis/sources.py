@@ -214,6 +214,14 @@ class ProfileLocalContactsSourceInput:
     source_summary: dict[str, object]
 
 
+@dataclass(frozen=True)
+class ProfileLocalSourceAdmission:
+    source_bundle: SourceBundle
+    content: bytes
+    events: list[dict[str, object]]
+    source_summary: dict[str, object]
+
+
 class HttpResponse(Protocol):
     status_code: int
     headers: dict[str, str]
@@ -414,7 +422,7 @@ def build_network_contacts_source_input(
         policy_outcome="allowed",
     )
     validate_fetched_source_result_record(fetch_result.export())
-    environment_input = _contacts_environment_input_from_payload(
+    environment_input = contacts_environment_input_from_payload(
         content,
         source_bundle_id=source_bundle.bundle_id,
         source_policy_hash=policy_hash,
@@ -444,6 +452,40 @@ def build_network_contacts_source_input(
 def build_profile_local_contacts_source_input(
     request: ProfileLocalContactsSourceRequest,
 ) -> ProfileLocalContactsSourceInput:
+    admission = admit_profile_local_json_source(
+        source_id=request.source_id,
+        path=request.path,
+        license_label=request.license_label,
+        max_bytes=request.max_bytes,
+        source_summary_kind="local_contacts_json",
+    )
+    environment_input = contacts_environment_input_from_payload(
+        admission.content,
+        source_bundle_id=admission.source_bundle.bundle_id,
+        source_policy_hash=str(admission.source_summary["source_policy_hash"]),
+    )
+    return ProfileLocalContactsSourceInput(
+        source_bundle=admission.source_bundle,
+        environment_input=environment_input,
+        events=admission.events,
+        source_summary=admission.source_summary,
+    )
+
+
+def admit_profile_local_json_source(
+    *,
+    source_id: str,
+    path: Path,
+    license_label: str,
+    max_bytes: int,
+    source_summary_kind: str,
+) -> ProfileLocalSourceAdmission:
+    request = ProfileLocalContactsSourceRequest(
+        source_id=source_id,
+        path=path,
+        license_label=license_label,
+        max_bytes=max_bytes,
+    )
     source_id = request.source_id
     origin_reference = _profile_local_origin_reference(source_id)
     origin_alias = _origin_alias(origin_reference)
@@ -486,11 +528,6 @@ def build_profile_local_contacts_source_input(
         license_outcome="allowed",
     )
     source_result = validate_source_bundle(source_bundle)
-    environment_input = _contacts_environment_input_from_payload(
-        content,
-        source_bundle_id=source_bundle.bundle_id,
-        source_policy_hash=source_result.source_policy_hash,
-    )
     events.append(
         _sanitized_source_event(
             event_type="fetch_accepted",
@@ -505,12 +542,12 @@ def build_profile_local_contacts_source_input(
             rejection_causes=[],
         )
     )
-    return ProfileLocalContactsSourceInput(
+    return ProfileLocalSourceAdmission(
         source_bundle=source_bundle,
-        environment_input=environment_input,
+        content=content,
         events=events,
         source_summary={
-            "kind": "local_contacts_json",
+            "kind": source_summary_kind,
             "source_id": source_id,
             "content_hash": content_hash,
             "license_label": request.license_label,
@@ -959,7 +996,7 @@ def _sanitized_source_event(
     return event
 
 
-def _contacts_environment_input_from_payload(
+def contacts_environment_input_from_payload(
     payload: bytes,
     *,
     source_bundle_id: str,

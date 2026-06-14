@@ -742,6 +742,73 @@ class FoundationCliTest(unittest.TestCase):
             self.assertNotIn("contacts-profile.json", (output_dir / "samples.jsonl").read_text(encoding="utf-8"))
             self.assertIn("accepted=2", result.stdout)
 
+    def test_main_can_run_profile_local_mobile_messages_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "mobile-profile-local"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/profile-local-mobile-messages.json",
+                    "--write-episode-quality-report",
+                    "--write-episode-replay-report",
+                    "--write-reward-label-report",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((output_dir / "source_events.jsonl").exists(), result.stdout)
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["accepted_count"], 4)
+            self.assertEqual(
+                manifest["run_profile"]["source"]["kind"],
+                "local_mobile_messages_json",
+            )
+            self.assertEqual(
+                manifest["run_profile"]["source"]["source_id"],
+                "source_profile_mobile_messages_v1",
+            )
+            quality_report = json.loads(
+                (output_dir / "episode_quality_report.json").read_text(encoding="utf-8")
+            )
+            replay_report = json.loads(
+                (output_dir / "episode_replay_report.json").read_text(encoding="utf-8")
+            )
+            reward_report = json.loads(
+                (output_dir / "reward_label_report.json").read_text(encoding="utf-8")
+            )
+            self.assertGreater(
+                quality_report["observed"]["runtime_counts"]["mobile_messages_fixture"],
+                0,
+            )
+            self.assertGreater(
+                replay_report["observed"]["runtime_counts"]["mobile_messages_fixture"],
+                0,
+            )
+            self.assertGreater(
+                reward_report["observed"]["runtime_counts"]["mobile_messages_fixture"],
+                0,
+            )
+            exported_metadata = (
+                (output_dir / "manifest.json").read_text(encoding="utf-8")
+                + (output_dir / "source_events.jsonl").read_text(encoding="utf-8")
+                + (output_dir / "quality_report.json").read_text(encoding="utf-8")
+                + (output_dir / "episode_quality_report.json").read_text(encoding="utf-8")
+                + (output_dir / "episode_replay_report.json").read_text(encoding="utf-8")
+                + (output_dir / "reward_label_report.json").read_text(encoding="utf-8")
+            )
+            self.assertNotIn("mobile-messages-profile.json", exported_metadata)
+            self.assertNotIn("project update tomorrow", exported_metadata)
+            self.assertNotIn("4821", exported_metadata)
+            self.assertIn("accepted=4", result.stdout)
+
     def test_main_rejects_profile_local_source_conflicting_with_network_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             result = subprocess.run(
@@ -768,6 +835,33 @@ class FoundationCliTest(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertIn("profile source", result.stderr)
             self.assertIn("--enable-network-source", result.stderr)
+
+    def test_main_rejects_mobile_profile_with_network_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/mobile-agent-fixture.json",
+                    "--enable-network-source",
+                    "--source-url",
+                    "https://allowed.example.test/contacts.json",
+                    "--source-license-label",
+                    "cc-by-4.0",
+                    "--allowed-source-host",
+                    "allowed.example.test",
+                    "--output-dir",
+                    str(Path(tmpdir) / "mobile-agent-fixture"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("--enable-network-source", result.stderr)
+            self.assertIn("contacts", result.stderr)
 
     def test_main_rejects_profile_local_source_bad_license_and_missing_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -675,6 +675,14 @@ uv run python main.py --run-profile tests/fixtures/run_profiles/mobile-agent-fix
 - Plan 0025 remains deferred unless a later extraction decision plan finds
   stronger reward/RL, external MCP, or package-boundary pressure.
 
+## Follow-Up
+
+Plan 0035 later resolved the mobile source-governed input gap noted in this
+plan's pressure analysis by adding a domain source importer boundary and
+`local_mobile_messages_json` profile-local source support. Reward/RL rollout
+collection, external MCP environment servers, semantic duplicate detection,
+async orchestration, and full runtime package extraction remain deferred.
+
 ## Risks
 
 - Reward labels may be mistaken for trained reward-model evidence. Keep artifact

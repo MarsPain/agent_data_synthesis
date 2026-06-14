@@ -24,6 +24,11 @@ Owns source registration, task taxonomy selection, domain constraints, and seed 
 
 Owns executable environment construction, state schema, fixture generation, reset/checkpoint behavior, and environment versioning.
 
+Profile-local source payload parsing is domain-owned. Shared source governance
+admits bytes, license decisions, source bundles, policy hashes, and sanitized
+events; domain importers convert admitted content into typed environment inputs
+for contacts or mobile without teaching the central pipeline each domain schema.
+
 Environment implementations also satisfy the internal runtime boundary. Contacts
 and mobile fixtures expose `runtime_metadata_v1`, checkpoint/restore, and
 candidate-local rebuild semantics through the same protocol while keeping
@@ -132,9 +137,10 @@ Start local and deterministic:
 
 - SQLite-backed environments.
 - Domain packs own their domain state, tool registry, deterministic candidates,
-  and scripted policy generation. The synchronous pipeline owns shared synthesis
-  flow: domain selection, candidate-local isolation, execution, verification,
-  deterministic merge, and artifact assembly.
+  scripted policy generation, and profile-local source payload import into typed
+  environment inputs. The synchronous pipeline owns shared synthesis flow: source
+  governance, domain selection, candidate-local isolation, execution,
+  verification, deterministic merge, and artifact assembly.
 - Runtime metadata is lifecycle evidence, not dataset or release metadata.
   Runtime-aware code should use `runtime_metadata()` for environment identity,
   reset recipe class, state backend, and checkpoint strategy; sample assembly

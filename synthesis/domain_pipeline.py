@@ -7,7 +7,10 @@ from typing import Callable
 from synthesis.environments import ContactEnvironment, ContactsEnvironmentInput
 from synthesis.execution import SolutionPolicy, scripted_solution_policy
 from synthesis.mcp import LocalContactsAdapterShim
-from synthesis.mobile_environment import MobileMessagesEnvironment
+from synthesis.mobile_environment import (
+    MobileMessagesEnvironment,
+    MobileMessagesEnvironmentInput,
+)
 from synthesis.mobile_tasks import (
     generate_mobile_fixture_candidates,
     scripted_mobile_solution_policy,
@@ -42,7 +45,7 @@ def build_domain_pipeline_bundle(
     output_dir: Path,
     *,
     source_provenance: dict[str, object] | None = None,
-    contacts_environment_input: ContactsEnvironmentInput | None = None,
+    domain_environment_input: object | None = None,
     enable_mcp_adapter: bool = False,
     include_branching: bool = False,
 ) -> DomainPipelineBundle:
@@ -50,16 +53,25 @@ def build_domain_pipeline_bundle(
         return _build_contacts_bundle(
             output_dir,
             source_provenance=source_provenance,
-            contacts_environment_input=contacts_environment_input,
+            domain_environment_input=domain_environment_input,
             enable_mcp_adapter=enable_mcp_adapter,
             include_branching=include_branching,
         )
     if seed.domain == "mobile_messages_fixture":
-        if contacts_environment_input is not None:
-            raise ValueError("mobile_messages_fixture does not support contacts source input")
+        if (
+            domain_environment_input is not None
+            and not isinstance(domain_environment_input, MobileMessagesEnvironmentInput)
+        ):
+            raise ValueError(
+                "mobile_messages_fixture source input must be MobileMessagesEnvironmentInput"
+            )
         if enable_mcp_adapter:
             raise ValueError("MCP adapter support is contacts-only for mobile_messages_fixture")
-        return _build_mobile_bundle(output_dir)
+        return _build_mobile_bundle(
+            output_dir,
+            source_provenance=source_provenance,
+            mobile_environment_input=domain_environment_input,
+        )
     raise ValueError(f"Unsupported seed domain: {seed.domain}")
 
 
@@ -95,14 +107,19 @@ def _build_contacts_bundle(
     output_dir: Path,
     *,
     source_provenance: dict[str, object] | None,
-    contacts_environment_input: ContactsEnvironmentInput | None,
+    domain_environment_input: object | None,
     enable_mcp_adapter: bool,
     include_branching: bool,
 ) -> DomainPipelineBundle:
-    if contacts_environment_input is not None:
+    if (
+        domain_environment_input is not None
+        and not isinstance(domain_environment_input, ContactsEnvironmentInput)
+    ):
+        raise ValueError("contacts_fixture source input must be ContactsEnvironmentInput")
+    if domain_environment_input is not None:
         environment = ContactEnvironment.create_from_input(
             output_dir,
-            contacts_environment_input,
+            domain_environment_input,
             source_provenance=source_provenance,
         )
     else:
@@ -134,8 +151,21 @@ def _build_contacts_bundle(
     )
 
 
-def _build_mobile_bundle(output_dir: Path) -> DomainPipelineBundle:
-    environment = MobileMessagesEnvironment.create_fixture(output_dir)
+def _build_mobile_bundle(
+    output_dir: Path,
+    *,
+    source_provenance: dict[str, object] | None,
+    mobile_environment_input: object | None,
+) -> DomainPipelineBundle:
+    if mobile_environment_input is not None:
+        assert isinstance(mobile_environment_input, MobileMessagesEnvironmentInput)
+        environment = MobileMessagesEnvironment.create_from_input(
+            output_dir,
+            mobile_environment_input,
+            source_provenance=source_provenance,
+        )
+    else:
+        environment = MobileMessagesEnvironment.create_fixture(output_dir)
     registry = build_mobile_tool_registry(environment)
     return DomainPipelineBundle(
         domain_id="mobile_messages_fixture",

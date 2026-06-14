@@ -68,6 +68,8 @@ class MobilePipelineTest(unittest.TestCase):
 
     def test_domain_bundle_can_build_contacts_and_mobile(self) -> None:
         from synthesis.domain_pipeline import build_domain_pipeline_bundle
+        from synthesis.environments import ContactsEnvironmentInput
+        from synthesis.mobile_environment import MobileMessagesEnvironmentInput
         from synthesis.mobile_tasks import generate_mobile_fixture_candidates
         from synthesis.tasks import generate_foundation_candidates
 
@@ -82,6 +84,27 @@ class MobilePipelineTest(unittest.TestCase):
             self.assertEqual(mobile.domain_id, "mobile_messages_fixture")
             self.assertIn("search_phone_messages", mobile.registry.tool_names())
             self.assertEqual(mobile.candidate_generator, generate_mobile_fixture_candidates)
+
+            with self.assertRaisesRegex(ValueError, "MobileMessagesEnvironmentInput"):
+                build_domain_pipeline_bundle(
+                    mobile_seed(),
+                    root / "bad_mobile",
+                    domain_environment_input=ContactsEnvironmentInput(
+                        contacts=(),
+                        followups=(),
+                        source_bundle_id="bundle_source",
+                        source_policy_hash="sha256:" + "1" * 64,
+                    ),
+                )
+            with self.assertRaisesRegex(ValueError, "ContactsEnvironmentInput"):
+                build_domain_pipeline_bundle(
+                    foundation_seed(),
+                    root / "bad_contacts",
+                    domain_environment_input=MobileMessagesEnvironmentInput(
+                        threads=(),
+                        messages=(),
+                    ),
+                )
 
     def test_mobile_domain_bundle_rejects_mcp_adapter(self) -> None:
         from synthesis.domain_pipeline import build_domain_pipeline_bundle
@@ -178,6 +201,61 @@ class MobilePipelineTest(unittest.TestCase):
             "search_phone_messages > draft_message_reply",
             quality_report["slices"]["tool_combination"],
         )
+
+    def test_mobile_pipeline_runs_from_domain_source_import(self) -> None:
+        from synthesis.domain_sources import (
+            ProfileLocalDomainSourceRequest,
+            build_profile_local_domain_source_input,
+            resolve_domain_source_importer,
+        )
+        from synthesis.pipeline import run_foundation_pipeline
+
+        importer = resolve_domain_source_importer(
+            "mobile_messages_fixture",
+            "local_mobile_messages_json",
+        )
+        source_import = build_profile_local_domain_source_input(
+            ProfileLocalDomainSourceRequest(
+                domain_id="mobile_messages_fixture",
+                kind="local_mobile_messages_json",
+                source_id="source_profile_mobile_messages_v1",
+                path=Path("tests/fixtures/run_profiles/mobile-messages-profile.json"),
+                license_label="cc-by-4.0",
+                max_bytes=65536,
+            ),
+            importer=importer,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_foundation_pipeline(
+                Path(tmpdir),
+                dataset_version="dataset_mobile_source_profile",
+                seed_override=mobile_seed(),
+                source_bundle=source_import.source_bundle,
+                domain_environment_input=source_import.environment_input,
+                source_events=source_import.events,
+                enable_source_audit=True,
+                run_profile_metadata={
+                    "schema_version": "run_profile_v2",
+                    "profile_id": "profile_local_mobile_messages",
+                    "generation_mode": "mobile_fixture",
+                    "profile_purpose": "diagnostic_probe",
+                    "target_candidate_count": None,
+                    "config_hash": "sha256:" + "2" * 64,
+                    "enabled_features": [],
+                    "source": source_import.source_summary,
+                },
+            )
+
+            metadata_exported = (
+                result.manifest_path.read_text(encoding="utf-8")
+                + result.source_events_path.read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(result.accepted_count, 4)
+        self.assertIsNotNone(result.source_events_path)
+        self.assertNotIn("mobile-messages-profile.json", metadata_exported)
+        self.assertNotIn("project update tomorrow", metadata_exported)
+        self.assertNotIn("4821", metadata_exported)
 
     def test_mobile_pipeline_can_write_episode_logs_with_state_changes(self) -> None:
         from synthesis.pipeline import run_foundation_pipeline

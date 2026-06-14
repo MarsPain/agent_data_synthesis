@@ -55,13 +55,16 @@ from synthesis.reward_labels import (
 )
 from synthesis.refinement import deterministic_fixture_refiner
 from synthesis.run_profiles import RunProfile, RunProfileValidationError, load_run_profile
+from synthesis.domain_sources import (
+    ProfileLocalDomainSourceRequest,
+    build_profile_local_domain_source_input,
+    resolve_domain_source_importer,
+)
 from synthesis.sources import build_external_fixture_source_bundle
 from synthesis.sources import (
     ControlledSourceFetchError,
     FetchedSourceRequest,
-    ProfileLocalContactsSourceRequest,
     build_network_contacts_source_input,
-    build_profile_local_contacts_source_input,
 )
 from synthesis.tasks import generate_scale_probe_candidates
 
@@ -270,19 +273,31 @@ def main() -> int:
         if _feature_enabled(args, profile, "enable_source_governance_fixture")
         else None
     )
-    contacts_environment_input = None
+    domain_environment_input = None
     source_events = None
     profile_source_summary = None
     if profile is not None and profile.source is not None:
         try:
-            profile_source = build_profile_local_contacts_source_input(
-                ProfileLocalContactsSourceRequest.from_run_profile_source(profile.source)
+            importer = resolve_domain_source_importer(
+                profile.seed.domain,
+                profile.source.kind,
             )
-        except ControlledSourceFetchError as exc:
+            profile_source = build_profile_local_domain_source_input(
+                ProfileLocalDomainSourceRequest(
+                    domain_id=importer.domain_id,
+                    kind=profile.source.kind,
+                    source_id=profile.source.source_id,
+                    path=profile.source.resolved_path,
+                    license_label=profile.source.license_label,
+                    max_bytes=profile.source.max_bytes,
+                ),
+                importer=importer,
+            )
+        except (ControlledSourceFetchError, ValueError) as exc:
             print(str(exc), file=sys.stderr)
             return 1
         source_bundle = profile_source.source_bundle
-        contacts_environment_input = profile_source.environment_input
+        domain_environment_input = profile_source.environment_input
         source_events = profile_source.events
         profile_source_summary = profile_source.source_summary
     if args.enable_network_source:
@@ -308,7 +323,7 @@ def main() -> int:
             print(str(exc), file=sys.stderr)
             return 1
         source_bundle = network_source.source_bundle
-        contacts_environment_input = network_source.environment_input
+        domain_environment_input = network_source.environment_input
         source_events = network_source.events
     start_time = time.perf_counter() if args.write_profile_decision_report else None
     try:
@@ -327,7 +342,7 @@ def main() -> int:
                 or args.enable_network_source
                 or (profile is not None and profile.source is not None)
             ),
-            contacts_environment_input=contacts_environment_input,
+            domain_environment_input=domain_environment_input,
             source_events=source_events,
             enable_mcp_adapter=_feature_enabled(args, profile, "enable_mcp_adapter"),
             enable_sandbox_fixture=_feature_enabled(args, profile, "enable_sandbox_fixture"),
@@ -624,6 +639,8 @@ def _validate_profile_cli_combinations(
         parser.error(
             "run profile enable_source_governance_fixture conflicts with --enable-network-source"
         )
+    if args.enable_network_source and profile.seed.domain not in {"contacts", "contacts_fixture"}:
+        parser.error("--enable-network-source is contacts-only for run profiles")
     if profile.source is not None:
         if args.enable_network_source:
             parser.error("profile source conflicts with --enable-network-source")
@@ -631,8 +648,6 @@ def _validate_profile_cli_combinations(
             parser.error(
                 "profile source conflicts with enable_source_governance_fixture"
             )
-        if profile.seed.domain != "contacts":
-            parser.error("profile source requires seed.domain=\"contacts\"")
     if (
         profile.seed.domain == "mobile_messages_fixture"
         and (args.enable_mcp_adapter or profile.features.enable_mcp_adapter)
