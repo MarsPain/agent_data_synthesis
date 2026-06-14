@@ -35,6 +35,11 @@ The first backend should be a local Python pipeline with explicit modules and du
   runtimes, re-executes action transitions through `ToolRegistry.execute()`,
   compares observation/state-change hashes, and writes compact summaries without
   raw tool payloads, prompts, credentials, or host paths.
+- `synthesis.reward_labels`: opt-in `reward_labels.jsonl` and
+  `reward_label_report_v1` construction over sanitized episode, quality, and
+  replay evidence. It produces deterministic scalar labels and
+  preference-group metadata without training reward models, collecting RL
+  rollouts, changing release admission, or extracting a runtime package.
 - `synthesis.tools`: tool definitions, schema generation, registry, dependency
   graph, capability-gap records, bounded tool proposals, and curated local tool
   admission.
@@ -198,18 +203,26 @@ trajectories, exports, or logs.
    transitions; it does not train reward models, collect RL rollouts, call
    external MCP environment servers, change release admission, or extract an
    AWM runtime package.
-22. When `--write-evaluation-report` is explicitly supplied, run the
+23. When `--write-reward-label-report` is explicitly supplied, write
+   `episodes.jsonl`, compute quality and replay evidence in memory when their
+   reports were not explicitly requested, write `reward_labels.jsonl` and
+   `reward_label_report.json`, and rewrite only the manifest artifact map to
+   reference `episodes`, `reward_labels`, and `reward_label_report`. This local
+   synchronous consumer produces deterministic labels; it does not train reward
+   models, collect RL rollouts, call external MCP environment servers, change
+   release admission, promote profiles, or extract an AWM runtime package.
+24. When `--write-evaluation-report` is explicitly supplied, run the
    deterministic contacts held-out suite, write `evaluation_report.json`, and
    rewrite only the manifest artifact map to reference that report. The
    evaluation report includes controlled expected-failure benchmark semantics
    and per-capability threshold decisions.
-22. When `--write-profile-decision-report` is explicitly supplied, read the
+25. When `--write-profile-decision-report` is explicitly supplied, read the
    exported manifest and quality report, write `profile_decision_report.json`,
    include held-out evaluation evidence when an evaluation report was also
    requested, separate the MVP quality-floor decision from the higher-level
    profile-promotion decision, and rewrite only the manifest artifact map to
    reference that report.
-23. When `--write-dataset-release-report` is explicitly supplied, require both
+26. When `--write-dataset-release-report` is explicitly supplied, require both
    evaluation and profile-decision reports, read those existing artifacts, write
    `dataset_release_report.json`, and rewrite only the manifest artifact map to
    reference that report. Release admission distinguishes diagnostic probes from
@@ -329,3 +342,12 @@ for the report run, rebuilds fresh contacts/mobile fixture runtimes, writes
 It gives plan 0025 stronger package-boundary evidence, but still does not
 activate `synthesis.orchestration`, reward training, Agentic RL, external MCP
 environment servers, release admission changes, or runtime package extraction.
+
+Plan 0034 adds deterministic reward-label export over those same sanitized
+episodes. The consumer is synchronous and opt-in: it persists `episodes.jsonl`
+for the report run, computes quality/replay evidence in memory when needed,
+writes `reward_labels.jsonl` and `reward_label_report.json`, and attaches only
+reward artifacts unless quality/replay reports were explicitly requested. It
+creates local scalar and preference-ready evidence, not reward-model training,
+Agentic RL rollout collection, release admission changes, profile promotion, or
+runtime package extraction.

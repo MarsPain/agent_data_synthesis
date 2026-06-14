@@ -106,6 +106,30 @@ def attach_episode_replay_report_to_manifest(
     )
 
 
+def attach_reward_labels_to_manifest(
+    *,
+    manifest_path: Path,
+    labels_path: Path,
+) -> None:
+    _attach_artifact_to_manifest(
+        manifest_path=manifest_path,
+        artifact_key="reward_labels",
+        artifact_path=labels_path,
+    )
+
+
+def attach_reward_label_report_to_manifest(
+    *,
+    manifest_path: Path,
+    report_path: Path,
+) -> None:
+    _attach_artifact_to_manifest(
+        manifest_path=manifest_path,
+        artifact_key="reward_label_report",
+        artifact_path=report_path,
+    )
+
+
 def attach_dataset_release_report_to_manifest(
     *,
     manifest_path: Path,

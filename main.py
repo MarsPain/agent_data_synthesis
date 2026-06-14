@@ -16,15 +16,19 @@ from synthesis.datasets import (
     attach_evaluation_report_to_manifest,
     attach_profile_decision_report_to_manifest,
     attach_release_quality_audit_to_manifest,
+    attach_reward_label_report_to_manifest,
+    attach_reward_labels_to_manifest,
 )
 from synthesis.dataset_release import write_dataset_release_report
 from synthesis.episode_quality import (
     EPISODE_QUALITY_REPORT_FILENAME,
+    build_episode_quality_report,
     read_episode_logs,
     write_episode_quality_report,
 )
 from synthesis.episode_replay import (
     EPISODE_REPLAY_REPORT_FILENAME,
+    build_episode_replay_report,
     write_episode_replay_report,
 )
 from synthesis.evaluation import write_evaluation_report
@@ -41,6 +45,13 @@ from synthesis.release_quality import (
     RELEASE_QUALITY_AUDIT_FILENAME,
     write_dataset_release_card,
     write_release_quality_audit,
+)
+from synthesis.reward_labels import (
+    REWARD_LABELS_FILENAME,
+    REWARD_LABEL_REPORT_FILENAME,
+    build_reward_labels,
+    write_reward_label_report,
+    write_reward_labels,
 )
 from synthesis.refinement import deterministic_fixture_refiner
 from synthesis.run_profiles import RunProfile, RunProfileValidationError, load_run_profile
@@ -178,6 +189,14 @@ def parse_args() -> argparse.Namespace:
         "--write-episode-replay-report",
         action="store_true",
         help="Write episode_replay_report.json by replaying sanitized episode logs against fresh runtimes.",
+    )
+    parser.add_argument(
+        "--write-reward-label-report",
+        action="store_true",
+        help=(
+            "Write reward_labels.jsonl and reward_label_report.json from sanitized "
+            "episode evidence without training a reward model."
+        ),
     )
     parser.add_argument(
         "--write-dataset-release-report",
@@ -321,16 +340,25 @@ def main() -> int:
             write_episode_logs=(
                 args.write_episode_quality_report
                 or args.write_episode_replay_report
+                or args.write_reward_label_report
             ),
         )
     except (LLMConfigurationError, LLMProviderError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
+    episodes = None
+    episode_quality_report = None
     episode_quality_report_path = None
     if args.write_episode_quality_report:
         assert result.episode_logs_path is not None
         episodes = read_episode_logs(result.episode_logs_path)
+        episode_quality_report = build_episode_quality_report(
+            dataset_version=args.dataset_version,
+            episodes=episodes,
+            manifest_path=result.manifest_path,
+            episodes_path=result.episode_logs_path,
+        )
         episode_quality_report_path = result.manifest_path.parent / EPISODE_QUALITY_REPORT_FILENAME
         episode_quality_report_path = write_episode_quality_report(
             episode_quality_report_path,
@@ -348,10 +376,18 @@ def main() -> int:
             report_path=episode_quality_report_path,
         )
 
+    episode_replay_report = None
     episode_replay_report_path = None
     if args.write_episode_replay_report:
         assert result.episode_logs_path is not None
-        episodes = read_episode_logs(result.episode_logs_path)
+        if episodes is None:
+            episodes = read_episode_logs(result.episode_logs_path)
+        episode_replay_report = build_episode_replay_report(
+            dataset_version=args.dataset_version,
+            episodes=episodes,
+            manifest_path=result.manifest_path,
+            episodes_path=result.episode_logs_path,
+        )
         episode_replay_report_path = result.manifest_path.parent / EPISODE_REPLAY_REPORT_FILENAME
         episode_replay_report_path = write_episode_replay_report(
             episode_replay_report_path,
@@ -367,6 +403,57 @@ def main() -> int:
         attach_episode_replay_report_to_manifest(
             manifest_path=result.manifest_path,
             report_path=episode_replay_report_path,
+        )
+
+    reward_label_report_path = None
+    if args.write_reward_label_report:
+        assert result.episode_logs_path is not None
+        if episodes is None:
+            episodes = read_episode_logs(result.episode_logs_path)
+        if episode_quality_report is None:
+            episode_quality_report = build_episode_quality_report(
+                dataset_version=args.dataset_version,
+                episodes=episodes,
+                manifest_path=result.manifest_path,
+                episodes_path=result.episode_logs_path,
+            )
+        if episode_replay_report is None:
+            episode_replay_report = build_episode_replay_report(
+                dataset_version=args.dataset_version,
+                episodes=episodes,
+                manifest_path=result.manifest_path,
+                episodes_path=result.episode_logs_path,
+            )
+        reward_labels = build_reward_labels(
+            episodes=episodes,
+            episode_quality_report=episode_quality_report,
+            episode_replay_report=episode_replay_report,
+        )
+        reward_labels_path = result.manifest_path.parent / REWARD_LABELS_FILENAME
+        reward_labels_path = write_reward_labels(reward_labels_path, reward_labels)
+        reward_label_report_path = result.manifest_path.parent / REWARD_LABEL_REPORT_FILENAME
+        reward_label_report_path = write_reward_label_report(
+            reward_label_report_path,
+            dataset_version=args.dataset_version,
+            episodes=episodes,
+            labels=reward_labels,
+            manifest_path=result.manifest_path,
+            episodes_path=result.episode_logs_path,
+            episode_quality_report_path=episode_quality_report_path,
+            episode_replay_report_path=episode_replay_report_path,
+            reward_labels_path=reward_labels_path,
+        )
+        attach_episodes_to_manifest(
+            manifest_path=result.manifest_path,
+            episodes_path=result.episode_logs_path,
+        )
+        attach_reward_labels_to_manifest(
+            manifest_path=result.manifest_path,
+            labels_path=reward_labels_path,
+        )
+        attach_reward_label_report_to_manifest(
+            manifest_path=result.manifest_path,
+            report_path=reward_label_report_path,
         )
 
     evaluation_report_path = None
@@ -474,6 +561,11 @@ def main() -> int:
         + (
             f" episode_replay_report={episode_replay_report_path}"
             if episode_replay_report_path is not None
+            else ""
+        )
+        + (
+            f" reward_label_report={reward_label_report_path}"
+            if reward_label_report_path is not None
             else ""
         )
         + (

@@ -147,15 +147,14 @@ Consumers remain separate:
 
 ## Current Evidence
 
-Plans 0030, 0031, 0032, and 0033 reduce extraction risk without activating this
-plan. The repository now has shared runtime metadata, opt-in episode quality,
-executable episode replay, and internal task/policy/verifier contracts that
-split task intent, policy hints, expected final-answer evidence, and expected
-state checks before execution. These are useful pre-extraction boundaries, but
-they still run inside the synchronous repo-local pipeline. Full AWM runtime
-extraction remains deferred until reward/RL rollout collection, external MCP
-environment servers, or stronger cross-consumer package-boundary pressure
-requires it.
+Plans 0030, 0031, 0032, 0033, and 0034 reduce extraction risk without
+activating this plan. The repository now has shared runtime metadata, opt-in
+episode quality, executable episode replay, internal task/policy/verifier
+contracts, and deterministic reward-label export over sanitized episode
+evidence. These are useful pre-extraction boundaries, but they still run inside
+the synchronous repo-local pipeline. Full AWM runtime extraction remains
+deferred until Agentic RL rollout collection, external MCP environment servers,
+or stronger cross-consumer package-boundary pressure requires it.
 
 ## File Map
 

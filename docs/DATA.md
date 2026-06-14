@@ -74,8 +74,8 @@
   ordered transitions, deterministic hashes over sanitized JSON payloads,
   runtime identity, policy identity, verifier identity, and accepted/rejected or
   failed outcome. It is kept internal by default and is written to
-  `episodes.jsonl` only when episode-quality or episode-replay reporting is
-  explicitly requested.
+  `episodes.jsonl` only when episode-quality, episode-replay, or reward-label
+  reporting is explicitly requested.
 - **Episode Quality Report:** opt-in data-quality consumer report over
   `episode_log_v1`. It validates and scores episode transition completeness,
   state-change support, runtime identity, and accepted-outcome consistency
@@ -87,6 +87,15 @@
   replayed observation/state-change hashes, and writes sanitized summaries
   without raw prompts, payloads, tool arguments, observations, final-response
   text, credentials, or host paths.
+- **Reward Label:** opt-in deterministic label record over `episode_log_v1`.
+  It combines episode outcome, contract validity, execution evidence,
+  state-change support, and replay consistency into a bounded scalar reward and
+  preference-group metadata. It is evidence for future reward/RL workflows, not
+  a trained reward model, release gate, or downstream quality claim.
+- **Reward Label Report:** opt-in summary over reward labels. It records label
+  coverage, usable/excluded/insufficient-evidence counts, sanitized per-label
+  summaries, and a local decision status without exposing raw trajectory,
+  prompt, source, credential, or host-path content.
 - **Verifier:** independent checks that decide whether a trajectory satisfies the task.
 - **Refinement Attempt:** bounded critic diagnosis plus one revised candidate or
   solution policy used to rerun a failed candidate.
@@ -173,9 +182,10 @@ and a quality report:
 - `dataset_release_card.md`: optional human-readable release card written only
   when explicitly requested after a dataset release report is available.
 - `episodes.jsonl`: optional internal episode evidence export written only when
-  `--write-episode-quality-report` or `--write-episode-replay-report` is
-  explicitly requested. It contains validated `episode_log_v1` records aligned
-  to admitted samples and non-duplicate rejected execution attempts.
+  `--write-episode-quality-report`, `--write-episode-replay-report`, or
+  `--write-reward-label-report` is explicitly requested. It contains validated
+  `episode_log_v1` records aligned to admitted samples and non-duplicate
+  rejected execution attempts.
 - `episode_quality_report.json`: optional deterministic quality report over
   `episodes.jsonl`, written only when explicitly requested. It is not a dataset
   release, profile-promotion, reward-model, or downstream model-quality proof.
@@ -183,6 +193,13 @@ and a quality report:
   over `episodes.jsonl`, written only when explicitly requested. It is package
   boundary evidence for runtime extraction decisions, not a dataset release,
   profile-promotion, reward-model, or downstream model-quality proof.
+- `reward_labels.jsonl`: optional deterministic scalar and preference-ready
+  label export over `episodes.jsonl`, written only when
+  `--write-reward-label-report` is explicitly requested. It is not reward-model
+  training, RL rollout collection, release admission, profile promotion, or
+  downstream model-quality proof.
+- `reward_label_report.json`: optional label coverage and decision summary over
+  `reward_labels.jsonl`, written only when explicitly requested.
 
 Internal task contracts are deliberately absent from default exports. Public
 accepted-sample and rejection schemas still expose the existing task,
@@ -239,6 +256,13 @@ When episode-replay reporting is explicitly requested, the manifest references
 `episodes` and `episode_replay_report`. These references are absent by default
 and do not change `samples.jsonl`, `rejections.jsonl`, release admission,
 profile promotion, or reward/RL workflows.
+When reward-label reporting is explicitly requested, the manifest references
+`episodes`, `reward_labels`, and `reward_label_report`. These references are
+absent by default. Episode-quality and episode-replay evidence may be computed
+in memory for scoring, but their artifacts are referenced only when their own
+flags are explicitly requested. Reward labels do not change `samples.jsonl`,
+`rejections.jsonl`, release admission, profile promotion, or reward/RL
+workflows.
 
 When a run is configured by a `run_profile_v1` file, `manifest.json` includes an
 optional `run_profile` object. This object is sanitized metadata only:
@@ -391,6 +415,37 @@ secrets, provider/prompt payload material, and host-path-like artifact
 references. Replay summaries must not contain raw instructions, tool arguments,
 observations, final-response content, source payloads, provider payloads,
 prompts, credentials, or local paths.
+
+### Reward Label Contract
+
+`reward_labels.jsonl` uses one validated `reward_label_v1` object per line. Each
+record is aligned to an episode and contains only stable ids, runtime id,
+outcome status, `label_status`, bounded `scalar_reward`, fixed component
+scores, sanitized `label_source`, deterministic `preference_group` metadata,
+and sanitized reason codes. Fixed component names are `outcome`, `contract`,
+`execution`, `state_support`, and `replay_consistency`.
+
+The initial deterministic scalar is
+`0.35*outcome + 0.20*contract + 0.20*execution + 0.15*state_support +
+0.10*replay_consistency`. Accepted episodes with passing quality and replay
+evidence score `1.0`. Accepted episodes without replay evidence can remain
+usable but record `replay_evidence_absent` and use lower replay consistency.
+Invalid episode contracts are excluded with sanitized reasons.
+
+`reward_label_report.json` uses `schema_version: reward_label_report_v1`. It
+records relative or null input artifact names, observed episode/label counts,
+runtime counts, average scalar reward, fixed checks, sanitized label summaries,
+and a decision status of `passed`, `watch`, `failed`, or
+`insufficient_evidence`. Allowed checks are `labels_present`,
+`label_contract_valid`, `episode_contract_valid`, `quality_evidence_aligned`,
+`replay_evidence_aligned`, `usable_label_coverage`, and
+`sanitized_summaries`.
+
+Reward-label validators reject absolute paths, unsupported runtime ids,
+unsupported component names, unsupported preference-group fields, raw task
+instructions, expected answers, expected state, tool arguments, observations,
+final responses, source/provider payloads, prompts, credentials, environment
+variables, and host paths.
 
 `lineage.source_provenance` records the source bundle id, source policy hash,
 source ids, source kinds, license labels, license outcomes, retention/export

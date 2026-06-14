@@ -135,10 +135,32 @@ contract boundary:
   `episode_replay_report_v1` schemas do not gain raw task instructions,
   expected answers, expected state, or policy arguments.
 
-This keeps reward-label export, Agentic RL rollout collection, external MCP
-environment servers, and mobile source-governed input unresolved. It also keeps
+This kept reward-label export, Agentic RL rollout collection, external MCP
+environment servers, and mobile source-governed input unresolved. It also kept
 full AWM runtime package extraction deferred; plan 0033 is boundary evidence,
 not extraction.
+
+## Plan 0034 Reward-Label Export Update
+
+Plan 0034 resolves the narrow reward-label export pressure by adding a
+repo-local, opt-in consumer:
+
+- `--write-reward-label-report` writes validated `episodes.jsonl` records,
+  deterministic `reward_labels.jsonl`, and `reward_label_report.json`.
+- `reward_label_v1` scores outcome, contract validity, execution evidence,
+  state-change support, and replay consistency into a bounded scalar reward
+  with deterministic preference-group metadata.
+- The report summaries contain ids, runtime id, label status, scalar reward,
+  and failed check names only; they omit raw task instructions, expected
+  answers, expected state, tool arguments, observations, final responses,
+  prompts, provider payloads, source payloads, credentials, and host paths.
+- Episode-quality and episode-replay evidence can be computed in memory for
+  reward-label scoring. Their artifacts are attached to the manifest only when
+  their own flags are explicitly requested.
+
+This leaves Agentic RL rollout collection, external MCP environment servers,
+mobile source-governed input, semantic duplicate detection, async orchestration,
+and full AWM runtime package extraction unresolved.
 
 ## Evidence
 
@@ -161,9 +183,12 @@ not extraction.
 - `tests.test_episode_replay` covers executable contacts/mobile replay,
   state-change hash matching, insufficient evidence, and sanitized report
   validation.
+- `tests.test_reward_labels` covers deterministic contacts/mobile reward labels,
+  missing replay evidence, insufficient evidence decisions, and redaction
+  contracts.
 - `tests.test_task_contracts` covers contacts/mobile contract conversion,
   branch-plan validation reuse, unsafe value rejection, contract-aware scripted
   policies, and contract-aware verification.
 - `tests.test_cli` covers the mobile run profile and confirms default CLI output
-  remains contacts-only; it also covers opt-in episode-quality and
-  episode-replay report writing.
+  remains contacts-only; it also covers opt-in episode-quality, episode-replay,
+  and reward-label report writing.

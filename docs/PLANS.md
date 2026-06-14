@@ -9,7 +9,7 @@
 
 ## Active
 
-- No active implementation plan is currently open.
+No active implementation plan.
 
 ## Deferred
 
@@ -61,6 +61,7 @@
 - [0031-episode-replay-and-data-quality-scoring-consumer](exec-plans/completed/0031-episode-replay-and-data-quality-scoring-consumer.md): added opt-in episode JSONL export and deterministic episode quality scoring as the first repo-local runtime/episode consumer after plan 0030. Completed on 2026-06-13.
 - [0032-executable-episode-replay-consistency-probe](exec-plans/completed/0032-executable-episode-replay-consistency-probe.md): added opt-in executable replay over `episode_log_v1` against fresh contacts/mobile runtimes and `episode_replay_report_v1` package-boundary evidence while keeping runtime package extraction deferred. Completed on 2026-06-13.
 - [0033-task-intent-policy-verifier-contract-split](exec-plans/completed/0033-task-intent-policy-verifier-contract-split.md): split `CandidateTask` responsibilities into internal task-intent, policy-hint, expected-outcome, and expected-state contracts while preserving current public artifact schemas and keeping plan 0025 deferred. Completed on 2026-06-14.
+- [0034-reward-label-export-and-runtime-scoring-consumer](exec-plans/completed/0034-reward-label-export-and-runtime-scoring-consumer.md): added opt-in deterministic reward-label export and runtime scoring over sanitized episode evidence without reward-model training, RL rollout collection, release admission changes, or AWM runtime package extraction. Completed on 2026-06-14.
 
 ## Technical Debt
 

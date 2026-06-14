@@ -31,6 +31,7 @@ uv run python main.py --enable-task-expansion --output-dir artifacts/foundation-
 uv run python main.py --enable-source-governance-fixture --output-dir artifacts/foundation-source-governance
 uv run python main.py --enable-network-source --source-url https://allowed.example.test/contacts.json --source-license-label cc-by-4.0 --allowed-source-host allowed.example.test --mock-source-fixture tests/fixtures/contacts.json --output-dir artifacts/foundation-network-source
 uv run python main.py --write-episode-replay-report --output-dir artifacts/foundation-episode-replay
+uv run python main.py --write-reward-label-report --output-dir artifacts/foundation-reward-labels
 uv run python main.py --run-profile tests/fixtures/run_profiles/foundation-scale-probe-25.json --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --output-dir artifacts/foundation-scale-probe
 uv run python scripts/validate_docs.py
 uv run python -m unittest
@@ -40,6 +41,6 @@ uv run python -m unittest
 
 - `main.py` runs the local foundation pipeline and writes runtime outputs to `artifacts/foundation/` by default.
 - The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
-- Current active work is tracked in [docs/PLANS.md](docs/PLANS.md); no active
-  implementation plan is currently open.
-- Latest completed work is documented in [docs/exec-plans/completed/0033-task-intent-policy-verifier-contract-split.md](docs/exec-plans/completed/0033-task-intent-policy-verifier-contract-split.md).
+- Current active work is tracked in [docs/PLANS.md](docs/PLANS.md); there is no
+  active implementation plan at this point.
+- Latest completed work is documented in [docs/exec-plans/completed/0034-reward-label-export-and-runtime-scoring-consumer.md](docs/exec-plans/completed/0034-reward-label-export-and-runtime-scoring-consumer.md).

@@ -53,6 +53,8 @@ class FoundationCliTest(unittest.TestCase):
             self.assertFalse((output_dir / "episodes.jsonl").exists())
             self.assertFalse((output_dir / "episode_quality_report.json").exists())
             self.assertFalse((output_dir / "episode_replay_report.json").exists())
+            self.assertFalse((output_dir / "reward_labels.jsonl").exists())
+            self.assertFalse((output_dir / "reward_label_report.json").exists())
             self.assertFalse((output_dir / "dataset_release_report.json").exists())
             self.assertFalse((output_dir / "dataset_release_pack.json").exists())
             self.assertFalse((output_dir / "release_quality_audit.json").exists())
@@ -62,11 +64,14 @@ class FoundationCliTest(unittest.TestCase):
             self.assertNotIn("episodes", manifest["artifacts"])
             self.assertNotIn("episode_quality_report", manifest["artifacts"])
             self.assertNotIn("episode_replay_report", manifest["artifacts"])
+            self.assertNotIn("reward_labels", manifest["artifacts"])
+            self.assertNotIn("reward_label_report", manifest["artifacts"])
             self.assertNotIn("dataset_release_report", manifest["artifacts"])
             self.assertNotIn("dataset_release_pack", manifest["artifacts"])
             self.assertNotIn("release_quality_audit", manifest["artifacts"])
             self.assertNotIn("dataset_release_card", manifest["artifacts"])
             self.assertIn("accepted=2", result.stdout)
+            self.assertNotIn("reward_label_report=", result.stdout)
             self.assertNotIn("secret-test-key", result.stdout)
 
     def test_main_can_write_episode_quality_report(self) -> None:
@@ -137,6 +142,52 @@ class FoundationCliTest(unittest.TestCase):
             self.assertGreater(report["observed"]["runtime_counts"]["contacts_fixture"], 0)
             self.assertIn("episode_replay_report=", result.stdout)
 
+    def test_main_can_write_reward_label_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "foundation"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--write-reward-label-report",
+                    "--output-dir",
+                    str(output_dir),
+                    "--dataset-version",
+                    "dataset_cli_reward_labels",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((output_dir / "episodes.jsonl").exists(), result.stdout)
+            labels_path = output_dir / "reward_labels.jsonl"
+            report_path = output_dir / "reward_label_report.json"
+            self.assertTrue(labels_path.exists(), result.stdout)
+            self.assertTrue(report_path.exists(), result.stdout)
+            self.assertFalse((output_dir / "episode_quality_report.json").exists())
+            self.assertFalse((output_dir / "episode_replay_report.json").exists())
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            labels = [
+                json.loads(line)
+                for line in labels_path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(manifest["artifacts"]["episodes"], "episodes.jsonl")
+            self.assertEqual(manifest["artifacts"]["reward_labels"], "reward_labels.jsonl")
+            self.assertEqual(
+                manifest["artifacts"]["reward_label_report"],
+                "reward_label_report.json",
+            )
+            self.assertNotIn("episode_quality_report", manifest["artifacts"])
+            self.assertNotIn("episode_replay_report", manifest["artifacts"])
+            self.assertEqual(report["decision"]["status"], "passed")
+            self.assertGreater(report["observed"]["runtime_counts"]["contacts_fixture"], 0)
+            self.assertTrue(all(label["label_status"] == "usable" for label in labels))
+            self.assertIn("reward_label_report=", result.stdout)
+
     def test_mobile_profile_can_write_episode_quality_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "mobile-agent-fixture"
@@ -192,6 +243,44 @@ class FoundationCliTest(unittest.TestCase):
             self.assertGreater(
                 report["observed"]["runtime_counts"]["mobile_messages_fixture"],
                 0,
+            )
+            self.assertEqual(report["decision"]["status"], "passed")
+
+    def test_mobile_profile_can_write_reward_label_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "mobile-agent-fixture"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/mobile-agent-fixture.json",
+                    "--write-reward-label-report",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            report = json.loads(
+                (output_dir / "reward_label_report.json").read_text(encoding="utf-8")
+            )
+            labels = [
+                json.loads(line)
+                for line in (output_dir / "reward_labels.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            self.assertGreater(
+                report["observed"]["runtime_counts"]["mobile_messages_fixture"],
+                0,
+            )
+            self.assertTrue(
+                any(label["runtime_id"] == "mobile_messages_fixture" for label in labels)
             )
             self.assertEqual(report["decision"]["status"], "passed")
 

@@ -146,11 +146,16 @@
   expected-outcome, and expected-state contracts while preserving
   `CandidateTask` compatibility, default CLI behavior, public dataset schemas,
   and sanitized episode consumers.
+- Add deterministic reward-label export before reward/RL workflows and full AWM
+  runtime extraction. Implemented in plan 0034 as an opt-in
+  `reward_labels.jsonl` and `reward_label_report.json` consumer over sanitized
+  episode, quality, replay, and task-contract evidence without training a
+  reward model or changing release admission.
 - Prepare the environment layer for a future shared AWM runtime without
   prematurely splitting it into a separate project. Deferred in plan 0025 after
-  plans 0031, 0032, and 0033 supplied repo-local data-quality, executable
-  replay, and task/policy/verifier boundary evidence; extraction still needs
-  stronger reward/RL, external MCP, adapter, or cross-consumer
+  plans 0031, 0032, 0033, and 0034 supplied repo-local data-quality,
+  executable replay, task/policy/verifier, and reward-label evidence;
+  extraction still needs stronger reward/RL rollout, external MCP, adapter, or cross-consumer
   package-boundary pressure.
 - Add async orchestration with durable queues.
 - Evaluate Ray-style distributed workers if throughput requires it.

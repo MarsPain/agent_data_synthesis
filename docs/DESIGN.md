@@ -92,6 +92,20 @@ candidate admission, dataset release, profile promotion, reward model training,
 external MCP environment servers, async orchestration, or AWM runtime package
 extraction.
 
+### Reward Labels
+
+Owns the deterministic training-signal consumer over runtime episode evidence.
+It reads validated `episode_log_v1` records plus optional episode-quality and
+episode-replay evidence, derives scalar `reward_label_v1` records and
+preference-group metadata, and writes `reward_label_report_v1` summaries without
+raw task instructions, expected answers, expected state, tool arguments,
+observations, final responses, prompts, provider payloads, credentials, source
+payloads, or host paths. It consumes `synthesis.episodes`,
+`synthesis.episode_quality`, `synthesis.episode_replay`, and
+`synthesis.contracts`; it does not train reward models, collect RL rollouts,
+change release admission, promote profiles, call external MCP environment
+servers, or own AWM runtime package extraction.
+
 ### Dataset Assembly
 
 Owns canonical output format, split assignment, versioning, deduplication, manifest generation, and export adapters for training.
@@ -132,6 +146,11 @@ Start local and deterministic:
   consumer. It proves the current runtime boundary can serve a non-synthesis
   executor that rebuilds fixture runtimes and calls registries directly, while
   keeping full AWM runtime package extraction deferred.
+- Reward-label reporting is a repo-local, synchronous scoring consumer. It
+  proves sanitized episode, quality, and replay evidence can produce
+  preference-ready deterministic labels while keeping reward training, Agentic
+  RL rollout collection, release admission changes, and package extraction
+  deferred.
 - Task-intent, policy-hint, expected-outcome, and expected-state contracts are
   internal only. They de-risk future reward/RL/runtime consumers without
   changing `CandidateTask.export()`, `samples.jsonl`, `rejections.jsonl`, or

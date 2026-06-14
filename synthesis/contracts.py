@@ -102,6 +102,8 @@ MANIFEST_ARTIFACT_KEYS = {
     "quality_report",
     "episode_quality_report",
     "episode_replay_report",
+    "reward_labels",
+    "reward_label_report",
     "parent_comparison",
     "review_queue",
     "tool_proposals",
@@ -190,6 +192,30 @@ EPISODE_REPLAY_CHECK_NAMES = {
 }
 EPISODE_REPLAY_RUNTIME_METHODS = {"rebuild", "runtime_metadata"}
 EPISODE_REPLAY_REGISTRY_METHODS = {"execute"}
+REWARD_LABEL_STATUSES = {"usable", "excluded", "insufficient_evidence"}
+REWARD_LABEL_DECISION_STATUSES = {
+    "passed",
+    "watch",
+    "failed",
+    "insufficient_evidence",
+}
+REWARD_LABEL_COMPONENT_NAMES = {
+    "outcome",
+    "contract",
+    "execution",
+    "state_support",
+    "replay_consistency",
+}
+REWARD_LABEL_CHECK_NAMES = {
+    "labels_present",
+    "label_contract_valid",
+    "episode_contract_valid",
+    "quality_evidence_aligned",
+    "replay_evidence_aligned",
+    "usable_label_coverage",
+    "sanitized_summaries",
+}
+REWARD_LABEL_RUNTIMES = {"contacts_fixture", "mobile_messages_fixture"}
 
 
 def validate_candidate_task(task: object) -> CandidateTask:
@@ -608,6 +634,184 @@ def validate_episode_replay_report_record(record: Mapping[str, Any]) -> None:
     decision = _require_mapping(record.get("decision"), "decision")
     status = _require_non_empty_string(decision.get("status"), "decision.status")
     if status not in EPISODE_REPLAY_DECISION_STATUSES:
+        raise ContractValidationError("decision.status is unsupported")
+    for field in ("reasons", "triggered_by"):
+        values = _require_sequence(decision.get(field), f"decision.{field}")
+        for index, value in enumerate(values):
+            _require_non_empty_string(value, f"decision.{field}.{index}")
+
+
+def validate_reward_label_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "reward_label")
+    if _contains_raw_secret(record):
+        raise ContractValidationError("reward_label contains raw secret material")
+    schema_version = _require_non_empty_string(record.get("schema_version"), "schema_version")
+    if schema_version != "reward_label_v1":
+        raise ContractValidationError("schema_version is unsupported")
+    for field in ("label_id", "episode_id", "candidate_id"):
+        _require_non_empty_string(record.get(field), field)
+    runtime_id = _require_non_empty_string(record.get("runtime_id"), "runtime_id")
+    if runtime_id not in REWARD_LABEL_RUNTIMES:
+        raise ContractValidationError("runtime_id is unsupported")
+    outcome_status = _require_non_empty_string(record.get("outcome_status"), "outcome_status")
+    if outcome_status not in EPISODE_OUTCOMES:
+        raise ContractValidationError("outcome_status is unsupported")
+    scalar_reward = _require_number(record.get("scalar_reward"), "scalar_reward")
+    _validate_rate(scalar_reward, "scalar_reward")
+    label_status = _require_non_empty_string(record.get("label_status"), "label_status")
+    if label_status not in REWARD_LABEL_STATUSES:
+        raise ContractValidationError("label_status is unsupported")
+
+    label_source = _require_mapping(record.get("label_source"), "label_source")
+    for raw_key, raw_value in label_source.items():
+        key = _require_non_empty_string(raw_key, "label_source key")
+        if key in {
+            "raw_payload",
+            "prompt",
+            "provider_payload",
+            "arguments",
+            "observations",
+            "final_response",
+        }:
+            raise ContractValidationError(f"label_source.{key} is unsupported")
+        value = _require_non_empty_string(raw_value, f"label_source.{key}")
+        _validate_artifact_filename(value, f"label_source.{key}")
+
+    components = _require_mapping(record.get("components"), "components")
+    unexpected_components = sorted(
+        str(key) for key in components if key not in REWARD_LABEL_COMPONENT_NAMES
+    )
+    if unexpected_components:
+        raise ContractValidationError(
+            f"components contains unsupported keys: {', '.join(unexpected_components)}"
+        )
+    missing_components = sorted(REWARD_LABEL_COMPONENT_NAMES.difference(components))
+    if missing_components:
+        raise ContractValidationError(
+            f"components missing required keys: {', '.join(missing_components)}"
+        )
+    for component_name in sorted(REWARD_LABEL_COMPONENT_NAMES):
+        value = _require_number(components.get(component_name), f"components.{component_name}")
+        _validate_rate(value, f"components.{component_name}")
+
+    preference_group = _require_mapping(record.get("preference_group"), "preference_group")
+    allowed_preference_keys = {"group_id", "rank", "tie_breaker"}
+    unexpected_preference_keys = sorted(
+        str(key) for key in preference_group if key not in allowed_preference_keys
+    )
+    if unexpected_preference_keys:
+        raise ContractValidationError(
+            "preference_group contains unsupported keys: "
+            + ", ".join(unexpected_preference_keys)
+        )
+    _require_non_empty_string(preference_group.get("group_id"), "preference_group.group_id")
+    _require_positive_int(preference_group.get("rank"), "preference_group.rank")
+    _require_non_empty_string(
+        preference_group.get("tie_breaker"),
+        "preference_group.tie_breaker",
+    )
+
+    reasons = _require_sequence(record.get("reasons"), "reasons")
+    if not reasons:
+        raise ContractValidationError("reasons must contain at least one reason")
+    for index, reason in enumerate(reasons):
+        _require_non_empty_string(reason, f"reasons.{index}")
+
+
+def validate_reward_label_report_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "reward_label_report")
+    if _contains_raw_secret(record):
+        raise ContractValidationError("reward_label_report contains raw secret material")
+    schema_version = _require_non_empty_string(record.get("schema_version"), "schema_version")
+    if schema_version != "reward_label_report_v1":
+        raise ContractValidationError("schema_version is unsupported")
+    _require_non_empty_string(record.get("dataset_version"), "dataset_version")
+
+    inputs = _require_mapping(record.get("inputs"), "inputs")
+    for field in (
+        "manifest_path",
+        "episodes_path",
+        "episode_quality_report_path",
+        "episode_replay_report_path",
+        "reward_labels_path",
+    ):
+        raw_path = inputs.get(field)
+        if raw_path is None:
+            continue
+        artifact_name = _require_non_empty_string(raw_path, f"inputs.{field}")
+        _validate_artifact_filename(artifact_name, f"inputs.{field}")
+
+    observed = _require_mapping(record.get("observed"), "observed")
+    for field in ("episode_count", "label_count", "usable", "excluded", "insufficient_evidence"):
+        _require_int(observed.get(field), f"observed.{field}")
+    _validate_string_count_mapping(observed.get("runtime_counts"), "observed.runtime_counts")
+    average = _require_number(observed.get("average_scalar_reward"), "observed.average_scalar_reward")
+    _validate_rate(average, "observed.average_scalar_reward")
+
+    seen_checks: set[str] = set()
+    for index, raw_check in enumerate(_require_sequence(record.get("checks"), "checks")):
+        check = _require_mapping(raw_check, f"checks.{index}")
+        name = _require_non_empty_string(check.get("name"), f"checks.{index}.name")
+        if name not in REWARD_LABEL_CHECK_NAMES:
+            raise ContractValidationError(f"checks.{index}.name is unsupported")
+        if name in seen_checks:
+            raise ContractValidationError(f"checks.{index}.name is duplicated")
+        seen_checks.add(name)
+        status = _require_non_empty_string(check.get("status"), f"checks.{index}.status")
+        if status not in {"passed", "failed"}:
+            raise ContractValidationError(f"checks.{index}.status is unsupported")
+        _require_int(check.get("passed"), f"checks.{index}.passed")
+        _require_int(check.get("failed"), f"checks.{index}.failed")
+        if not isinstance(check.get("required"), bool):
+            raise ContractValidationError(f"checks.{index}.required must be a bool")
+
+    allowed_summary_keys = {
+        "label_id",
+        "episode_id",
+        "candidate_id",
+        "runtime_id",
+        "label_status",
+        "scalar_reward",
+        "failed_checks",
+    }
+    for index, raw_summary in enumerate(
+        _require_sequence(record.get("label_summaries"), "label_summaries")
+    ):
+        summary = _require_mapping(raw_summary, f"label_summaries.{index}")
+        unexpected = sorted(str(key) for key in summary if key not in allowed_summary_keys)
+        if unexpected:
+            raise ContractValidationError(
+                f"label_summaries.{index} contains unsupported keys: {', '.join(unexpected)}"
+            )
+        for field in ("label_id", "episode_id", "candidate_id", "runtime_id", "label_status"):
+            _require_non_empty_string(summary.get(field), f"label_summaries.{index}.{field}")
+        if summary.get("runtime_id") not in REWARD_LABEL_RUNTIMES:
+            raise ContractValidationError(f"label_summaries.{index}.runtime_id is unsupported")
+        if summary.get("label_status") not in REWARD_LABEL_STATUSES:
+            raise ContractValidationError(f"label_summaries.{index}.label_status is unsupported")
+        scalar = _require_number(
+            summary.get("scalar_reward"),
+            f"label_summaries.{index}.scalar_reward",
+        )
+        _validate_rate(scalar, f"label_summaries.{index}.scalar_reward")
+        for check_index, raw_check in enumerate(
+            _require_sequence(
+                summary.get("failed_checks"),
+                f"label_summaries.{index}.failed_checks",
+            )
+        ):
+            check_name = _require_non_empty_string(
+                raw_check,
+                f"label_summaries.{index}.failed_checks.{check_index}",
+            )
+            if check_name not in REWARD_LABEL_CHECK_NAMES:
+                raise ContractValidationError(
+                    f"label_summaries.{index}.failed_checks.{check_index} is unsupported"
+                )
+
+    decision = _require_mapping(record.get("decision"), "decision")
+    status = _require_non_empty_string(decision.get("status"), "decision.status")
+    if status not in REWARD_LABEL_DECISION_STATUSES:
         raise ContractValidationError("decision.status is unsupported")
     for field in ("reasons", "triggered_by"):
         values = _require_sequence(decision.get(field), f"decision.{field}")

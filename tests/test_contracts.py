@@ -185,6 +185,68 @@ class DatasetContractTest(unittest.TestCase):
 
         validate_manifest_record(manifest)
 
+    def test_manifest_contract_accepts_reward_label_artifacts(self) -> None:
+        from synthesis.contracts import validate_manifest_record
+
+        manifest = _valid_manifest()
+        manifest["artifacts"]["episodes"] = "episodes.jsonl"
+        manifest["artifacts"]["reward_labels"] = "reward_labels.jsonl"
+        manifest["artifacts"]["reward_label_report"] = "reward_label_report.json"
+
+        validate_manifest_record(manifest)
+
+    def test_reward_label_contract_accepts_valid_record(self) -> None:
+        from synthesis.contracts import validate_reward_label_record
+
+        validate_reward_label_record(_valid_reward_label())
+
+    def test_reward_label_contract_rejects_unsupported_component(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_reward_label_record
+
+        label = _valid_reward_label()
+        label["components"]["raw_answer"] = 1.0
+
+        with self.assertRaisesRegex(ContractValidationError, "components"):
+            validate_reward_label_record(label)
+
+    def test_reward_label_contract_rejects_absolute_label_source(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_reward_label_record
+
+        label = _valid_reward_label()
+        label["label_source"]["artifact_path"] = "/tmp/reward_labels.jsonl"
+
+        with self.assertRaisesRegex(ContractValidationError, "label_source"):
+            validate_reward_label_record(label)
+
+    def test_reward_label_report_contract_accepts_valid_record(self) -> None:
+        from synthesis.contracts import validate_reward_label_report_record
+
+        validate_reward_label_report_record(_valid_reward_label_report())
+
+    def test_reward_label_report_contract_rejects_unsupported_check(self) -> None:
+        from synthesis.contracts import (
+            ContractValidationError,
+            validate_reward_label_report_record,
+        )
+
+        report = _valid_reward_label_report()
+        report["checks"][0]["name"] = "raw_content_scan"
+
+        with self.assertRaisesRegex(ContractValidationError, "checks.0.name"):
+            validate_reward_label_report_record(report)
+
+    def test_reward_label_report_contract_rejects_raw_summary_fields(self) -> None:
+        from synthesis.contracts import (
+            ContractValidationError,
+            validate_reward_label_report_record,
+        )
+
+        report = _valid_reward_label_report()
+        report["label_summaries"][0]["final_response"] = "alice.zhang@example.test"
+
+        with self.assertRaisesRegex(ContractValidationError, "label_summaries.0"):
+            validate_reward_label_report_record(report)
+
     def test_manifest_contract_rejects_unsupported_profile_purpose(self) -> None:
         from synthesis.contracts import ContractValidationError, validate_manifest_record
 
@@ -1149,6 +1211,95 @@ def _valid_dataset_release_report() -> dict[str, object]:
             "quality_report": "quality_report.json",
             "evaluation_report": "evaluation_report.json",
             "profile_decision_report": "profile_decision_report.json",
+        },
+    }
+
+
+def _valid_reward_label() -> dict[str, object]:
+    return {
+        "schema_version": "reward_label_v1",
+        "label_id": "reward_label_candidate_contacts_alice",
+        "episode_id": "episode_sample_candidate_contacts_alice",
+        "candidate_id": "candidate_contacts_alice",
+        "runtime_id": "contacts_fixture",
+        "outcome_status": "accepted",
+        "scalar_reward": 1.0,
+        "label_status": "usable",
+        "label_source": {
+            "quality_report": "episode_quality_report_v1",
+            "replay_report": "episode_replay_report_v1",
+        },
+        "components": {
+            "outcome": 1.0,
+            "contract": 1.0,
+            "execution": 1.0,
+            "state_support": 1.0,
+            "replay_consistency": 1.0,
+        },
+        "preference_group": {
+            "group_id": "pref_contacts_fixture_contact_lookup",
+            "rank": 1,
+            "tie_breaker": "candidate_contacts_alice",
+        },
+        "reasons": [
+            "accepted_episode",
+            "quality_checks_passed",
+            "replay_checks_passed",
+        ],
+    }
+
+
+def _valid_reward_label_report() -> dict[str, object]:
+    return {
+        "schema_version": "reward_label_report_v1",
+        "dataset_version": "dataset_reward",
+        "inputs": {
+            "manifest_path": "manifest.json",
+            "episodes_path": "episodes.jsonl",
+            "episode_quality_report_path": "episode_quality_report.json",
+            "episode_replay_report_path": "episode_replay_report.json",
+            "reward_labels_path": "reward_labels.jsonl",
+        },
+        "observed": {
+            "episode_count": 1,
+            "label_count": 1,
+            "usable": 1,
+            "excluded": 0,
+            "insufficient_evidence": 0,
+            "runtime_counts": {"contacts_fixture": 1},
+            "average_scalar_reward": 1.0,
+        },
+        "checks": [
+            {
+                "name": "labels_present",
+                "status": "passed",
+                "passed": 1,
+                "failed": 0,
+                "required": True,
+            },
+            {
+                "name": "label_contract_valid",
+                "status": "passed",
+                "passed": 1,
+                "failed": 0,
+                "required": True,
+            },
+        ],
+        "label_summaries": [
+            {
+                "label_id": "reward_label_candidate_contacts_alice",
+                "episode_id": "episode_sample_candidate_contacts_alice",
+                "candidate_id": "candidate_contacts_alice",
+                "runtime_id": "contacts_fixture",
+                "label_status": "usable",
+                "scalar_reward": 1.0,
+                "failed_checks": [],
+            }
+        ],
+        "decision": {
+            "status": "passed",
+            "reasons": [],
+            "triggered_by": [],
         },
     }
 
