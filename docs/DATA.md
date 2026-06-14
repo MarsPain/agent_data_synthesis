@@ -51,6 +51,10 @@
   `draft_message_reply`; draft tools create local draft state only and do not
   send real messages.
 - **Task:** user-facing goal plus structured constraints and difficulty metadata.
+- **Task Contract:** internal execution/verification view derived from
+  `CandidateTask`. It separates task intent, execution policy hints, expected
+  final-answer evidence, and expected environment-state checks. It is validated
+  before execution and is not exported in default public artifacts.
 - **Task Suggestion:** intent-level task proposal with required capabilities,
   target tools, constraints, verification expectation, suggestion outcome, and
   role lineage.
@@ -179,6 +183,15 @@ and a quality report:
   over `episodes.jsonl`, written only when explicitly requested. It is package
   boundary evidence for runtime extraction decisions, not a dataset release,
   profile-promotion, reward-model, or downstream model-quality proof.
+
+Internal task contracts are deliberately absent from default exports. Public
+accepted-sample and rejection schemas still expose the existing task,
+trajectory, verifier, quality, and lineage fields; `CandidateTask.export()`
+remains the compatibility shape for candidate records. Contract validation may
+reject unsafe or unsupported internal task/policy/verifier combinations before
+execution, but it does not add `task_contract`, raw expected state, or policy
+hint payloads to `samples.jsonl`, `rejections.jsonl`, episode quality reports,
+or episode replay reports.
 
 ```json
 {

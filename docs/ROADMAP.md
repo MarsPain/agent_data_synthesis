@@ -141,11 +141,17 @@
   package-boundary evidence while keeping reward/RL, external MCP servers,
   async orchestration, release admission changes, and package extraction
   deferred.
+- Split overloaded task/policy/verifier fields before full AWM runtime
+  extraction. Implemented in plan 0033 with internal task-intent, policy-hint,
+  expected-outcome, and expected-state contracts while preserving
+  `CandidateTask` compatibility, default CLI behavior, public dataset schemas,
+  and sanitized episode consumers.
 - Prepare the environment layer for a future shared AWM runtime without
   prematurely splitting it into a separate project. Deferred in plan 0025 after
-  plans 0031 and 0032 supplied repo-local data-quality and executable replay
-  consumers; extraction still needs stronger reward/RL, external MCP, adapter,
-  or cross-consumer package-boundary pressure.
+  plans 0031, 0032, and 0033 supplied repo-local data-quality, executable
+  replay, and task/policy/verifier boundary evidence; extraction still needs
+  stronger reward/RL, external MCP, adapter, or cross-consumer
+  package-boundary pressure.
 - Add async orchestration with durable queues.
 - Evaluate Ray-style distributed workers if throughput requires it.
 - Add monitoring dashboards and cost controls.

@@ -106,6 +106,11 @@ class CandidateTask:
             record["branch_plan"] = self.branch_plan
         return record
 
+    def contract(self) -> "TaskContract":
+        from synthesis.task_contracts import TaskContract, task_contract_from_candidate
+
+        return task_contract_from_candidate(self)
+
 
 def generate_foundation_candidates(
     seed: DomainSeed,

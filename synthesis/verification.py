@@ -5,6 +5,7 @@ from typing import Any
 
 from synthesis.execution import ExecutionResult
 from synthesis.tasks import CandidateTask
+from synthesis.task_contracts import TaskContract, validate_task_contract
 
 
 @dataclass(frozen=True)
@@ -34,42 +35,50 @@ class ExactAnswerVerifier:
         *,
         environment: Any | None = None,
     ) -> VerificationResult:
-        checks: list[dict[str, object]] = []
-        answer_passed = task.expected_answer in execution.final_response
-        checks.append({
-            "name": "final_response_contains_expected_answer",
-            "passed": answer_passed,
-            "expected": task.expected_answer,
-            "actual": execution.final_response,
-        })
-        checks.extend(_state_checks(task, environment))
-        return VerificationResult(
-            verifier_id=self.verifier_id,
-            version=self.version,
-            passed=all(bool(check.get("passed")) for check in checks),
-            checks=checks,
-        )
+        return verify_contract(task.contract(), execution, environment=environment)
+
+
+def verify_contract(
+    contract: TaskContract,
+    execution: ExecutionResult,
+    *,
+    environment: Any | None = None,
+) -> VerificationResult:
+    contract = validate_task_contract(contract)
+    checks: list[dict[str, object]] = []
+    expected_answer = contract.expected_outcome.final_answer_contains
+    answer_passed = expected_answer in execution.final_response
+    checks.append({
+        "name": "final_response_contains_expected_answer",
+        "passed": answer_passed,
+        "expected": expected_answer,
+        "actual": execution.final_response,
+    })
+    checks.extend(_state_checks(contract, environment))
+    return VerificationResult(
+        verifier_id=ExactAnswerVerifier.verifier_id,
+        version=ExactAnswerVerifier.version,
+        passed=all(bool(check.get("passed")) for check in checks),
+        checks=checks,
+    )
 
 
 def _state_checks(
-    task: CandidateTask,
+    contract: TaskContract,
     environment: Any | None,
 ) -> list[dict[str, object]]:
-    if not task.expected_state:
+    if not contract.expected_state:
         return []
-    expected_followup = task.expected_state.get("contact_followup")
-    if isinstance(expected_followup, dict):
-        return [_contact_followup_check(expected_followup, environment)]
-
-    expected_reminder = task.expected_state.get("mobile_reminder")
-    if isinstance(expected_reminder, dict):
-        return [_mobile_reminder_check(expected_reminder, environment)]
-
-    expected_draft = task.expected_state.get("mobile_draft_reply")
-    if isinstance(expected_draft, dict):
-        return [_mobile_draft_reply_check(expected_draft, environment)]
-
-    return []
+    checks: list[dict[str, object]] = []
+    for state_check in contract.expected_state:
+        expected = dict(state_check.expected)
+        if state_check.check_type == "contact_followup":
+            checks.append(_contact_followup_check(expected, environment))
+        elif state_check.check_type == "mobile_reminder":
+            checks.append(_mobile_reminder_check(expected, environment))
+        elif state_check.check_type == "mobile_draft_reply":
+            checks.append(_mobile_draft_reply_check(expected, environment))
+    return checks
 
 
 def _contact_followup_check(

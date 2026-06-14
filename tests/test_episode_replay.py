@@ -44,6 +44,28 @@ class EpisodeReplayTest(unittest.TestCase):
         self.assertEqual(summary["observation_mismatch_count"], 0)
         self.assertEqual(report["decision"]["status"], "passed")
 
+    def test_episode_replay_summaries_omit_raw_task_and_transition_content(self) -> None:
+        from synthesis.episode_replay import build_episode_replay_report
+
+        report = build_episode_replay_report(
+            dataset_version="dataset_replay_sanitized_summary",
+            episodes=(
+                _episode("candidate_contacts_alice_followup"),
+                _episode("candidate_mobile_maya_reminder"),
+            ),
+        )
+
+        forbidden = {
+            "instruction",
+            "expected_answer",
+            "expected_state",
+            "arguments",
+            "observation",
+            "content",
+        }
+        for summary in report["episode_summaries"]:
+            self.assertTrue(forbidden.isdisjoint(summary))
+
     def test_mobile_state_change_replay_matches_state_change_evidence(self) -> None:
         from synthesis.episode_replay import build_episode_replay_report
 

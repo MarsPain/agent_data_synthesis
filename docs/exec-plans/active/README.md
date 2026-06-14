@@ -5,10 +5,12 @@ is accepted as complete, move it to `../completed/` and update `../../PLANS.md`.
 
 ## Currently Executing
 
-No active implementation plan is currently open.
+- No active implementation plan is currently open.
 
 ## Completed
 
+- [0033-task-intent-policy-verifier-contract-split](../completed/0033-task-intent-policy-verifier-contract-split.md):
+  completed on 2026-06-14.
 - [0032-executable-episode-replay-consistency-probe](../completed/0032-executable-episode-replay-consistency-probe.md):
   completed on 2026-06-13.
 - [0031-episode-replay-and-data-quality-scoring-consumer](../completed/0031-episode-replay-and-data-quality-scoring-consumer.md):

@@ -138,6 +138,59 @@ class CandidateProcessingRecordTest(unittest.TestCase):
         )
         self.assertEqual(accepted_signatures, set())
 
+    def test_accepted_candidate_preserves_public_task_export_shape(self) -> None:
+        from synthesis.candidate_processing import (
+            CandidateProcessingOptions,
+            process_candidate_through_gates,
+        )
+
+        task = self._candidate()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outcome = process_candidate_through_gates(
+                raw_task=task,
+                context=self._context(Path(tmpdir)),
+                accepted_signatures=set(),
+                options=CandidateProcessingOptions(),
+            )
+
+        self.assertIsNotNone(outcome.sample)
+        assert outcome.sample is not None
+        self.assertEqual(
+            outcome.sample["task"],
+            {
+                "instruction": task.instruction,
+                "constraints": task.constraints,
+                "difficulty": task.difficulty,
+            },
+        )
+        self.assertNotIn("task_contract", outcome.sample)
+        self.assertNotIn("expected_state", outcome.sample["task"])
+
+    def test_invalid_task_contract_returns_schema_rejection(self) -> None:
+        from synthesis.candidate_processing import (
+            CandidateProcessingOptions,
+            process_candidate_through_gates,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outcome = process_candidate_through_gates(
+                raw_task=self._candidate(
+                    candidate_id="candidate_unknown_domain",
+                    constraints={
+                        "domain": "unsupported_fixture",
+                        "must_use_tool": "lookup_contact_email",
+                    },
+                ),
+                context=self._context(Path(tmpdir)),
+                accepted_signatures=set(),
+                options=CandidateProcessingOptions(),
+            )
+
+        self.assertIsNone(outcome.sample)
+        self.assertIsNotNone(outcome.rejection)
+        assert outcome.rejection is not None
+        self.assertEqual(outcome.rejection["cause"], "candidate_schema_error")
+
     def test_accepted_candidate_carries_internal_episode_log_without_changing_sample_shape(self) -> None:
         from synthesis.candidate_processing import (
             CandidateProcessingOptions,

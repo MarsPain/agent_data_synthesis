@@ -1,7 +1,7 @@
 # Mobile Domain Pipeline Pressure
 
 Generated during plan 0029 on 2026-06-12. Updated by plans 0030, 0031, and
-0032 on 2026-06-13.
+0032 on 2026-06-13, and plan 0033 on 2026-06-14.
 
 ## What Changed
 
@@ -30,11 +30,11 @@ assembly, and quality reporting.
 - Foundation smoke gates are domain-aware: contacts checks
   `lookup_contact_email`, while mobile checks `search_phone_messages`.
 
-## Assumptions Intentionally Left Unresolved
+## Assumptions Partially Resolved or Intentionally Left Unresolved
 
-- `CandidateTask` still mixes task intent, execution hints, expected answer, and
-  expected state. The mobile probe made this visible but did not split those
-  responsibilities.
+- `CandidateTask` remains the public compatibility wrapper, but internal
+  `TaskContract` records now split task intent, policy hints, expected final
+  answer, and expected state before execution and verification.
 - MCP adapter support remains contacts-only. Mobile profiles that request the
   adapter are rejected instead of silently falling back.
 - Source-governed environment input remains contacts-only. Mobile local source
@@ -68,8 +68,9 @@ The larger 0025 extraction pressure remains unresolved:
   artifact.
 - MCP adapter support remains contacts-only, and mobile source-governed input
   remains outside scope.
-- `CandidateTask` still mixes task intent, policy hints, expected answer, and
-  expected state; 0030 documents that pressure but does not migrate the schema.
+- `CandidateTask` still exposed task intent, policy hints, expected answer, and
+  expected state through one compatibility record; 0030 documented that
+  pressure but did not migrate the internal boundary.
 
 ## Plan 0031 Episode-Quality Consumer Update
 
@@ -90,7 +91,8 @@ repo-local, opt-in consumer:
 
 This does not resolve executable replay, reward-label export, Agentic RL rollout
 collection, external MCP environment servers, mobile source-governed input, or
-the `CandidateTask` intent/policy/expected-state split.
+the internal `CandidateTask` intent/policy/expected-state split that was later
+addressed by plan 0033.
 
 ## Plan 0032 Executable Replay Update
 
@@ -111,9 +113,32 @@ opt-in consumer:
   (`rebuild`, `runtime_metadata`) and registry methods (`execute`) without
   extracting a separate `awm_runtime` package.
 
-This leaves reward-label export, Agentic RL rollout collection, external MCP
+This left reward-label export, Agentic RL rollout collection, external MCP
 environment servers, mobile source-governed input, and the `CandidateTask`
 intent/policy/expected-state split unresolved.
+
+## Plan 0033 Task-Contract Split Update
+
+Plan 0033 partially resolves the `CandidateTask` coupling by adding an internal
+contract boundary:
+
+- `synthesis.task_contracts` derives validated `TaskIntent`, `PolicyHint`,
+  `ExpectedOutcome`, and `ExpectedStateCheck` records from deterministic and
+  generated `CandidateTask` values.
+- Contacts and mobile scripted policies can consume contract policy hints while
+  compatibility wrappers still accept `CandidateTask`.
+- Verification reads final-answer and state expectations through
+  contract-aware helpers while preserving verifier ids, versions, and check
+  names.
+- Public `samples.jsonl`, `rejections.jsonl`, manifest, quality report,
+  `episode_log_v1`, `episode_quality_report_v1`, and
+  `episode_replay_report_v1` schemas do not gain raw task instructions,
+  expected answers, expected state, or policy arguments.
+
+This keeps reward-label export, Agentic RL rollout collection, external MCP
+environment servers, and mobile source-governed input unresolved. It also keeps
+full AWM runtime package extraction deferred; plan 0033 is boundary evidence,
+not extraction.
 
 ## Evidence
 
@@ -136,6 +161,9 @@ intent/policy/expected-state split unresolved.
 - `tests.test_episode_replay` covers executable contacts/mobile replay,
   state-change hash matching, insufficient evidence, and sanitized report
   validation.
+- `tests.test_task_contracts` covers contacts/mobile contract conversion,
+  branch-plan validation reuse, unsafe value rejection, contract-aware scripted
+  policies, and contract-aware verification.
 - `tests.test_cli` covers the mobile run profile and confirms default CLI output
   remains contacts-only; it also covers opt-in episode-quality and
   episode-replay report writing.

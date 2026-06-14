@@ -42,4 +42,4 @@ uv run python -m unittest
 - The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
 - Current active work is tracked in [docs/PLANS.md](docs/PLANS.md); no active
   implementation plan is currently open.
-- Latest completed work is documented in [docs/exec-plans/completed/0032-executable-episode-replay-consistency-probe.md](docs/exec-plans/completed/0032-executable-episode-replay-consistency-probe.md).
+- Latest completed work is documented in [docs/exec-plans/completed/0033-task-intent-policy-verifier-contract-split.md](docs/exec-plans/completed/0033-task-intent-policy-verifier-contract-split.md).

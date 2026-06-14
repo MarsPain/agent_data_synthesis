@@ -51,9 +51,33 @@ class EpisodeQualityTest(unittest.TestCase):
                 "observation",
                 "content",
                 "instruction",
+                "expected_answer",
+                "expected_state",
                 "final_response",
             ):
                 self.assertNotIn(forbidden, summary)
+
+    def test_episode_quality_summaries_omit_raw_task_and_transition_content(self) -> None:
+        from synthesis.episode_quality import build_episode_quality_report
+
+        report = build_episode_quality_report(
+            dataset_version="dataset_quality_sanitized_summary",
+            episodes=(
+                _episode("candidate_contacts_alice_followup"),
+                _episode("candidate_mobile_maya_reminder"),
+            ),
+        )
+
+        forbidden = {
+            "instruction",
+            "expected_answer",
+            "expected_state",
+            "arguments",
+            "observation",
+            "content",
+        }
+        for summary in report["episode_summaries"]:
+            self.assertTrue(forbidden.isdisjoint(summary))
 
     def test_mobile_state_change_episode_passes_state_change_support(self) -> None:
         from synthesis.episode_quality import build_episode_quality_report

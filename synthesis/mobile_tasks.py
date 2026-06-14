@@ -127,29 +127,40 @@ def generate_mobile_fixture_candidates(seed: DomainSeed) -> list[CandidateTask]:
 
 
 def scripted_mobile_solution_policy(task: CandidateTask) -> SolutionPolicy:
-    task_type = task.constraints.get("task_type")
-    if task.branch_plan is not None:
+    return scripted_mobile_solution_policy_from_contract(task.contract())
+
+
+def scripted_mobile_solution_policy_from_contract(contract: "TaskContract") -> SolutionPolicy:
+    from synthesis.task_contracts import validate_task_contract
+
+    contract = validate_task_contract(contract)
+    task_type = contract.intent.task_type
+    if contract.policy_hint.branch_plan is not None:
         return SolutionPolicy(
-            policy_id=f"policy_{task.candidate_id}",
+            policy_id=f"policy_{contract.intent.candidate_id}",
             role="scripted_mobile_solution_policy",
             steps=(),
             final_response_template="branch_plan",
             lineage=_mobile_policy_lineage(),
-            branch_plan=task.branch_plan,
+            branch_plan=dict(contract.policy_hint.branch_plan),
         )
 
     if task_type == "mobile_message_to_reminder":
         return SolutionPolicy(
-            policy_id=f"policy_{task.candidate_id}",
+            policy_id=f"policy_{contract.intent.candidate_id}",
             role="scripted_mobile_solution_policy",
             steps=(
-                ToolStep(tool_name="search_phone_messages", arguments=task.arguments),
+                _primary_tool_step(contract),
                 ToolStep(
                     tool_name="create_phone_reminder",
                     arguments={
-                        "title": "Send the project update",
-                        "due_at": "tomorrow 9 AM",
-                        "source_message_id": "msg_maya_project_update",
+                        "title": _state_value(contract, "mobile_reminder", "title"),
+                        "due_at": _state_value(contract, "mobile_reminder", "due_at"),
+                        "source_message_id": _state_value(
+                            contract,
+                            "mobile_reminder",
+                            "source_message_id",
+                        ),
                     },
                 ),
             ),
@@ -159,15 +170,19 @@ def scripted_mobile_solution_policy(task: CandidateTask) -> SolutionPolicy:
 
     if task_type == "mobile_draft_reply":
         return SolutionPolicy(
-            policy_id=f"policy_{task.candidate_id}",
+            policy_id=f"policy_{contract.intent.candidate_id}",
             role="scripted_mobile_solution_policy",
             steps=(
-                ToolStep(tool_name="search_phone_messages", arguments=task.arguments),
+                _primary_tool_step(contract),
                 ToolStep(
                     tool_name="draft_message_reply",
                     arguments={
-                        "thread_id": "thread_alex",
-                        "body": "I will be five minutes late.",
+                        "thread_id": _state_value(
+                            contract,
+                            "mobile_draft_reply",
+                            "thread_id",
+                        ),
+                        "body": _state_value(contract, "mobile_draft_reply", "body"),
                     },
                 ),
             ),
@@ -176,12 +191,27 @@ def scripted_mobile_solution_policy(task: CandidateTask) -> SolutionPolicy:
         )
 
     return SolutionPolicy(
-        policy_id=f"policy_{task.candidate_id}",
+        policy_id=f"policy_{contract.intent.candidate_id}",
         role="scripted_mobile_solution_policy",
-        steps=(ToolStep(tool_name=task.tool_name, arguments=task.arguments),),
+        steps=(_primary_tool_step(contract),),
         final_response_template="Message found: {message_id}. {snippet}",
         lineage=_mobile_policy_lineage(),
     )
+
+
+def _primary_tool_step(contract: "TaskContract") -> ToolStep:
+    assert contract.policy_hint.primary_tool is not None
+    return ToolStep(
+        tool_name=contract.policy_hint.primary_tool,
+        arguments=dict(contract.policy_hint.primary_arguments),
+    )
+
+
+def _state_value(contract: "TaskContract", check_type: str, key: str) -> object:
+    for state_check in contract.expected_state:
+        if state_check.check_type == check_type:
+            return state_check.expected.get(key)
+    return None
 
 
 def _difficulty(

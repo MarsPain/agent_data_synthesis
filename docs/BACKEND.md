@@ -48,6 +48,10 @@ The first backend should be a local Python pipeline with explicit modules and du
   suggestion, edited-task assembly, difficulty scoring, curriculum policies,
   expected state declarations, optional branch-plan records, and candidate-level
   generation lineage attachment.
+- `synthesis.task_contracts`: internal task-intent, policy-hint,
+  expected-outcome, and expected-state contracts derived from `CandidateTask`
+  before execution and verification. It owns task-contract validation and
+  compatibility conversion without changing public candidate artifacts.
 - `synthesis.execution`: solution policy selection/parsing, ordered tool-step
   execution, bounded branch-plan execution, trajectory runner, retry policy,
   environment checkpoint/restore boundaries, and event capture.
@@ -138,51 +142,56 @@ trajectories, exports, or logs.
    task suggestion, and task editing. Edited candidates are admitted only after
    normal candidate-contract validation, and rejected suggestions remain
    inspectable as rejected records.
-9. Generate or select a solution policy for each valid task, using the
+9. Convert each schema-valid `CandidateTask` into an internal task contract and
+   validate task intent, policy hints, expected final-answer evidence, expected
+   state checks, branch plans, and safety rules before execution. Public task
+   sample and rejection shapes remain unchanged.
+10. Generate or select a solution policy for each valid task, using the
    `solution_policy` role for remote policies and deterministic local lineage for
    scripted policies.
-10. Execute policy steps directly against the local registry by default. When
+11. Execute policy steps directly against the local registry by default. When
    `--enable-mcp-adapter` or `enable_mcp_adapter=True` is explicitly set, route
    the same policy steps through the local in-process contacts adapter shim. The
    top-level trajectory still records the normal action, observation,
    state-change, and final-response events; adapter call metadata is stored in
    lineage and rejection details.
-11. When a candidate carries a bounded branch plan, execute branch attempts from a
+12. When a candidate carries a bounded branch plan, execute branch attempts from a
    clean environment checkpoint until one terminal path succeeds, preserving
    rejected branch outcomes separately from the selected trajectory.
-12. Verify outputs and expected state changes independently.
-13. Build internal episode evidence for accepted executions and rejected
+13. Verify outputs and expected state changes independently through
+   contract-aware expected-outcome and expected-state helpers.
+14. Build internal episode evidence for accepted executions and rejected
    executions that already have a trajectory. Episode evidence is not written to
    default dataset artifacts or release artifacts.
-14. For repairable verification or logical-support failures, optionally run one
+15. For repairable verification or logical-support failures, optionally run one
    `critic_refinement` attempt and rerun validation, execution, verification,
    and quality gates through the normal path.
-15. When execution exposes a capability gap such as a missing tool or schema
+16. When execution exposes a capability gap such as a missing tool or schema
    mismatch, optionally request one `tool_generation` proposal, admit only a
    matching curated local implementation, and rerun through the normal execution,
    verification, and quality gates.
-16. When `--enable-sandbox-fixture` or `enable_sandbox_fixture=True` is
+17. When `--enable-sandbox-fixture` or `enable_sandbox_fixture=True` is
    explicitly set, run a deterministic generated-code fixture through static
    scan, admission, restricted local execution, and redacted audit serialization.
    This fixture does not enable arbitrary generated tools, environments, or
    verifiers and does not change default accepted/rejected sample counts.
-17. Merge provisional candidate outcomes in stable sequence order, applying
+18. Merge provisional candidate outcomes in stable sequence order, applying
    exact duplicate admission deterministically after execution so completion
    order cannot choose the accepted sample. Logical consistency remains a
    candidate-local gate before merge.
-18. Route failed samples by error class and optional review policy.
-19. Export accepted samples, rejections, source-event audits when enabled,
+19. Route failed samples by error class and optional review policy.
+20. Export accepted samples, rejections, source-event audits when enabled,
    sandbox audits when enabled, tool proposal events, branch lineage,
    task-expansion lineage, quality reports, lineage, sanitized run-profile
    manifest metadata, and narrow per-record run-profile attribution when a
    profile is supplied.
-20. When `--write-episode-quality-report` is explicitly supplied, write
+21. When `--write-episode-quality-report` is explicitly supplied, write
    `episodes.jsonl`, score it into `episode_quality_report.json`, and rewrite
    only the manifest artifact map to reference both opt-in artifacts. This
    local synchronous consumer validates and scores runtime episode evidence; it
    does not replay actions against fresh state, train reward models, collect RL
    rollouts, or change candidate admission.
-21. When `--write-episode-replay-report` is explicitly supplied, write
+22. When `--write-episode-replay-report` is explicitly supplied, write
    `episodes.jsonl`, replay it into `episode_replay_report.json`, and rewrite
    only the manifest artifact map to reference both opt-in artifacts. This
    local synchronous consumer rebuilds fixture runtimes and executes tool

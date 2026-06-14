@@ -18,6 +18,9 @@ Agent Data Synthesis is an early-stage Python project for building an automated 
 - Runs can optionally write sanitized `episodes.jsonl`,
   `episode_quality_report.json`, and `episode_replay_report.json` artifacts for
   runtime episode evidence scoring and executable replay consistency checks.
+- Candidate execution now derives internal task-intent, policy-hint,
+  expected-outcome, and expected-state contracts before policy execution and
+  verification while preserving the public sample and rejection schemas.
 - The planned synthesis pipeline is LLM-driven through a remote OpenAI-compatible API. It does not include local LLM cluster deployment.
 
 ## Documentation Map

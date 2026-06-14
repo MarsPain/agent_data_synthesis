@@ -46,6 +46,7 @@ from synthesis.tools import (
     build_tool_proposal_record,
 )
 from synthesis.verification import ExactAnswerVerifier
+from synthesis.verification import verify_contract
 
 
 PolicyGenerator = Callable[[CandidateTask], SolutionPolicy]
@@ -335,6 +336,16 @@ def _run_candidate_attempt(
     refinement_attempt: RefinementAttempt | None = None,
     tool_expansion: dict[str, object] | None = None,
 ) -> _CandidateAttemptResult:
+    try:
+        task_contract = task.contract()
+    except ContractValidationError as exc:
+        return _CandidateAttemptResult(
+            sample=None,
+            rejection=assemble_candidate_schema_rejection(error=exc),
+            signature=None,
+            policy=None,
+            capability_gap=None,
+        )
     policy: SolutionPolicy | None = policy_override
     if policy is None:
         try:
@@ -456,8 +467,8 @@ def _run_candidate_attempt(
             capability_gap=None,
         )
 
-    verification = context.verifier.verify(
-        task,
+    verification = verify_contract(
+        task_contract,
         execution,
         environment=context.environment,
     )

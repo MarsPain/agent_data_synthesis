@@ -87,21 +87,34 @@ def execute_candidate(
 
 
 def scripted_solution_policy(task: CandidateTask) -> SolutionPolicy:
-    if task.branch_plan is not None:
+    return scripted_solution_policy_from_contract(task.contract())
+
+
+def scripted_solution_policy_from_contract(contract: "TaskContract") -> SolutionPolicy:
+    from synthesis.task_contracts import validate_task_contract
+
+    contract = validate_task_contract(contract)
+    candidate_id = contract.intent.candidate_id
+    if contract.policy_hint.branch_plan is not None:
         return SolutionPolicy(
-            policy_id=f"policy_{task.candidate_id}",
+            policy_id=f"policy_{candidate_id}",
             role="scripted_solution_policy",
             steps=(),
             final_response_template="branch_plan",
             lineage=_local_policy_lineage(),
-            branch_plan=task.branch_plan,
+            branch_plan=dict(contract.policy_hint.branch_plan),
         )
 
-    if task.constraints.get("task_type") == "contact_followup":
-        name = str(task.arguments.get("name", ""))
-        note = f"Send follow-up email to {task.expected_answer}."
+    if contract.intent.task_type == "contact_followup":
+        name = str(contract.policy_hint.primary_arguments.get("name", ""))
+        note = _expected_state_value(
+            contract,
+            "contact_followup",
+            "note",
+            fallback=f"Send follow-up email to {contract.expected_outcome.final_answer_contains}.",
+        )
         return SolutionPolicy(
-            policy_id=f"policy_{task.candidate_id}",
+            policy_id=f"policy_{candidate_id}",
             role="scripted_solution_policy",
             steps=(
                 ToolStep(tool_name="lookup_contact_email", arguments={"name": name}),
@@ -114,22 +127,46 @@ def scripted_solution_policy(task: CandidateTask) -> SolutionPolicy:
             lineage=_local_policy_lineage(),
         )
 
-    if task.constraints.get("probe_case") == "logical_support_failure":
+    constraints = contract.compatibility.get("constraints", {})
+    if isinstance(constraints, dict) and constraints.get("probe_case") == "logical_support_failure":
         return SolutionPolicy(
-            policy_id=f"policy_{task.candidate_id}",
+            policy_id=f"policy_{candidate_id}",
             role="scripted_solution_policy",
-            steps=(ToolStep(tool_name=task.tool_name, arguments=task.arguments),),
-            final_response_template=task.expected_answer,
+            steps=(_primary_tool_step(contract),),
+            final_response_template=contract.expected_outcome.final_answer_contains,
             lineage=_local_policy_lineage(),
         )
 
     return SolutionPolicy(
-        policy_id=f"policy_{task.candidate_id}",
+        policy_id=f"policy_{candidate_id}",
         role="scripted_solution_policy",
-        steps=(ToolStep(tool_name=task.tool_name, arguments=task.arguments),),
+        steps=(_primary_tool_step(contract),),
         final_response_template="{name}'s email is {email}.",
         lineage=_local_policy_lineage(),
     )
+
+
+def _primary_tool_step(contract: "TaskContract") -> ToolStep:
+    assert contract.policy_hint.primary_tool is not None
+    return ToolStep(
+        tool_name=contract.policy_hint.primary_tool,
+        arguments=dict(contract.policy_hint.primary_arguments),
+    )
+
+
+def _expected_state_value(
+    contract: "TaskContract",
+    check_type: str,
+    key: str,
+    *,
+    fallback: str,
+) -> str:
+    for state_check in contract.expected_state:
+        if state_check.check_type == check_type:
+            value = state_check.expected.get(key)
+            if isinstance(value, str):
+                return value
+    return fallback
 
 
 def generate_llm_backed_solution_policy(

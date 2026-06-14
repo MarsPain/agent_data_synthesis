@@ -37,9 +37,20 @@ Owns tool schemas, typed parameters, return types, side-effect declarations, dep
 
 Owns task generation, difficulty scoring, ambiguity controls, persona controls, and progression rules.
 
+`CandidateTask` remains the compatibility wrapper for deterministic and remote
+task generators, task expansion, rejections, and public artifact assembly. The
+pipeline derives internal task contracts from it before execution: task intent,
+policy hints, expected final-answer evidence, and expected state checks are
+separate internal records.
+
 ### Trajectory Execution
 
 Owns policy execution, tool call recording, observation capture, retries, and error classification.
+
+Scripted contacts and mobile policies can consume internal policy hints while
+the public policy-generator API continues to accept `CandidateTask`. This keeps
+deterministic trajectories stable while reducing coupling between generator-era
+task records and execution planning.
 
 Execution can now derive internal `episode_log_v1` evidence from existing
 trajectories. Episode evidence records ordered actions, observations,
@@ -50,6 +61,11 @@ the default dataset sample schema and is not a release artifact.
 ### Verification
 
 Owns executable checks, logical checks, LLM-as-judge checks, diversity checks, and human review routing.
+
+The exact-answer/state verifier reads internal expected-outcome and
+expected-state contracts. Compatibility wrappers still accept `CandidateTask`,
+and verifier ids, versions, check names, sample schemas, and episode schemas
+remain stable.
 
 ### Episode Quality
 
@@ -116,6 +132,10 @@ Start local and deterministic:
   consumer. It proves the current runtime boundary can serve a non-synthesis
   executor that rebuilds fixture runtimes and calls registries directly, while
   keeping full AWM runtime package extraction deferred.
+- Task-intent, policy-hint, expected-outcome, and expected-state contracts are
+  internal only. They de-risk future reward/RL/runtime consumers without
+  changing `CandidateTask.export()`, `samples.jsonl`, `rejections.jsonl`, or
+  episode report schemas.
 - Python callable tools with explicit schemas.
 - Local job runner with resumable manifests.
 - Remote LLM provider adapter configured by `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`.

@@ -145,6 +145,18 @@ Consumers remain separate:
 - adapters expose runtime operations through local, MCP-compatible, or future
   service boundaries.
 
+## Current Evidence
+
+Plans 0030, 0031, 0032, and 0033 reduce extraction risk without activating this
+plan. The repository now has shared runtime metadata, opt-in episode quality,
+executable episode replay, and internal task/policy/verifier contracts that
+split task intent, policy hints, expected final-answer evidence, and expected
+state checks before execution. These are useful pre-extraction boundaries, but
+they still run inside the synchronous repo-local pipeline. Full AWM runtime
+extraction remains deferred until reward/RL rollout collection, external MCP
+environment servers, or stronger cross-consumer package-boundary pressure
+requires it.
+
 ## File Map
 
 - Modify `synthesis/environments.py` only as needed to introduce runtime-facing
