@@ -158,6 +158,27 @@ RUNTIME_METADATA_KEYS = {
     "sandbox_policy",
     "adapter",
 }
+RUNTIME_ACTION_REQUEST_KEYS = {
+    "schema_version",
+    "runtime_id",
+    "tool_name",
+    "arguments",
+    "arguments_hash",
+    "action_id",
+}
+RUNTIME_ACTION_RESULT_KEYS = {
+    "schema_version",
+    "runtime_id",
+    "tool_name",
+    "status",
+    "observation",
+    "observation_hash",
+    "state_change",
+    "state_change_hash",
+    "error_class",
+    "side_effect_summary",
+    "action_id",
+}
 EPISODE_OUTCOMES = {"accepted", "rejected", "failed"}
 EPISODE_EVENT_TYPES = {"action", "observation", "state_change", "final_response", "error"}
 EPISODE_QUALITY_DECISION_STATUSES = {
@@ -351,6 +372,101 @@ def validate_runtime_metadata_record(record: Mapping[str, Any]) -> None:
     _require_mapping(record.get("source_provenance"), "runtime_metadata.source_provenance")
     _require_mapping(record.get("sandbox_policy"), "runtime_metadata.sandbox_policy")
     _require_mapping(record.get("adapter"), "runtime_metadata.adapter")
+
+
+def validate_runtime_action_request_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "runtime_action_request")
+    if _contains_raw_secret(record) or _contains_runtime_action_unsafe_material(record):
+        raise ContractValidationError("runtime_action_request contains raw secret material")
+    unexpected = sorted(str(key) for key in record if key not in RUNTIME_ACTION_REQUEST_KEYS)
+    if unexpected:
+        raise ContractValidationError(
+            f"runtime_action_request contains unsupported keys: {', '.join(unexpected)}"
+        )
+    for key in ("schema_version", "runtime_id", "tool_name", "arguments", "arguments_hash"):
+        if key not in record:
+            raise ContractValidationError(f"runtime_action_request missing required key: {key}")
+    schema_version = _require_non_empty_string(
+        record.get("schema_version"),
+        "runtime_action_request.schema_version",
+    )
+    if schema_version != "runtime_action_request_v1":
+        raise ContractValidationError("runtime_action_request.schema_version is unsupported")
+    _require_non_empty_string(record.get("runtime_id"), "runtime_action_request.runtime_id")
+    _require_non_empty_string(record.get("tool_name"), "runtime_action_request.tool_name")
+    _require_mapping(record.get("arguments"), "runtime_action_request.arguments")
+    _validate_content_hash(
+        record.get("arguments_hash"),
+        "runtime_action_request.arguments_hash",
+    )
+    if "action_id" in record:
+        _require_non_empty_string(record.get("action_id"), "runtime_action_request.action_id")
+
+
+def validate_runtime_action_result_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "runtime_action_result")
+    if _contains_raw_secret(record) or _contains_runtime_action_unsafe_material(record):
+        raise ContractValidationError("runtime_action_result contains raw secret material")
+    unexpected = sorted(str(key) for key in record if key not in RUNTIME_ACTION_RESULT_KEYS)
+    if unexpected:
+        raise ContractValidationError(
+            f"runtime_action_result contains unsupported keys: {', '.join(unexpected)}"
+        )
+    required = {
+        "schema_version",
+        "runtime_id",
+        "tool_name",
+        "status",
+        "observation",
+        "observation_hash",
+        "state_change_hash",
+        "error_class",
+        "side_effect_summary",
+    }
+    missing = sorted(key for key in required if key not in record)
+    if missing:
+        raise ContractValidationError(
+            f"runtime_action_result missing required keys: {', '.join(missing)}"
+        )
+    schema_version = _require_non_empty_string(
+        record.get("schema_version"),
+        "runtime_action_result.schema_version",
+    )
+    if schema_version != "runtime_action_result_v1":
+        raise ContractValidationError("runtime_action_result.schema_version is unsupported")
+    _require_non_empty_string(record.get("runtime_id"), "runtime_action_result.runtime_id")
+    _require_non_empty_string(record.get("tool_name"), "runtime_action_result.tool_name")
+    status = _require_non_empty_string(record.get("status"), "runtime_action_result.status")
+    if status not in {"succeeded", "failed"}:
+        raise ContractValidationError("runtime_action_result.status is unsupported")
+    _require_mapping(record.get("observation"), "runtime_action_result.observation")
+    _validate_content_hash(
+        record.get("observation_hash"),
+        "runtime_action_result.observation_hash",
+    )
+    if "state_change" in record:
+        _require_mapping(record.get("state_change"), "runtime_action_result.state_change")
+    _validate_content_hash(
+        record.get("state_change_hash"),
+        "runtime_action_result.state_change_hash",
+    )
+    error_class = record.get("error_class")
+    if status == "failed":
+        _require_non_empty_string(error_class, "runtime_action_result.error_class")
+    elif error_class is not None:
+        raise ContractValidationError(
+            "runtime_action_result.error_class must be null when succeeded"
+        )
+    side_effect_summary = _require_mapping(
+        record.get("side_effect_summary"),
+        "runtime_action_result.side_effect_summary",
+    )
+    if not isinstance(side_effect_summary.get("state_changed"), bool):
+        raise ContractValidationError(
+            "runtime_action_result.side_effect_summary.state_changed must be a bool"
+        )
+    if "action_id" in record:
+        _require_non_empty_string(record.get("action_id"), "runtime_action_result.action_id")
 
 
 def validate_episode_log_record(record: Mapping[str, Any]) -> None:
@@ -2979,6 +3095,43 @@ def _contains_raw_secret(value: object) -> bool:
         lowered = value.lower()
         return (
             "agent_data_api_key" in lowered
+            or "authorization:" in lowered
+            or "secret-test-key" in lowered
+            or "sk-live" in lowered
+            or "sk-test" in lowered
+        )
+    return False
+
+
+def _contains_runtime_action_unsafe_material(value: object) -> bool:
+    if isinstance(value, Mapping):
+        for key, nested in value.items():
+            lowered_key = str(key).lower()
+            if any(
+                fragment in lowered_key
+                for fragment in (
+                    "raw_source",
+                    "provider_prompt",
+                    "provider_payload",
+                    "profile_path",
+                    "credential",
+                )
+            ):
+                return True
+            if _contains_runtime_action_unsafe_material(nested):
+                return True
+        return False
+    if isinstance(value, Sequence) and not isinstance(value, str):
+        return any(_contains_runtime_action_unsafe_material(item) for item in value)
+    if isinstance(value, str):
+        lowered = value.lower()
+        return (
+            lowered.startswith("/")
+            or lowered.startswith("~")
+            or ":\\" in lowered
+            or "/users/" in lowered
+            or "/private/" in lowered
+            or "/tmp/" in lowered
             or "authorization:" in lowered
             or "secret-test-key" in lowered
             or "sk-live" in lowered

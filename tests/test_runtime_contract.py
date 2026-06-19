@@ -7,6 +7,7 @@ from pathlib import Path
 
 from synthesis.environments import ContactEnvironment
 from synthesis.mobile_environment import MobileMessagesEnvironment
+from synthesis.tools import build_contact_tool_registry
 
 
 class RuntimeContractTest(unittest.TestCase):
@@ -288,6 +289,191 @@ class RuntimeContractTest(unittest.TestCase):
             with self.subTest(record=record):
                 with self.assertRaises(ContractValidationError):
                     validate_runtime_metadata_safety(record)
+
+    def test_runtime_action_request_exports_sanitized_contract(self) -> None:
+        from synthesis.runtime import RuntimeActionRequest
+
+        request = RuntimeActionRequest(
+            runtime_id="contacts_fixture",
+            tool_name="lookup_contact_email",
+            arguments={
+                "name": "Alice Zhang",
+                "raw_source": {"contacts": []},
+                "profile_path": "/Users/H/profile.json",
+            },
+            action_id="action_lookup_alice",
+        )
+
+        record = request.export()
+
+        self.assertEqual(record["schema_version"], "runtime_action_request_v1")
+        self.assertEqual(record["runtime_id"], "contacts_fixture")
+        self.assertEqual(record["tool_name"], "lookup_contact_email")
+        self.assertEqual(record["action_id"], "action_lookup_alice")
+        self.assertEqual(record["arguments"], {"name": "Alice Zhang"})
+        self.assertIn("arguments_hash", record)
+        serialized = json.dumps(record, sort_keys=True)
+        self.assertNotIn("raw_source", serialized)
+        self.assertNotIn("profile_path", serialized)
+        self.assertNotIn("/Users/H", serialized)
+
+    def test_runtime_action_result_exports_success_hashes_and_side_effect_summary(self) -> None:
+        from synthesis.contracts import validate_runtime_action_result_record
+        from synthesis.runtime import RuntimeActionResult
+
+        result = RuntimeActionResult.succeeded(
+            runtime_id="contacts_fixture",
+            tool_name="record_contact_followup",
+            observation={
+                "status": "recorded",
+                "state_change": {"type": "contact_followup", "contact": "Alice Zhang"},
+            },
+            action_id="action_followup_alice",
+        )
+
+        record = result.export()
+
+        self.assertEqual(record["schema_version"], "runtime_action_result_v1")
+        self.assertEqual(record["runtime_id"], "contacts_fixture")
+        self.assertEqual(record["tool_name"], "record_contact_followup")
+        self.assertEqual(record["action_id"], "action_followup_alice")
+        self.assertEqual(record["status"], "succeeded")
+        self.assertEqual(record["error_class"], None)
+        self.assertEqual(record["side_effect_summary"], {"state_changed": True})
+        self.assertIn("observation_hash", record)
+        self.assertIn("state_change_hash", record)
+        validate_runtime_action_result_record(record)
+
+    def test_runtime_action_contract_validators_reject_malformed_records(self) -> None:
+        from synthesis.contracts import (
+            ContractValidationError,
+            validate_runtime_action_request_record,
+            validate_runtime_action_result_record,
+        )
+        from synthesis.runtime import RuntimeActionRequest, RuntimeActionResult
+
+        request = RuntimeActionRequest(
+            runtime_id="contacts_fixture",
+            tool_name="lookup_contact_email",
+            arguments={"name": "Alice Zhang"},
+        ).export()
+        result = RuntimeActionResult.failed(
+            runtime_id="contacts_fixture",
+            tool_name="missing_tool",
+            error_class="ToolMissingError",
+            message="Unknown tool",
+        ).export()
+
+        validate_runtime_action_request_record(request)
+        validate_runtime_action_result_record(result)
+
+        with self.assertRaises(ContractValidationError):
+            validate_runtime_action_request_record(
+                {**request, "schema_version": "runtime_action_request_v0"}
+            )
+        with self.assertRaises(ContractValidationError):
+            validate_runtime_action_request_record(
+                {**request, "arguments": {"raw_source": {"contacts": []}}}
+            )
+        with self.assertRaises(ContractValidationError):
+            validate_runtime_action_result_record({**result, "status": "deferred"})
+
+    def test_runtime_session_lists_tools_executes_actions_and_restores_checkpoint(self) -> None:
+        from synthesis.runtime import RuntimeActionRequest, RuntimeSession
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            environment = ContactEnvironment.create_fixture(root / "contacts")
+            session = RuntimeSession(
+                environment=environment,
+                registry=build_contact_tool_registry(environment),
+            )
+
+            self.assertEqual(
+                [tool["name"] for tool in session.list_tools()],
+                ["lookup_contact_email", "record_contact_followup"],
+            )
+            checkpoint = session.checkpoint()
+            result = session.execute_action(
+                RuntimeActionRequest(
+                    runtime_id="contacts_fixture",
+                    tool_name="record_contact_followup",
+                    arguments={"name": "Alice Zhang", "note": "Send follow-up email."},
+                )
+            )
+
+            self.assertEqual(result.status, "succeeded")
+            self.assertTrue(environment.has_followup("Alice Zhang", "Send follow-up email."))
+            session.restore_checkpoint(checkpoint)
+            self.assertFalse(environment.has_followup("Alice Zhang", "Send follow-up email."))
+
+    def test_runtime_session_rejects_wrong_runtime_and_unsupported_tool_without_corrupting_state(
+        self,
+    ) -> None:
+        from synthesis.runtime import RuntimeActionRequest, RuntimeSession
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            environment = ContactEnvironment.create_fixture(root / "contacts")
+            session = RuntimeSession(
+                environment=environment,
+                registry=build_contact_tool_registry(environment),
+            )
+            checkpoint = session.checkpoint()
+
+            wrong_runtime = session.execute_action(
+                RuntimeActionRequest(
+                    runtime_id="mobile_messages_fixture",
+                    tool_name="record_contact_followup",
+                    arguments={"name": "Alice Zhang", "note": "Send follow-up email."},
+                )
+            )
+            unsupported_tool = session.execute_action(
+                RuntimeActionRequest(
+                    runtime_id="contacts_fixture",
+                    tool_name="missing_tool",
+                    arguments={},
+                )
+            )
+
+            self.assertEqual(wrong_runtime.status, "failed")
+            self.assertEqual(wrong_runtime.error_class, "runtime_mismatch")
+            self.assertEqual(unsupported_tool.status, "failed")
+            self.assertEqual(unsupported_tool.error_class, "ToolMissingError")
+            session.restore_checkpoint(checkpoint)
+            self.assertFalse(environment.has_followup("Alice Zhang", "Send follow-up email."))
+
+    def test_domain_pipeline_bundle_exposes_runtime_session(self) -> None:
+        from synthesis.domain_pipeline import build_domain_pipeline_bundle
+        from synthesis.runtime import RuntimeActionRequest, RuntimeSession
+        from synthesis.seeds import foundation_seed
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            bundle = build_domain_pipeline_bundle(foundation_seed(), root / "base")
+
+            session = bundle.runtime_session()
+
+            self.assertIsInstance(session, RuntimeSession)
+            self.assertEqual(session.runtime_metadata().runtime_id, "contacts_fixture")
+            self.assertEqual(
+                [tool["name"] for tool in session.list_tools()],
+                ["lookup_contact_email", "record_contact_followup"],
+            )
+
+            rebuilt = session.rebuild(root / "rebuilt")
+            result = rebuilt.execute_action(
+                RuntimeActionRequest(
+                    runtime_id="contacts_fixture",
+                    tool_name="record_contact_followup",
+                    arguments={"name": "Alice Zhang", "note": "Send follow-up email."},
+                )
+            )
+
+            self.assertEqual(result.status, "succeeded")
+            self.assertFalse(
+                bundle.environment.has_followup("Alice Zhang", "Send follow-up email.")
+            )
 
 
 if __name__ == "__main__":

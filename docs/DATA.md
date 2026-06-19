@@ -53,6 +53,19 @@
   metadata. Runtime capability lookups use the sanitized status vocabulary
   `supported`, `unsupported`, `insufficient_evidence`, and `malformed`; consumer
   reports map those statuses onto their existing report checks.
+- **Runtime Action Request:** internal `runtime_action_request_v1` envelope for
+  executing one tool action against a runtime session. It contains runtime id,
+  tool name, sanitized arguments, deterministic argument hash, and optional
+  action id. It excludes raw source payloads, prompts, credentials, environment
+  variables, profile paths, and host paths.
+- **Runtime Action Result:** internal `runtime_action_result_v1` envelope for
+  the outcome of one runtime action. It records runtime id, tool name, status,
+  sanitized observation, observation hash, state-change hash, error class, side
+  effect summary, and optional action id.
+- **Runtime Session:** in-process runtime-facing object that wraps a domain
+  environment and tool registry with list-tools, execute-action,
+  checkpoint/restore, and rebuild semantics. It is internal infrastructure, not
+  an external MCP server or package boundary.
 - **Tool:** typed callable action exposed to the Agent.
 - **Mobile Tool:** domain-owned callable in the mobile fixture. Current tools
   are `search_phone_messages`, `create_phone_reminder`, and
@@ -107,6 +120,10 @@
   coverage, usable/excluded/insufficient-evidence counts, sanitized per-label
   summaries, and a local decision status without exposing raw trajectory,
   prompt, source, credential, or host-path content.
+- **Diagnostic Rollout:** repo-local scripted-policy execution through
+  `RuntimeSession`. It emits sanitized `episode_log_v1` records for diagnostics,
+  replay, and reward-label compatibility. It is not RL training, online policy
+  optimization, release admission, or profile promotion.
 - **Verifier:** independent checks that decide whether a trajectory satisfies the task.
 - **Refinement Attempt:** bounded critic diagnosis plus one revised candidate or
   solution policy used to rerun a failed candidate.
@@ -468,6 +485,12 @@ unsupported component names, unsupported preference-group fields, raw task
 instructions, expected answers, expected state, tool arguments, observations,
 final responses, source/provider payloads, prompts, credentials, environment
 variables, and host paths.
+
+Runtime action validators reject unsupported schema versions, malformed status
+values, bad content hashes, raw secret material, unsupported fields, and missing
+required runtime/tool/status/hash fields. Action requests and results are
+internal records; persisted dataset samples still use the public trajectory
+shape unless an explicit diagnostic report writes episode evidence.
 
 `mobile_messages_environment_input_v1` is the typed mobile source environment
 input. It contains non-empty `threads` and `messages`, optional `reminders` and

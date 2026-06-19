@@ -33,6 +33,10 @@ Environment implementations also satisfy the internal runtime boundary. Contacts
 and mobile fixtures expose `runtime_metadata_v1`, checkpoint/restore, and
 candidate-local rebuild semantics through the same protocol while keeping
 domain-owned SQLite state and tool behavior inside their domain modules.
+Runtime sessions wrap those environments with tool registries so rollout-facing
+consumers can list tools, execute `runtime_action_request_v1` envelopes, receive
+`runtime_action_result_v1` records, and checkpoint/restore without learning
+contacts or mobile business rules.
 
 ### Tool Registry
 
@@ -112,6 +116,16 @@ consumes `synthesis.runtime`, `synthesis.episodes`, `synthesis.episode_quality`,
 models, collect RL rollouts, change release admission, promote profiles, call
 external MCP environment servers, or own AWM runtime package extraction.
 
+### Diagnostic Rollouts
+
+Owns the repo-local diagnostic rollout collector. It drives contacts and mobile
+scripted policies through `RuntimeSession` action envelopes, enforces a bounded
+max-step limit, exports sanitized `episode_log_v1` records, and proves those
+episodes can be consumed by replay and reward-label consumers. It is not policy
+optimization, reward-model training, distributed rollout collection, external
+MCP execution, dataset release admission, profile promotion, or default CLI
+output.
+
 ### Dataset Assembly
 
 Owns canonical output format, split assignment, versioning, deduplication, manifest generation, and export adapters for training.
@@ -153,6 +167,10 @@ Start local and deterministic:
   owning contacts/mobile runtime allowlists. The runtime boundary also owns the
   sanitized capability-status vocabulary: `supported`, `unsupported`,
   `insufficient_evidence`, and `malformed`.
+- Runtime sessions and action envelopes live under `synthesis.runtime` as the
+  rollout-facing execution boundary. They standardize list-tools,
+  execute-action, checkpoint/restore, and rebuild behavior while leaving domain
+  state and tool semantics in domain packs.
 - Episode-quality reporting is a repo-local, synchronous runtime evidence
   consumer. It reads known-runtime and state-changing-tool facts from runtime
   descriptors, proving the episode boundary can serve another data-quality
@@ -166,6 +184,10 @@ Start local and deterministic:
   preference-ready deterministic labels while keeping reward training, Agentic
   RL rollout collection, release admission changes, and package extraction
   deferred.
+- Diagnostic rollout collection is repo-local and synchronous. It executes
+  scripted policies through runtime sessions, emits sanitized `episode_log_v1`
+  evidence, and keeps RL training, online policy optimization, distributed
+  workers, default CLI output, and package extraction deferred.
 - Domain packs remain responsible for domain state, domain tools, scripted
   policies, verifiers, source import semantics, and rebuild seeds. Consumer
   modules may read descriptor capability facts, but they should not learn

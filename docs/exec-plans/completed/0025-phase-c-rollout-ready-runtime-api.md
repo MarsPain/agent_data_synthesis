@@ -6,9 +6,26 @@
 
 ## Status
 
-Deferred. [0025 Phase B](../completed/0025-phase-b-consumer-inversion.md) is
-complete; activate Phase C only when rollout-ready runtime API work is
-explicitly selected.
+Completed on 2026-06-19. [0025 Phase B](../completed/0025-phase-b-consumer-inversion.md)
+completed first, consumers are capability-driven, and this phase added the
+rollout-ready runtime API without changing default CLI behavior or adding RL
+training.
+
+Completion evidence:
+
+- `synthesis.runtime` owns sanitized `runtime_action_request_v1` and
+  `runtime_action_result_v1` envelopes plus `RuntimeSession` list-tools,
+  execute-action, checkpoint/restore, and rebuild behavior.
+- `synthesis.domain_pipeline.DomainPipelineBundle` exposes runtime sessions for
+  contacts and mobile bundles.
+- `synthesis.rollouts` collects local diagnostic rollout episodes by executing
+  scripted policies through runtime sessions.
+- Contacts and mobile rollout episodes validate as `episode_log_v1` and can be
+  consumed by replay and reward-label consumers.
+- Validation passed:
+  `uv run python scripts/validate_docs.py`,
+  `uv run python -m unittest tests.test_runtime_rollouts tests.test_runtime_contract tests.test_episode_replay tests.test_reward_labels`,
+  and `uv run python -m unittest`.
 
 ## Goal
 
@@ -83,52 +100,52 @@ with those tools.
 
 ### Task 1: Action Request and Result Contracts
 
-- [ ] Add failing tests for `runtime_action_request_v1` with tool name,
+- [x] Add failing tests for `runtime_action_request_v1` with tool name,
   sanitized arguments, runtime id, and optional action id.
-- [ ] Add failing tests for `runtime_action_result_v1` with status,
+- [x] Add failing tests for `runtime_action_result_v1` with status,
   observation hash, state-change hash, error class, and side-effect summary.
-- [ ] Implement contracts without raw prompts, credentials, host paths, or raw
+- [x] Implement contracts without raw prompts, credentials, host paths, or raw
   source payloads.
 
 ### Task 2: Runtime Session Protocol
 
-- [ ] Add a protocol test that requires reset/rebuild, checkpoint/restore,
+- [x] Add a protocol test that requires reset/rebuild, checkpoint/restore,
   list-tools, and execute-action behavior.
-- [ ] Implement the session protocol in `synthesis.runtime`.
-- [ ] Adapt contacts and mobile domain bundles to expose runtime sessions.
+- [x] Implement the session protocol in `synthesis.runtime`.
+- [x] Adapt contacts and mobile domain bundles to expose runtime sessions.
 
 ### Task 3: Existing Execution Compatibility
 
-- [ ] Add tests proving current scripted policy execution can be represented as
+- [x] Add tests proving current scripted policy execution can be represented as
   runtime action requests and results.
-- [ ] Share serialization logic between existing trajectory events and runtime
+- [x] Share serialization logic between existing trajectory events and runtime
   action results where it reduces duplication.
-- [ ] Preserve public sample trajectory shape.
+- [x] Preserve public sample trajectory shape.
 
 ### Task 4: Diagnostic Rollout Collector
 
-- [ ] Add a deterministic rollout collector that accepts a runtime descriptor,
-  scripted policy, and max step count.
-- [ ] Export sanitized `episode_log_v1` records from rollout execution.
-- [ ] Add contacts/mobile tests proving generated rollout episodes can be
+- [x] Add a deterministic rollout collector that accepts a runtime-session
+  bundle, scripted policy, and max step count.
+- [x] Export sanitized `episode_log_v1` records from rollout execution.
+- [x] Add contacts/mobile tests proving generated rollout episodes can be
   consumed by replay and reward labels.
 
 ### Task 5: Safety and Limits
 
-- [ ] Add max-step enforcement and unsupported-tool rejection.
-- [ ] Add checkpoint/restore tests proving failed rollout steps do not corrupt
+- [x] Add max-step enforcement and unsupported-tool rejection.
+- [x] Add checkpoint/restore tests proving failed rollout steps do not corrupt
   reusable runtime state.
-- [ ] Ensure raw arguments and observations are redacted or hashed according to
+- [x] Ensure raw arguments and observations are redacted or hashed according to
   existing episode rules.
 
 ### Task 6: Docs and Validation
 
-- [ ] Document that rollout collection is diagnostic infrastructure, not RL
+- [x] Document that rollout collection is diagnostic infrastructure, not RL
   training.
-- [ ] Update 0025 overview with Phase C completion evidence.
-- [ ] Run `uv run python scripts/validate_docs.py`.
-- [ ] Run `uv run python -m unittest tests.test_runtime_rollouts tests.test_runtime_contract tests.test_episode_replay tests.test_reward_labels`.
-- [ ] Run `uv run python -m unittest`.
+- [x] Update 0025 overview with Phase C completion evidence.
+- [x] Run `uv run python scripts/validate_docs.py`.
+- [x] Run `uv run python -m unittest tests.test_runtime_rollouts tests.test_runtime_contract tests.test_episode_replay tests.test_reward_labels`.
+- [x] Run `uv run python -m unittest`.
 
 ## Acceptance Criteria
 

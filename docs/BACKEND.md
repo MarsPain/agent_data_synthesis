@@ -26,12 +26,18 @@ The first backend should be a local Python pipeline with explicit modules and du
   admitted source bytes into `MobileMessagesEnvironmentInput`.
 - `synthesis.runtime`: internal environment runtime protocol, sanitized
   `runtime_metadata_v1` construction, immutable runtime capability descriptors,
-  deterministic runtime registry lookup, and shared sanitized capability-status
-  vocabulary for lifecycle and capability evidence shared by contacts and
-  mobile domain environments.
+  deterministic runtime registry lookup, runtime action request/result
+  envelopes, runtime sessions over environment/tool-registry pairs, and shared
+  sanitized capability-status vocabulary for lifecycle and capability evidence
+  shared by contacts and mobile domain environments.
 - `synthesis.episodes`: internal `episode_log_v1` construction, deterministic
   transition hashing, redaction, and diagnostic episode summaries over existing
   trajectories.
+- `synthesis.rollouts`: diagnostic local rollout collection over runtime
+  sessions. It executes scripted policies through action envelopes, enforces
+  max-step limits, exports sanitized `episode_log_v1` records, and does not
+  implement RL algorithms, reward-model training, distributed workers, external
+  MCP execution, or default CLI output.
 - `synthesis.episode_quality`: opt-in `episodes.jsonl` persistence and
   `episode_quality_report_v1` construction over sanitized episode logs. It
   validates runtime/episode evidence, reads known-runtime and state-changing
@@ -368,3 +374,12 @@ reward artifacts unless quality/replay reports were explicitly requested. It
 creates local scalar and preference-ready evidence, not reward-model training,
 Agentic RL rollout collection, release admission changes, profile promotion, or
 runtime package extraction.
+
+Plan 0025 Phase C adds the first rollout-facing runtime API without activating
+RL. Runtime sessions wrap contacts/mobile environments and registries with
+list-tools, checkpoint/restore, rebuild, and execute-action semantics.
+Diagnostic rollout collection remains synchronous and local: it executes
+scripted policies through action envelopes and emits sanitized `episode_log_v1`
+records that replay and reward-label consumers can read. It does not change
+default `main.py` output, train policies, create distributed workers, connect
+external MCP servers, or extract a runtime package.

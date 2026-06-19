@@ -6,8 +6,8 @@ Planned on 2026-06-09. This is an umbrella phase index and decision record, not
 a directly executable implementation plan. The executable work is split into
 Phase A-F documents.
 
-Phase A and Phase B completed on 2026-06-19. Phases C-F remain deferred behind
-explicit prerequisites.
+Phase A, Phase B, and Phase C completed on 2026-06-19. Phases D-F remain
+deferred behind explicit prerequisites.
 
 Do not move Phase F to active unless Phase E produces an explicit
 `ready_for_extraction_plan` decision.
@@ -63,9 +63,10 @@ packs, not the package boundary.
   - Make episode quality, replay, and reward labels consume `episode_log_v1`
     plus runtime capabilities rather than domain branches.
   - Completed on 2026-06-19.
-- [0025 Phase C: Rollout-Ready Runtime API](0025-phase-c-rollout-ready-runtime-api.md)
+- [0025 Phase C: Rollout-Ready Runtime API](../completed/0025-phase-c-rollout-ready-runtime-api.md)
   - Add reset/checkpoint/list-tools/execute-action/episode-export semantics
     needed by future rollout collectors, without RL training.
+  - Completed on 2026-06-19.
 - [0025 Phase D: Adapter Surface Generalization](0025-phase-d-adapter-surface-generalization.md)
   - Generalize the local in-process adapter surface from contacts-specific
     assumptions to runtime descriptors and action envelopes.

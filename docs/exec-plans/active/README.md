@@ -9,6 +9,8 @@ There is no active implementation plan at this point.
 
 ## Completed
 
+- [0025-phase-c-rollout-ready-runtime-api](../completed/0025-phase-c-rollout-ready-runtime-api.md):
+  completed on 2026-06-19.
 - [0025-phase-b-consumer-inversion](../completed/0025-phase-b-consumer-inversion.md):
   completed on 2026-06-19.
 - [0025-phase-a-internal-runtime-kernel-hardening](../completed/0025-phase-a-internal-runtime-kernel-hardening.md):

@@ -7,7 +7,7 @@
 ## Status
 
 Deferred. Activate only after
-[0025 Phase C](0025-phase-c-rollout-ready-runtime-api.md) has completed and
+[0025 Phase C](../completed/0025-phase-c-rollout-ready-runtime-api.md) has completed and
 runtime sessions can execute action envelopes for contacts and mobile.
 
 ## Goal

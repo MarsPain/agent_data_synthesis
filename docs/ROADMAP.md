@@ -161,11 +161,12 @@
   episode, quality, replay, and task-contract evidence without training a
   reward model or changing release admission.
 - Prepare the environment layer for a future shared AWM runtime without
-  prematurely splitting it into a separate project. Deferred in plan 0025 after
+  prematurely splitting it into a separate project. Plan 0025 Phase C adds
+  runtime sessions, action envelopes, and diagnostic rollout collection after
   plans 0031, 0032, 0033, and 0034 supplied repo-local data-quality,
-  executable replay, task/policy/verifier, and reward-label evidence;
-  extraction still needs stronger reward/RL rollout, external MCP, adapter, or cross-consumer
-  package-boundary pressure.
+  executable replay, task/policy/verifier, and reward-label evidence. Runtime
+  package extraction still needs adapter generalization and an explicit
+  extraction-readiness review.
 - Add async orchestration with durable queues.
 - Evaluate Ray-style distributed workers if throughput requires it.
 - Add monitoring dashboards and cost controls.

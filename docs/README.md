@@ -35,12 +35,12 @@
 - [exec-plans/active/README.md](exec-plans/active/README.md): active plan bucket.
 - [exec-plans/completed/README.md](exec-plans/completed/README.md): completed plan bucket.
 - [exec-plans/completed/0025-phase-b-consumer-inversion.md](exec-plans/completed/0025-phase-b-consumer-inversion.md): completed Phase B inversion of replay, quality, and reward consumers onto runtime capabilities.
+- [exec-plans/completed/0025-phase-c-rollout-ready-runtime-api.md](exec-plans/completed/0025-phase-c-rollout-ready-runtime-api.md): completed Phase C runtime session, action-envelope, and diagnostic rollout infrastructure.
 - [exec-plans/completed/0036-domain-aware-held-out-evaluation-and-release-semantics.md](exec-plans/completed/0036-domain-aware-held-out-evaluation-and-release-semantics.md): completed plan for domain-aware held-out evaluation and release semantics.
 - [exec-plans/deferred/README.md](exec-plans/deferred/README.md): deferred plan bucket.
 - [exec-plans/deferred/0014-async-local-orchestration-with-durable-queues.md](exec-plans/deferred/0014-async-local-orchestration-with-durable-queues.md): deferred async local orchestration with durable queues plan.
 - [exec-plans/deferred/0025-awm-runtime-phase-index.md](exec-plans/deferred/0025-awm-runtime-phase-index.md): umbrella phase index and decision record for the staged AWM runtime-kernel work.
 - [exec-plans/deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](exec-plans/deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md): compatibility redirect for historical 0025 links.
-- [exec-plans/deferred/0025-phase-c-rollout-ready-runtime-api.md](exec-plans/deferred/0025-phase-c-rollout-ready-runtime-api.md): Phase C rollout-ready runtime session and action-envelope API.
 - [exec-plans/deferred/0025-phase-d-adapter-surface-generalization.md](exec-plans/deferred/0025-phase-d-adapter-surface-generalization.md): Phase D local adapter surface generalization over runtime descriptors.
 - [exec-plans/deferred/0025-phase-e-extraction-readiness-review.md](exec-plans/deferred/0025-phase-e-extraction-readiness-review.md): Phase E extraction readiness review and decision gate.
 - [exec-plans/deferred/0025-phase-f-awm-runtime-package-extraction.md](exec-plans/deferred/0025-phase-f-awm-runtime-package-extraction.md): Phase F package extraction plan gated by Phase E.

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Protocol, runtime_checkable
 
-from synthesis.contracts import ContractValidationError
+from synthesis.contracts import (
+    ContractValidationError,
+    validate_runtime_action_request_record,
+    validate_runtime_action_result_record,
+)
 from synthesis.seeds import DomainSeed, foundation_seed
 
 
@@ -130,6 +134,203 @@ class RuntimeMetadata:
         }
         validate_runtime_metadata_safety(record)
         return record
+
+
+@dataclass(frozen=True)
+class RuntimeActionRequest:
+    runtime_id: str
+    tool_name: str
+    arguments: Mapping[str, object]
+    action_id: str | None = None
+
+    def __post_init__(self) -> None:
+        _require_descriptor_string(self.runtime_id, "runtime_action.runtime_id")
+        _require_descriptor_string(self.tool_name, "runtime_action.tool_name")
+        if not isinstance(self.arguments, Mapping):
+            raise ContractValidationError("runtime action arguments must be an object")
+        if self.action_id is not None:
+            _require_descriptor_string(self.action_id, "runtime_action.action_id")
+        object.__setattr__(
+            self,
+            "arguments",
+            MappingProxyType(dict(self.arguments)),
+        )
+
+    def export(self) -> dict[str, object]:
+        arguments = _sanitize_runtime_action_value(dict(self.arguments))
+        assert isinstance(arguments, dict)
+        record: dict[str, object] = {
+            "schema_version": "runtime_action_request_v1",
+            "runtime_id": self.runtime_id,
+            "tool_name": self.tool_name,
+            "arguments": arguments,
+            "arguments_hash": _runtime_content_hash(arguments),
+        }
+        if self.action_id is not None:
+            record["action_id"] = self.action_id
+        validate_runtime_action_request_record(record)
+        return record
+
+
+@dataclass(frozen=True)
+class RuntimeActionResult:
+    runtime_id: str
+    tool_name: str
+    status: str
+    observation: Mapping[str, object]
+    state_change: Mapping[str, object] | None = None
+    error_class: str | None = None
+    action_id: str | None = None
+
+    def __post_init__(self) -> None:
+        _require_descriptor_string(self.runtime_id, "runtime_action_result.runtime_id")
+        _require_descriptor_string(self.tool_name, "runtime_action_result.tool_name")
+        if self.status not in {"succeeded", "failed"}:
+            raise ContractValidationError("runtime action result status is unsupported")
+        if not isinstance(self.observation, Mapping):
+            raise ContractValidationError("runtime action result observation must be an object")
+        if self.state_change is not None and not isinstance(self.state_change, Mapping):
+            raise ContractValidationError("runtime action result state_change must be an object")
+        if self.status == "failed" and not self.error_class:
+            raise ContractValidationError("runtime action failure requires error_class")
+        if self.action_id is not None:
+            _require_descriptor_string(self.action_id, "runtime_action_result.action_id")
+        object.__setattr__(self, "observation", MappingProxyType(dict(self.observation)))
+        if self.state_change is not None:
+            object.__setattr__(
+                self,
+                "state_change",
+                MappingProxyType(dict(self.state_change)),
+            )
+
+    @classmethod
+    def succeeded(
+        cls,
+        *,
+        runtime_id: str,
+        tool_name: str,
+        observation: Mapping[str, object],
+        action_id: str | None = None,
+    ) -> "RuntimeActionResult":
+        state_change = observation.get("state_change")
+        return cls(
+            runtime_id=runtime_id,
+            tool_name=tool_name,
+            status="succeeded",
+            observation=observation,
+            state_change=state_change if isinstance(state_change, Mapping) else None,
+            action_id=action_id,
+        )
+
+    @classmethod
+    def failed(
+        cls,
+        *,
+        runtime_id: str,
+        tool_name: str,
+        error_class: str,
+        message: str,
+        action_id: str | None = None,
+    ) -> "RuntimeActionResult":
+        return cls(
+            runtime_id=runtime_id,
+            tool_name=tool_name,
+            status="failed",
+            observation={"error_class": error_class, "message": message},
+            error_class=error_class,
+            action_id=action_id,
+        )
+
+    def export(self) -> dict[str, object]:
+        observation = _sanitize_runtime_action_value(dict(self.observation))
+        assert isinstance(observation, dict)
+        state_change = (
+            _sanitize_runtime_action_value(dict(self.state_change))
+            if self.state_change is not None
+            else None
+        )
+        assert state_change is None or isinstance(state_change, dict)
+        record: dict[str, object] = {
+            "schema_version": "runtime_action_result_v1",
+            "runtime_id": self.runtime_id,
+            "tool_name": self.tool_name,
+            "status": self.status,
+            "observation": observation,
+            "observation_hash": _runtime_content_hash(observation),
+            "state_change_hash": _runtime_content_hash(state_change or {}),
+            "error_class": self.error_class,
+            "side_effect_summary": {"state_changed": state_change is not None},
+        }
+        if state_change is not None:
+            record["state_change"] = state_change
+        if self.action_id is not None:
+            record["action_id"] = self.action_id
+        validate_runtime_action_result_record(record)
+        return record
+
+
+class RuntimeSession:
+    def __init__(
+        self,
+        *,
+        environment: EnvironmentRuntime,
+        registry: Any,
+        registry_builder: Callable[[EnvironmentRuntime], Any] | None = None,
+    ) -> None:
+        self._environment = environment
+        self._registry = registry
+        self._registry_builder = registry_builder
+
+    def runtime_metadata(self) -> RuntimeMetadata:
+        return self._environment.runtime_metadata()
+
+    def checkpoint(self) -> object:
+        return self._environment.checkpoint()
+
+    def restore_checkpoint(self, checkpoint: object) -> None:
+        self._environment.restore_checkpoint(checkpoint)
+
+    def rebuild(self, output_dir: Path) -> "RuntimeSession":
+        if self._registry_builder is None:
+            raise ContractValidationError("runtime session rebuild requires a registry builder")
+        environment = self._environment.rebuild(output_dir)
+        return RuntimeSession(
+            environment=environment,
+            registry=self._registry_builder(environment),
+            registry_builder=self._registry_builder,
+        )
+
+    def list_tools(self) -> list[dict[str, object]]:
+        return self._registry.export()
+
+    def execute_action(self, request: RuntimeActionRequest) -> RuntimeActionResult:
+        runtime_id = self.runtime_metadata().runtime_id
+        if request.runtime_id != runtime_id:
+            return RuntimeActionResult.failed(
+                runtime_id=runtime_id,
+                tool_name=request.tool_name,
+                error_class="runtime_mismatch",
+                message=f"request runtime {request.runtime_id} does not match session {runtime_id}",
+                action_id=request.action_id,
+            )
+        checkpoint = self.checkpoint()
+        try:
+            observation = self._registry.execute(request.tool_name, dict(request.arguments))
+        except Exception as exc:
+            self.restore_checkpoint(checkpoint)
+            return RuntimeActionResult.failed(
+                runtime_id=runtime_id,
+                tool_name=request.tool_name,
+                error_class=type(exc).__name__,
+                message=str(exc),
+                action_id=request.action_id,
+            )
+        return RuntimeActionResult.succeeded(
+            runtime_id=runtime_id,
+            tool_name=request.tool_name,
+            observation=observation,
+            action_id=request.action_id,
+        )
 
 
 @runtime_checkable
@@ -352,6 +553,74 @@ def _validate_safety_value(value: object, *, path: str) -> None:
             or "sk-test" in lowered
         ):
             raise ContractValidationError(f"{path} contains unsafe runtime metadata")
+
+
+def _sanitize_runtime_action_value(value: object) -> object:
+    if isinstance(value, Mapping):
+        sanitized: dict[str, object] = {}
+        for raw_key, nested in sorted(value.items(), key=lambda item: str(item[0])):
+            key = str(raw_key)
+            if _is_forbidden_runtime_action_key(key):
+                continue
+            nested_value = _sanitize_runtime_action_value(nested)
+            if nested_value is _REDACTED:
+                continue
+            sanitized[key] = nested_value
+        return sanitized
+    if isinstance(value, Sequence) and not isinstance(value, str):
+        return [
+            nested_value
+            for item in value
+            if (nested_value := _sanitize_runtime_action_value(item)) is not _REDACTED
+        ]
+    if isinstance(value, str):
+        return _REDACTED if _is_forbidden_runtime_action_string(value) else value
+    return value
+
+
+def _runtime_content_hash(value: object) -> str:
+    import hashlib
+    import json
+
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _is_forbidden_runtime_action_key(key: str) -> bool:
+    lowered = key.lower()
+    return any(fragment in lowered for fragment in _FORBIDDEN_KEY_FRAGMENTS) or any(
+        fragment in lowered
+        for fragment in (
+            "path",
+            "profile",
+            "prompt",
+            "raw_source",
+        )
+    )
+
+
+def _is_forbidden_runtime_action_string(value: str) -> bool:
+    lowered = value.lower()
+    return (
+        lowered.startswith("/")
+        or lowered.startswith("~")
+        or ":\\" in lowered
+        or "/users/" in lowered
+        or "/private/" in lowered
+        or "/tmp/" in lowered
+        or "authorization:" in lowered
+        or "secret-test-key" in lowered
+        or "sk-live" in lowered
+        or "sk-test" in lowered
+    )
+
+
+_REDACTED = object()
 
 
 DEFAULT_RUNTIME_REGISTRY = RuntimeRegistry(

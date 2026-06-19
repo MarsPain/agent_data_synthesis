@@ -16,7 +16,7 @@ from synthesis.mobile_tasks import (
     scripted_mobile_solution_policy,
 )
 from synthesis.mobile_tools import build_mobile_tool_registry
-from synthesis.runtime import EnvironmentRuntime
+from synthesis.runtime import EnvironmentRuntime, RuntimeSession
 from synthesis.seeds import DomainSeed
 from synthesis.tasks import CandidateTask, generate_foundation_candidates
 from synthesis.tools import ToolRegistry, build_contact_tool_registry
@@ -38,6 +38,13 @@ class DomainPipelineBundle:
     policy_generator: PolicyGenerator
     registry_builder: RegistryBuilder
     adapter_shim: LocalContactsAdapterShim | None = None
+
+    def runtime_session(self) -> RuntimeSession:
+        return RuntimeSession(
+            environment=self.environment,
+            registry=self.registry,
+            registry_builder=self.registry_builder,
+        )
 
 
 def build_domain_pipeline_bundle(
