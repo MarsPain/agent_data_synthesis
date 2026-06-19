@@ -24,9 +24,10 @@ The first backend should be a local Python pipeline with explicit modules and du
   input records, reset/checkpoint operations, and state adapters.
 - `synthesis.mobile_sources`: mobile messages JSON importer that converts
   admitted source bytes into `MobileMessagesEnvironmentInput`.
-- `synthesis.runtime`: internal environment runtime protocol and sanitized
-  `runtime_metadata_v1` construction for lifecycle evidence shared by contacts
-  and mobile domain environments.
+- `synthesis.runtime`: internal environment runtime protocol, sanitized
+  `runtime_metadata_v1` construction, immutable runtime capability descriptors,
+  and deterministic runtime registry lookup for lifecycle and capability
+  evidence shared by contacts and mobile domain environments.
 - `synthesis.episodes`: internal `episode_log_v1` construction, deterministic
   transition hashing, redaction, and diagnostic episode summaries over existing
   trajectories.
@@ -36,13 +37,16 @@ The first backend should be a local Python pipeline with explicit modules and du
   state-change support, and writes compact summaries without raw tool payloads,
   prompts, credentials, or host paths.
 - `synthesis.episode_replay`: opt-in `episode_replay_report_v1` construction
-  over sanitized episode logs. It rebuilds fresh contacts/mobile fixture
-  runtimes, re-executes action transitions through `ToolRegistry.execute()`,
-  compares observation/state-change hashes, and writes compact summaries without
-  raw tool payloads, prompts, credentials, or host paths.
+  over sanitized episode logs. It reads replay support, state-changing tools,
+  and rebuild seed facts from the runtime registry, rebuilds fresh supported
+  fixture runtimes, re-executes action transitions through
+  `ToolRegistry.execute()`, compares observation/state-change hashes, and writes
+  compact summaries without raw tool payloads, prompts, credentials, or host
+  paths.
 - `synthesis.reward_labels`: opt-in `reward_labels.jsonl` and
   `reward_label_report_v1` construction over sanitized episode, quality, and
-  replay evidence. It produces deterministic scalar labels and
+  replay evidence. It reads reward-label and state-changing-tool support from
+  runtime descriptors, then produces deterministic scalar labels and
   preference-group metadata without training reward models, collecting RL
   rollouts, changing release admission, or extracting a runtime package.
 - `synthesis.tools`: tool definitions, schema generation, registry, dependency

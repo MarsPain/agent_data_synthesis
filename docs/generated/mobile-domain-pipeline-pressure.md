@@ -95,6 +95,28 @@ collection, external MCP environment servers, or
 the internal `CandidateTask` intent/policy/expected-state split that was later
 addressed by plan 0033.
 
+## Plan 0025 Phase A Runtime Registry Update
+
+Phase A hardens the repo-local runtime kernel without extracting a package:
+
+- `synthesis.runtime` now owns immutable runtime capability descriptors and a
+  deterministic registry for contacts and mobile messages.
+- Descriptors carry runtime identity, domain id, replay/reward eligibility,
+  checkpoint/rebuild support, local-adapter support, state-changing tools, task
+  taxonomy, replay rebuild seeds, and sanitized descriptor metadata.
+- Descriptor safety validation rejects dataset-release, profile-promotion,
+  provider prompt, credential, raw-source, environment-variable, and host-path
+  leakage.
+- `synthesis.episode_replay` reads replay support, state-changing tools, and
+  rebuild seeds from the registry instead of local contacts/mobile allowlists.
+- `synthesis.reward_labels` reads reward-label and state-changing-tool support
+  from runtime descriptors. Fake test-only descriptors prove capability
+  decisions no longer require contacts/mobile branches.
+
+This still leaves Phase B consumer inversion, runtime sessions, external MCP
+servers, Agentic RL rollout collection, and `awm_runtime` package extraction
+deferred.
+
 ## Plan 0032 Executable Replay Update
 
 Plan 0032 resolves the narrow executable replay pressure by adding a repo-local,

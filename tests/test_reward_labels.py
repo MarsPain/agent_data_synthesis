@@ -81,6 +81,115 @@ class RewardLabelsTest(unittest.TestCase):
         self.assertEqual(label["components"]["state_support"], 1.0)
         self.assertEqual(label["label_status"], "usable")
 
+    def test_reward_runtime_support_is_read_from_runtime_registry(self) -> None:
+        from synthesis.episode_quality import build_episode_quality_report
+        from synthesis.reward_labels import build_reward_labels
+        from synthesis.runtime import RuntimeRegistry
+
+        episodes = (_episode("candidate_contacts_alice"),)
+        labels = build_reward_labels(
+            episodes=episodes,
+            episode_quality_report=build_episode_quality_report(
+                dataset_version="dataset_reward_registry_override",
+                episodes=episodes,
+            ),
+            episode_replay_report=None,
+            runtime_registry=RuntimeRegistry(()),
+        )
+
+        label = labels[0]
+        self.assertEqual(label["runtime_id"], "contacts_fixture")
+        self.assertEqual(label["label_status"], "excluded")
+        self.assertIn("runtime_unsupported", label["reasons"])
+
+    def test_reward_state_changing_tools_are_descriptor_derived(self) -> None:
+        from synthesis.reward_labels import build_reward_labels
+        from synthesis.runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
+
+        episodes = (_episode("candidate_contacts_alice_followup"),)
+        registry = RuntimeRegistry(
+            (
+                RuntimeCapabilityDescriptor(
+                    runtime_id="contacts_fixture",
+                    runtime_version="contacts_fixture_v1",
+                    domain_id="contacts_fixture",
+                    supports_rebuild=False,
+                    supports_checkpoint_restore=False,
+                    supports_episode_replay=False,
+                    supports_reward_labels=True,
+                    supports_local_adapter=False,
+                    state_changing_tools=(),
+                    task_taxonomy=("contact_followup",),
+                ),
+            )
+        )
+
+        labels = build_reward_labels(
+            episodes=episodes,
+            episode_quality_report=None,
+            episode_replay_report=None,
+            runtime_registry=registry,
+        )
+
+        label = labels[0]
+        self.assertEqual(label["components"]["state_support"], 1.0)
+        self.assertNotIn("state_change_support_missing", label["reasons"])
+
+    def test_fake_runtime_reward_capability_status_is_descriptor_derived(self) -> None:
+        from synthesis.reward_labels import reward_label_runtime_capability_status
+        from synthesis.runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
+
+        registry = RuntimeRegistry(
+            (
+                RuntimeCapabilityDescriptor(
+                    runtime_id="fake_reward_only_runtime",
+                    runtime_version="runtime_fake_reward_v1",
+                    domain_id="fake_domain",
+                    supports_rebuild=False,
+                    supports_checkpoint_restore=False,
+                    supports_episode_replay=False,
+                    supports_reward_labels=True,
+                    supports_local_adapter=False,
+                    state_changing_tools=("fake_write",),
+                    task_taxonomy=("fake_lookup",),
+                ),
+                RuntimeCapabilityDescriptor(
+                    runtime_id="fake_no_reward_runtime",
+                    runtime_version="runtime_fake_none_v1",
+                    domain_id="fake_domain",
+                    supports_rebuild=False,
+                    supports_checkpoint_restore=False,
+                    supports_episode_replay=False,
+                    supports_reward_labels=False,
+                    supports_local_adapter=False,
+                    state_changing_tools=(),
+                    task_taxonomy=("fake_lookup",),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            reward_label_runtime_capability_status(
+                "fake_reward_only_runtime",
+                runtime_registry=registry,
+            ),
+            "supported",
+        )
+        self.assertEqual(
+            reward_label_runtime_capability_status(
+                "fake_no_reward_runtime",
+                runtime_registry=registry,
+            ),
+            "unsupported",
+        )
+        self.assertEqual(
+            reward_label_runtime_capability_status(
+                "missing_runtime",
+                runtime_registry=registry,
+            ),
+            "unsupported",
+        )
+
     def test_missing_replay_evidence_creates_watchable_usable_label(self) -> None:
         from synthesis.episode_quality import build_episode_quality_report
         from synthesis.reward_labels import build_reward_label_report, build_reward_labels

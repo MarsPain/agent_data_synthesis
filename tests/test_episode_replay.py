@@ -80,6 +80,83 @@ class EpisodeReplayTest(unittest.TestCase):
         self.assertEqual(summary["state_change_mismatch_count"], 0)
         self.assertEqual(report["decision"]["status"], "passed")
 
+    def test_replay_support_is_read_from_runtime_registry(self) -> None:
+        from synthesis.episode_replay import build_episode_replay_report
+        from synthesis.runtime import RuntimeRegistry
+
+        report = build_episode_replay_report(
+            dataset_version="dataset_contacts_replay_registry_override",
+            episodes=(_episode("candidate_contacts_alice"),),
+            runtime_registry=RuntimeRegistry(()),
+        )
+
+        summary = report["episode_summaries"][0]
+        self.assertEqual(summary["runtime_id"], "contacts_fixture")
+        self.assertEqual(summary["replayed_action_count"], 0)
+        self.assertEqual(summary["failed_checks"], ["runtime_supported"])
+        self.assertEqual(report["decision"]["status"], "failed")
+
+    def test_replay_threshold_defaults_are_descriptor_derived(self) -> None:
+        from synthesis.episode_replay import EpisodeReplayThresholds
+
+        thresholds = EpisodeReplayThresholds()
+
+        self.assertEqual(
+            thresholds.supported_runtimes,
+            frozenset({"contacts_fixture", "mobile_messages_fixture"}),
+        )
+        self.assertEqual(
+            thresholds.state_changing_tools,
+            frozenset(
+                {
+                    "record_contact_followup",
+                    "create_phone_reminder",
+                    "draft_message_reply",
+                }
+            ),
+        )
+
+    def test_fake_runtime_without_replay_support_reports_unsupported(self) -> None:
+        from synthesis.episode_replay import build_episode_replay_report
+        from synthesis.runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
+
+        episode = _episode("candidate_contacts_alice")
+        episode = {
+            **episode,
+            "runtime": {
+                **episode["runtime"],
+                "runtime_id": "fake_reward_only_runtime",
+                "runtime_version": "runtime_fake_v1",
+            },
+        }
+        registry = RuntimeRegistry(
+            (
+                RuntimeCapabilityDescriptor(
+                    runtime_id="fake_reward_only_runtime",
+                    runtime_version="runtime_fake_v1",
+                    domain_id="fake_domain",
+                    supports_rebuild=False,
+                    supports_checkpoint_restore=False,
+                    supports_episode_replay=False,
+                    supports_reward_labels=True,
+                    supports_local_adapter=False,
+                    state_changing_tools=("fake_write",),
+                    task_taxonomy=("fake_lookup",),
+                ),
+            )
+        )
+
+        report = build_episode_replay_report(
+            dataset_version="dataset_fake_runtime_replay",
+            episodes=(episode,),
+            runtime_registry=registry,
+        )
+
+        summary = report["episode_summaries"][0]
+        self.assertEqual(summary["runtime_id"], "fake_reward_only_runtime")
+        self.assertEqual(summary["failed_checks"], ["runtime_supported"])
+        self.assertEqual(report["decision"]["status"], "failed")
+
     def test_missing_episodes_returns_insufficient_evidence(self) -> None:
         from synthesis.episode_replay import build_episode_replay_report
 

@@ -3,9 +3,81 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Protocol, runtime_checkable
 
 from synthesis.contracts import ContractValidationError
+from synthesis.seeds import DomainSeed, foundation_seed
+
+
+@dataclass(frozen=True)
+class RuntimeCapabilityDescriptor:
+    runtime_id: str
+    runtime_version: str
+    domain_id: str
+    supports_rebuild: bool
+    supports_checkpoint_restore: bool
+    supports_episode_replay: bool
+    supports_reward_labels: bool
+    supports_local_adapter: bool
+    state_changing_tools: tuple[str, ...]
+    task_taxonomy: tuple[str, ...]
+    rebuild_seed: DomainSeed | None = None
+    descriptor_metadata: Mapping[str, object] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        _require_descriptor_string(self.runtime_id, "runtime_id")
+        _require_descriptor_string(self.runtime_version, "runtime_version")
+        _require_descriptor_string(self.domain_id, "domain_id")
+        _validate_string_tuple(self.state_changing_tools, "state_changing_tools")
+        _validate_string_tuple(self.task_taxonomy, "task_taxonomy")
+        if self.supports_episode_replay and not self.supports_rebuild:
+            raise ContractValidationError(
+                "runtime descriptor replay support requires rebuild support"
+            )
+        if self.supports_episode_replay and self.rebuild_seed is None:
+            raise ContractValidationError(
+                "runtime descriptor replay support requires a rebuild seed"
+            )
+        validate_runtime_descriptor_safety(self.descriptor_metadata)
+        object.__setattr__(self, "state_changing_tools", tuple(self.state_changing_tools))
+        object.__setattr__(self, "task_taxonomy", tuple(self.task_taxonomy))
+        object.__setattr__(
+            self,
+            "descriptor_metadata",
+            MappingProxyType(dict(self.descriptor_metadata)),
+        )
+
+
+class RuntimeRegistry:
+    def __init__(
+        self,
+        descriptors: Sequence[RuntimeCapabilityDescriptor],
+    ) -> None:
+        by_runtime_id: dict[str, RuntimeCapabilityDescriptor] = {}
+        for descriptor in descriptors:
+            if descriptor.runtime_id in by_runtime_id:
+                raise ContractValidationError(
+                    f"runtime descriptor is duplicated: {descriptor.runtime_id}"
+                )
+            by_runtime_id[descriptor.runtime_id] = descriptor
+        self._descriptors = MappingProxyType(by_runtime_id)
+
+    def registered_runtime_ids(self) -> tuple[str, ...]:
+        return tuple(sorted(self._descriptors))
+
+    def descriptor(self, runtime_id: str) -> RuntimeCapabilityDescriptor:
+        try:
+            return self._descriptors[runtime_id]
+        except KeyError:
+            raise KeyError(f"unknown runtime descriptor: {runtime_id}") from None
+
+    def register(self, descriptor: RuntimeCapabilityDescriptor) -> "RuntimeRegistry":
+        if descriptor.runtime_id in self._descriptors:
+            raise ContractValidationError(
+                f"runtime descriptor is duplicated: {descriptor.runtime_id}"
+            )
+        return RuntimeRegistry(tuple(self._descriptors.values()) + (descriptor,))
 
 
 @dataclass(frozen=True)
@@ -88,6 +160,31 @@ def validate_runtime_metadata_safety(record: Mapping[str, object]) -> None:
     _validate_safety_value(record, path="runtime_metadata")
 
 
+def validate_runtime_descriptor_safety(record: Mapping[str, object]) -> None:
+    _validate_safety_value(record, path="runtime_descriptor")
+
+
+def registered_runtime_ids(registry: RuntimeRegistry | None = None) -> tuple[str, ...]:
+    return _registry(registry).registered_runtime_ids()
+
+
+def runtime_descriptor(
+    runtime_id: str,
+    registry: RuntimeRegistry | None = None,
+) -> RuntimeCapabilityDescriptor:
+    return _registry(registry).descriptor(runtime_id)
+
+
+def runtime_registry_with(
+    *descriptors: RuntimeCapabilityDescriptor,
+    base: RuntimeRegistry | None = None,
+) -> RuntimeRegistry:
+    registry = _registry(base)
+    for descriptor in descriptors:
+        registry = registry.register(descriptor)
+    return registry
+
+
 _FORBIDDEN_KEY_FRAGMENTS = {
     "api_key",
     "authorization",
@@ -108,6 +205,75 @@ _FORBIDDEN_KEY_FRAGMENTS = {
     "raw_source",
     "secret",
 }
+
+
+def _registry(registry: RuntimeRegistry | None) -> RuntimeRegistry:
+    return DEFAULT_RUNTIME_REGISTRY if registry is None else registry
+
+
+def _require_descriptor_string(value: str, field_name: str) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise ContractValidationError(f"runtime descriptor {field_name} must be non-empty")
+
+
+def _validate_string_tuple(values: tuple[str, ...], field_name: str) -> None:
+    if not isinstance(values, tuple):
+        raise ContractValidationError(f"runtime descriptor {field_name} must be a tuple")
+    for index, value in enumerate(values):
+        if not isinstance(value, str) or not value.strip():
+            raise ContractValidationError(
+                f"runtime descriptor {field_name}.{index} must be non-empty"
+            )
+
+
+def _mobile_messages_seed() -> DomainSeed:
+    return DomainSeed(
+        seed_id="seed_mobile_messages_v1",
+        domain="mobile_messages_fixture",
+        description="Synthetic phone messages, reminders, and draft replies.",
+        task_taxonomy=(
+            "mobile_message_lookup",
+            "mobile_message_to_reminder",
+            "mobile_draft_reply",
+            "mobile_branch_fallback",
+        ),
+    )
+
+
+def _contacts_descriptor() -> RuntimeCapabilityDescriptor:
+    seed = foundation_seed()
+    return RuntimeCapabilityDescriptor(
+        runtime_id="contacts_fixture",
+        runtime_version="contacts_fixture_v1",
+        domain_id="contacts_fixture",
+        supports_rebuild=True,
+        supports_checkpoint_restore=True,
+        supports_episode_replay=True,
+        supports_reward_labels=True,
+        supports_local_adapter=True,
+        state_changing_tools=("record_contact_followup",),
+        task_taxonomy=seed.task_taxonomy,
+        rebuild_seed=seed,
+        descriptor_metadata={"adapter_support": "local_contacts_adapter"},
+    )
+
+
+def _mobile_descriptor() -> RuntimeCapabilityDescriptor:
+    seed = _mobile_messages_seed()
+    return RuntimeCapabilityDescriptor(
+        runtime_id="mobile_messages_fixture",
+        runtime_version="mobile_messages_fixture_v1",
+        domain_id="mobile_messages_fixture",
+        supports_rebuild=True,
+        supports_checkpoint_restore=True,
+        supports_episode_replay=True,
+        supports_reward_labels=True,
+        supports_local_adapter=False,
+        state_changing_tools=("create_phone_reminder", "draft_message_reply"),
+        task_taxonomy=seed.task_taxonomy,
+        rebuild_seed=seed,
+        descriptor_metadata={"adapter_support": "none"},
+    )
 
 
 def _runtime_reset_recipe(reset_recipe: object) -> str:
@@ -149,3 +315,11 @@ def _validate_safety_value(value: object, *, path: str) -> None:
             or "sk-test" in lowered
         ):
             raise ContractValidationError(f"{path} contains unsafe runtime metadata")
+
+
+DEFAULT_RUNTIME_REGISTRY = RuntimeRegistry(
+    (
+        _contacts_descriptor(),
+        _mobile_descriptor(),
+    )
+)

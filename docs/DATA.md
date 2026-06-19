@@ -45,6 +45,12 @@
   summaries. It deliberately excludes dataset version, profile decisions,
   release status, provider prompts, raw payloads, credentials, environment
   variables, and host paths.
+- **Runtime Capability Descriptor:** internal registry record for runtime
+  identity, domain id, replay/reward eligibility, checkpoint/rebuild support,
+  local-adapter support, state-changing tools, task taxonomy, optional replay
+  rebuild seed, and sanitized descriptor metadata. It is not dataset release,
+  profile promotion, provider prompt, credential, raw source, or host-path
+  metadata.
 - **Tool:** typed callable action exposed to the Agent.
 - **Mobile Tool:** domain-owned callable in the mobile fixture. Current tools
   are `search_phone_messages`, `create_phone_reminder`, and
@@ -82,16 +88,18 @@
   without reading or writing raw prompts, raw payloads, tool arguments,
   observations, final-response text, credentials, or host paths.
 - **Episode Replay Report:** opt-in execution-consistency consumer report over
-  `episode_log_v1`. It rebuilds fresh contacts/mobile fixture runtimes,
-  re-executes action transitions through the runtime tool registry, compares
-  replayed observation/state-change hashes, and writes sanitized summaries
-  without raw prompts, payloads, tool arguments, observations, final-response
-  text, credentials, or host paths.
+  `episode_log_v1`. It uses the runtime registry to determine replay support,
+  state-changing tools, and rebuild seeds, rebuilds fresh supported fixture
+  runtimes, re-executes action transitions through the runtime tool registry,
+  compares replayed observation/state-change hashes, and writes sanitized
+  summaries without raw prompts, payloads, tool arguments, observations,
+  final-response text, credentials, or host paths.
 - **Reward Label:** opt-in deterministic label record over `episode_log_v1`.
   It combines episode outcome, contract validity, execution evidence,
-  state-change support, and replay consistency into a bounded scalar reward and
-  preference-group metadata. It is evidence for future reward/RL workflows, not
-  a trained reward model, release gate, or downstream quality claim.
+  descriptor-derived state-change support, and replay consistency into a bounded
+  scalar reward and preference-group metadata. It is evidence for future
+  reward/RL workflows, not a trained reward model, release gate, or downstream
+  quality claim.
 - **Reward Label Report:** opt-in summary over reward labels. It records label
   coverage, usable/excluded/insufficient-evidence counts, sanitized per-label
   summaries, and a local decision status without exposing raw trajectory,

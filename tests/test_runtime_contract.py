@@ -10,6 +10,125 @@ from synthesis.mobile_environment import MobileMessagesEnvironment
 
 
 class RuntimeContractTest(unittest.TestCase):
+    def test_runtime_descriptor_exports_capability_contract(self) -> None:
+        from synthesis.runtime import RuntimeCapabilityDescriptor
+        from synthesis.seeds import DomainSeed
+
+        descriptor = RuntimeCapabilityDescriptor(
+            runtime_id="fake_runtime",
+            runtime_version="runtime_fake_v1",
+            domain_id="fake_domain",
+            supports_rebuild=True,
+            supports_checkpoint_restore=True,
+            supports_episode_replay=True,
+            supports_reward_labels=True,
+            supports_local_adapter=False,
+            state_changing_tools=("fake_write",),
+            task_taxonomy=("fake_lookup",),
+            rebuild_seed=DomainSeed(
+                seed_id="seed_fake_v1",
+                domain="fake_runtime",
+                description="Fake runtime used by registry contract tests.",
+                task_taxonomy=("fake_lookup",),
+            ),
+            descriptor_metadata={"adapter_support": "none"},
+        )
+
+        self.assertEqual(descriptor.runtime_id, "fake_runtime")
+        self.assertEqual(descriptor.domain_id, "fake_domain")
+        self.assertTrue(descriptor.supports_episode_replay)
+        self.assertTrue(descriptor.supports_reward_labels)
+        self.assertFalse(descriptor.supports_local_adapter)
+        self.assertEqual(descriptor.state_changing_tools, ("fake_write",))
+
+    def test_runtime_descriptor_safety_rejects_profile_release_paths_prompts_and_secrets(
+        self,
+    ) -> None:
+        from synthesis.contracts import ContractValidationError
+        from synthesis.runtime import RuntimeCapabilityDescriptor
+
+        forbidden_metadata = (
+            {"dataset_version": "dataset_test"},
+            {"dataset_release_status": "passed"},
+            {"profile_decision": {"status": "passed"}},
+            {"profile_purpose": "release_candidate"},
+            {"profile_path": "/Users/H/profile.json"},
+            {"database_path": "/tmp/contacts.sqlite3"},
+            {"provider_prompt": "Generate a task"},
+            {"provider_payload": {"messages": []}},
+            {"headers": {"authorization": "Bearer secret-test-key"}},
+            {"api_key": "secret-test-key"},
+            {"raw_source": {"contacts": []}},
+        )
+        for metadata in forbidden_metadata:
+            with self.subTest(metadata=metadata):
+                with self.assertRaises(ContractValidationError):
+                    RuntimeCapabilityDescriptor(
+                        runtime_id="fake_runtime",
+                        runtime_version="runtime_fake_v1",
+                        domain_id="fake_domain",
+                        supports_rebuild=False,
+                        supports_checkpoint_restore=False,
+                        supports_episode_replay=False,
+                        supports_reward_labels=False,
+                        supports_local_adapter=False,
+                        state_changing_tools=(),
+                        task_taxonomy=("fake_lookup",),
+                        descriptor_metadata=metadata,
+                    )
+
+    def test_default_runtime_registry_contains_contacts_and_mobile_descriptors(self) -> None:
+        from synthesis.runtime import registered_runtime_ids, runtime_descriptor
+
+        self.assertEqual(
+            registered_runtime_ids(),
+            ("contacts_fixture", "mobile_messages_fixture"),
+        )
+
+        contacts = runtime_descriptor("contacts_fixture")
+        self.assertEqual(contacts.domain_id, "contacts_fixture")
+        self.assertTrue(contacts.supports_episode_replay)
+        self.assertTrue(contacts.supports_reward_labels)
+        self.assertTrue(contacts.supports_local_adapter)
+        self.assertIn("record_contact_followup", contacts.state_changing_tools)
+
+        mobile = runtime_descriptor("mobile_messages_fixture")
+        self.assertEqual(mobile.domain_id, "mobile_messages_fixture")
+        self.assertTrue(mobile.supports_episode_replay)
+        self.assertTrue(mobile.supports_reward_labels)
+        self.assertFalse(mobile.supports_local_adapter)
+        self.assertIn("create_phone_reminder", mobile.state_changing_tools)
+
+    def test_runtime_registry_rejects_unknown_and_duplicate_runtime_ids(self) -> None:
+        from synthesis.contracts import ContractValidationError
+        from synthesis.runtime import (
+            RuntimeCapabilityDescriptor,
+            RuntimeRegistry,
+            registered_runtime_ids,
+            runtime_descriptor,
+        )
+
+        descriptor = RuntimeCapabilityDescriptor(
+            runtime_id="fake_runtime",
+            runtime_version="runtime_fake_v1",
+            domain_id="fake_domain",
+            supports_rebuild=False,
+            supports_checkpoint_restore=False,
+            supports_episode_replay=False,
+            supports_reward_labels=True,
+            supports_local_adapter=False,
+            state_changing_tools=("fake_write",),
+            task_taxonomy=("fake_lookup",),
+        )
+
+        registry = RuntimeRegistry((descriptor,))
+        self.assertEqual(registered_runtime_ids(registry), ("fake_runtime",))
+        self.assertIs(runtime_descriptor("fake_runtime", registry), descriptor)
+        with self.assertRaises(KeyError):
+            runtime_descriptor("missing_runtime", registry)
+        with self.assertRaises(ContractValidationError):
+            RuntimeRegistry((descriptor, descriptor))
+
     def test_contacts_fixture_exports_sanitized_runtime_metadata(self) -> None:
         from synthesis.contracts import validate_runtime_metadata_record
 

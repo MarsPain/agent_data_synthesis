@@ -4,7 +4,7 @@ import json
 import tempfile
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from synthesis.contracts import (
@@ -15,14 +15,14 @@ from synthesis.contracts import (
 from synthesis.domain_pipeline import build_domain_pipeline_bundle, rebuild_domain_pipeline_bundle
 from synthesis.episodes import deterministic_content_hash
 from synthesis.episode_quality import EPISODES_FILENAME
-from synthesis.seeds import DomainSeed, foundation_seed
+from synthesis.runtime import (
+    RuntimeRegistry,
+    registered_runtime_ids,
+    runtime_descriptor,
+)
 
 
 EPISODE_REPLAY_REPORT_FILENAME = "episode_replay_report.json"
-SUPPORTED_REPLAY_RUNTIMES = frozenset({"contacts_fixture", "mobile_messages_fixture"})
-STATE_CHANGING_TOOLS = frozenset(
-    {"record_contact_followup", "create_phone_reminder", "draft_message_reply"}
-)
 
 _REQUIRED_CHECKS = frozenset(
     {
@@ -48,11 +48,20 @@ _CHECK_ORDER = (
 @dataclass(frozen=True)
 class EpisodeReplayThresholds:
     required_checks: frozenset[str] = _REQUIRED_CHECKS
-    supported_runtimes: frozenset[str] = SUPPORTED_REPLAY_RUNTIMES
-    state_changing_tools: frozenset[str] = STATE_CHANGING_TOOLS
+    supported_runtimes: frozenset[str] = field(
+        default_factory=lambda: frozenset(registered_runtime_ids())
+    )
+    state_changing_tools: frozenset[str] = field(
+        default_factory=lambda: frozenset(_registered_state_changing_tools())
+    )
 
 
-def replay_episode(record: Mapping[str, object], replay_root: Path) -> tuple[dict[str, object], tuple[str, ...]]:
+def replay_episode(
+    record: Mapping[str, object],
+    replay_root: Path,
+    *,
+    runtime_registry: RuntimeRegistry | None = None,
+) -> tuple[dict[str, object], tuple[str, ...]]:
     failed_checks: list[str] = []
     try:
         validate_episode_log_record(record)
@@ -85,12 +94,20 @@ def replay_episode(record: Mapping[str, object], replay_root: Path) -> tuple[dic
         "tool_names": tool_names,
     }
 
-    if runtime_id not in SUPPORTED_REPLAY_RUNTIMES:
+    try:
+        descriptor = runtime_descriptor(runtime_id, runtime_registry)
+    except KeyError:
+        summary["failed_checks"] = ["runtime_supported"]
+        return summary, ("runtime_supported",)
+
+    if not descriptor.supports_episode_replay:
         summary["failed_checks"] = ["runtime_supported"]
         return summary, ("runtime_supported",)
 
     try:
-        seed = _seed_for_runtime(runtime_id)
+        seed = descriptor.rebuild_seed
+        if seed is None:
+            raise ValueError(f"runtime has no rebuild seed: {runtime_id}")
         base_root = replay_root / "_base" / runtime_id
         base_bundle = build_domain_pipeline_bundle(seed, base_root)
         bundle = rebuild_domain_pipeline_bundle(base_bundle, replay_root / candidate_id)
@@ -123,7 +140,7 @@ def replay_episode(record: Mapping[str, object], replay_root: Path) -> tuple[dic
             action=action,
             replayed_observation=observation,
         )
-        if tool_name in STATE_CHANGING_TOOLS:
+        if tool_name in descriptor.state_changing_tools:
             _compare_state_change(
                 summary=summary,
                 transitions=transitions,
@@ -151,6 +168,7 @@ def build_episode_replay_report(
     episodes: Sequence[Mapping[str, object]],
     manifest_path: Path | None = None,
     episodes_path: Path | None = None,
+    runtime_registry: RuntimeRegistry | None = None,
 ) -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix="episode-replay-") as tmpdir:
         replay_root = Path(tmpdir)
@@ -160,7 +178,11 @@ def build_episode_replay_report(
         tool_names: set[str] = set()
 
         for record in episodes:
-            summary, failed_checks = replay_episode(record, replay_root)
+            summary, failed_checks = replay_episode(
+                record,
+                replay_root,
+                runtime_registry=runtime_registry,
+            )
             summaries.append(summary)
             runtime_counts[str(summary["runtime_id"])] += 1
             tool_names.update(str(tool_name) for tool_name in summary["tool_names"])
@@ -214,12 +236,14 @@ def write_episode_replay_report(
     episodes: Sequence[Mapping[str, object]],
     manifest_path: Path | None = None,
     episodes_path: Path | None = None,
+    runtime_registry: RuntimeRegistry | None = None,
 ) -> Path:
     report = build_episode_replay_report(
         dataset_version=dataset_version,
         episodes=episodes,
         manifest_path=manifest_path,
         episodes_path=episodes_path,
+        runtime_registry=runtime_registry,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -227,24 +251,6 @@ def write_episode_replay_report(
         encoding="utf-8",
     )
     return path
-
-
-def _seed_for_runtime(runtime_id: str) -> DomainSeed:
-    if runtime_id == "contacts_fixture":
-        return foundation_seed()
-    if runtime_id == "mobile_messages_fixture":
-        return DomainSeed(
-            seed_id="seed_mobile_messages_v1",
-            domain="mobile_messages_fixture",
-            description="Synthetic phone messages, reminders, and draft replies.",
-            task_taxonomy=(
-                "mobile_message_lookup",
-                "mobile_message_to_reminder",
-                "mobile_draft_reply",
-                "mobile_branch_fallback",
-            ),
-        )
-    raise ValueError(f"unsupported replay runtime: {runtime_id}")
 
 
 def _compare_observation(
@@ -374,6 +380,15 @@ def _decision_for_checks(
 
 def _artifact_name(path: Path | None, default: str) -> str:
     return default if path is None else path.name
+
+
+def _registered_state_changing_tools(
+    runtime_registry: RuntimeRegistry | None = None,
+) -> tuple[str, ...]:
+    tools: set[str] = set()
+    for runtime_id in registered_runtime_ids(runtime_registry):
+        tools.update(runtime_descriptor(runtime_id, runtime_registry).state_changing_tools)
+    return tuple(sorted(tools))
 
 
 def _transitions_of_type(

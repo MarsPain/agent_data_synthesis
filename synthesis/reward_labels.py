@@ -13,14 +13,11 @@ from synthesis.contracts import (
     validate_reward_label_record,
     validate_reward_label_report_record,
 )
+from synthesis.runtime import RuntimeCapabilityDescriptor, RuntimeRegistry, runtime_descriptor
 
 
 REWARD_LABELS_FILENAME = "reward_labels.jsonl"
 REWARD_LABEL_REPORT_FILENAME = "reward_label_report.json"
-KNOWN_REWARD_RUNTIMES = frozenset({"contacts_fixture", "mobile_messages_fixture"})
-STATE_CHANGING_TOOLS = frozenset(
-    {"record_contact_followup", "create_phone_reminder", "draft_message_reply"}
-)
 
 _CHECK_ORDER = (
     "labels_present",
@@ -76,6 +73,7 @@ def build_reward_labels(
     episode_quality_report: Mapping[str, object] | None = None,
     episode_replay_report: Mapping[str, object] | None = None,
     thresholds: RewardLabelThresholds = RewardLabelThresholds(),
+    runtime_registry: RuntimeRegistry | None = None,
 ) -> tuple[dict[str, object], ...]:
     quality_summaries = _summary_by_episode_id(episode_quality_report)
     replay_summaries = _summary_by_episode_id(episode_replay_report)
@@ -94,6 +92,7 @@ def build_reward_labels(
                 has_quality_report=episode_quality_report is not None,
                 has_replay_report=episode_replay_report is not None,
                 thresholds=thresholds,
+                runtime_registry=runtime_registry,
             )
         )
 
@@ -262,6 +261,18 @@ def write_reward_label_report(
     return path
 
 
+def reward_label_runtime_capability_status(
+    runtime_id: str,
+    *,
+    runtime_registry: RuntimeRegistry | None = None,
+) -> str:
+    try:
+        descriptor = runtime_descriptor(runtime_id, runtime_registry)
+    except KeyError:
+        return "unsupported"
+    return "supported" if descriptor.supports_reward_labels else "unsupported"
+
+
 def _build_label(
     *,
     episode: Mapping[str, object],
@@ -270,6 +281,7 @@ def _build_label(
     has_quality_report: bool,
     has_replay_report: bool,
     thresholds: RewardLabelThresholds,
+    runtime_registry: RuntimeRegistry | None,
 ) -> dict[str, object]:
     try:
         validate_episode_log_record(episode)
@@ -285,6 +297,7 @@ def _build_label(
     outcome_status = str(outcome["status"])
     tool_names = _tool_names(transitions)
     reasons: list[str] = []
+    descriptor = _reward_descriptor(runtime_id, runtime_registry)
 
     components = {
         "outcome": 1.0 if outcome_status == "accepted" else 0.0,
@@ -300,7 +313,7 @@ def _build_label(
         reasons.append(f"{outcome_status}_episode")
 
     label_status = "usable"
-    if runtime_id not in KNOWN_REWARD_RUNTIMES:
+    if descriptor is None:
         label_status = "excluded"
         reasons.append("runtime_unsupported")
 
@@ -316,7 +329,11 @@ def _build_label(
         reasons.append("quality_checks_passed")
         components["execution"] = 0.5
 
-    if _state_change_supported(tool_names=tool_names, quality_summary=quality_summary):
+    if _state_change_supported(
+        tool_names=tool_names,
+        quality_summary=quality_summary,
+        runtime_descriptor=descriptor,
+    ):
         components["state_support"] = 1.0
     else:
         components["state_support"] = 0.0
@@ -372,7 +389,7 @@ def _excluded_invalid_episode_label(episode: Mapping[str, object]) -> dict[str, 
         if isinstance(runtime, Mapping)
         else "contacts_fixture"
     )
-    if runtime_id not in KNOWN_REWARD_RUNTIMES:
+    if reward_label_runtime_capability_status(runtime_id) != "supported":
         runtime_id = "contacts_fixture"
     label = {
         "schema_version": "reward_label_v1",
@@ -432,12 +449,29 @@ def _state_change_supported(
     *,
     tool_names: Sequence[str],
     quality_summary: Mapping[str, object] | None,
+    runtime_descriptor: RuntimeCapabilityDescriptor | None,
 ) -> bool:
-    if not set(tool_names).intersection(STATE_CHANGING_TOOLS):
+    state_changing_tools = (
+        runtime_descriptor.state_changing_tools if runtime_descriptor is not None else ()
+    )
+    if not set(tool_names).intersection(state_changing_tools):
         return True
     if quality_summary is None:
         return False
     return int(quality_summary.get("state_change_count", 0)) > 0
+
+
+def _reward_descriptor(
+    runtime_id: str,
+    runtime_registry: RuntimeRegistry | None,
+) -> RuntimeCapabilityDescriptor | None:
+    try:
+        descriptor = runtime_descriptor(runtime_id, runtime_registry)
+    except KeyError:
+        return None
+    if not descriptor.supports_reward_labels:
+        return None
+    return descriptor
 
 
 def _scalar_reward(

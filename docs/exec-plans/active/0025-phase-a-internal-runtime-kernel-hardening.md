@@ -10,6 +10,18 @@ Active as of 2026-06-19. This is the first executable phase of
 [0025-awm-runtime-phase-index](../deferred/0025-awm-runtime-phase-index.md).
 Later phases remain deferred unless their own triggers are met.
 
+Implementation complete as of 2026-06-19 in branch
+`phase-a-runtime-kernel-hardening`. Completion evidence:
+
+- `synthesis.runtime` owns immutable runtime capability descriptors and a
+  deterministic registry for contacts/mobile descriptors.
+- `synthesis.episode_replay` reads replay support, state-changing tools, and
+  rebuild seeds from descriptors.
+- `synthesis.reward_labels` reads reward-label and state-changing-tool support
+  from descriptors.
+- Test-only fake descriptors cover reward-only and unsupported runtimes without
+  adding fake descriptors to the default registry.
+
 ## Goal
 
 Turn the current contacts/mobile runtime protocol into an internal runtime
@@ -106,57 +118,57 @@ but it must preserve this separation of concerns:
 
 ### Task 1: Descriptor Contract
 
-- [ ] Add a focused failing test for a runtime descriptor that includes runtime
+- [x] Add a focused failing test for a runtime descriptor that includes runtime
   id, domain id, replay support, reward-label support, adapter support, and
   state-changing tools.
-- [ ] Implement the descriptor in `synthesis.runtime` without importing dataset
+- [x] Implement the descriptor in `synthesis.runtime` without importing dataset
   assembly, profile decisions, release admission, or report builders.
-- [ ] Add validation that rejects profile, release, provider prompt, credential,
+- [x] Add validation that rejects profile, release, provider prompt, credential,
   host path, or raw source fields in descriptor metadata.
-- [ ] Register contacts and mobile descriptors with stable ids.
+- [x] Register contacts and mobile descriptors with stable ids.
 
 ### Task 2: Registry Lookup
 
-- [ ] Add tests for deterministic lookup, unknown runtime failure, and duplicate
+- [x] Add tests for deterministic lookup, unknown runtime failure, and duplicate
   runtime registration failure.
-- [ ] Implement registry helpers such as `registered_runtime_ids()`,
+- [x] Implement registry helpers such as `registered_runtime_ids()`,
   `runtime_descriptor(runtime_id)`, and a safe test-only registration path.
-- [ ] Ensure registry lookup is side-effect free and does not construct domain
+- [x] Ensure registry lookup is side-effect free and does not construct domain
   environments.
 
 ### Task 3: Replay Consumer Uses Registry
 
-- [ ] Write tests showing replay support is read from the descriptor rather than
+- [x] Write tests showing replay support is read from the descriptor rather than
   a module-local allowlist.
-- [ ] Move contacts/mobile seed resolution behind a runtime registry or
+- [x] Move contacts/mobile seed resolution behind a runtime registry or
   descriptor-owned resolver boundary.
-- [ ] Keep replay report output byte-compatible where schemas require stable
+- [x] Keep replay report output byte-compatible where schemas require stable
   fields.
 
 ### Task 4: Reward Consumer Uses Registry
 
-- [ ] Write tests showing reward-label runtime support and state-changing-tool
+- [x] Write tests showing reward-label runtime support and state-changing-tool
   support are descriptor-derived.
-- [ ] Remove reward-label module ownership of runtime allowlists.
-- [ ] Preserve reward score semantics for existing contacts and mobile
+- [x] Remove reward-label module ownership of runtime allowlists.
+- [x] Preserve reward score semantics for existing contacts and mobile
   fixtures.
 
 ### Task 5: Fake Runtime Pressure Test
 
-- [ ] Add a minimal fake descriptor that supports reward labels but not replay,
+- [x] Add a minimal fake descriptor that supports reward labels but not replay,
   and prove consumers report capability status without domain branches.
-- [ ] Add a minimal fake descriptor that supports neither replay nor reward
+- [x] Add a minimal fake descriptor that supports neither replay nor reward
   labels, and prove unsupported capability is reported as insufficient evidence
   or unsupported without crashing.
-- [ ] Keep fake descriptors test-only.
+- [x] Keep fake descriptors test-only.
 
 ### Task 6: Docs and Validation
 
-- [ ] Update canonical docs with the runtime descriptor and registry contract.
-- [ ] Update 0025 overview status notes with Phase A completion evidence.
-- [ ] Run `uv run python scripts/validate_docs.py`.
-- [ ] Run `uv run python -m unittest tests.test_runtime_contract tests.test_episode_replay tests.test_reward_labels`.
-- [ ] Run `uv run python -m unittest`.
+- [x] Update canonical docs with the runtime descriptor and registry contract.
+- [x] Update 0025 overview status notes with Phase A completion evidence.
+- [x] Run `uv run python scripts/validate_docs.py`.
+- [x] Run `uv run python -m unittest tests.test_runtime_contract tests.test_episode_replay tests.test_reward_labels`.
+- [x] Run `uv run python -m unittest`.
 
 ## Acceptance Criteria
 

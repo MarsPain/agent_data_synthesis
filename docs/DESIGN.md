@@ -145,6 +145,11 @@ Start local and deterministic:
   Runtime-aware code should use `runtime_metadata()` for environment identity,
   reset recipe class, state backend, and checkpoint strategy; sample assembly
   continues to use `metadata()` for the public dataset environment field.
+- Runtime capability descriptors live under `synthesis.runtime` as the internal
+  registry contract for runtime identity, supported replay/reward capabilities,
+  state-changing tools, local-adapter support, and replay rebuild seeds. Replay
+  and reward consumers should ask the registry for capability facts instead of
+  owning contacts/mobile runtime allowlists.
 - Episode-quality reporting is a repo-local, synchronous runtime evidence
   consumer. It proves the episode boundary can serve another data-quality
   reader while keeping full AWM runtime package extraction deferred.
