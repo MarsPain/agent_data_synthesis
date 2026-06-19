@@ -9,7 +9,10 @@
 
 ## Active
 
-There is no active implementation plan at this point.
+- [0025-phase-a-internal-runtime-kernel-hardening](exec-plans/active/0025-phase-a-internal-runtime-kernel-hardening.md):
+  active as of 2026-06-19. Adds an internal runtime descriptor and registry
+  hardening phase for the AWM runtime boundary so replay/reward consumers do not
+  own contacts/mobile allowlists.
 
 ## Deferred
 
@@ -18,15 +21,27 @@ There is no active implementation plan at this point.
   concurrency limits, cancellation, and per-role cost tracking; **deferred**
   until single runs exceed ~10 minutes or 100+ candidates. See the plan's
   "补充思考" section for the full deferral rationale.
-- [0025-awm-runtime-boundary-and-shared-environment-kernel](exec-plans/deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md):
-  staged extraction path for the future AWM environment runtime; **deferred**
-  after plans 0031, 0032, and 0033 added repo-local episode data-quality,
-  executable replay, and task/policy/verifier contract evidence, until
-  reward/RL workflows, external MCP environment servers, or stronger
-  cross-consumer package-boundary pressure justifies extraction.
-  Completed plan
-  [0030-runtime-contract-and-episode-evidence](exec-plans/completed/0030-runtime-contract-and-episode-evidence.md)
-  implemented only the internal runtime-contract and episode-evidence phase.
+- [0025-phase-b-consumer-inversion](exec-plans/deferred/0025-phase-b-consumer-inversion.md):
+  deferred until Phase A completes and runtime descriptors are available to
+  replay, quality, and reward consumers.
+- [0025-phase-c-rollout-ready-runtime-api](exec-plans/deferred/0025-phase-c-rollout-ready-runtime-api.md):
+  deferred until Phase B completes and consumers are capability-driven.
+- [0025-phase-d-adapter-surface-generalization](exec-plans/deferred/0025-phase-d-adapter-surface-generalization.md):
+  deferred until Phase C completes and runtime sessions can execute action
+  envelopes.
+- [0025-phase-e-extraction-readiness-review](exec-plans/deferred/0025-phase-e-extraction-readiness-review.md):
+  deferred until Phase D or equivalent runtime, consumer, rollout, and adapter
+  evidence exists.
+- [0025-phase-f-awm-runtime-package-extraction](exec-plans/deferred/0025-phase-f-awm-runtime-package-extraction.md):
+  deferred until Phase E returns `ready_for_extraction_plan`.
+
+## Phase Indexes
+
+- [0025-awm-runtime-phase-index](exec-plans/deferred/0025-awm-runtime-phase-index.md):
+  umbrella decision record for the staged AWM runtime-kernel work. This is not
+  a directly executable implementation plan. Historical links to
+  [0025-awm-runtime-boundary-and-shared-environment-kernel](exec-plans/deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
+  are preserved by a redirect stub.
 
 ## Completed
 

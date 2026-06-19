@@ -5,7 +5,9 @@ is accepted as complete, move it to `../completed/` and update `../../PLANS.md`.
 
 ## Currently Executing
 
-There is no active implementation plan at this point.
+- [0025-phase-a-internal-runtime-kernel-hardening](0025-phase-a-internal-runtime-kernel-hardening.md):
+  active as of 2026-06-19. Hardens the internal AWM runtime kernel with
+  descriptors and registry-backed runtime capability lookup.
 
 ## Completed
 
