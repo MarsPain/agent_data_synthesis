@@ -93,6 +93,104 @@ class EpisodeQualityTest(unittest.TestCase):
         self.assertEqual(summary["failed_checks"], [])
         self.assertEqual(report["decision"]["status"], "passed")
 
+    def test_fake_runtime_descriptor_is_accepted_without_consumer_allowlist(self) -> None:
+        from synthesis.episode_quality import build_episode_quality_report
+        from synthesis.runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
+
+        episode = _with_runtime_and_tool(
+            _episode("candidate_contacts_alice"),
+            runtime_id="fake_quality_runtime",
+            runtime_version="runtime_fake_quality_v1",
+            tool_name="fake_read",
+        )
+        registry = RuntimeRegistry(
+            (
+                RuntimeCapabilityDescriptor(
+                    runtime_id="fake_quality_runtime",
+                    runtime_version="runtime_fake_quality_v1",
+                    domain_id="fake_domain",
+                    supports_rebuild=False,
+                    supports_checkpoint_restore=False,
+                    supports_episode_replay=False,
+                    supports_reward_labels=False,
+                    supports_local_adapter=False,
+                    state_changing_tools=(),
+                    task_taxonomy=("fake_lookup",),
+                ),
+            )
+        )
+
+        report = build_episode_quality_report(
+            dataset_version="dataset_fake_quality_runtime",
+            episodes=(episode,),
+            runtime_registry=registry,
+        )
+
+        summary = report["episode_summaries"][0]
+        self.assertEqual(summary["runtime_id"], "fake_quality_runtime")
+        self.assertEqual(summary["failed_checks"], [])
+        self.assertEqual(report["decision"]["status"], "passed")
+
+    def test_state_changing_tools_are_derived_from_runtime_descriptor(self) -> None:
+        from synthesis.episode_quality import build_episode_quality_report
+        from synthesis.runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
+
+        episode = _with_runtime_and_tool(
+            _episode("candidate_contacts_alice"),
+            runtime_id="fake_quality_runtime",
+            runtime_version="runtime_fake_quality_v1",
+            tool_name="fake_write",
+        )
+        registry = RuntimeRegistry(
+            (
+                RuntimeCapabilityDescriptor(
+                    runtime_id="fake_quality_runtime",
+                    runtime_version="runtime_fake_quality_v1",
+                    domain_id="fake_domain",
+                    supports_rebuild=False,
+                    supports_checkpoint_restore=False,
+                    supports_episode_replay=False,
+                    supports_reward_labels=False,
+                    supports_local_adapter=False,
+                    state_changing_tools=("fake_write",),
+                    task_taxonomy=("fake_lookup",),
+                ),
+            )
+        )
+
+        report = build_episode_quality_report(
+            dataset_version="dataset_fake_quality_state_tools",
+            episodes=(episode,),
+            runtime_registry=registry,
+        )
+
+        summary = report["episode_summaries"][0]
+        self.assertEqual(summary["failed_checks"], ["state_change_supported"])
+        self.assertEqual(report["decision"]["status"], "watch")
+
+    def test_unknown_runtime_is_unsupported_not_malformed_evidence(self) -> None:
+        from synthesis.episode_quality import build_episode_quality_report
+        from synthesis.runtime import RuntimeRegistry
+
+        episode = _with_runtime_and_tool(
+            _episode("candidate_contacts_alice"),
+            runtime_id="missing_quality_runtime",
+            runtime_version="runtime_missing_quality_v1",
+            tool_name="fake_read",
+        )
+
+        report = build_episode_quality_report(
+            dataset_version="dataset_missing_quality_runtime",
+            episodes=(episode,),
+            runtime_registry=RuntimeRegistry(()),
+        )
+
+        summary = report["episode_summaries"][0]
+        self.assertEqual(summary["runtime_id"], "missing_quality_runtime")
+        self.assertEqual(summary["failed_checks"], ["runtime_known"])
+        self.assertNotIn("contract_valid", summary["failed_checks"])
+        self.assertEqual(report["decision"]["status"], "watch")
+
     def test_missing_episodes_returns_insufficient_evidence(self) -> None:
         from synthesis.episode_quality import build_episode_quality_report
 
@@ -185,6 +283,30 @@ def _episode(candidate_id: str) -> dict[str, object]:
             trajectory=execution.trajectory,
             outcome_status="accepted",
         ).export()
+
+
+def _with_runtime_and_tool(
+    episode: dict[str, object],
+    *,
+    runtime_id: str,
+    runtime_version: str,
+    tool_name: str,
+) -> dict[str, object]:
+    transitions = []
+    for transition in episode["transitions"]:
+        assert isinstance(transition, dict)
+        copied = dict(transition)
+        if copied.get("tool_name") is not None:
+            copied["tool_name"] = tool_name
+        transitions.append(copied)
+    runtime = dict(episode["runtime"])
+    runtime["runtime_id"] = runtime_id
+    runtime["runtime_version"] = runtime_version
+    return {
+        **episode,
+        "runtime": runtime,
+        "transitions": transitions,
+    }
 
 
 if __name__ == "__main__":

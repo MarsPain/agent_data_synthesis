@@ -9,10 +9,7 @@
 
 ## Active
 
-- [0025-phase-a-internal-runtime-kernel-hardening](exec-plans/active/0025-phase-a-internal-runtime-kernel-hardening.md):
-  active as of 2026-06-19. Adds an internal runtime descriptor and registry
-  hardening phase for the AWM runtime boundary so replay/reward consumers do not
-  own contacts/mobile allowlists.
+There is no active implementation plan at this point.
 
 ## Deferred
 
@@ -21,9 +18,6 @@
   concurrency limits, cancellation, and per-role cost tracking; **deferred**
   until single runs exceed ~10 minutes or 100+ candidates. See the plan's
   "补充思考" section for the full deferral rationale.
-- [0025-phase-b-consumer-inversion](exec-plans/deferred/0025-phase-b-consumer-inversion.md):
-  deferred until Phase A completes and runtime descriptors are available to
-  replay, quality, and reward consumers.
 - [0025-phase-c-rollout-ready-runtime-api](exec-plans/deferred/0025-phase-c-rollout-ready-runtime-api.md):
   deferred until Phase B completes and consumers are capability-driven.
 - [0025-phase-d-adapter-surface-generalization](exec-plans/deferred/0025-phase-d-adapter-surface-generalization.md):
@@ -68,6 +62,8 @@
 - [0022-held-out-evaluation-and-profile-benchmarking](exec-plans/completed/0022-held-out-evaluation-and-profile-benchmarking.md): added opt-in held-out evaluation reports, deterministic contacts benchmark tasks, capability slices, optional parent evaluation comparison, and profile-decision evidence before async orchestration or semantic duplicate detection. Completed on 2026-05-31.
 - [0023-evaluation-quality-ratchet-and-profile-promotion](exec-plans/completed/0023-evaluation-quality-ratchet-and-profile-promotion.md): tightened held-out evaluation semantics, added capability-level thresholds, introduced profile promotion decisions, and kept async orchestration plus semantic duplicate detection deferred until explicit triggers are met. Completed on 2026-05-31.
 - [0024-profile-purpose-and-dataset-release-admission](exec-plans/completed/0024-profile-purpose-and-dataset-release-admission.md): added profile-purpose classification and an opt-in dataset release admission report so diagnostic profiles cannot be mistaken for releaseable dataset versions. Completed on 2026-06-09.
+- [0025-phase-a-internal-runtime-kernel-hardening](exec-plans/completed/0025-phase-a-internal-runtime-kernel-hardening.md): added immutable runtime capability descriptors, deterministic registry lookup, descriptor-backed replay/reward support, and fake runtime pressure tests. Completed on 2026-06-19.
+- [0025-phase-b-consumer-inversion](exec-plans/completed/0025-phase-b-consumer-inversion.md): completed runtime descriptor-driven consumer inversion by removing episode-quality contacts/mobile allowlists, aligning consumer capability status semantics, and preserving replay/reward descriptor behavior. Completed on 2026-06-19.
 - [0026-dataset-release-coverage-and-admission-ratchet](exec-plans/completed/0026-dataset-release-coverage-and-admission-ratchet.md): tightened dataset release admission with release completeness thresholds, coverage observations, insufficient-evidence outcomes, and a deterministic release-candidate fixture. Completed on 2026-06-09.
 - [0027-dataset-release-pack-and-reproducibility-verification](exec-plans/completed/0027-dataset-release-pack-and-reproducibility-verification.md): added opt-in hash-locked release packs and standalone verification so passed release-candidate artifacts can be audited without rerunning generation. Completed on 2026-06-12.
 - [0028-release-quality-evidence-audit-and-card](exec-plans/completed/0028-release-quality-evidence-audit-and-card.md): added opt-in release quality evidence audits and human-readable dataset release cards for release-candidate artifact sets without implementing full semantic duplicate detection or changing default release admission. Completed on 2026-06-12.

@@ -13,14 +13,11 @@ from synthesis.contracts import (
     validate_episode_quality_report_record,
 )
 from synthesis.episodes import summarize_episode_for_quality
+from synthesis.runtime import RuntimeRegistry, runtime_descriptor
 
 
 EPISODES_FILENAME = "episodes.jsonl"
 EPISODE_QUALITY_REPORT_FILENAME = "episode_quality_report.json"
-STATE_CHANGING_TOOLS = frozenset(
-    {"record_contact_followup", "create_phone_reminder", "draft_message_reply"}
-)
-KNOWN_RUNTIMES = frozenset({"contacts_fixture", "mobile_messages_fixture"})
 
 _REQUIRED_CHECKS = frozenset(
     {
@@ -45,8 +42,6 @@ _CHECK_ORDER = (
 @dataclass(frozen=True)
 class EpisodeQualityThresholds:
     required_checks: frozenset[str] = _REQUIRED_CHECKS
-    known_runtimes: frozenset[str] = KNOWN_RUNTIMES
-    state_changing_tools: frozenset[str] = STATE_CHANGING_TOOLS
 
 
 def write_episode_logs(path: Path, episodes: Sequence[Mapping[str, object]]) -> Path:
@@ -78,6 +73,7 @@ def build_episode_quality_report(
     episodes: Sequence[Mapping[str, object]],
     manifest_path: Path | None = None,
     episodes_path: Path | None = None,
+    runtime_registry: RuntimeRegistry | None = None,
 ) -> dict[str, object]:
     summaries: list[dict[str, object]] = []
     check_failures: dict[str, int] = {name: 0 for name in _CHECK_ORDER}
@@ -86,7 +82,10 @@ def build_episode_quality_report(
     tool_names: set[str] = set()
 
     for record in episodes:
-        summary, failed_checks = _score_episode(record)
+        summary, failed_checks = _score_episode(
+            record,
+            runtime_registry=runtime_registry,
+        )
         summaries.append(summary)
         runtime_counts[str(summary["runtime_id"])] += 1
         outcome_counts[str(summary["outcome_status"])] += 1
@@ -138,12 +137,14 @@ def write_episode_quality_report(
     episodes: Sequence[Mapping[str, object]],
     manifest_path: Path | None = None,
     episodes_path: Path | None = None,
+    runtime_registry: RuntimeRegistry | None = None,
 ) -> Path:
     report = build_episode_quality_report(
         dataset_version=dataset_version,
         episodes=episodes,
         manifest_path=manifest_path,
         episodes_path=episodes_path,
+        runtime_registry=runtime_registry,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -153,7 +154,11 @@ def write_episode_quality_report(
     return path
 
 
-def _score_episode(record: Mapping[str, object]) -> tuple[dict[str, object], tuple[str, ...]]:
+def _score_episode(
+    record: Mapping[str, object],
+    *,
+    runtime_registry: RuntimeRegistry | None,
+) -> tuple[dict[str, object], tuple[str, ...]]:
     failed_checks: list[str] = []
     try:
         validate_episode_log_record(record)
@@ -182,11 +187,16 @@ def _score_episode(record: Mapping[str, object]) -> tuple[dict[str, object], tup
         failed_checks.append("accepted_has_final_response")
     if summary["outcome_status"] == "accepted" and error_count:
         failed_checks.append("accepted_has_no_error")
-    tools = set(str(tool_name) for tool_name in summary["tool_names"])
-    if tools.intersection(STATE_CHANGING_TOOLS) and summary["state_change_count"] < 1:
-        failed_checks.append("state_change_supported")
-    if summary["runtime_id"] not in KNOWN_RUNTIMES:
+    runtime_id = str(summary["runtime_id"])
+    try:
+        descriptor = runtime_descriptor(runtime_id, runtime_registry)
+    except KeyError:
         failed_checks.append("runtime_known")
+        descriptor = None
+    tools = set(str(tool_name) for tool_name in summary["tool_names"])
+    state_changing_tools = descriptor.state_changing_tools if descriptor is not None else ()
+    if tools.intersection(state_changing_tools) and summary["state_change_count"] < 1:
+        failed_checks.append("state_change_supported")
     summary["failed_checks"] = failed_checks
     return summary, tuple(failed_checks)
 

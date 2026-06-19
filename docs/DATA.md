@@ -50,7 +50,9 @@
   local-adapter support, state-changing tools, task taxonomy, optional replay
   rebuild seed, and sanitized descriptor metadata. It is not dataset release,
   profile promotion, provider prompt, credential, raw source, or host-path
-  metadata.
+  metadata. Runtime capability lookups use the sanitized status vocabulary
+  `supported`, `unsupported`, `insufficient_evidence`, and `malformed`; consumer
+  reports map those statuses onto their existing report checks.
 - **Tool:** typed callable action exposed to the Agent.
 - **Mobile Tool:** domain-owned callable in the mobile fixture. Current tools
   are `search_phone_messages`, `create_phone_reminder`, and
@@ -84,8 +86,9 @@
   reporting is explicitly requested.
 - **Episode Quality Report:** opt-in data-quality consumer report over
   `episode_log_v1`. It validates and scores episode transition completeness,
-  state-change support, runtime identity, and accepted-outcome consistency
-  without reading or writing raw prompts, raw payloads, tool arguments,
+  descriptor-derived state-change support, runtime identity, and
+  accepted-outcome consistency without reading or writing raw prompts, raw
+  payloads, tool arguments,
   observations, final-response text, credentials, or host paths.
 - **Episode Replay Report:** opt-in execution-consistency consumer report over
   `episode_log_v1`. It uses the runtime registry to determine replay support,
@@ -369,7 +372,8 @@ artifact used by `episode_quality_report.json` and
 
 `episode_quality_report.json` uses `schema_version:
 episode_quality_report_v1` and is generated only when explicitly requested. It
-reads validated `episode_log_v1` records from `episodes.jsonl` and records:
+reads validated `episode_log_v1` records from `episodes.jsonl`, uses runtime
+descriptors for known-runtime and state-changing-tool diagnostics, and records:
 
 - artifact input names for `manifest.json` and `episodes.jsonl`;
 - observed episode counts by outcome and runtime;
@@ -384,7 +388,9 @@ reads validated `episode_log_v1` records from `episodes.jsonl` and records:
 
 Required failures in contract validity, action/observation presence,
 accepted-final-response count, or accepted-error absence produce `failed`.
-Failures in state-change support or known-runtime diagnostics produce `watch`.
+Failures in descriptor-derived state-change support or known-runtime diagnostics
+produce `watch`. Unknown runtime descriptors are unsupported runtime evidence,
+not malformed episode evidence; malformed episode records fail `contract_valid`.
 No episodes produce `insufficient_evidence`.
 
 Report validators reject absolute or nested input paths, unsupported check
@@ -397,9 +403,10 @@ payloads, provider payloads, prompts, credentials, or local paths.
 
 `episode_replay_report.json` uses `schema_version:
 episode_replay_report_v1` and is generated only when explicitly requested. It
-reads validated `episode_log_v1` records from `episodes.jsonl`, rebuilds fresh
-fixture runtimes for `contacts_fixture` and `mobile_messages_fixture`, executes
-action transitions through `ToolRegistry.execute()`, and records:
+reads validated `episode_log_v1` records from `episodes.jsonl`, resolves replay
+support and rebuild seeds through runtime descriptors, rebuilds fresh supported
+fixture runtimes, executes action transitions through `ToolRegistry.execute()`,
+and records:
 
 - artifact input names for `manifest.json` and `episodes.jsonl`;
 - observed episode counts by runtime and unique tool names;
@@ -418,7 +425,8 @@ action transitions through `ToolRegistry.execute()`, and records:
 Required failures in contract validity, runtime support, runtime rebuild,
 action execution, or accepted-final-response count produce `failed`. Optional
 diagnostic mismatches in observation hashes, state-change hashes, or runtime
-metadata produce `watch`. No episodes produce `insufficient_evidence`.
+metadata produce `watch`. Unsupported replay capability remains distinct from
+malformed episode evidence. No episodes produce `insufficient_evidence`.
 
 Report validators reject absolute or nested input paths, unsupported check
 names, unsupported summary keys, unsupported runtime/registry method names, raw
@@ -442,6 +450,9 @@ The initial deterministic scalar is
 evidence score `1.0`. Accepted episodes without replay evidence can remain
 usable but record `replay_evidence_absent` and use lower replay consistency.
 Invalid episode contracts are excluded with sanitized reasons.
+Runtime reward-label capability and state-changing-tool support come from
+runtime descriptors, so adding a new descriptor-backed runtime does not require
+editing reward-label consumer allowlists.
 
 `reward_label_report.json` uses `schema_version: reward_label_report_v1`. It
 records relative or null input artifact names, observed episode/label counts,

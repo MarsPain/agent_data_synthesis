@@ -189,6 +189,54 @@ class RewardLabelsTest(unittest.TestCase):
             ),
             "unsupported",
         )
+        self.assertEqual(
+            reward_label_runtime_capability_status(
+                None,
+                runtime_registry=registry,
+            ),
+            "insufficient_evidence",
+        )
+
+    def test_contacts_and_mobile_flow_through_quality_replay_and_reward_consumers(self) -> None:
+        from synthesis.episode_quality import build_episode_quality_report
+        from synthesis.episode_replay import build_episode_replay_report
+        from synthesis.reward_labels import build_reward_label_report, build_reward_labels
+
+        episodes = (
+            _episode("candidate_contacts_alice"),
+            _episode("candidate_mobile_maya_reminder"),
+        )
+        quality_report = build_episode_quality_report(
+            dataset_version="dataset_cross_consumer_regression",
+            episodes=episodes,
+        )
+        replay_report = build_episode_replay_report(
+            dataset_version="dataset_cross_consumer_regression",
+            episodes=episodes,
+        )
+        labels = build_reward_labels(
+            episodes=episodes,
+            episode_quality_report=quality_report,
+            episode_replay_report=replay_report,
+        )
+        reward_report = build_reward_label_report(
+            dataset_version="dataset_cross_consumer_regression",
+            episodes=episodes,
+            labels=labels,
+        )
+
+        self.assertEqual(quality_report["decision"]["status"], "passed")
+        self.assertEqual(replay_report["decision"]["status"], "passed")
+        self.assertEqual(reward_report["decision"]["status"], "passed")
+        self.assertEqual(
+            quality_report["observed"]["runtime_counts"],
+            {"contacts_fixture": 1, "mobile_messages_fixture": 1},
+        )
+        self.assertEqual(
+            reward_report["observed"]["runtime_counts"],
+            {"contacts_fixture": 1, "mobile_messages_fixture": 1},
+        )
+        self.assertEqual({label["label_status"] for label in labels}, {"usable"})
 
     def test_missing_replay_evidence_creates_watchable_usable_label(self) -> None:
         from synthesis.episode_quality import build_episode_quality_report

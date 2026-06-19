@@ -129,6 +129,52 @@ class RuntimeContractTest(unittest.TestCase):
         with self.assertRaises(ContractValidationError):
             RuntimeRegistry((descriptor, descriptor))
 
+    def test_runtime_capability_status_uses_shared_sanitized_vocabulary(self) -> None:
+        from synthesis.runtime import (
+            RUNTIME_CAPABILITY_STATUSES,
+            runtime_capability_status,
+        )
+
+        self.assertEqual(
+            RUNTIME_CAPABILITY_STATUSES,
+            frozenset(
+                {
+                    "supported",
+                    "unsupported",
+                    "insufficient_evidence",
+                    "malformed",
+                }
+            ),
+        )
+        self.assertEqual(
+            runtime_capability_status(
+                "contacts_fixture",
+                "supports_episode_replay",
+            ),
+            "supported",
+        )
+        self.assertEqual(
+            runtime_capability_status(
+                "missing_runtime",
+                "supports_episode_replay",
+            ),
+            "unsupported",
+        )
+        self.assertEqual(
+            runtime_capability_status(
+                None,
+                "supports_episode_replay",
+            ),
+            "insufficient_evidence",
+        )
+        self.assertEqual(
+            runtime_capability_status(
+                "",
+                "supports_episode_replay",
+            ),
+            "malformed",
+        )
+
     def test_contacts_fixture_exports_sanitized_runtime_metadata(self) -> None:
         from synthesis.contracts import validate_runtime_metadata_record
 

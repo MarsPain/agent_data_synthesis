@@ -18,6 +18,7 @@ from synthesis.episode_quality import EPISODES_FILENAME
 from synthesis.runtime import (
     RuntimeRegistry,
     registered_runtime_ids,
+    runtime_capability_status,
     runtime_descriptor,
 )
 
@@ -94,15 +95,18 @@ def replay_episode(
         "tool_names": tool_names,
     }
 
-    try:
-        descriptor = runtime_descriptor(runtime_id, runtime_registry)
-    except KeyError:
+    if (
+        runtime_capability_status(
+            runtime_id,
+            "supports_episode_replay",
+            runtime_registry,
+        )
+        != "supported"
+    ):
         summary["failed_checks"] = ["runtime_supported"]
         return summary, ("runtime_supported",)
 
-    if not descriptor.supports_episode_replay:
-        summary["failed_checks"] = ["runtime_supported"]
-        return summary, ("runtime_supported",)
+    descriptor = runtime_descriptor(runtime_id, runtime_registry)
 
     try:
         seed = descriptor.rebuild_seed

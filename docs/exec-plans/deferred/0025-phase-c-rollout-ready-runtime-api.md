@@ -6,9 +6,9 @@
 
 ## Status
 
-Deferred. Activate only after
-[0025 Phase B](0025-phase-b-consumer-inversion.md) has completed and consumers
-can use runtime descriptors generically.
+Deferred. [0025 Phase B](../completed/0025-phase-b-consumer-inversion.md) is
+complete; activate Phase C only when rollout-ready runtime API work is
+explicitly selected.
 
 ## Goal
 

@@ -33,14 +33,13 @@
 ## Execution Plans
 
 - [exec-plans/active/README.md](exec-plans/active/README.md): active plan bucket.
-- [exec-plans/active/0025-phase-a-internal-runtime-kernel-hardening.md](exec-plans/active/0025-phase-a-internal-runtime-kernel-hardening.md): active Phase A internal runtime descriptor and registry hardening.
 - [exec-plans/completed/README.md](exec-plans/completed/README.md): completed plan bucket.
+- [exec-plans/completed/0025-phase-b-consumer-inversion.md](exec-plans/completed/0025-phase-b-consumer-inversion.md): completed Phase B inversion of replay, quality, and reward consumers onto runtime capabilities.
 - [exec-plans/completed/0036-domain-aware-held-out-evaluation-and-release-semantics.md](exec-plans/completed/0036-domain-aware-held-out-evaluation-and-release-semantics.md): completed plan for domain-aware held-out evaluation and release semantics.
 - [exec-plans/deferred/README.md](exec-plans/deferred/README.md): deferred plan bucket.
 - [exec-plans/deferred/0014-async-local-orchestration-with-durable-queues.md](exec-plans/deferred/0014-async-local-orchestration-with-durable-queues.md): deferred async local orchestration with durable queues plan.
 - [exec-plans/deferred/0025-awm-runtime-phase-index.md](exec-plans/deferred/0025-awm-runtime-phase-index.md): umbrella phase index and decision record for the staged AWM runtime-kernel work.
 - [exec-plans/deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](exec-plans/deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md): compatibility redirect for historical 0025 links.
-- [exec-plans/deferred/0025-phase-b-consumer-inversion.md](exec-plans/deferred/0025-phase-b-consumer-inversion.md): Phase B inversion of replay, quality, and reward consumers onto runtime capabilities.
 - [exec-plans/deferred/0025-phase-c-rollout-ready-runtime-api.md](exec-plans/deferred/0025-phase-c-rollout-ready-runtime-api.md): Phase C rollout-ready runtime session and action-envelope API.
 - [exec-plans/deferred/0025-phase-d-adapter-surface-generalization.md](exec-plans/deferred/0025-phase-d-adapter-surface-generalization.md): Phase D local adapter surface generalization over runtime descriptors.
 - [exec-plans/deferred/0025-phase-e-extraction-readiness-review.md](exec-plans/deferred/0025-phase-e-extraction-readiness-review.md): Phase E extraction readiness review and decision gate.
@@ -58,6 +57,7 @@
 - [exec-plans/completed/0022-held-out-evaluation-and-profile-benchmarking.md](exec-plans/completed/0022-held-out-evaluation-and-profile-benchmarking.md): held-out evaluation reports and profile benchmarking evidence.
 - [exec-plans/completed/0023-evaluation-quality-ratchet-and-profile-promotion.md](exec-plans/completed/0023-evaluation-quality-ratchet-and-profile-promotion.md): held-out evaluation quality ratchets and profile promotion decisions.
 - [exec-plans/completed/0024-profile-purpose-and-dataset-release-admission.md](exec-plans/completed/0024-profile-purpose-and-dataset-release-admission.md): profile-purpose classification and opt-in dataset release admission reports.
+- [exec-plans/completed/0025-phase-a-internal-runtime-kernel-hardening.md](exec-plans/completed/0025-phase-a-internal-runtime-kernel-hardening.md): internal runtime descriptor and registry hardening.
 - [exec-plans/completed/0026-dataset-release-coverage-and-admission-ratchet.md](exec-plans/completed/0026-dataset-release-coverage-and-admission-ratchet.md): dataset release completeness gates and deterministic release-candidate admission.
 - [exec-plans/completed/0027-dataset-release-pack-and-reproducibility-verification.md](exec-plans/completed/0027-dataset-release-pack-and-reproducibility-verification.md): hash-locked dataset release packs and standalone reproducibility verification.
 - [exec-plans/completed/0028-release-quality-evidence-audit-and-card.md](exec-plans/completed/0028-release-quality-evidence-audit-and-card.md): release quality evidence audit and human-readable dataset release card.

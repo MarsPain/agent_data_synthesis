@@ -96,6 +96,24 @@ class EpisodeReplayTest(unittest.TestCase):
         self.assertEqual(summary["failed_checks"], ["runtime_supported"])
         self.assertEqual(report["decision"]["status"], "failed")
 
+    def test_malformed_episode_evidence_is_not_reported_as_unsupported_runtime(self) -> None:
+        from synthesis.episode_replay import build_episode_replay_report
+
+        episode = {
+            **_episode("candidate_contacts_alice"),
+            "transitions": [],
+        }
+
+        report = build_episode_replay_report(
+            dataset_version="dataset_replay_malformed_episode",
+            episodes=(episode,),
+        )
+
+        summary = report["episode_summaries"][0]
+        self.assertEqual(summary["failed_checks"], ["contract_valid"])
+        self.assertNotIn("runtime_supported", summary["failed_checks"])
+        self.assertEqual(report["decision"]["status"], "failed")
+
     def test_replay_threshold_defaults_are_descriptor_derived(self) -> None:
         from synthesis.episode_replay import EpisodeReplayThresholds
 

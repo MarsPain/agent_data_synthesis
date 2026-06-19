@@ -5,12 +5,14 @@ is accepted as complete, move it to `../completed/` and update `../../PLANS.md`.
 
 ## Currently Executing
 
-- [0025-phase-a-internal-runtime-kernel-hardening](0025-phase-a-internal-runtime-kernel-hardening.md):
-  active as of 2026-06-19. Hardens the internal AWM runtime kernel with
-  descriptors and registry-backed runtime capability lookup.
+There is no active implementation plan at this point.
 
 ## Completed
 
+- [0025-phase-b-consumer-inversion](../completed/0025-phase-b-consumer-inversion.md):
+  completed on 2026-06-19.
+- [0025-phase-a-internal-runtime-kernel-hardening](../completed/0025-phase-a-internal-runtime-kernel-hardening.md):
+  completed on 2026-06-19.
 - [0036-domain-aware-held-out-evaluation-and-release-semantics](../completed/0036-domain-aware-held-out-evaluation-and-release-semantics.md):
   completed on 2026-06-19.
 - [0035-domain-source-admission-interface](../completed/0035-domain-source-admission-interface.md):

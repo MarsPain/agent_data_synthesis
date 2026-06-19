@@ -10,6 +10,25 @@ from synthesis.contracts import ContractValidationError
 from synthesis.seeds import DomainSeed, foundation_seed
 
 
+RUNTIME_CAPABILITY_STATUSES = frozenset(
+    {
+        "supported",
+        "unsupported",
+        "insufficient_evidence",
+        "malformed",
+    }
+)
+RUNTIME_CAPABILITY_FIELDS = frozenset(
+    {
+        "supports_rebuild",
+        "supports_checkpoint_restore",
+        "supports_episode_replay",
+        "supports_reward_labels",
+        "supports_local_adapter",
+    }
+)
+
+
 @dataclass(frozen=True)
 class RuntimeCapabilityDescriptor:
     runtime_id: str
@@ -173,6 +192,24 @@ def runtime_descriptor(
     registry: RuntimeRegistry | None = None,
 ) -> RuntimeCapabilityDescriptor:
     return _registry(registry).descriptor(runtime_id)
+
+
+def runtime_capability_status(
+    runtime_id: object,
+    capability_name: str,
+    registry: RuntimeRegistry | None = None,
+) -> str:
+    if runtime_id is None:
+        return "insufficient_evidence"
+    if not isinstance(runtime_id, str) or not runtime_id.strip():
+        return "malformed"
+    if capability_name not in RUNTIME_CAPABILITY_FIELDS:
+        raise ContractValidationError(f"runtime capability is unsupported: {capability_name}")
+    try:
+        descriptor = runtime_descriptor(runtime_id, registry)
+    except KeyError:
+        return "unsupported"
+    return "supported" if bool(getattr(descriptor, capability_name)) else "unsupported"
 
 
 def runtime_registry_with(

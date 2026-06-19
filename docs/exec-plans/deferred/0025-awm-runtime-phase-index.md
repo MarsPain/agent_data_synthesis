@@ -6,8 +6,8 @@ Planned on 2026-06-09. This is an umbrella phase index and decision record, not
 a directly executable implementation plan. The executable work is split into
 Phase A-F documents.
 
-Phase A is active as of 2026-06-19 to harden the internal runtime kernel.
-Phases B-F remain deferred behind explicit prerequisites.
+Phase A and Phase B completed on 2026-06-19. Phases C-F remain deferred behind
+explicit prerequisites.
 
 Do not move Phase F to active unless Phase E produces an explicit
 `ready_for_extraction_plan` decision.
@@ -55,13 +55,14 @@ packs, not the package boundary.
 
 ## Phase Index
 
-- [0025 Phase A: Internal Runtime Kernel Hardening](../active/0025-phase-a-internal-runtime-kernel-hardening.md)
+- [0025 Phase A: Internal Runtime Kernel Hardening](../completed/0025-phase-a-internal-runtime-kernel-hardening.md)
   - Centralize runtime capabilities and descriptor lookup so replay/reward
     consumers do not own contacts/mobile allowlists.
-  - Active as of 2026-06-19.
-- [0025 Phase B: Runtime Consumer Inversion](0025-phase-b-consumer-inversion.md)
+  - Completed on 2026-06-19.
+- [0025 Phase B: Runtime Consumer Inversion](../completed/0025-phase-b-consumer-inversion.md)
   - Make episode quality, replay, and reward labels consume `episode_log_v1`
     plus runtime capabilities rather than domain branches.
+  - Completed on 2026-06-19.
 - [0025 Phase C: Rollout-Ready Runtime API](0025-phase-c-rollout-ready-runtime-api.md)
   - Add reset/checkpoint/list-tools/execute-action/episode-export semantics
     needed by future rollout collectors, without RL training.
@@ -77,14 +78,14 @@ packs, not the package boundary.
 
 ## Phase Lifecycle
 
-Phase A moved to `active/` when the development objective shifted toward
-framework robustness and extensibility rather than another domain-specific
-feature. Reward-label export from plan 0034 supplied enough pressure for Phase
-A, but not for package extraction.
+Phase A moved to `completed/` after adding descriptor and registry evidence for
+replay/reward consumers. Phase B moved to `completed/` after episode quality,
+replay, and reward-label consumers aligned on descriptor-backed capability
+semantics. Reward-label export from plan 0034 supplied enough pressure for the
+0025 sequence, but not for package extraction.
 
-Keep Phases B-F deferred until their prerequisites complete:
+Keep Phases C-F deferred until their prerequisites complete:
 
-- Phase B requires Phase A descriptors and registry.
 - Phase C requires Phase B consumer inversion.
 - Phase D requires Phase C runtime sessions and action envelopes.
 - Phase E requires Phase D or equivalent runtime/adapter evidence.

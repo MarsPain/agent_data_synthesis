@@ -13,7 +13,12 @@ from synthesis.contracts import (
     validate_reward_label_record,
     validate_reward_label_report_record,
 )
-from synthesis.runtime import RuntimeCapabilityDescriptor, RuntimeRegistry, runtime_descriptor
+from synthesis.runtime import (
+    RuntimeCapabilityDescriptor,
+    RuntimeRegistry,
+    runtime_capability_status,
+    runtime_descriptor,
+)
 
 
 REWARD_LABELS_FILENAME = "reward_labels.jsonl"
@@ -262,15 +267,15 @@ def write_reward_label_report(
 
 
 def reward_label_runtime_capability_status(
-    runtime_id: str,
+    runtime_id: object,
     *,
     runtime_registry: RuntimeRegistry | None = None,
 ) -> str:
-    try:
-        descriptor = runtime_descriptor(runtime_id, runtime_registry)
-    except KeyError:
-        return "unsupported"
-    return "supported" if descriptor.supports_reward_labels else "unsupported"
+    return runtime_capability_status(
+        runtime_id,
+        "supports_reward_labels",
+        runtime_registry,
+    )
 
 
 def _build_label(
@@ -465,13 +470,15 @@ def _reward_descriptor(
     runtime_id: str,
     runtime_registry: RuntimeRegistry | None,
 ) -> RuntimeCapabilityDescriptor | None:
-    try:
-        descriptor = runtime_descriptor(runtime_id, runtime_registry)
-    except KeyError:
+    if (
+        reward_label_runtime_capability_status(
+            runtime_id,
+            runtime_registry=runtime_registry,
+        )
+        != "supported"
+    ):
         return None
-    if not descriptor.supports_reward_labels:
-        return None
-    return descriptor
+    return runtime_descriptor(runtime_id, runtime_registry)
 
 
 def _scalar_reward(

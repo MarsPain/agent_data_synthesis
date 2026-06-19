@@ -76,7 +76,7 @@ remain stable.
 
 Owns the first non-synthesis consumer of runtime episode evidence. It reads
 opt-in `episodes.jsonl` records, validates the `episode_log_v1` contract, scores
-transition completeness and state-change support, and writes
+transition completeness and descriptor-derived state-change support, and writes
 `episode_quality_report_v1` summaries without raw arguments, observations,
 final responses, prompts, provider payloads, credentials, source payloads, or
 host paths. It consumes `synthesis.runtime` and `synthesis.episodes`; it does
@@ -86,10 +86,11 @@ training, executable replay, or Agentic RL rollout collection.
 ### Episode Replay
 
 Owns the first execution-facing consumer of runtime episode evidence. It reads
-opt-in `episodes.jsonl` records, validates `episode_log_v1`, rebuilds fresh
-contacts/mobile fixture runtimes, re-executes action transitions through
-`ToolRegistry.execute()`, compares replayed observation and state-change hashes,
-and writes `episode_replay_report_v1` summaries without raw arguments,
+opt-in `episodes.jsonl` records, validates `episode_log_v1`, resolves replay
+support and rebuild seeds through runtime descriptors, rebuilds fresh supported
+fixture runtimes, re-executes action transitions through `ToolRegistry.execute()`,
+compares replayed observation and state-change hashes, and writes
+`episode_replay_report_v1` summaries without raw arguments,
 observations, final responses, prompts, provider payloads, credentials, source
 payloads, or host paths. It consumes `synthesis.runtime`, `synthesis.episodes`,
 `synthesis.episode_quality`, and `synthesis.domain_pipeline`; it does not own
@@ -102,14 +103,14 @@ extraction.
 Owns the deterministic training-signal consumer over runtime episode evidence.
 It reads validated `episode_log_v1` records plus optional episode-quality and
 episode-replay evidence, derives scalar `reward_label_v1` records and
-preference-group metadata, and writes `reward_label_report_v1` summaries without
-raw task instructions, expected answers, expected state, tool arguments,
-observations, final responses, prompts, provider payloads, credentials, source
-payloads, or host paths. It consumes `synthesis.episodes`,
-`synthesis.episode_quality`, `synthesis.episode_replay`, and
-`synthesis.contracts`; it does not train reward models, collect RL rollouts,
-change release admission, promote profiles, call external MCP environment
-servers, or own AWM runtime package extraction.
+preference-group metadata from descriptor-backed reward/state support, and
+writes `reward_label_report_v1` summaries without raw task instructions,
+expected answers, expected state, tool arguments, observations, final responses,
+prompts, provider payloads, credentials, source payloads, or host paths. It
+consumes `synthesis.runtime`, `synthesis.episodes`, `synthesis.episode_quality`,
+`synthesis.episode_replay`, and `synthesis.contracts`; it does not train reward
+models, collect RL rollouts, change release admission, promote profiles, call
+external MCP environment servers, or own AWM runtime package extraction.
 
 ### Dataset Assembly
 
@@ -149,9 +150,12 @@ Start local and deterministic:
   registry contract for runtime identity, supported replay/reward capabilities,
   state-changing tools, local-adapter support, and replay rebuild seeds. Replay
   and reward consumers should ask the registry for capability facts instead of
-  owning contacts/mobile runtime allowlists.
+  owning contacts/mobile runtime allowlists. The runtime boundary also owns the
+  sanitized capability-status vocabulary: `supported`, `unsupported`,
+  `insufficient_evidence`, and `malformed`.
 - Episode-quality reporting is a repo-local, synchronous runtime evidence
-  consumer. It proves the episode boundary can serve another data-quality
+  consumer. It reads known-runtime and state-changing-tool facts from runtime
+  descriptors, proving the episode boundary can serve another data-quality
   reader while keeping full AWM runtime package extraction deferred.
 - Episode-replay reporting is a repo-local, synchronous execution consistency
   consumer. It proves the current runtime boundary can serve a non-synthesis
@@ -162,6 +166,10 @@ Start local and deterministic:
   preference-ready deterministic labels while keeping reward training, Agentic
   RL rollout collection, release admission changes, and package extraction
   deferred.
+- Domain packs remain responsible for domain state, domain tools, scripted
+  policies, verifiers, source import semantics, and rebuild seeds. Consumer
+  modules may read descriptor capability facts, but they should not learn
+  contacts/mobile business rules or hard-code domain-specific runtime branches.
 - Task-intent, policy-hint, expected-outcome, and expected-state contracts are
   internal only. They de-risk future reward/RL/runtime consumers without
   changing `CandidateTask.export()`, `samples.jsonl`, `rejections.jsonl`, or

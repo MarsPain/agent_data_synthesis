@@ -26,14 +26,16 @@ The first backend should be a local Python pipeline with explicit modules and du
   admitted source bytes into `MobileMessagesEnvironmentInput`.
 - `synthesis.runtime`: internal environment runtime protocol, sanitized
   `runtime_metadata_v1` construction, immutable runtime capability descriptors,
-  and deterministic runtime registry lookup for lifecycle and capability
-  evidence shared by contacts and mobile domain environments.
+  deterministic runtime registry lookup, and shared sanitized capability-status
+  vocabulary for lifecycle and capability evidence shared by contacts and
+  mobile domain environments.
 - `synthesis.episodes`: internal `episode_log_v1` construction, deterministic
   transition hashing, redaction, and diagnostic episode summaries over existing
   trajectories.
 - `synthesis.episode_quality`: opt-in `episodes.jsonl` persistence and
   `episode_quality_report_v1` construction over sanitized episode logs. It
-  validates runtime/episode evidence, scores transition completeness and
+  validates runtime/episode evidence, reads known-runtime and state-changing
+  tool facts from runtime descriptors, scores transition completeness and
   state-change support, and writes compact summaries without raw tool payloads,
   prompts, credentials, or host paths.
 - `synthesis.episode_replay`: opt-in `episode_replay_report_v1` construction
@@ -202,7 +204,8 @@ trajectories, exports, or logs.
 21. When `--write-episode-quality-report` is explicitly supplied, write
    `episodes.jsonl`, score it into `episode_quality_report.json`, and rewrite
    only the manifest artifact map to reference both opt-in artifacts. This
-   local synchronous consumer validates and scores runtime episode evidence; it
+   local synchronous consumer validates and scores runtime episode evidence by
+   reading runtime identity and state-changing-tool facts from descriptors; it
    does not replay actions against fresh state, train reward models, collect RL
    rollouts, or change candidate admission.
 22. When `--write-episode-replay-report` is explicitly supplied, write
@@ -217,9 +220,10 @@ trajectories, exports, or logs.
    reports were not explicitly requested, write `reward_labels.jsonl` and
    `reward_label_report.json`, and rewrite only the manifest artifact map to
    reference `episodes`, `reward_labels`, and `reward_label_report`. This local
-   synchronous consumer produces deterministic labels; it does not train reward
-   models, collect RL rollouts, call external MCP environment servers, change
-   release admission, promote profiles, or extract an AWM runtime package.
+   synchronous consumer produces deterministic labels from descriptor-backed
+   reward/state support; it does not train reward models, collect RL rollouts,
+   call external MCP environment servers, change release admission, promote
+   profiles, or extract an AWM runtime package.
 24. When `--write-evaluation-report` is explicitly supplied, resolve the
    deterministic held-out suite from the manifest run-profile domain, write
    `evaluation_report.json`, and rewrite only the manifest artifact map to
