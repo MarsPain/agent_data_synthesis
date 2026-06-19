@@ -43,4 +43,4 @@ uv run python -m unittest
 - The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
 - Current active work is tracked in [docs/PLANS.md](docs/PLANS.md); there is no
   active implementation plan at this point.
-- Latest completed work is documented in [docs/exec-plans/completed/0034-reward-label-export-and-runtime-scoring-consumer.md](docs/exec-plans/completed/0034-reward-label-export-and-runtime-scoring-consumer.md).
+- Latest completed work is documented in [docs/exec-plans/completed/0036-domain-aware-held-out-evaluation-and-release-semantics.md](docs/exec-plans/completed/0036-domain-aware-held-out-evaluation-and-release-semantics.md).

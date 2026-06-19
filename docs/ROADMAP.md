@@ -103,6 +103,10 @@
   async orchestration. Implemented in plan 0023 with controlled-failure
   benchmark semantics, per-capability thresholds, semantic duplicate watch
   rationale, and profile promotion separated from the MVP quality floor.
+- Make held-out evaluation and release evidence domain-aware before adding more
+  domains. Implemented in plan 0036 with contacts/mobile held-out suite
+  resolution, mobile evaluation evidence, profile-promotion domain mismatch
+  gates, and dataset release domain mismatch gates.
 - Add profile-purpose classification and dataset release admission before async
   orchestration. Implemented in plan 0024 with explicit profile-purpose metadata and
   opt-in dataset release admission so diagnostic profiles remain distinct from

@@ -169,6 +169,42 @@ class ProfileDecisionReportTest(unittest.TestCase):
         self.assertEqual(report["decisions"]["profile_promotion"]["status"], "passed")
         self.assertEqual(report["inputs"]["evaluation_report_path"], "evaluation_report.json")
 
+    def test_profile_promotion_is_insufficient_when_evaluation_domain_mismatches_manifest(self) -> None:
+        from synthesis.profile_decisions import build_profile_decision_report
+
+        inputs = _mobile_report_inputs(total=10, accepted=5, rejected=5)
+
+        report = build_profile_decision_report(
+            **inputs,
+            evaluation_report=_evaluation_report(status="passed"),
+            evaluation_report_path=Path("evaluation_report.json"),
+        )
+
+        self.assertEqual(report["evaluation"]["domain_id"], "contacts_fixture")
+        self.assertEqual(
+            report["decisions"]["profile_promotion"]["status"],
+            "insufficient_evidence",
+        )
+        self.assertIn(
+            "evaluation domain contacts_fixture does not match manifest domain mobile_messages_fixture",
+            report["decisions"]["profile_promotion"]["reasons"],
+        )
+
+    def test_profile_promotion_passes_when_mobile_evaluation_domain_matches_manifest(self) -> None:
+        from synthesis.profile_decisions import build_profile_decision_report
+
+        inputs = _mobile_report_inputs(total=10, accepted=5, rejected=5)
+
+        report = build_profile_decision_report(
+            **inputs,
+            evaluation_report=_mobile_evaluation_report(status="passed"),
+            evaluation_report_path=Path("evaluation_report.json"),
+        )
+
+        self.assertEqual(report["evaluation"]["domain_id"], "mobile_messages_fixture")
+        self.assertEqual(report["evaluation"]["suite_id"], "mobile_messages_heldout_v1")
+        self.assertEqual(report["decisions"]["profile_promotion"]["status"], "passed")
+
     def test_evaluation_failed_report_fails_mvp_quality_floor(self) -> None:
         from synthesis.profile_decisions import build_profile_decision_report
 
@@ -386,6 +422,49 @@ def _report_inputs(
     }
 
 
+def _mobile_report_inputs(
+    *,
+    total: int,
+    accepted: int,
+    rejected: int,
+) -> dict[str, object]:
+    inputs = _report_inputs(total=total, accepted=accepted, rejected=rejected)
+    manifest = inputs["manifest"]
+    assert isinstance(manifest, dict)
+    manifest["environment_versions"] = ["env_mobile_messages_v1"]
+    manifest["tool_versions"] = [
+        "tool_search_phone_messages_v1",
+        "tool_create_phone_reminder_v1",
+        "tool_draft_message_reply_v1",
+    ]
+    run_profile = manifest["run_profile"]
+    assert isinstance(run_profile, dict)
+    run_profile.update(
+        {
+            "schema_version": "run_profile_v2",
+            "profile_id": "profile_local_mobile_messages",
+            "generation_mode": "mobile_fixture",
+            "profile_purpose": "diagnostic_probe",
+            "seed": {"domain": "mobile_messages_fixture"},
+            "source": {
+                "kind": "local_mobile_messages_json",
+                "source_id": "source_profile_mobile_messages_v1",
+                "content_hash": "sha256:" + "2" * 64,
+                "license_label": "cc-by-4.0",
+                "source_policy_hash": "sha256:" + "3" * 64,
+            },
+        }
+    )
+    quality_report = inputs["quality_report"]
+    assert isinstance(quality_report, dict)
+    slices = quality_report["slices"]
+    assert isinstance(slices, dict)
+    slices["run_profile_id"] = {"profile_local_mobile_messages": {}}
+    slices["generation_mode"] = {"mobile_fixture": {}}
+    slices["run_profile_schema_version"] = {"run_profile_v2": {}}
+    return inputs
+
+
 def _evaluation_report(
     *,
     status: str,
@@ -437,6 +516,26 @@ def _evaluation_report(
         "thresholds": {"mvp_min_heldout_pass_rate": 0.8, "max_regression_count": 0},
         "decision": {"status": status, "reasons": ["evaluation"], "triggered_by": []},
     }
+
+
+def _mobile_evaluation_report(
+    *,
+    status: str,
+    pass_rate: float = 0.8,
+    regressed: int = 0,
+) -> dict[str, object]:
+    report = _evaluation_report(status=status, pass_rate=pass_rate, regressed=regressed)
+    report["suite"] = {
+        "suite_id": "mobile_messages_heldout_v1",
+        "suite_version": "mobile_messages_heldout_v1",
+        "domain_id": "mobile_messages_fixture",
+        "task_count": 5,
+    }
+    report["domain"] = {
+        "domain_id": "mobile_messages_fixture",
+        "source": "test",
+    }
+    return report
 
 
 if __name__ == "__main__":

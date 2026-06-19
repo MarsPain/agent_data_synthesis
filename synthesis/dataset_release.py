@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from synthesis.contracts import validate_dataset_release_report_record
+from synthesis.profile_decisions import evaluation_domain_id, manifest_domain_id
 
 
 DATASET_RELEASE_REPORT_SCHEMA_VERSION = "dataset_release_report_v1"
@@ -217,6 +218,17 @@ def _dataset_release_decision(
             "triggered_by": ["profile_purpose"],
         }
 
+    mismatch_reason = _evaluation_domain_mismatch_reason(
+        manifest=manifest,
+        evaluation_report=evaluation_report,
+    )
+    if mismatch_reason is not None:
+        return {
+            "status": "insufficient_evidence",
+            "reasons": [mismatch_reason],
+            "triggered_by": ["evaluation_domain"],
+        }
+
     async_status = _string_value(
         observed.get("async_orchestration_status"),
         "observed.async_orchestration_status",
@@ -311,6 +323,25 @@ def _missing_evidence(
         if not isinstance(observed.get(field), str) or not str(observed.get(field)).strip():
             missing.append(f"observed.{field}")
     return missing
+
+
+def _evaluation_domain_mismatch_reason(
+    *,
+    manifest: Mapping[str, Any],
+    evaluation_report: Mapping[str, Any] | None,
+) -> str | None:
+    if evaluation_report is None:
+        return None
+    evaluation_domain = evaluation_domain_id(evaluation_report)
+    if evaluation_domain is None:
+        return None
+    manifest_domain = manifest_domain_id(manifest)
+    if evaluation_domain == manifest_domain:
+        return None
+    return (
+        f"evaluation domain {evaluation_domain} does not match "
+        f"manifest domain {manifest_domain}"
+    )
 
 
 def _observed_summary(

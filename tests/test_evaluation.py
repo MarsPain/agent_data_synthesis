@@ -27,6 +27,53 @@ class HeldoutEvaluationTest(unittest.TestCase):
         )
         self.assertTrue(all(task.capability_tags for task in suite.tasks))
 
+    def test_contacts_suite_has_domain_identity(self) -> None:
+        from synthesis.evaluation import contacts_heldout_suite, resolve_heldout_suite
+
+        suite = contacts_heldout_suite()
+
+        self.assertEqual(suite.domain_id, "contacts_fixture")
+        self.assertEqual(resolve_heldout_suite("contacts").suite_id, "contacts_heldout_v1")
+        self.assertEqual(
+            resolve_heldout_suite("contacts_fixture").domain_id,
+            "contacts_fixture",
+        )
+
+    def test_mobile_suite_has_stable_ids_and_capability_tags(self) -> None:
+        from synthesis.evaluation import mobile_messages_heldout_suite
+
+        suite = mobile_messages_heldout_suite()
+
+        self.assertEqual(suite.suite_id, "mobile_messages_heldout_v1")
+        self.assertEqual(suite.domain_id, "mobile_messages_fixture")
+        self.assertEqual(
+            [task.task_id for task in suite.tasks],
+            [
+                "heldout_mobile_lookup_maya",
+                "heldout_mobile_reminder_maya",
+                "heldout_mobile_draft_reply_alex",
+                "heldout_mobile_branch_fallback_delivery",
+                "heldout_mobile_missing_message",
+            ],
+        )
+        observed_tags = sorted({tag for task in suite.tasks for tag in task.capability_tags})
+        self.assertEqual(
+            observed_tags,
+            [
+                "mobile_branching",
+                "mobile_draft_reply",
+                "mobile_message_lookup",
+                "mobile_message_to_reminder",
+                "mobile_missing_message",
+            ],
+        )
+
+    def test_resolve_heldout_suite_rejects_unsupported_domain(self) -> None:
+        from synthesis.evaluation import resolve_heldout_suite
+
+        with self.assertRaisesRegex(ValueError, "unsupported held-out evaluation domain"):
+            resolve_heldout_suite("calendar_fixture")
+
     def test_generated_report_counts_slices_and_validates(self) -> None:
         from synthesis.contracts import validate_evaluation_report_record
         from synthesis.evaluation import build_evaluation_report
@@ -56,6 +103,31 @@ class HeldoutEvaluationTest(unittest.TestCase):
         self.assertEqual(task_result["status"], "passed")
         self.assertEqual(task_result["expected_outcome"], "controlled_failure")
         self.assertEqual(task_result["observed_failure_cause"], "verification_failed")
+        self.assertEqual(report["decision"]["status"], "passed")
+        validate_evaluation_report_record(report)
+
+    def test_mobile_report_counts_slices_and_validates(self) -> None:
+        from synthesis.contracts import validate_evaluation_report_record
+        from synthesis.evaluation import build_evaluation_report
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest_path, quality_report_path = _write_mobile_inputs(Path(tmpdir))
+
+            report = build_evaluation_report(
+                manifest_path=manifest_path,
+                quality_report_path=quality_report_path,
+            )
+
+        self.assertEqual(report["suite"]["suite_id"], "mobile_messages_heldout_v1")
+        self.assertEqual(report["suite"]["domain_id"], "mobile_messages_fixture")
+        self.assertEqual(report["domain"]["domain_id"], "mobile_messages_fixture")
+        self.assertEqual(report["counts"]["total"], 5)
+        self.assertEqual(report["counts"]["passed"], 5)
+        self.assertEqual(report["counts"]["failed"], 0)
+        self.assertEqual(report["capability_slices"]["mobile_message_lookup"]["passed"], 1)
+        self.assertEqual(report["capability_slices"]["mobile_message_to_reminder"]["passed"], 1)
+        self.assertEqual(report["capability_slices"]["mobile_draft_reply"]["passed"], 1)
+        self.assertEqual(report["capability_slices"]["mobile_missing_message"]["passed"], 1)
         self.assertEqual(report["decision"]["status"], "passed")
         validate_evaluation_report_record(report)
 
@@ -216,6 +288,61 @@ def _write_inputs(tmp_path: Path) -> tuple[Path, Path]:
         "dataset_version": "dataset_test",
         "counts": {"total": 5, "accepted": 4, "rejected": 1, "executable": 5},
         "rates": {"success_rate": 0.8, "executable_rate": 1.0},
+        "rejection_causes": {},
+        "slices": {},
+    }
+    manifest_path = tmp_path / "manifest.json"
+    quality_report_path = tmp_path / "quality_report.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    quality_report_path.write_text(json.dumps(quality_report), encoding="utf-8")
+    return manifest_path, quality_report_path
+
+
+def _write_mobile_inputs(tmp_path: Path) -> tuple[Path, Path]:
+    manifest = {
+        "schema_version": "dataset_manifest_v1",
+        "dataset_version": "dataset_mobile_test",
+        "parent_dataset_version": None,
+        "accepted_count": 4,
+        "rejected_count": 0,
+        "artifacts": {
+            "samples": "samples.jsonl",
+            "rejections": "rejections.jsonl",
+            "quality_report": "quality_report.json",
+        },
+        "quality": {"success_rate": 1.0, "executable_rate": 1.0},
+        "environment_versions": ["mobile_messages_fixture_v1"],
+        "tool_versions": [
+            "tool_search_phone_messages_v1",
+            "tool_create_phone_reminder_v1",
+            "tool_draft_message_reply_v1",
+        ],
+        "verifier_versions": ["verifier_exact_answer_state_v2"],
+        "generator_config_hashes": ["mobile-fixture-task-generation-v1"],
+        "rejection_causes": {},
+        "run_profile": {
+            "schema_version": "run_profile_v2",
+            "profile_id": "profile_local_mobile_messages",
+            "profile_purpose": "diagnostic_probe",
+            "generation_mode": "mobile_fixture",
+            "target_candidate_count": 4,
+            "config_hash": "sha256:" + "2" * 64,
+            "enabled_features": [],
+            "seed": {"domain": "mobile_messages_fixture"},
+            "source": {
+                "kind": "local_mobile_messages_json",
+                "source_id": "source_profile_mobile_messages_v1",
+                "content_hash": "sha256:" + "3" * 64,
+                "license_label": "cc-by-4.0",
+                "source_policy_hash": "sha256:" + "4" * 64,
+            },
+        },
+    }
+    quality_report = {
+        "schema_version": "quality_report_v1",
+        "dataset_version": "dataset_mobile_test",
+        "counts": {"total": 4, "accepted": 4, "rejected": 0, "executable": 4},
+        "rates": {"success_rate": 1.0, "executable_rate": 1.0},
         "rejection_causes": {},
         "slices": {},
     }

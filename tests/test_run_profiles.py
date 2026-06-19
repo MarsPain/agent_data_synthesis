@@ -74,10 +74,12 @@ class RunProfileTest(unittest.TestCase):
                     "target_candidate_count",
                     "config_hash",
                     "enabled_features",
+                    "seed",
                 },
             )
             self.assertEqual(metadata["generation_mode"], "deterministic_scale_probe")
             self.assertEqual(metadata["profile_purpose"], "diagnostic_probe")
+            self.assertEqual(metadata["seed"], {"domain": "contacts"})
             self.assertEqual(metadata["target_candidate_count"], 25)
             self.assertEqual(metadata["enabled_features"], [])
             self.assertRegex(str(metadata["config_hash"]), r"^sha256:[0-9a-f]{64}$")

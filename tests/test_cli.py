@@ -284,6 +284,55 @@ class FoundationCliTest(unittest.TestCase):
             )
             self.assertEqual(report["decision"]["status"], "passed")
 
+    def test_mobile_profile_can_write_domain_aware_evaluation_and_profile_decision_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "mobile-agent-fixture"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/mobile-agent-fixture.json",
+                    "--write-evaluation-report",
+                    "--write-profile-decision-report",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            evaluation_report = json.loads(
+                (output_dir / "evaluation_report.json").read_text(encoding="utf-8")
+            )
+            decision_report = json.loads(
+                (output_dir / "profile_decision_report.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                manifest["run_profile"]["seed"]["domain"],
+                "mobile_messages_fixture",
+            )
+            self.assertEqual(
+                evaluation_report["suite"]["suite_id"],
+                "mobile_messages_heldout_v1",
+            )
+            self.assertEqual(
+                evaluation_report["domain"]["domain_id"],
+                "mobile_messages_fixture",
+            )
+            self.assertEqual(
+                decision_report["evaluation"]["domain_id"],
+                "mobile_messages_fixture",
+            )
+            self.assertEqual(
+                decision_report["decisions"]["profile_promotion"]["status"],
+                "passed",
+            )
+
     def test_main_can_enable_deterministic_refinement(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "foundation"

@@ -559,16 +559,19 @@ suggester and editor metadata do not overwrite those fields.
 ### Evaluation Report Contract
 
 `evaluation_report.json` uses `schema_version: evaluation_report_v1` and is
-generated only when explicitly requested. The first suite is
-`contacts_heldout_v1`, a deterministic contacts benchmark that is separate from
-generated candidates and scale-probe duplicate patterns. It executes fixed
-held-out tasks through the local contacts environment, tool registry, scripted
-policy execution, and verifier contracts.
+generated only when explicitly requested. The report resolves a deterministic
+held-out suite from the manifest run-profile domain. Contacts profiles use
+`contacts_heldout_v1`; mobile messages profiles use
+`mobile_messages_heldout_v1`. Both suites are separate from generated
+candidates and scale-probe duplicate patterns, and both execute fixed held-out
+tasks through the domain pipeline environment, tool registry, scripted policy
+execution, and verifier contracts.
 
 The report records sanitized dataset/profile identity, artifact input names,
-suite id/version/task count, per-task pass/fail results, capability slices,
-aggregate counts, pass rate, optional parent evaluation comparison, and a
-threshold decision. Thresholds include `mvp_min_heldout_pass_rate`,
+suite id/version/domain/task count, top-level evaluation domain, per-task
+pass/fail results, capability slices, aggregate counts, pass rate, optional
+parent evaluation comparison, and a threshold decision. Thresholds include
+`mvp_min_heldout_pass_rate`,
 `max_regression_count`, and optional `min_capability_pass_rates`. Capability
 thresholds ratchet individual benchmark slices independently of the aggregate
 pass rate; if a required slice is missing, the decision is
@@ -616,7 +619,8 @@ MVP promotion decision: it can be `passed`, `failed`, `blocked`, or
 `insufficient_evidence`. Promotion requires the MVP floor and held-out
 evaluation to pass, remains blocked when async orchestration or semantic
 duplicate detection activates, and reports insufficient evidence when required
-quality or evaluation evidence is missing or malformed.
+quality or evaluation evidence is missing, malformed, or from a domain that
+does not match the manifest run-profile domain.
 The report stores sanitized profile metadata only and must not include raw
 profile files, source paths, payload rows, contact emails, prompts, headers, API
 keys, or arbitrary profile JSON.
@@ -647,7 +651,8 @@ decides whether the concrete artifact set can be treated as a releaseable local
 MVP dataset version. Release admission passes only for `profile_purpose:
 release_candidate`, passed profile promotion, passed held-out evaluation,
 deferred async orchestration, deferred semantic duplicate detection, zero
-source-policy rejection rate, and manifest references to `samples`,
+source-policy rejection rate, evaluation evidence whose domain matches the
+manifest run-profile domain, and manifest references to `samples`,
 `rejections`, `quality_report`, `evaluation_report`, and
 `profile_decision_report`. It also requires release completeness evidence to
 pass. Diagnostic probes and benchmark profiles are non-releaseable by default.

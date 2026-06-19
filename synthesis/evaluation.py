@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import tempfile
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -10,11 +10,11 @@ from synthesis.contracts import (
     validate_evaluation_report_record,
     validate_manifest_record,
 )
-from synthesis.environments import ContactEnvironment
+from synthesis.domain_pipeline import build_domain_pipeline_bundle
 from synthesis.execution import execute_candidate
+from synthesis.mobile_tasks import generate_mobile_fixture_candidates
+from synthesis.seeds import DomainSeed
 from synthesis.tasks import CandidateTask
-from synthesis.tools import build_contact_tool_registry
-from synthesis.verification import ExactAnswerVerifier
 
 
 EVALUATION_REPORT_SCHEMA_VERSION = "evaluation_report_v1"
@@ -34,6 +34,7 @@ class HeldoutTask:
 class HeldoutSuite:
     suite_id: str
     suite_version: str
+    domain_id: str
     tasks: tuple[HeldoutTask, ...]
 
 
@@ -173,8 +174,112 @@ def contacts_heldout_suite() -> HeldoutSuite:
     return HeldoutSuite(
         suite_id=CONTACTS_HELDOUT_SUITE_ID,
         suite_version=CONTACTS_HELDOUT_SUITE_ID,
+        domain_id="contacts_fixture",
         tasks=tasks,
     )
+
+
+def mobile_messages_heldout_suite() -> HeldoutSuite:
+    seed_ids = ("heldout_mobile_messages_seed_v1",)
+    generated = {
+        str(candidate.constraints.get("task_type")): candidate
+        for candidate in generate_mobile_fixture_candidates(_mobile_heldout_seed())
+    }
+    tasks = (
+        HeldoutTask(
+            task_id="heldout_mobile_lookup_maya",
+            capability_tags=("mobile_message_lookup",),
+            candidate=_heldout_mobile_candidate(
+                generated["mobile_message_lookup"],
+                candidate_id="heldout_mobile_lookup_maya",
+                seed_ids=seed_ids,
+            ),
+        ),
+        HeldoutTask(
+            task_id="heldout_mobile_reminder_maya",
+            capability_tags=("mobile_message_to_reminder",),
+            candidate=_heldout_mobile_candidate(
+                generated["mobile_message_to_reminder"],
+                candidate_id="heldout_mobile_reminder_maya",
+                seed_ids=seed_ids,
+            ),
+        ),
+        HeldoutTask(
+            task_id="heldout_mobile_draft_reply_alex",
+            capability_tags=("mobile_draft_reply",),
+            candidate=_heldout_mobile_candidate(
+                generated["mobile_draft_reply"],
+                candidate_id="heldout_mobile_draft_reply_alex",
+                seed_ids=seed_ids,
+            ),
+        ),
+        HeldoutTask(
+            task_id="heldout_mobile_branch_fallback_delivery",
+            capability_tags=("mobile_branching",),
+            candidate=_heldout_mobile_candidate(
+                generated["mobile_branch_fallback"],
+                candidate_id="heldout_mobile_branch_fallback_delivery",
+                seed_ids=seed_ids,
+            ),
+        ),
+        HeldoutTask(
+            task_id="heldout_mobile_missing_message",
+            capability_tags=("mobile_missing_message",),
+            expected_outcome="controlled_failure",
+            expected_failure_cause="verification_failed",
+            candidate=CandidateTask(
+                candidate_id="heldout_mobile_missing_message",
+                instruction="Held-out negative case: verify a missing phone message fails safely.",
+                constraints={
+                    "domain": "mobile_messages_fixture",
+                    "task_type": "mobile_missing_message",
+                    "required_tools": ["search_phone_messages"],
+                    "heldout": True,
+                },
+                difficulty={
+                    "level": "easy",
+                    "tool_count": 1,
+                    "constraint_count": 2,
+                    "state_changes": 0,
+                    "ambiguity": "missing_message",
+                    "recovery_paths": 0,
+                },
+                tool_name="search_phone_messages",
+                arguments={"query": "nonexistent invoice", "participant": "Maya"},
+                expected_answer="msg_missing_invoice",
+                seed_ids=seed_ids,
+            ),
+        ),
+    )
+    return HeldoutSuite(
+        suite_id="mobile_messages_heldout_v1",
+        suite_version="mobile_messages_heldout_v1",
+        domain_id="mobile_messages_fixture",
+        tasks=tasks,
+    )
+
+
+def resolve_heldout_suite(domain_id: str) -> HeldoutSuite:
+    normalized = "contacts_fixture" if domain_id == "contacts" else domain_id
+    if normalized == "contacts_fixture":
+        return contacts_heldout_suite()
+    if normalized == "mobile_messages_fixture":
+        return mobile_messages_heldout_suite()
+    raise ValueError(f"unsupported held-out evaluation domain: {domain_id}")
+
+
+def _default_thresholds_for_domain(domain_id: str) -> EvaluationThresholds:
+    if domain_id == "mobile_messages_fixture":
+        return EvaluationThresholds(
+            min_capability_pass_rates={
+                "mobile_branching": 1.0,
+                "mobile_draft_reply": 1.0,
+                "mobile_message_lookup": 1.0,
+                "mobile_message_to_reminder": 1.0,
+                "mobile_missing_message": 1.0,
+            }
+        )
+    return EvaluationThresholds()
 
 
 def build_evaluation_report(
@@ -184,14 +289,15 @@ def build_evaluation_report(
     parent_evaluation_report_path: Path | None = None,
     thresholds: EvaluationThresholds | None = None,
 ) -> dict[str, object]:
-    thresholds = thresholds or EvaluationThresholds()
     manifest = _load_mapping(manifest_path, "manifest")
     validate_manifest_record(manifest)
     quality_report = _load_mapping(quality_report_path, "quality_report")
     dataset_version = _string_value(manifest.get("dataset_version"), "manifest.dataset_version")
     _ensure_quality_report_matches_dataset(quality_report, dataset_version)
 
-    suite = contacts_heldout_suite()
+    domain_id = _manifest_domain_id(manifest)
+    suite = resolve_heldout_suite(domain_id)
+    thresholds = thresholds or _default_thresholds_for_domain(suite.domain_id)
     task_results = _run_suite(suite)
     counts = _counts(task_results)
     parent_comparison = _compare_parent(
@@ -212,9 +318,14 @@ def build_evaluation_report(
         "suite": {
             "suite_id": suite.suite_id,
             "suite_version": suite.suite_version,
+            "domain_id": suite.domain_id,
             "task_count": len(suite.tasks),
         },
         "profile": _profile_summary(manifest),
+        "domain": {
+            "domain_id": suite.domain_id,
+            "source": "manifest.run_profile.seed.domain",
+        },
         "inputs": {
             "manifest_path": manifest_path.name,
             "quality_report_path": quality_report_path.name,
@@ -261,18 +372,25 @@ def write_evaluation_report(
 def _run_suite(suite: HeldoutSuite) -> list[HeldoutTaskResult]:
     results: list[HeldoutTaskResult] = []
     with tempfile.TemporaryDirectory() as tmpdir:
-        environment = ContactEnvironment.create_fixture(Path(tmpdir) / "evaluation")
-        registry = build_contact_tool_registry(environment)
-        verifier = ExactAnswerVerifier()
+        bundle = build_domain_pipeline_bundle(
+            _suite_seed(suite),
+            Path(tmpdir) / "evaluation",
+            include_branching=True,
+        )
         for task in suite.tasks:
             observed_failure_cause: str | None = None
             observed_passed = False
             try:
-                execution = execute_candidate(task.candidate, registry)
-                verification = verifier.verify(
+                execution = execute_candidate(
+                    task.candidate,
+                    bundle.registry,
+                    policy=bundle.policy_generator(task.candidate),
+                    adapter_shim=bundle.adapter_shim,
+                )
+                verification = bundle.verifier.verify(
                     task.candidate,
                     execution,
-                    environment=environment,
+                    environment=bundle.environment,
                 )
             except Exception as exc:
                 observed_failure_cause = _failure_cause(exc, task)
@@ -375,6 +493,55 @@ def _heldout_branching_candidate(seed_ids: tuple[str, ...]) -> CandidateTask:
                 },
             ],
         },
+    )
+
+
+def _mobile_heldout_seed() -> DomainSeed:
+    return DomainSeed(
+        seed_id="heldout_mobile_messages_seed_v1",
+        domain="mobile_messages_fixture",
+        description="Held-out synthetic phone messages evaluation seed.",
+        task_taxonomy=(
+            "mobile_message_lookup",
+            "mobile_message_to_reminder",
+            "mobile_draft_reply",
+            "mobile_branch_fallback",
+            "mobile_missing_message",
+        ),
+    )
+
+
+def _suite_seed(suite: HeldoutSuite) -> DomainSeed:
+    if suite.domain_id == "contacts_fixture":
+        return DomainSeed(
+            seed_id="heldout_contacts_seed_v1",
+            domain="contacts_fixture",
+            description="Held-out contacts evaluation seed.",
+            task_taxonomy=(
+                "single_tool_lookup",
+                "contact_followup",
+                "branch_fallback",
+                "missing_contact",
+            ),
+        )
+    if suite.domain_id == "mobile_messages_fixture":
+        return _mobile_heldout_seed()
+    raise ValueError(f"unsupported held-out evaluation domain: {suite.domain_id}")
+
+
+def _heldout_mobile_candidate(
+    candidate: CandidateTask,
+    *,
+    candidate_id: str,
+    seed_ids: tuple[str, ...],
+) -> CandidateTask:
+    constraints = dict(candidate.constraints)
+    constraints["heldout"] = True
+    return replace(
+        candidate,
+        candidate_id=candidate_id,
+        constraints=constraints,
+        seed_ids=seed_ids,
     )
 
 
@@ -542,17 +709,41 @@ def _profile_summary(manifest: Mapping[str, Any]) -> dict[str, object] | None:
     raw_profile = manifest.get("run_profile")
     if not isinstance(raw_profile, Mapping):
         return None
-    return {
+    summary = {
         key: raw_profile[key]
         for key in (
             "schema_version",
             "profile_id",
+            "profile_purpose",
             "generation_mode",
             "target_candidate_count",
             "config_hash",
         )
         if key in raw_profile
     }
+    domain_id = _run_profile_domain_id(raw_profile)
+    if domain_id is not None:
+        summary["domain"] = domain_id
+    return summary
+
+
+def _manifest_domain_id(manifest: Mapping[str, Any]) -> str:
+    raw_profile = manifest.get("run_profile")
+    if isinstance(raw_profile, Mapping):
+        domain_id = _run_profile_domain_id(raw_profile)
+        if domain_id is not None:
+            return domain_id
+    return "contacts_fixture"
+
+
+def _run_profile_domain_id(raw_profile: Mapping[str, Any]) -> str | None:
+    seed = raw_profile.get("seed")
+    if not isinstance(seed, Mapping):
+        return None
+    domain = seed.get("domain")
+    if not isinstance(domain, str) or not domain.strip():
+        return None
+    return "contacts_fixture" if domain == "contacts" else domain
 
 
 def _load_mapping(path: Path, label: str) -> Mapping[str, Any]:

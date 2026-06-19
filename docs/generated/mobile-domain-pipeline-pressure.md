@@ -1,7 +1,8 @@
 # Mobile Domain Pipeline Pressure
 
 Generated during plan 0029 on 2026-06-12. Updated by plans 0030, 0031, and
-0032 on 2026-06-13, and plans 0033, 0034, and 0035 on 2026-06-14.
+0032 on 2026-06-13, plans 0033, 0034, and 0035 on 2026-06-14, and plan
+0036 on 2026-06-19.
 
 ## What Changed
 
@@ -184,6 +185,27 @@ servers, semantic duplicate detection, async orchestration, controlled network
 source import for non-contacts domains, and full AWM runtime package extraction
 unresolved.
 
+## Plan 0036 Domain-Aware Evaluation Update
+
+Plan 0036 resolves the domain-aware held-out evaluation and release-semantics
+pressure:
+
+- `synthesis.evaluation` now resolves held-out suites from manifest
+  `run_profile.seed.domain`, preserving `contacts_heldout_v1` and adding
+  `mobile_messages_heldout_v1`.
+- Mobile held-out evaluation covers message lookup, reminder creation, draft
+  reply, branch fallback, and controlled missing-message failure through the
+  existing domain pipeline bundle.
+- New evaluation reports include suite/report domain identity and domain-aware
+  capability thresholds.
+- Profile promotion and dataset release admission treat evaluation evidence
+  from a different domain as `insufficient_evidence` instead of passed.
+
+This still leaves Agentic RL rollout collection, external MCP environment
+servers, semantic duplicate detection, async orchestration, controlled network
+source import for non-contacts domains, and full AWM runtime package extraction
+unresolved.
+
 ## Evidence
 
 - `tests.test_mobile_environment` covers mobile SQLite fixture construction,
@@ -214,6 +236,12 @@ unresolved.
 - `tests.test_domain_sources` covers generic profile-local domain source
   admission, contacts/mobile importer resolution, mismatch rejection, and
   sanitized source events.
+- `tests.test_evaluation` covers contacts/mobile held-out suite resolution,
+  mobile evaluation execution, domain report fields, and domain-aware threshold
+  decisions.
+- `tests.test_profile_decisions` and `tests.test_dataset_release` cover
+  domain-mismatch gates for promotion and release admission.
 - `tests.test_cli` covers the mobile run profile and confirms default CLI output
   remains contacts-only; it also covers opt-in episode-quality, episode-replay,
-  reward-label report writing, and profile-local mobile source admission.
+  reward-label report writing, profile-local mobile source admission, and
+  mobile domain-aware evaluation/profile-decision report writing.

@@ -75,8 +75,8 @@ The first backend should be a local Python pipeline with explicit modules and du
   future roles from making provider calls before an explicit enabling plan.
 - `synthesis.quality`: quality reports, metric slices, duplicate signatures,
   logical consistency checks, human-review records, and parent-version comparison.
-- `synthesis.evaluation`: deterministic held-out benchmark suites and
-  sanitized evaluation-report construction over existing environment, tool,
+- `synthesis.evaluation`: domain-aware deterministic held-out benchmark suites
+  and sanitized evaluation-report construction over existing environment, tool,
   execution, and verifier boundaries.
 - `synthesis.profile_decisions`: opt-in profile benchmark decision reports built
   from manifest, quality report, optional parent comparison, optional held-out
@@ -216,23 +216,26 @@ trajectories, exports, or logs.
    synchronous consumer produces deterministic labels; it does not train reward
    models, collect RL rollouts, call external MCP environment servers, change
    release admission, promote profiles, or extract an AWM runtime package.
-24. When `--write-evaluation-report` is explicitly supplied, run the
-   deterministic contacts held-out suite, write `evaluation_report.json`, and
-   rewrite only the manifest artifact map to reference that report. The
-   evaluation report includes controlled expected-failure benchmark semantics
-   and per-capability threshold decisions.
+24. When `--write-evaluation-report` is explicitly supplied, resolve the
+   deterministic held-out suite from the manifest run-profile domain, write
+   `evaluation_report.json`, and rewrite only the manifest artifact map to
+   reference that report. Contacts profiles run the contacts suite; mobile
+   profiles run the mobile messages suite. The evaluation report includes
+   domain identity, controlled expected-failure benchmark semantics, and
+   per-capability threshold decisions.
 25. When `--write-profile-decision-report` is explicitly supplied, read the
    exported manifest and quality report, write `profile_decision_report.json`,
    include held-out evaluation evidence when an evaluation report was also
    requested, separate the MVP quality-floor decision from the higher-level
-   profile-promotion decision, and rewrite only the manifest artifact map to
+   profile-promotion decision, reject domain-mismatched evaluation evidence as
+   insufficient for promotion, and rewrite only the manifest artifact map to
    reference that report.
 26. When `--write-dataset-release-report` is explicitly supplied, require both
    evaluation and profile-decision reports, read those existing artifacts, write
    `dataset_release_report.json`, and rewrite only the manifest artifact map to
    reference that report. Release admission distinguishes diagnostic probes from
-   release candidates and does not change candidate processing, evaluation, or
-   profile promotion.
+   release candidates, rejects domain-mismatched evaluation evidence, and does
+   not change candidate processing, evaluation, or profile promotion.
 
 The run-profile boundary is declarative and synchronous. `--run-profile` supports
 the existing foundation fixture, remote LLM-backed generation when `--use-llm` is

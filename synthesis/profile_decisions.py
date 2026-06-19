@@ -65,8 +65,9 @@ def build_profile_decision_report(
         quality_report=quality_report,
         runtime_seconds=runtime_seconds,
     )
+    manifest_domain = manifest_domain_id(manifest)
     evaluation = (
-        _evaluation_summary(evaluation_report)
+        _evaluation_summary(evaluation_report, manifest_domain=manifest_domain)
         if evaluation_report is not None
         else None
     )
@@ -464,6 +465,14 @@ def _profile_promotion_decision(
             "triggered_by": [],
         }
 
+    domain_mismatch_reason = evaluation.get("domain_mismatch_reason")
+    if isinstance(domain_mismatch_reason, str) and domain_mismatch_reason.strip():
+        return {
+            "status": "insufficient_evidence",
+            "reasons": [domain_mismatch_reason],
+            "triggered_by": ["evaluation_domain"],
+        }
+
     evaluation_status = _string_value(
         evaluation.get("decision_status"),
         "evaluation.decision_status",
@@ -508,12 +517,45 @@ def _profile_promotion_decision(
     }
 
 
-def _evaluation_summary(evaluation_report: Mapping[str, Any]) -> dict[str, object]:
+def evaluation_domain_id(evaluation_report: Mapping[str, Any]) -> str | None:
+    suite = evaluation_report.get("suite")
+    if isinstance(suite, Mapping):
+        suite_domain = suite.get("domain_id")
+        if isinstance(suite_domain, str) and suite_domain.strip():
+            return _normalize_domain_id(suite_domain)
+        suite_id = suite.get("suite_id")
+        if suite_id == "contacts_heldout_v1":
+            return "contacts_fixture"
+    domain = evaluation_report.get("domain")
+    if isinstance(domain, Mapping):
+        domain_id = domain.get("domain_id")
+        if isinstance(domain_id, str) and domain_id.strip():
+            return _normalize_domain_id(domain_id)
+    return None
+
+
+def manifest_domain_id(manifest: Mapping[str, Any]) -> str:
+    run_profile = manifest.get("run_profile")
+    if isinstance(run_profile, Mapping):
+        seed = run_profile.get("seed")
+        if isinstance(seed, Mapping):
+            domain = seed.get("domain")
+            if isinstance(domain, str) and domain.strip():
+                return _normalize_domain_id(domain)
+    return "contacts_fixture"
+
+
+def _evaluation_summary(
+    evaluation_report: Mapping[str, Any],
+    *,
+    manifest_domain: str,
+) -> dict[str, object]:
     try:
         validate_evaluation_report_record(evaluation_report)
         rates = _mapping_value(evaluation_report.get("rates"), "evaluation_report.rates")
         counts = _mapping_value(evaluation_report.get("counts"), "evaluation_report.counts")
         decision = _mapping_value(evaluation_report.get("decision"), "evaluation_report.decision")
+        suite = _mapping_value(evaluation_report.get("suite"), "evaluation_report.suite")
         capability_slices = _mapping_value(
             evaluation_report.get("capability_slices"),
             "evaluation_report.capability_slices",
@@ -522,7 +564,8 @@ def _evaluation_summary(evaluation_report: Mapping[str, Any]) -> dict[str, objec
             evaluation_report.get("thresholds"),
             "evaluation_report.thresholds",
         )
-        return {
+        domain_id = evaluation_domain_id(evaluation_report)
+        summary = {
             "decision_status": _string_value(
                 decision.get("status"),
                 "evaluation_report.decision.status",
@@ -539,13 +582,23 @@ def _evaluation_summary(evaluation_report: Mapping[str, Any]) -> dict[str, objec
                 capability_slices,
                 thresholds.get("min_capability_pass_rates"),
             ),
+            "domain_id": domain_id,
+            "suite_id": _string_value(suite.get("suite_id"), "evaluation_report.suite.suite_id"),
         }
+        if domain_id is not None and domain_id != manifest_domain:
+            summary["domain_mismatch_reason"] = (
+                f"evaluation domain {domain_id} does not match "
+                f"manifest domain {manifest_domain}"
+            )
+        return summary
     except (ContractValidationError, ValueError):
         return {
             "decision_status": "insufficient_evidence",
             "heldout_pass_rate": None,
             "regression_count": None,
             "failed_capabilities": [],
+            "domain_id": None,
+            "suite_id": None,
         }
 
 
@@ -581,11 +634,18 @@ def _profile_summary(manifest: Mapping[str, Any]) -> dict[str, object] | None:
     allowed_keys = (
         "schema_version",
         "profile_id",
+        "profile_purpose",
         "generation_mode",
         "target_candidate_count",
         "config_hash",
     )
-    return {key: profile[key] for key in allowed_keys if key in profile}
+    summary = {key: profile[key] for key in allowed_keys if key in profile}
+    summary["domain"] = manifest_domain_id(manifest)
+    return summary
+
+
+def _normalize_domain_id(domain_id: str) -> str:
+    return "contacts_fixture" if domain_id == "contacts" else domain_id
 
 
 def _profile_slice_count(quality_report: Mapping[str, Any]) -> int:

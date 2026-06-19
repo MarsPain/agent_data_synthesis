@@ -532,6 +532,48 @@ class DatasetContractTest(unittest.TestCase):
 
         validate_evaluation_report_record(_valid_evaluation_report())
 
+    def test_evaluation_report_contract_accepts_mobile_domain_fields(self) -> None:
+        from synthesis.contracts import validate_evaluation_report_record
+
+        report = _valid_evaluation_report()
+        report["suite"]["suite_id"] = "mobile_messages_heldout_v1"
+        report["suite"]["suite_version"] = "mobile_messages_heldout_v1"
+        report["suite"]["domain_id"] = "mobile_messages_fixture"
+        report["domain"] = {
+            "domain_id": "mobile_messages_fixture",
+            "source": "test",
+        }
+        report["profile"] = {
+            "schema_version": "run_profile_v2",
+            "profile_id": "profile_local_mobile_messages",
+            "profile_purpose": "diagnostic_probe",
+            "generation_mode": "mobile_fixture",
+            "domain": "mobile_messages_fixture",
+            "target_candidate_count": 4,
+            "config_hash": "sha256:" + "2" * 64,
+        }
+
+        validate_evaluation_report_record(report)
+
+    def test_evaluation_report_rejects_mismatched_domain_fields(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_evaluation_report_record
+
+        report = _valid_evaluation_report()
+        report["suite"]["domain_id"] = "contacts_fixture"
+        report["domain"] = {"domain_id": "mobile_messages_fixture", "source": "test"}
+
+        with self.assertRaisesRegex(ContractValidationError, "domain"):
+            validate_evaluation_report_record(report)
+
+    def test_evaluation_report_accepts_legacy_contacts_report_without_domain_fields(self) -> None:
+        from synthesis.contracts import validate_evaluation_report_record
+
+        report = _valid_evaluation_report()
+        report["suite"].pop("domain_id", None)
+        report.pop("domain", None)
+
+        validate_evaluation_report_record(report)
+
     def test_evaluation_report_contract_rejects_malformed_schema_version(self) -> None:
         from synthesis.contracts import ContractValidationError, validate_evaluation_report_record
 

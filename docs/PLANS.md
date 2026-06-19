@@ -9,7 +9,7 @@
 
 ## Active
 
-- No active implementation plan.
+There is no active implementation plan at this point.
 
 ## Deferred
 
@@ -63,6 +63,7 @@
 - [0033-task-intent-policy-verifier-contract-split](exec-plans/completed/0033-task-intent-policy-verifier-contract-split.md): split `CandidateTask` responsibilities into internal task-intent, policy-hint, expected-outcome, and expected-state contracts while preserving current public artifact schemas and keeping plan 0025 deferred. Completed on 2026-06-14.
 - [0034-reward-label-export-and-runtime-scoring-consumer](exec-plans/completed/0034-reward-label-export-and-runtime-scoring-consumer.md): added opt-in deterministic reward-label export and runtime scoring over sanitized episode evidence without reward-model training, RL rollout collection, release admission changes, or AWM runtime package extraction. Completed on 2026-06-14.
 - [0035-domain-source-admission-interface](exec-plans/completed/0035-domain-source-admission-interface.md): promoted profile-local source ingestion into a domain source importer protocol, preserved contacts compatibility, added mobile messages source-backed runs, and replaced contacts-specific pipeline source plumbing with generic `domain_environment_input` while keeping controlled network source ingestion contacts-only. Completed on 2026-06-14.
+- [0036-domain-aware-held-out-evaluation-and-release-semantics](exec-plans/completed/0036-domain-aware-held-out-evaluation-and-release-semantics.md): made held-out evaluation, profile promotion, and dataset release admission domain-aware across contacts and mobile messages so mismatched evaluation evidence is insufficient rather than releaseable. Completed on 2026-06-19.
 
 ## Technical Debt
 

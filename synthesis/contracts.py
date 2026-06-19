@@ -119,6 +119,7 @@ MANIFEST_ARTIFACT_KEYS = {
 EVALUATION_TASK_STATUSES = {"passed", "failed"}
 EVALUATION_DECISION_STATUSES = {"passed", "failed", "insufficient_evidence"}
 EVALUATION_EXPECTED_OUTCOMES = {"passed", "controlled_failure"}
+EVALUATION_DOMAINS = {"contacts_fixture", "mobile_messages_fixture"}
 PROFILE_PROMOTION_STATUSES = {"passed", "failed", "blocked", "insufficient_evidence"}
 DATASET_RELEASE_STATUSES = {
     "passed",
@@ -1351,13 +1352,25 @@ def validate_evaluation_report_record(record: Mapping[str, Any]) -> None:
     _require_non_empty_string(record.get("dataset_version"), "dataset_version")
 
     suite = _require_mapping(record.get("suite"), "suite")
-    _require_non_empty_string(suite.get("suite_id"), "suite.suite_id")
+    suite_id = _require_non_empty_string(suite.get("suite_id"), "suite.suite_id")
     _require_non_empty_string(suite.get("suite_version"), "suite.suite_version")
     suite_task_count = _require_int(suite.get("task_count"), "suite.task_count")
+    suite_domain_id = _evaluation_suite_domain_id(suite, suite_id)
+    report_domain_id = _evaluation_report_domain_id(record, suite_id)
+    if suite_domain_id != report_domain_id:
+        raise ContractValidationError("evaluation_report domain fields must match")
 
     profile = record.get("profile")
     if profile is not None:
         _validate_profile_decision_profile(profile)
+        profile_mapping = _require_mapping(profile, "profile")
+        profile_domain = profile_mapping.get("domain")
+        if profile_domain is not None:
+            normalized_profile_domain = _normalize_domain_id(
+                _require_non_empty_string(profile_domain, "profile.domain")
+            )
+            if normalized_profile_domain != report_domain_id:
+                raise ContractValidationError("profile.domain must match evaluation domain")
 
     inputs = _require_mapping(record.get("inputs"), "inputs")
     for field in ("manifest_path", "quality_report_path"):
@@ -1446,6 +1459,36 @@ def validate_evaluation_report_record(record: Mapping[str, Any]) -> None:
     _validate_evaluation_capability_slices(record.get("capability_slices"), total=total)
     _validate_evaluation_thresholds(record.get("thresholds"))
     _validate_evaluation_decision(record.get("decision"))
+
+
+def _evaluation_suite_domain_id(suite: Mapping[str, Any], suite_id: str) -> str:
+    raw_domain = suite.get("domain_id")
+    if raw_domain is None:
+        if suite_id == "contacts_heldout_v1":
+            return "contacts_fixture"
+        raise ContractValidationError("suite.domain_id is required")
+    return _validate_evaluation_domain_id(raw_domain, "suite.domain_id")
+
+
+def _evaluation_report_domain_id(record: Mapping[str, Any], suite_id: str) -> str:
+    raw_domain = record.get("domain")
+    if raw_domain is None:
+        if suite_id == "contacts_heldout_v1":
+            return "contacts_fixture"
+        raise ContractValidationError("domain.domain_id is required")
+    domain = _require_mapping(raw_domain, "domain")
+    return _validate_evaluation_domain_id(domain.get("domain_id"), "domain.domain_id")
+
+
+def _validate_evaluation_domain_id(raw: object, path: str) -> str:
+    domain_id = _normalize_domain_id(_require_non_empty_string(raw, path))
+    if domain_id not in EVALUATION_DOMAINS:
+        raise ContractValidationError(f"{path} is unsupported")
+    return domain_id
+
+
+def _normalize_domain_id(domain_id: str) -> str:
+    return "contacts_fixture" if domain_id == "contacts" else domain_id
 
 
 def validate_source_record(record: Mapping[str, Any]) -> None:
@@ -2512,10 +2555,12 @@ def _validate_run_profile_metadata(raw: object) -> None:
         "schema_version",
         "profile_id",
         "generation_mode",
+        "domain",
         "profile_purpose",
         "target_candidate_count",
         "config_hash",
         "enabled_features",
+        "seed",
         "source",
     }
     unexpected = sorted(str(key) for key in profile if key not in allowed_keys)
@@ -2558,6 +2603,11 @@ def _validate_run_profile_metadata(raw: object) -> None:
             raise ContractValidationError(
                 f"run_profile.enabled_features.{index} is unsupported"
             )
+    if "seed" in profile:
+        seed = _require_mapping(profile.get("seed"), "run_profile.seed")
+        domain = _require_non_empty_string(seed.get("domain"), "run_profile.seed.domain")
+        if domain not in {"contacts", "contacts_fixture", "mobile_messages_fixture"}:
+            raise ContractValidationError("run_profile.seed.domain is unsupported")
     if "source" in profile:
         if schema_version != "run_profile_v2":
             raise ContractValidationError("run_profile.source requires run_profile_v2")
@@ -2715,6 +2765,7 @@ def _validate_profile_decision_profile(raw: object) -> None:
         "schema_version",
         "profile_id",
         "generation_mode",
+        "domain",
         "profile_purpose",
         "target_candidate_count",
         "config_hash",

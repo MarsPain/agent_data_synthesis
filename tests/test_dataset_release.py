@@ -68,6 +68,76 @@ class DatasetReleaseTest(unittest.TestCase):
         self.assertEqual(report["decisions"]["dataset_release"]["status"], "passed")
         self.assertEqual(report["release_completeness"]["decision"]["status"], "passed")
 
+    def test_mobile_release_candidate_with_contacts_evaluation_domain_is_insufficient(self) -> None:
+        from synthesis.dataset_release import build_dataset_release_report
+
+        report = build_dataset_release_report(
+            manifest=_mobile_manifest(
+                profile_purpose="release_candidate",
+                accepted_count=6,
+                rejected_count=1,
+            ),
+            quality_report=_quality_report(
+                accepted=6,
+                rejected=1,
+                task_types=(
+                    "lookup_contact_email",
+                    "contact_followup",
+                    "contact_branch_fallback",
+                ),
+                tool_combinations=(
+                    "lookup_contact_email",
+                    "lookup_contact_email > record_contact_followup",
+                ),
+            ),
+            evaluation_report=_domain_evaluation_report(
+                status="passed",
+                domain_id="contacts_fixture",
+                suite_id="contacts_heldout_v1",
+            ),
+            profile_decision_report=_profile_decision_report(profile_promotion_status="passed"),
+        )
+
+        decision = report["decisions"]["dataset_release"]
+        self.assertEqual(decision["status"], "insufficient_evidence")
+        self.assertIn("evaluation_domain", decision["triggered_by"])
+        self.assertIn(
+            "evaluation domain contacts_fixture does not match manifest domain mobile_messages_fixture",
+            decision["reasons"],
+        )
+
+    def test_mobile_release_candidate_with_mobile_evaluation_domain_passes(self) -> None:
+        from synthesis.dataset_release import build_dataset_release_report
+
+        report = build_dataset_release_report(
+            manifest=_mobile_manifest(
+                profile_purpose="release_candidate",
+                accepted_count=6,
+                rejected_count=1,
+            ),
+            quality_report=_quality_report(
+                accepted=6,
+                rejected=1,
+                task_types=(
+                    "lookup_contact_email",
+                    "contact_followup",
+                    "contact_branch_fallback",
+                ),
+                tool_combinations=(
+                    "lookup_contact_email",
+                    "lookup_contact_email > record_contact_followup",
+                ),
+            ),
+            evaluation_report=_domain_evaluation_report(
+                status="passed",
+                domain_id="mobile_messages_fixture",
+                suite_id="mobile_messages_heldout_v1",
+            ),
+            profile_decision_report=_profile_decision_report(profile_promotion_status="passed"),
+        )
+
+        self.assertEqual(report["decisions"]["dataset_release"]["status"], "passed")
+
     def test_diagnostic_profile_is_ineligible_for_release(self) -> None:
         from synthesis.dataset_release import build_dataset_release_report
 
@@ -198,6 +268,30 @@ def _manifest(
     }
 
 
+def _mobile_manifest(
+    *,
+    profile_purpose: str,
+    accepted_count: int = 3,
+    rejected_count: int = 0,
+) -> dict[str, object]:
+    manifest = _manifest(
+        profile_purpose=profile_purpose,
+        accepted_count=accepted_count,
+        rejected_count=rejected_count,
+    )
+    run_profile = manifest["run_profile"]
+    assert isinstance(run_profile, dict)
+    run_profile.update(
+        {
+            "schema_version": "run_profile_v2",
+            "profile_id": "profile_local_mobile_messages",
+            "generation_mode": "mobile_fixture",
+            "seed": {"domain": "mobile_messages_fixture"},
+        }
+    )
+    return manifest
+
+
 def _quality_report(
     *,
     accepted: int = 3,
@@ -265,6 +359,23 @@ def _evaluation_report(*, status: str) -> dict[str, object]:
             "triggered_by": ["pass_rate"],
         },
     }
+
+
+def _domain_evaluation_report(
+    *,
+    status: str,
+    domain_id: str,
+    suite_id: str,
+) -> dict[str, object]:
+    report = _evaluation_report(status=status)
+    report["suite"] = {
+        "suite_id": suite_id,
+        "suite_version": suite_id,
+        "domain_id": domain_id,
+        "task_count": 5,
+    }
+    report["domain"] = {"domain_id": domain_id, "source": "test"}
+    return report
 
 
 def _profile_decision_report(

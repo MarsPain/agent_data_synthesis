@@ -108,6 +108,7 @@ class RunProfile:
             "target_candidate_count": self.generation.target_candidate_count,
             "config_hash": self.config_hash,
             "enabled_features": self.features.enabled_feature_names(),
+            "seed": {"domain": self.seed.domain},
         }
         if source_summary is not None:
             metadata["source"] = dict(source_summary)
