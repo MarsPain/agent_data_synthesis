@@ -12,11 +12,13 @@ move back to `../active/` and `../../PLANS.md` is updated.
     requirement.
   - Rationale: current fixture-scale runs do not justify async orchestration,
     durable queues, cancellation, and cost tracking complexity.
-- [0025-phase-e-extraction-readiness-review](0025-phase-e-extraction-readiness-review.md)
-  - Trigger: Phase D has completed or equivalent runtime, consumer, rollout,
-    and adapter evidence exists.
+- [0025-phase-e1-reward-label-runtime-contract-hardening](0025-phase-e1-reward-label-runtime-contract-hardening.md)
+  - Trigger: continue hardening after Phase E returned `continue_hardening`;
+    remove reward-label runtime contract allowlists before revisiting package
+    extraction.
 - [0025-phase-f-awm-runtime-package-extraction](0025-phase-f-awm-runtime-package-extraction.md)
-  - Trigger: Phase E returns `ready_for_extraction_plan`.
+  - Trigger: extraction readiness is revisited after Phase E1 and returns
+    `ready_for_extraction_plan`.
 
 ## Phase Indexes
 

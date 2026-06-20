@@ -6,11 +6,13 @@ Planned on 2026-06-09. This is an umbrella phase index and decision record, not
 a directly executable implementation plan. The executable work is split into
 Phase A-F documents.
 
-Phase A, Phase B, and Phase C completed on 2026-06-19. Phase D completed on
-2026-06-20. Phases E-F remain deferred behind explicit prerequisites.
+Phase A, Phase B, and Phase C completed on 2026-06-19. Phase D and Phase E
+completed on 2026-06-20. Phase E returned `continue_hardening`, so Phase E1 is
+the next deferred internal hardening step. Phase F remains deferred behind a
+future readiness decision.
 
-Do not move Phase F to active unless Phase E produces an explicit
-`ready_for_extraction_plan` decision.
+Do not move Phase F to active unless extraction readiness is revisited after
+Phase E1 and produces an explicit `ready_for_extraction_plan` decision.
 
 ## Goal
 
@@ -32,8 +34,8 @@ Plans 0030 through 0034 created the pressure needed for a staged 0025:
 
 These consumers prove that the runtime boundary is now more than a contacts
 fixture detail. They do not yet justify immediate package extraction because
-the consumers still run inside this repository and some runtime/domain facts are
-still hard-coded in replay and reward modules.
+reward-label contracts still hard-code supported runtime ids and reward
+preference grouping still encodes contacts/mobile tool branches.
 
 ## Decision
 
@@ -71,25 +73,60 @@ packs, not the package boundary.
   - Generalize the local in-process adapter surface from contacts-specific
     assumptions to runtime descriptors and action envelopes.
   - Completed on 2026-06-20.
-- [0025 Phase E: Extraction Readiness Review](0025-phase-e-extraction-readiness-review.md)
+- [0025 Phase E: Extraction Readiness Review](../completed/0025-phase-e-extraction-readiness-review.md)
   - Produce an evidence-backed decision to keep runtime internal, continue
     hardening, or activate extraction planning.
+- [0025 Phase E1: Reward Label Runtime Contract Hardening](0025-phase-e1-reward-label-runtime-contract-hardening.md)
+  - Remove reward-label runtime contract allowlists and domain-specific
+    preference grouping before revisiting extraction readiness.
 - [0025 Phase F: AWM Runtime Package Extraction](0025-phase-f-awm-runtime-package-extraction.md)
-  - Extract stable runtime primitives only after Phase E says the boundary is
-    ready.
+  - Extract stable runtime primitives only after a future readiness review says
+    the boundary is ready.
 
 ## Phase Lifecycle
 
 Phase A moved to `completed/` after adding descriptor and registry evidence for
 replay/reward consumers. Phase B moved to `completed/` after episode quality,
 replay, and reward-label consumers aligned on descriptor-backed capability
-semantics. Reward-label export from plan 0034 supplied enough pressure for the
-0025 sequence, but not for package extraction.
+semantics. Phase C added runtime sessions and diagnostic rollout collection.
+Phase D generalized local adapter manifests onto runtime descriptors and
+runtime sessions. Phase E completed the extraction review and returned
+`continue_hardening`, not `ready_for_extraction_plan`.
 
-Keep Phases E-F deferred until their prerequisites complete:
+Keep Phase F deferred until its prerequisites complete:
 
-- Phase E requires Phase D or equivalent runtime/adapter evidence.
-- Phase F requires Phase E status `ready_for_extraction_plan`.
+- Phase E1 removes reward-label contract allowlists and domain-specific
+  preference grouping.
+- A future extraction-readiness review returns `ready_for_extraction_plan`.
+
+## Phase E Decision
+
+Phase E produced
+[AWM Runtime Extraction Readiness](../../generated/awm-runtime-extraction-readiness.md)
+with decision status `continue_hardening`.
+
+Passing evidence:
+
+- Contacts and mobile runtimes use the same descriptor/session boundary.
+- Fake runtime tests prove several consumers are not contacts/mobile-specific.
+- Runtime descriptor and metadata safety validation rejects dataset release,
+  dataset version, profile decisions, provider prompts, credentials, raw
+  sources, and host paths.
+- Episode quality, replay, rollouts, and local adapters consume runtime
+  descriptors, sessions, action envelopes, or episode logs.
+
+Blocking evidence:
+
+- `synthesis.contracts.REWARD_LABEL_RUNTIMES` still gates reward-label and
+  reward-label-report validation.
+- `synthesis.reward_labels._preference_group_id` still maps contacts/mobile
+  tool names to grouping labels.
+- `RuntimeSession.rebuild` needs package-boundary exercise or explicit
+  experimental status before extraction.
+
+Decision: continue internal hardening through
+[0025 Phase E1](0025-phase-e1-reward-label-runtime-contract-hardening.md). Do
+not activate Phase F from the Phase E result.
 
 ## Out of Scope for the Overall 0025 Sequence
 
@@ -136,8 +173,8 @@ uv run python -m unittest
 ```
 
 Each implementation phase must also run its focused tests named in the phase
-document. Phase E is documentation/audit focused and should validate the
-readiness report plus any boundary-audit tests it adds.
+document. Documentation/audit phases should validate their generated reports
+plus any boundary-audit tests they add.
 
 ## Completion Criteria for the Full 0025 Sequence
 
@@ -150,4 +187,6 @@ The full 0025 sequence is complete only when one of these outcomes is recorded:
 - `extracted`: Phase F has moved stable runtime primitives behind an approved
   package boundary while preserving synthesis behavior.
 
-Until then, this index remains the umbrella for staged runtime-kernel work.
+The current outcome is `continue_hardening`. Until a future review records
+`keep_internal` or Phase F reaches `extracted`, this index remains the umbrella
+for staged runtime-kernel work.

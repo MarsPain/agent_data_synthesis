@@ -2,14 +2,25 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > `subagent-driven-development` or `executing-plans` to implement this plan
-> task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 ## Status
 
-Deferred. Activate only after
-[0025 Phase D](../completed/0025-phase-d-adapter-surface-generalization.md)
-has completed or after equivalent runtime, consumer, rollout, and adapter
-evidence exists.
+Completed on 2026-06-20. Activated after
+[0025 Phase D](0025-phase-d-adapter-surface-generalization.md) completed with
+runtime, consumer, rollout, and adapter evidence.
+
+Completion evidence:
+
+- Generated
+  [AWM Runtime Extraction Readiness](../../generated/awm-runtime-extraction-readiness.md)
+  with decision status `continue_hardening`.
+- Identified reward-label contract runtime allowlists and domain-specific
+  preference grouping as blockers to package extraction.
+- Added the next deferred hardening plan:
+  [0025 Phase E1: Reward Label Runtime Contract Hardening](../deferred/0025-phase-e1-reward-label-runtime-contract-hardening.md).
+- Phase F remains deferred and must not be activated until extraction readiness
+  is revisited after Phase E1.
 
 ## Goal
 
@@ -99,49 +110,49 @@ Extraction is eligible only if all of these are true:
 
 ### Task 1: Boundary Leakage Audit
 
-- [ ] Search runtime modules for dataset-release, profile-decision, provider,
+- [x] Search runtime modules for dataset-release, profile-decision, provider,
   credential, raw-source, and host-path concepts.
-- [ ] Search consumer modules for direct runtime id allowlists and domain
+- [x] Search consumer modules for direct runtime id allowlists and domain
   imports outside registry/session boundaries.
-- [ ] Record findings in the readiness report with file references.
+- [x] Record findings in the readiness report with file references.
 
 ### Task 2: Consumer Evidence Audit
 
-- [ ] List which consumers use descriptors, sessions, action envelopes, and
+- [x] List which consumers use descriptors, sessions, action envelopes, and
   episode logs.
-- [ ] Confirm contacts, mobile, and fake runtime coverage exists for replay,
+- [x] Confirm contacts, mobile, and fake runtime coverage exists for replay,
   reward labels, rollout collection, and adapter manifests.
-- [ ] Identify any consumer that still depends on a domain branch.
+- [x] Identify any consumer that still depends on a domain branch.
 
 ### Task 3: API Surface Audit
 
-- [ ] List runtime methods and fields.
-- [ ] Mark each as used by synthesis, replay, reward labels, rollout,
+- [x] List runtime methods and fields.
+- [x] Mark each as used by synthesis, replay, reward labels, rollout,
   adapter, or tests.
-- [ ] Recommend removal, internal-only status, or extraction eligibility for
+- [x] Recommend removal, internal-only status, or extraction eligibility for
   each method.
 
 ### Task 4: Decision Report
 
-- [ ] Write `docs/generated/awm-runtime-extraction-readiness.md`.
-- [ ] Include decision status: `keep_internal`, `continue_hardening`, or
+- [x] Write `docs/generated/awm-runtime-extraction-readiness.md`.
+- [x] Include decision status: `keep_internal`, `continue_hardening`, or
   `ready_for_extraction_plan`.
-- [ ] Include reasons, evidence, unresolved risks, and the next plan pointer.
+- [x] Include reasons, evidence, unresolved risks, and the next plan pointer.
 
 ### Task 5: Plan Lifecycle Update
 
-- [ ] If status is `keep_internal`, update 0025 overview with the revisit
+- [x] If status is `keep_internal`, update 0025 overview with the revisit
   trigger.
-- [ ] If status is `continue_hardening`, identify the next internal hardening
+- [x] If status is `continue_hardening`, identify the next internal hardening
   plan.
-- [ ] If status is `ready_for_extraction_plan`, add or activate Phase F as the
+- [x] If status is `ready_for_extraction_plan`, add or activate Phase F as the
   next extraction planning document.
 
 ### Task 6: Validation
 
-- [ ] Run `uv run python scripts/validate_docs.py`.
-- [ ] Run `uv run python -m unittest tests.test_docs_validation`.
-- [ ] Run focused runtime/consumer tests cited in the readiness report.
+- [x] Run `uv run python scripts/validate_docs.py`.
+- [x] Run `uv run python -m unittest tests.test_docs_validation`.
+- [x] Run focused runtime/consumer tests cited in the readiness report.
 
 ## Acceptance Criteria
 
@@ -153,5 +164,5 @@ Extraction is eligible only if all of these are true:
 
 ## Follow-On
 
-Only if Phase E returns `ready_for_extraction_plan`, Phase F should be moved
-from deferred to active.
+Phase E returned `continue_hardening`, so Phase F remains deferred. Activate
+Phase E1 before revisiting extraction readiness.

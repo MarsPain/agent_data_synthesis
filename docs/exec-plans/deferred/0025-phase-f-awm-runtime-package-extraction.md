@@ -6,9 +6,11 @@
 
 ## Status
 
-Deferred behind
-[0025 Phase E](0025-phase-e-extraction-readiness-review.md). Do not activate
-until the extraction readiness report returns `ready_for_extraction_plan`.
+Deferred behind [0025 Phase E](../completed/0025-phase-e-extraction-readiness-review.md)
+and the follow-on
+[0025 Phase E1](0025-phase-e1-reward-label-runtime-contract-hardening.md). Do not
+activate until extraction readiness is revisited after Phase E1 and returns
+`ready_for_extraction_plan`.
 
 ## Goal
 
@@ -53,7 +55,8 @@ assembly.
   safety validation, and episode log primitives.
 - Add compatibility imports or shims so existing `synthesis.runtime` consumers
   continue to work during migration.
-- Move only stable runtime primitives that Phase E marked extraction-eligible.
+- Move only stable runtime primitives that a future readiness review marks
+  extraction-eligible.
 - Keep domain packs, source governance, profile decisions, dataset release, and
   quality reports in this repository.
 - Add cross-boundary tests proving synthesis and consumers still work.
@@ -69,7 +72,7 @@ assembly.
 
 ## File Map
 
-Exact paths depend on the packaging decision from Phase E. If extraction stays
+Exact paths depend on the future packaging decision. If extraction stays
 in-repository first, use:
 
 - Create `awm_runtime/` package with runtime primitives.
@@ -88,7 +91,7 @@ in-repository first, use:
 ### Task 1: Package Boundary Skeleton
 
 - [ ] Add package directory and module exports for the extraction-eligible
-  symbols identified by Phase E.
+  symbols identified by a future readiness review.
 - [ ] Add tests proving `awm_runtime` imports do not import `synthesis.datasets`,
   `synthesis.dataset_release`, `synthesis.profile_decisions`, or domain packs.
 - [ ] Add compatibility re-exports in `synthesis.runtime`.
@@ -133,7 +136,7 @@ in-repository first, use:
 ## Acceptance Criteria
 
 - Runtime primitives live behind an `awm_runtime` package boundary or equivalent
-  extraction boundary approved by Phase E.
+  extraction boundary approved by a future readiness review.
 - `awm_runtime` has no dependency on dataset release, profile decisions, source
   governance, CLI, or domain packs.
 - Existing synthesis pipeline behavior and public artifacts remain stable.

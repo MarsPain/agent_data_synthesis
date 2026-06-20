@@ -29,6 +29,7 @@
 ## Generated Artifacts
 
 - [generated/README.md](generated/README.md): index for future generated schemas, diagrams, reports, and benchmark outputs.
+- [generated/awm-runtime-extraction-readiness.md](generated/awm-runtime-extraction-readiness.md): Phase E extraction readiness decision for the internal AWM runtime kernel.
 
 ## Execution Plans
 
@@ -37,13 +38,14 @@
 - [exec-plans/completed/0025-phase-b-consumer-inversion.md](exec-plans/completed/0025-phase-b-consumer-inversion.md): completed Phase B inversion of replay, quality, and reward consumers onto runtime capabilities.
 - [exec-plans/completed/0025-phase-c-rollout-ready-runtime-api.md](exec-plans/completed/0025-phase-c-rollout-ready-runtime-api.md): completed Phase C runtime session, action-envelope, and diagnostic rollout infrastructure.
 - [exec-plans/completed/0025-phase-d-adapter-surface-generalization.md](exec-plans/completed/0025-phase-d-adapter-surface-generalization.md): completed Phase D runtime-backed local adapter surface for contacts and mobile.
+- [exec-plans/completed/0025-phase-e-extraction-readiness-review.md](exec-plans/completed/0025-phase-e-extraction-readiness-review.md): completed Phase E extraction readiness review with decision status `continue_hardening`.
 - [exec-plans/completed/0036-domain-aware-held-out-evaluation-and-release-semantics.md](exec-plans/completed/0036-domain-aware-held-out-evaluation-and-release-semantics.md): completed plan for domain-aware held-out evaluation and release semantics.
 - [exec-plans/deferred/README.md](exec-plans/deferred/README.md): deferred plan bucket.
 - [exec-plans/deferred/0014-async-local-orchestration-with-durable-queues.md](exec-plans/deferred/0014-async-local-orchestration-with-durable-queues.md): deferred async local orchestration with durable queues plan.
 - [exec-plans/deferred/0025-awm-runtime-phase-index.md](exec-plans/deferred/0025-awm-runtime-phase-index.md): umbrella phase index and decision record for the staged AWM runtime-kernel work.
 - [exec-plans/deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](exec-plans/deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md): compatibility redirect for historical 0025 links.
-- [exec-plans/deferred/0025-phase-e-extraction-readiness-review.md](exec-plans/deferred/0025-phase-e-extraction-readiness-review.md): Phase E extraction readiness review and decision gate.
-- [exec-plans/deferred/0025-phase-f-awm-runtime-package-extraction.md](exec-plans/deferred/0025-phase-f-awm-runtime-package-extraction.md): Phase F package extraction plan gated by Phase E.
+- [exec-plans/deferred/0025-phase-e1-reward-label-runtime-contract-hardening.md](exec-plans/deferred/0025-phase-e1-reward-label-runtime-contract-hardening.md): reward-label runtime contract hardening required before revisiting extraction readiness.
+- [exec-plans/deferred/0025-phase-f-awm-runtime-package-extraction.md](exec-plans/deferred/0025-phase-f-awm-runtime-package-extraction.md): Phase F package extraction plan gated by a future readiness review after Phase E1.
 - [exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md](exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md): source provenance, license eligibility, default-deny network policy, sandbox policy, source-event audit artifacts, and reporting slices.
 - [exec-plans/completed/0012-controlled-network-backed-environment-synthesis.md](exec-plans/completed/0012-controlled-network-backed-environment-synthesis.md): controlled opt-in HTTPS source ingestion, allowlisted host enforcement, request budgets, payload limits, contacts environment-source admission, and sanitized fetch/admission audit events.
 - [exec-plans/completed/0013-mcp-compatible-environment-tool-adapters.md](exec-plans/completed/0013-mcp-compatible-environment-tool-adapters.md): local MCP-compatible adapter manifest, tool-call request/result envelopes, adapter lineage, quality slices, and in-process contacts shim.

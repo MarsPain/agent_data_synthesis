@@ -9,6 +9,8 @@ There is no active implementation plan at this point.
 
 ## Completed
 
+- [0025-phase-e-extraction-readiness-review](../completed/0025-phase-e-extraction-readiness-review.md):
+  completed on 2026-06-20 with decision status `continue_hardening`.
 - [0025-phase-d-adapter-surface-generalization](../completed/0025-phase-d-adapter-surface-generalization.md):
   completed on 2026-06-20.
 - [0025-phase-c-rollout-ready-runtime-api](../completed/0025-phase-c-rollout-ready-runtime-api.md):
