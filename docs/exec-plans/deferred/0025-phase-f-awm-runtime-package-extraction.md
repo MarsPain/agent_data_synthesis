@@ -8,9 +8,9 @@
 
 Deferred behind [0025 Phase E](../completed/0025-phase-e-extraction-readiness-review.md)
 and the follow-on
-[0025 Phase E1](0025-phase-e1-reward-label-runtime-contract-hardening.md). Do not
-activate until extraction readiness is revisited after Phase E1 and returns
-`ready_for_extraction_plan`.
+[0025 Phase E1](../completed/0025-phase-e1-reward-label-runtime-contract-hardening.md).
+Do not activate until extraction readiness is revisited after Phase E1 and
+returns `ready_for_extraction_plan`.
 
 ## Goal
 

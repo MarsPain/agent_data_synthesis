@@ -9,7 +9,7 @@
 
 ## Active
 
-There is no active implementation plan at this point.
+No active implementation plans.
 
 ## Deferred
 
@@ -18,13 +18,9 @@ There is no active implementation plan at this point.
   concurrency limits, cancellation, and per-role cost tracking; **deferred**
   until single runs exceed ~10 minutes or 100+ candidates. See the plan's
   "补充思考" section for the full deferral rationale.
-- [0025-phase-e1-reward-label-runtime-contract-hardening](exec-plans/deferred/0025-phase-e1-reward-label-runtime-contract-hardening.md):
-  deferred after Phase E returned `continue_hardening`; remove reward-label
-  runtime allowlists and domain-specific preference grouping before revisiting
-  extraction readiness.
 - [0025-phase-f-awm-runtime-package-extraction](exec-plans/deferred/0025-phase-f-awm-runtime-package-extraction.md):
-  deferred until extraction readiness is revisited after Phase E1 and returns
-  `ready_for_extraction_plan`.
+  deferred until extraction readiness is revisited after completed Phase E1 and
+  returns `ready_for_extraction_plan`.
 
 ## Phase Indexes
 
@@ -64,6 +60,7 @@ There is no active implementation plan at this point.
 - [0025-phase-c-rollout-ready-runtime-api](exec-plans/completed/0025-phase-c-rollout-ready-runtime-api.md): added runtime sessions, action request/result envelopes, and diagnostic rollout collection that emits replayable, reward-label-compatible episodes without RL training or default CLI changes. Completed on 2026-06-19.
 - [0025-phase-d-adapter-surface-generalization](exec-plans/completed/0025-phase-d-adapter-surface-generalization.md): generalized the opt-in local MCP-compatible adapter surface onto runtime descriptors, runtime sessions, and action envelopes while preserving contacts compatibility and adding mobile local adapter support without external MCP servers. Completed on 2026-06-20.
 - [0025-phase-e-extraction-readiness-review](exec-plans/completed/0025-phase-e-extraction-readiness-review.md): completed an evidence-backed extraction decision with status `continue_hardening`, keeping Phase F deferred and pointing the next hardening work at reward-label runtime contracts. Completed on 2026-06-20.
+- [0025-phase-e1-reward-label-runtime-contract-hardening](exec-plans/completed/0025-phase-e1-reward-label-runtime-contract-hardening.md): removed reward-label runtime contract allowlists and moved reward preference grouping to runtime descriptor declarations before the next extraction-readiness review. Completed on 2026-06-20.
 - [0026-dataset-release-coverage-and-admission-ratchet](exec-plans/completed/0026-dataset-release-coverage-and-admission-ratchet.md): tightened dataset release admission with release completeness thresholds, coverage observations, insufficient-evidence outcomes, and a deterministic release-candidate fixture. Completed on 2026-06-09.
 - [0027-dataset-release-pack-and-reproducibility-verification](exec-plans/completed/0027-dataset-release-pack-and-reproducibility-verification.md): added opt-in hash-locked release packs and standalone verification so passed release-candidate artifacts can be audited without rerunning generation. Completed on 2026-06-12.
 - [0028-release-quality-evidence-audit-and-card](exec-plans/completed/0028-release-quality-evidence-audit-and-card.md): added opt-in release quality evidence audits and human-readable dataset release cards for release-candidate artifact sets without implementing full semantic duplicate detection or changing default release admission. Completed on 2026-06-12.

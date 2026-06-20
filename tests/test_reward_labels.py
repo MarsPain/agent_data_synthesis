@@ -197,6 +197,109 @@ class RewardLabelsTest(unittest.TestCase):
             "insufficient_evidence",
         )
 
+    def test_fake_reward_runtime_labels_and_report_validate_without_contract_allowlist(
+        self,
+    ) -> None:
+        from synthesis.contracts import (
+            validate_reward_label_record,
+            validate_reward_label_report_record,
+        )
+        from synthesis.episode_quality import build_episode_quality_report
+        from synthesis.reward_labels import build_reward_label_report, build_reward_labels
+        from synthesis.runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
+
+        episode = _with_runtime_and_tool(
+            _episode("candidate_contacts_alice"),
+            runtime_id="fake_reward_runtime",
+            runtime_version="runtime_fake_reward_v1",
+            tool_name="fake_lookup",
+        )
+        registry = RuntimeRegistry(
+            (
+                RuntimeCapabilityDescriptor(
+                    runtime_id="fake_reward_runtime",
+                    runtime_version="runtime_fake_reward_v1",
+                    domain_id="fake_domain",
+                    supports_rebuild=False,
+                    supports_checkpoint_restore=False,
+                    supports_episode_replay=False,
+                    supports_reward_labels=True,
+                    supports_local_adapter=False,
+                    state_changing_tools=(),
+                    task_taxonomy=("fake_lookup",),
+                    reward_preference_groups={"fake_lookup": "fake_lookup"},
+                ),
+            )
+        )
+        quality_report = build_episode_quality_report(
+            dataset_version="dataset_fake_reward_runtime",
+            episodes=(episode,),
+            runtime_registry=registry,
+        )
+
+        labels = build_reward_labels(
+            episodes=(episode,),
+            episode_quality_report=quality_report,
+            episode_replay_report=None,
+            runtime_registry=registry,
+        )
+        report = build_reward_label_report(
+            dataset_version="dataset_fake_reward_runtime",
+            episodes=(episode,),
+            labels=labels,
+        )
+
+        self.assertEqual(labels[0]["runtime_id"], "fake_reward_runtime")
+        self.assertEqual(labels[0]["preference_group"]["group_id"], "pref_fake_reward_runtime_fake_lookup")
+        validate_reward_label_record(labels[0])
+        validate_reward_label_report_record(report)
+
+    def test_preference_grouping_is_descriptor_owned_for_fake_runtime(self) -> None:
+        from synthesis.episode_quality import build_episode_quality_report
+        from synthesis.reward_labels import build_reward_labels
+        from synthesis.runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
+
+        episode = _with_runtime_and_tool(
+            _episode("candidate_contacts_alice"),
+            runtime_id="fake_group_runtime",
+            runtime_version="runtime_fake_group_v1",
+            tool_name="fake_search_records",
+        )
+        registry = RuntimeRegistry(
+            (
+                RuntimeCapabilityDescriptor(
+                    runtime_id="fake_group_runtime",
+                    runtime_version="runtime_fake_group_v1",
+                    domain_id="fake_domain",
+                    supports_rebuild=False,
+                    supports_checkpoint_restore=False,
+                    supports_episode_replay=False,
+                    supports_reward_labels=True,
+                    supports_local_adapter=False,
+                    state_changing_tools=(),
+                    task_taxonomy=("fake_lookup",),
+                    reward_preference_groups={"fake_search_records": "fake_declared_lookup"},
+                ),
+            )
+        )
+        quality_report = build_episode_quality_report(
+            dataset_version="dataset_fake_group_runtime",
+            episodes=(episode,),
+            runtime_registry=registry,
+        )
+
+        label = build_reward_labels(
+            episodes=(episode,),
+            episode_quality_report=quality_report,
+            episode_replay_report=None,
+            runtime_registry=registry,
+        )[0]
+
+        self.assertEqual(
+            label["preference_group"]["group_id"],
+            "pref_fake_group_runtime_fake_declared_lookup",
+        )
+
     def test_contacts_and_mobile_flow_through_quality_replay_and_reward_consumers(self) -> None:
         from synthesis.episode_quality import build_episode_quality_report
         from synthesis.episode_replay import build_episode_replay_report
@@ -377,6 +480,30 @@ def _episode(candidate_id: str) -> dict[str, object]:
             trajectory=execution.trajectory,
             outcome_status="accepted",
         ).export()
+
+
+def _with_runtime_and_tool(
+    episode: dict[str, object],
+    *,
+    runtime_id: str,
+    runtime_version: str,
+    tool_name: str,
+) -> dict[str, object]:
+    transitions = []
+    for transition in episode["transitions"]:
+        assert isinstance(transition, dict)
+        copied = dict(transition)
+        if copied.get("tool_name") is not None:
+            copied["tool_name"] = tool_name
+        transitions.append(copied)
+    runtime = dict(episode["runtime"])
+    runtime["runtime_id"] = runtime_id
+    runtime["runtime_version"] = runtime_version
+    return {
+        **episode,
+        "runtime": runtime,
+        "transitions": transitions,
+    }
 
 
 if __name__ == "__main__":

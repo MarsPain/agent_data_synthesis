@@ -237,7 +237,6 @@ REWARD_LABEL_CHECK_NAMES = {
     "usable_label_coverage",
     "sanitized_summaries",
 }
-REWARD_LABEL_RUNTIMES = {"contacts_fixture", "mobile_messages_fixture"}
 RUN_PROFILE_SOURCE_KINDS = {
     "local_contacts_json",
     "local_mobile_messages_json",
@@ -771,9 +770,7 @@ def validate_reward_label_record(record: Mapping[str, Any]) -> None:
         raise ContractValidationError("schema_version is unsupported")
     for field in ("label_id", "episode_id", "candidate_id"):
         _require_non_empty_string(record.get(field), field)
-    runtime_id = _require_non_empty_string(record.get("runtime_id"), "runtime_id")
-    if runtime_id not in REWARD_LABEL_RUNTIMES:
-        raise ContractValidationError("runtime_id is unsupported")
+    _require_non_empty_string(record.get("runtime_id"), "runtime_id")
     outcome_status = _require_non_empty_string(record.get("outcome_status"), "outcome_status")
     if outcome_status not in EPISODE_OUTCOMES:
         raise ContractValidationError("outcome_status is unsupported")
@@ -865,7 +862,10 @@ def validate_reward_label_report_record(record: Mapping[str, Any]) -> None:
     observed = _require_mapping(record.get("observed"), "observed")
     for field in ("episode_count", "label_count", "usable", "excluded", "insufficient_evidence"):
         _require_int(observed.get(field), f"observed.{field}")
-    _validate_string_count_mapping(observed.get("runtime_counts"), "observed.runtime_counts")
+    runtime_counts = _validate_string_count_mapping(
+        observed.get("runtime_counts"),
+        "observed.runtime_counts",
+    )
     average = _require_number(observed.get("average_scalar_reward"), "observed.average_scalar_reward")
     _validate_rate(average, "observed.average_scalar_reward")
 
@@ -906,8 +906,10 @@ def validate_reward_label_report_record(record: Mapping[str, Any]) -> None:
             )
         for field in ("label_id", "episode_id", "candidate_id", "runtime_id", "label_status"):
             _require_non_empty_string(summary.get(field), f"label_summaries.{index}.{field}")
-        if summary.get("runtime_id") not in REWARD_LABEL_RUNTIMES:
-            raise ContractValidationError(f"label_summaries.{index}.runtime_id is unsupported")
+        if summary.get("runtime_id") not in runtime_counts:
+            raise ContractValidationError(
+                f"label_summaries.{index}.runtime_id lacks report-local evidence"
+            )
         if summary.get("label_status") not in REWARD_LABEL_STATUSES:
             raise ContractValidationError(f"label_summaries.{index}.label_status is unsupported")
         scalar = _require_number(
@@ -2935,11 +2937,14 @@ def _validate_manifest_artifacts(raw: object) -> None:
         _validate_artifact_filename(value, f"artifacts.{key}")
 
 
-def _validate_string_count_mapping(raw: object, path: str) -> None:
+def _validate_string_count_mapping(raw: object, path: str) -> set[str]:
     values = _require_mapping(raw, path)
+    keys: set[str] = set()
     for raw_key, raw_value in values.items():
         key = _require_non_empty_string(raw_key, f"{path} key")
         _require_int(raw_value, f"{path}.{key}")
+        keys.add(key)
+    return keys
 
 
 def _validate_evaluation_capability_slices(raw: object, *, total: int) -> None:

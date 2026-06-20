@@ -266,6 +266,18 @@ class DatasetContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ContractValidationError, "label_summaries.0"):
             validate_reward_label_report_record(report)
 
+    def test_reward_label_report_contract_requires_summary_runtime_evidence(self) -> None:
+        from synthesis.contracts import (
+            ContractValidationError,
+            validate_reward_label_report_record,
+        )
+
+        report = _valid_reward_label_report()
+        report["label_summaries"][0]["runtime_id"] = "fake_reward_runtime"
+
+        with self.assertRaisesRegex(ContractValidationError, "report-local evidence"):
+            validate_reward_label_report_record(report)
+
     def test_manifest_contract_rejects_unsupported_profile_purpose(self) -> None:
         from synthesis.contracts import ContractValidationError, validate_manifest_record
 

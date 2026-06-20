@@ -376,7 +376,11 @@ def _build_label(
         ),
         "components": components,
         "preference_group": {
-            "group_id": _preference_group_id(runtime_id=runtime_id, tool_names=tool_names),
+            "group_id": _preference_group_id(
+                runtime_id=runtime_id,
+                tool_names=tool_names,
+                runtime_descriptor=descriptor,
+            ),
             "rank": 1,
             "tie_breaker": candidate_id,
         },
@@ -504,18 +508,35 @@ def _label_source(*, has_quality_report: bool, has_replay_report: bool) -> dict[
     return source
 
 
-def _preference_group_id(*, runtime_id: str, tool_names: Sequence[str]) -> str:
-    if "record_contact_followup" in tool_names:
-        capability = "contact_followup"
-    elif "create_phone_reminder" in tool_names:
-        capability = "mobile_reminder"
-    elif "draft_message_reply" in tool_names:
-        capability = "mobile_draft_reply"
-    elif "search_phone_messages" in tool_names:
-        capability = "mobile_message_lookup"
-    else:
-        capability = "contact_lookup"
+def _preference_group_id(
+    *,
+    runtime_id: str,
+    tool_names: Sequence[str],
+    runtime_descriptor: RuntimeCapabilityDescriptor | None,
+) -> str:
+    declared_groups = (
+        runtime_descriptor.reward_preference_groups if runtime_descriptor is not None else {}
+    )
+    capability = ""
+    for tool_name in sorted(str(tool_name) for tool_name in tool_names):
+        capability = str(declared_groups.get(tool_name, ""))
+        if capability:
+            break
+    if not capability:
+        capability = str(declared_groups.get("__default__", ""))
+    if not capability:
+        capability = _generic_preference_capability(tool_names)
     return f"pref_{runtime_id}_{capability}"
+
+
+def _generic_preference_capability(tool_names: Sequence[str]) -> str:
+    normalized = sorted(_sanitize_preference_component(str(tool_name)) for tool_name in tool_names)
+    return next((tool_name for tool_name in normalized if tool_name), "runtime_task")
+
+
+def _sanitize_preference_component(value: str) -> str:
+    sanitized = "".join(character if character.isalnum() else "_" for character in value.lower())
+    return "_".join(part for part in sanitized.split("_") if part)
 
 
 def _rank_preference_groups(labels: Sequence[Mapping[str, object]]) -> tuple[dict[str, object], ...]:

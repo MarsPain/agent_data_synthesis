@@ -1,18 +1,20 @@
 # AWM Runtime Extraction Readiness
 
-Generated for Plan 0025 Phase E on 2026-06-20.
+Generated for Plan 0025 Phase E on 2026-06-20. Updated after Phase E1
+reward-label runtime contract hardening on 2026-06-20.
 
 ## Decision
 
 Status: `continue_hardening`
 
 Do not activate Phase F package extraction yet. The runtime boundary has real
-multi-consumer pressure and enough structure to continue hardening, but it is
-not ready to become a package boundary because reward-label contracts still own
-runtime allowlists and domain-shaped grouping rules.
+multi-consumer pressure and enough structure to continue hardening. Phase E1
+removed the reward-label runtime allowlist and moved reward preference grouping
+to runtime descriptor declarations, but Phase F still requires a fresh
+extraction-readiness review before activation.
 
 Next plan pointer:
-[0025 Phase E1: Reward Label Runtime Contract Hardening](../exec-plans/deferred/0025-phase-e1-reward-label-runtime-contract-hardening.md).
+[0025 Phase E1: Reward Label Runtime Contract Hardening](../exec-plans/completed/0025-phase-e1-reward-label-runtime-contract-hardening.md).
 
 ## Summary
 
@@ -29,14 +31,15 @@ Evidence supports the internal runtime direction:
   admission, profile promotion, provider prompts, credentials, raw sources, and
   host paths.
 
-Extraction is still blocked by two boundary leaks:
+Phase E originally identified two reward-label boundary leaks. Phase E1 has
+now addressed both:
 
-- `synthesis.contracts.REWARD_LABEL_RUNTIMES` hard-codes reward-label runtime
-  ids and is enforced by `validate_reward_label_record` and
-  `validate_reward_label_report_record`.
-- `synthesis.reward_labels._preference_group_id` maps known contacts/mobile
-  tool names to capability labels instead of deriving grouping from descriptor
-  taxonomy or another runtime-owned capability declaration.
+- `validate_reward_label_record` no longer uses a contract-level runtime
+  allowlist, and `validate_reward_label_report_record` validates summary
+  runtime ids against report-local `observed.runtime_counts` evidence.
+- `synthesis.reward_labels._preference_group_id` now reads
+  `RuntimeCapabilityDescriptor.reward_preference_groups` and falls back to a
+  deterministic generic tool-derived grouping.
 
 ## Readiness Criteria
 
@@ -44,9 +47,9 @@ Extraction is still blocked by two boundary leaks:
 | --- | --- | --- |
 | At least two production domain runtimes use the same descriptor/session boundary. | Pass | `synthesis.runtime.DEFAULT_RUNTIME_REGISTRY`; `synthesis.domain_pipeline.DomainPipelineBundle.runtime_session`; `tests.test_runtime_contract.RuntimeContractTest.test_contacts_and_mobile_satisfy_shared_runtime_protocol`. |
 | At least one fake/minimal runtime test proves the boundary is not contacts/mobile-specific. | Pass | `tests.test_runtime_contract` fake descriptor coverage; `tests.test_episode_quality.test_fake_runtime_descriptor_is_accepted_without_consumer_allowlist`; `tests.test_episode_replay.test_fake_runtime_without_replay_support_reports_unsupported`; `tests.test_reward_labels.test_fake_runtime_reward_capability_status_is_descriptor_derived`. |
-| Synthesis, episode quality, executable replay, reward labels, rollouts, and local adapter manifests consume descriptors or sessions. | Partial pass | `synthesis.domain_pipeline`, `synthesis.episode_quality`, `synthesis.episode_replay`, `synthesis.reward_labels`, `synthesis.rollouts`, and `synthesis.mcp` consume descriptors, sessions, action envelopes, or episode logs. Reward-label contract validation still has a runtime allowlist. |
+| Synthesis, episode quality, executable replay, reward labels, rollouts, and local adapter manifests consume descriptors or sessions. | Pass | `synthesis.domain_pipeline`, `synthesis.episode_quality`, `synthesis.episode_replay`, `synthesis.reward_labels`, `synthesis.rollouts`, and `synthesis.mcp` consume descriptors, sessions, action envelopes, or episode logs. Reward-label contracts now use record/report-local runtime evidence instead of a contract allowlist. |
 | Runtime metadata and descriptors reject dataset/release/profile/provider/credential/raw-source/host-path leakage. | Pass | `synthesis.runtime.validate_runtime_descriptor_safety`, `synthesis.runtime.validate_runtime_metadata_safety`, `tests.test_runtime_contract.test_runtime_descriptor_safety_rejects_profile_release_paths_prompts_and_secrets`, and adapter redaction tests in `tests.test_mcp_adapters`. |
-| Adding a new runtime does not require editing core replay or reward-label allowlists. | Fail | Replay uses descriptor lookup. Reward-label contracts still require edits to `synthesis.contracts.REWARD_LABEL_RUNTIMES`. |
+| Adding a new runtime does not require editing core replay or reward-label allowlists. | Pass | Replay uses descriptor lookup. Reward-label fake-runtime tests validate labels and reports without adding the fake runtime to a contract allowlist. |
 | Unused runtime methods are removed or explicitly marked experimental. | Partial pass | `RuntimeSession` methods are exercised by rollouts, adapter shims, and tests. `RuntimeSession.rebuild` exists for the package-shaped session API but current executable replay rebuilds through `rebuild_domain_pipeline_bundle`; this should be documented or exercised before extraction. |
 | Docs define runtime, domain pack, synthesis, reward, release, and adapter ownership. | Pass | `docs/exec-plans/deferred/0025-awm-runtime-phase-index.md`, `docs/DESIGN.md`, `docs/BACKEND.md`, `docs/DATA.md`, and Phase A-D completion notes define the intended ownership boundaries. |
 
@@ -70,8 +73,9 @@ Consumer modules:
   `runtime_capability_status`, rebuilds through descriptor seeds, and derives
   state-changing tools from descriptors.
 - `synthesis.reward_labels` checks reward capability through
-  `runtime_capability_status`, but exported label records still must satisfy
-  `synthesis.contracts.REWARD_LABEL_RUNTIMES`.
+  `runtime_capability_status`, exports descriptor-owned preference groups, and
+  writes reports whose summaries are validated against report-local runtime
+  counts.
 - `synthesis.rollouts` drives runtime sessions with `RuntimeActionRequest` and
   emits `episode_log_v1`.
 - `synthesis.mcp.LocalRuntimeAdapterShim` builds manifests from
@@ -82,8 +86,9 @@ Remaining domain assumptions:
 - `synthesis.domain_pipeline.build_domain_pipeline_bundle` remains the domain
   pack router for contacts and mobile. That is acceptable because domain packs
   are intentionally out of the extraction boundary.
-- `synthesis.reward_labels._preference_group_id` should stop encoding
-  contacts/mobile tool names before extraction.
+- Contacts and mobile keep their existing preference group ids through
+  `RuntimeCapabilityDescriptor.reward_preference_groups`; fake runtimes can
+  declare their own grouping without reward-label module edits.
 
 ## Consumer Evidence
 
@@ -92,7 +97,7 @@ Remaining domain assumptions:
 | Synthesis/domain bundle | `DomainPipelineBundle.runtime_session`, `EnvironmentRuntime`, registry builders | Contacts and mobile bundle tests. |
 | Episode quality | `runtime_descriptor`, descriptor state-changing tools | Contacts, mobile, fake runtime, unknown runtime tests. |
 | Executable replay | `runtime_capability_status`, `runtime_descriptor`, descriptor rebuild seed and state-changing tools | Contacts, mobile, fake unsupported runtime, registry override tests. |
-| Reward labels | `runtime_capability_status`, `runtime_descriptor`, descriptor state-changing tools | Contacts, mobile, fake capability-status tests; blocked by contract allowlist. |
+| Reward labels | `runtime_capability_status`, `runtime_descriptor`, descriptor state-changing tools, descriptor reward preference groups, report-local runtime evidence | Contacts, mobile, fake capability-status tests, fake label/report contract validation. |
 | Diagnostic rollouts | `RuntimeSession.checkpoint`, `restore_checkpoint`, `execute_action`; `RuntimeActionRequest` | Contacts and mobile rollout tests producing replayable reward-compatible episodes. |
 | Local adapters | `RuntimeCapabilityDescriptor`, `RuntimeSession`, runtime action envelopes | Contacts runtime-backed manifest, mobile adapter execution, unsupported fake runtime rejection, redaction tests. |
 
@@ -102,7 +107,8 @@ Extraction-eligible after hardening:
 
 - `RuntimeCapabilityDescriptor`: capability declaration for runtime identity,
   rebuild, replay, reward labels, local adapter support, state-changing tools,
-  task taxonomy, rebuild seed, and safe descriptor metadata.
+  task taxonomy, reward preference grouping, rebuild seed, and safe descriptor
+  metadata.
 - `RuntimeRegistry`, `registered_runtime_ids`, `runtime_descriptor`,
   `runtime_registry_with`, and `runtime_capability_status`: descriptor lookup
   and capability status vocabulary.
@@ -123,22 +129,20 @@ Internal-only until another plan separates domain packs:
   `synthesis.seeds.DomainSeed`; this is useful internally but couples replay
   rebuild to this repository's domain-pack model.
 
-Needs hardening before extraction:
+Needs hardening or review before extraction:
 
-- Reward label contract runtime validation should derive from runtime
-  descriptors or report-local runtime evidence, not `REWARD_LABEL_RUNTIMES`.
-- Reward preference grouping should derive from descriptor taxonomy or a
-  runtime-owned grouping declaration, not hard-coded contacts/mobile tool names.
 - `RuntimeSession.rebuild` should be either exercised by consumers or marked as
   package-facing experimental before extraction.
+- A new extraction-readiness review should re-evaluate the package boundary now
+  that Phase E1 reward-label contract blockers are removed.
 
 No removal is recommended in Phase E because this phase is a decision gate and
 must not change runtime APIs.
 
 ## Risks
 
-- If Phase F starts now, package consumers would inherit a reward-label contract
-  that still requires repository edits for every new runtime id.
+- If Phase F starts without a fresh review, package consumers may inherit
+  unresolved session rebuild semantics or domain-pack rebuild coupling.
 - The runtime package boundary would be blurred by `DomainSeed` rebuild coupling
   unless Phase F explicitly keeps domain-pack rebuild policy outside the package
   or introduces a package-neutral rebuild recipe.
@@ -147,8 +151,7 @@ must not change runtime APIs.
 
 ## Required Next Step
 
-Run the Phase E1 hardening plan before revisiting extraction. The hardening
-plan should remove the reward-label runtime allowlist, replace domain-specific
-preference grouping with descriptor-derived grouping, and add fake runtime
-contract tests that validate labels and label reports without contacts/mobile
-contract edits.
+Run a fresh extraction-readiness review before activating Phase F. Phase E1 has
+removed the reward-label runtime allowlist, replaced domain-specific preference
+grouping with descriptor-owned grouping, and added fake runtime contract tests
+that validate labels and label reports without contacts/mobile contract edits.

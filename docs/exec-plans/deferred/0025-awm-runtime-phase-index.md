@@ -7,9 +7,9 @@ a directly executable implementation plan. The executable work is split into
 Phase A-F documents.
 
 Phase A, Phase B, and Phase C completed on 2026-06-19. Phase D and Phase E
-completed on 2026-06-20. Phase E returned `continue_hardening`, so Phase E1 is
-the next deferred internal hardening step. Phase F remains deferred behind a
-future readiness decision.
+completed on 2026-06-20. Phase E returned `continue_hardening`, and Phase E1
+completed the reward-label runtime contract hardening follow-up. Phase F
+remains deferred behind a future readiness decision.
 
 Do not move Phase F to active unless extraction readiness is revisited after
 Phase E1 and produces an explicit `ready_for_extraction_plan` decision.
@@ -76,7 +76,7 @@ packs, not the package boundary.
 - [0025 Phase E: Extraction Readiness Review](../completed/0025-phase-e-extraction-readiness-review.md)
   - Produce an evidence-backed decision to keep runtime internal, continue
     hardening, or activate extraction planning.
-- [0025 Phase E1: Reward Label Runtime Contract Hardening](0025-phase-e1-reward-label-runtime-contract-hardening.md)
+- [0025 Phase E1: Reward Label Runtime Contract Hardening](../completed/0025-phase-e1-reward-label-runtime-contract-hardening.md)
   - Remove reward-label runtime contract allowlists and domain-specific
     preference grouping before revisiting extraction readiness.
 - [0025 Phase F: AWM Runtime Package Extraction](0025-phase-f-awm-runtime-package-extraction.md)
@@ -115,7 +115,7 @@ Passing evidence:
 - Episode quality, replay, rollouts, and local adapters consume runtime
   descriptors, sessions, action envelopes, or episode logs.
 
-Blocking evidence:
+Phase E blocking evidence before Phase E1:
 
 - `synthesis.contracts.REWARD_LABEL_RUNTIMES` still gates reward-label and
   reward-label-report validation.
@@ -124,8 +124,12 @@ Blocking evidence:
 - `RuntimeSession.rebuild` needs package-boundary exercise or explicit
   experimental status before extraction.
 
+Phase E1 follow-up removed the reward-label runtime allowlist gate and moved
+reward preference grouping to runtime descriptor declarations. A future
+extraction-readiness review still needs to re-evaluate Phase F activation.
+
 Decision: continue internal hardening through
-[0025 Phase E1](0025-phase-e1-reward-label-runtime-contract-hardening.md). Do
+[0025 Phase E1](../completed/0025-phase-e1-reward-label-runtime-contract-hardening.md). Do
 not activate Phase F from the Phase E result.
 
 ## Out of Scope for the Overall 0025 Sequence

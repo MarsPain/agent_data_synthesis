@@ -18,7 +18,7 @@ Completion evidence:
 - Identified reward-label contract runtime allowlists and domain-specific
   preference grouping as blockers to package extraction.
 - Added the next deferred hardening plan:
-  [0025 Phase E1: Reward Label Runtime Contract Hardening](../deferred/0025-phase-e1-reward-label-runtime-contract-hardening.md).
+  [0025 Phase E1: Reward Label Runtime Contract Hardening](0025-phase-e1-reward-label-runtime-contract-hardening.md).
 - Phase F remains deferred and must not be activated until extraction readiness
   is revisited after Phase E1.
 

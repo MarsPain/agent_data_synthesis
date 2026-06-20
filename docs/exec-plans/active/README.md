@@ -5,10 +5,12 @@ is accepted as complete, move it to `../completed/` and update `../../PLANS.md`.
 
 ## Currently Executing
 
-There is no active implementation plan at this point.
+No active implementation plans.
 
 ## Completed
 
+- [0025-phase-e1-reward-label-runtime-contract-hardening](../completed/0025-phase-e1-reward-label-runtime-contract-hardening.md):
+  completed on 2026-06-20.
 - [0025-phase-e-extraction-readiness-review](../completed/0025-phase-e-extraction-readiness-review.md):
   completed on 2026-06-20 with decision status `continue_hardening`.
 - [0025-phase-d-adapter-surface-generalization](../completed/0025-phase-d-adapter-surface-generalization.md):

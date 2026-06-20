@@ -47,6 +47,7 @@ class RuntimeCapabilityDescriptor:
     task_taxonomy: tuple[str, ...]
     rebuild_seed: DomainSeed | None = None
     descriptor_metadata: Mapping[str, object] = field(default_factory=dict)
+    reward_preference_groups: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         _require_descriptor_string(self.runtime_id, "runtime_id")
@@ -54,6 +55,7 @@ class RuntimeCapabilityDescriptor:
         _require_descriptor_string(self.domain_id, "domain_id")
         _validate_string_tuple(self.state_changing_tools, "state_changing_tools")
         _validate_string_tuple(self.task_taxonomy, "task_taxonomy")
+        _validate_string_mapping(self.reward_preference_groups, "reward_preference_groups")
         if self.supports_episode_replay and not self.supports_rebuild:
             raise ContractValidationError(
                 "runtime descriptor replay support requires rebuild support"
@@ -65,6 +67,11 @@ class RuntimeCapabilityDescriptor:
         validate_runtime_descriptor_safety(self.descriptor_metadata)
         object.__setattr__(self, "state_changing_tools", tuple(self.state_changing_tools))
         object.__setattr__(self, "task_taxonomy", tuple(self.task_taxonomy))
+        object.__setattr__(
+            self,
+            "reward_preference_groups",
+            MappingProxyType(dict(self.reward_preference_groups)),
+        )
         object.__setattr__(
             self,
             "descriptor_metadata",
@@ -464,6 +471,20 @@ def _validate_string_tuple(values: tuple[str, ...], field_name: str) -> None:
             )
 
 
+def _validate_string_mapping(values: Mapping[str, str], field_name: str) -> None:
+    if not isinstance(values, Mapping):
+        raise ContractValidationError(f"runtime descriptor {field_name} must be a mapping")
+    for raw_key, raw_value in values.items():
+        if not isinstance(raw_key, str) or not raw_key.strip():
+            raise ContractValidationError(
+                f"runtime descriptor {field_name} keys must be non-empty"
+            )
+        if not isinstance(raw_value, str) or not raw_value.strip():
+            raise ContractValidationError(
+                f"runtime descriptor {field_name}.{raw_key} must be non-empty"
+            )
+
+
 def _mobile_messages_seed() -> DomainSeed:
     return DomainSeed(
         seed_id="seed_mobile_messages_v1",
@@ -491,6 +512,10 @@ def _contacts_descriptor() -> RuntimeCapabilityDescriptor:
         supports_local_adapter=True,
         state_changing_tools=("record_contact_followup",),
         task_taxonomy=seed.task_taxonomy,
+        reward_preference_groups={
+            "__default__": "contact_lookup",
+            "record_contact_followup": "contact_followup",
+        },
         rebuild_seed=seed,
         descriptor_metadata={"adapter_support": "local_contacts_adapter"},
     )
@@ -509,6 +534,12 @@ def _mobile_descriptor() -> RuntimeCapabilityDescriptor:
         supports_local_adapter=True,
         state_changing_tools=("create_phone_reminder", "draft_message_reply"),
         task_taxonomy=seed.task_taxonomy,
+        reward_preference_groups={
+            "__default__": "mobile_message_lookup",
+            "create_phone_reminder": "mobile_reminder",
+            "draft_message_reply": "mobile_draft_reply",
+            "search_phone_messages": "mobile_message_lookup",
+        },
         rebuild_seed=seed,
         descriptor_metadata={"adapter_support": "local_runtime_adapter"},
     )

@@ -26,6 +26,7 @@ class RuntimeContractTest(unittest.TestCase):
             supports_local_adapter=False,
             state_changing_tools=("fake_write",),
             task_taxonomy=("fake_lookup",),
+            reward_preference_groups={"fake_write": "fake_write_task"},
             rebuild_seed=DomainSeed(
                 seed_id="seed_fake_v1",
                 domain="fake_runtime",
@@ -41,6 +42,10 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertTrue(descriptor.supports_reward_labels)
         self.assertFalse(descriptor.supports_local_adapter)
         self.assertEqual(descriptor.state_changing_tools, ("fake_write",))
+        self.assertEqual(
+            descriptor.reward_preference_groups,
+            {"fake_write": "fake_write_task"},
+        )
 
     def test_runtime_descriptor_safety_rejects_profile_release_paths_prompts_and_secrets(
         self,
