@@ -6,7 +6,7 @@ from typing import Any
 
 from synthesis.contracts import validate_branch_plan_record, validate_branch_outcomes
 from synthesis.llm import LLMProviderError
-from synthesis.mcp import AdapterExecutionError, LocalContactsAdapterShim, ToolCallRequest
+from synthesis.mcp import AdapterExecutionError, LocalRuntimeAdapterShim, ToolCallRequest
 from synthesis.roles import RoleRegistry, SOLUTION_POLICY_ROLE, default_role_registry
 from synthesis.tasks import CandidateTask
 from synthesis.tools import ToolMissingError, ToolRegistry, ToolRegistryError, ToolSchemaError
@@ -65,7 +65,7 @@ def execute_candidate(
     registry: ToolRegistry,
     *,
     policy: SolutionPolicy | None = None,
-    adapter_shim: LocalContactsAdapterShim | None = None,
+    adapter_shim: LocalRuntimeAdapterShim | None = None,
 ) -> ExecutionResult:
     selected_policy = policy or scripted_solution_policy(task)
     validate_solution_policy(selected_policy)
@@ -240,7 +240,7 @@ def _execute_branching_policy(
     policy: SolutionPolicy,
     registry: ToolRegistry,
     *,
-    adapter_shim: LocalContactsAdapterShim | None = None,
+    adapter_shim: LocalRuntimeAdapterShim | None = None,
 ) -> ExecutionResult:
     assert policy.branch_plan is not None
     validate_branch_plan_record(policy.branch_plan)
@@ -325,7 +325,7 @@ def _execute_steps(
     registry: ToolRegistry,
     *,
     capture_failures: bool = False,
-    adapter_shim: LocalContactsAdapterShim | None = None,
+    adapter_shim: LocalRuntimeAdapterShim | None = None,
 ) -> tuple[list[dict[str, object]], str, list[dict[str, object]] | None]:
     trajectory: list[dict[str, object]] = []
     adapter_lineage: list[dict[str, object]] = []
@@ -388,7 +388,7 @@ def _execute_steps(
 
 
 def _execute_adapter_step(
-    adapter_shim: LocalContactsAdapterShim,
+    adapter_shim: LocalRuntimeAdapterShim,
     step: ToolStep,
     index: int,
 ) -> tuple[dict[str, object], dict[str, object]]:

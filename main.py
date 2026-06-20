@@ -648,12 +648,6 @@ def _validate_profile_cli_combinations(
             parser.error(
                 "profile source conflicts with enable_source_governance_fixture"
             )
-    if (
-        profile.seed.domain == "mobile_messages_fixture"
-        and (args.enable_mcp_adapter or profile.features.enable_mcp_adapter)
-    ):
-        parser.error("mobile_messages_fixture does not support the contacts-only MCP adapter")
-
 
 def _profile_candidate_generator(
     profile: RunProfile | None,

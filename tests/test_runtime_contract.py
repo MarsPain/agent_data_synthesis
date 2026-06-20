@@ -97,7 +97,7 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertEqual(mobile.domain_id, "mobile_messages_fixture")
         self.assertTrue(mobile.supports_episode_replay)
         self.assertTrue(mobile.supports_reward_labels)
-        self.assertFalse(mobile.supports_local_adapter)
+        self.assertTrue(mobile.supports_local_adapter)
         self.assertIn("create_phone_reminder", mobile.state_changing_tools)
 
     def test_runtime_registry_rejects_unknown_and_duplicate_runtime_ids(self) -> None:

@@ -106,16 +106,22 @@ class MobilePipelineTest(unittest.TestCase):
                     ),
                 )
 
-    def test_mobile_domain_bundle_rejects_mcp_adapter(self) -> None:
+    def test_mobile_domain_bundle_can_enable_local_mcp_adapter(self) -> None:
         from synthesis.domain_pipeline import build_domain_pipeline_bundle
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with self.assertRaisesRegex(ValueError, "MCP adapter"):
-                build_domain_pipeline_bundle(
-                    mobile_seed(),
-                    Path(tmpdir),
-                    enable_mcp_adapter=True,
-                )
+            bundle = build_domain_pipeline_bundle(
+                mobile_seed(),
+                Path(tmpdir),
+                enable_mcp_adapter=True,
+            )
+
+        self.assertIsNotNone(bundle.adapter_shim)
+        assert bundle.adapter_shim is not None
+        self.assertEqual(
+            bundle.adapter_shim.manifest.adapter_id,
+            "mobile_messages_local_mcp_adapter",
+        )
 
     def test_mobile_expected_state_verification_checks_environment(self) -> None:
         from synthesis.mobile_environment import MobileMessagesEnvironment

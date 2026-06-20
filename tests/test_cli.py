@@ -635,8 +635,9 @@ class FoundationCliTest(unittest.TestCase):
             self.assertNotIn("mobile_messages_fixture", samples_text)
             self.assertNotIn("search_phone_messages", samples_text)
 
-    def test_main_rejects_mobile_profile_with_mcp_adapter(self) -> None:
+    def test_main_can_enable_mobile_profile_with_local_mcp_adapter(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "mobile-agent-fixture"
             result = subprocess.run(
                 [
                     sys.executable,
@@ -645,16 +646,23 @@ class FoundationCliTest(unittest.TestCase):
                     "tests/fixtures/run_profiles/mobile-agent-fixture.json",
                     "--enable-mcp-adapter",
                     "--output-dir",
-                    str(Path(tmpdir) / "mobile-agent-fixture"),
+                    str(output_dir),
                 ],
                 check=False,
                 capture_output=True,
                 text=True,
             )
 
-            self.assertEqual(result.returncode, 2)
-            self.assertIn("MCP adapter", result.stderr)
-            self.assertIn("mobile_messages_fixture", result.stderr)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            sample = json.loads(
+                (output_dir / "samples.jsonl").read_text(encoding="utf-8").splitlines()[0]
+            )
+            report = json.loads((output_dir / "quality_report.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                sample["lineage"]["adapter"][0]["adapter_id"],
+                "mobile_messages_local_mcp_adapter",
+            )
+            self.assertIn("mobile_messages_local_mcp_adapter", report["slices"]["adapter_id"])
 
     def test_main_dataset_version_overrides_profile_dataset_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

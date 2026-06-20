@@ -394,12 +394,16 @@ rejection
 ```text
 SolutionPolicy step
   -> ToolCallRequest envelope
-  -> LocalContactsAdapterShim
+  -> LocalRuntimeAdapterShim
+  -> RuntimeActionRequest/RuntimeActionResult
   -> ToolCallResult envelope
   -> normal trajectory event + adapter lineage
 ```
 
-这条路径的目标是验证未来 MCP-compatible 环境/工具边界，而不是启动外部 MCP server。当前 adapter path 明确排除：
+这条路径由 runtime descriptor 和 `RuntimeSession` 驱动；contacts 通过
+兼容包装保留原有 adapter identity，mobile messages 也可以在显式启用时走同一
+本地 adapter surface。这条路径的目标是验证未来 MCP-compatible
+环境/工具边界，而不是启动外部 MCP server。当前 adapter path 明确排除：
 
 - external MCP server discovery。
 - browser automation。

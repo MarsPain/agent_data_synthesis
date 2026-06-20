@@ -48,7 +48,9 @@
 - **Runtime Capability Descriptor:** internal registry record for runtime
   identity, domain id, replay/reward eligibility, checkpoint/rebuild support,
   local-adapter support, state-changing tools, task taxonomy, optional replay
-  rebuild seed, and sanitized descriptor metadata. It is not dataset release,
+  rebuild seed, and sanitized descriptor metadata. Contacts and mobile message
+  fixtures both declare opt-in local-adapter support through this descriptor. It
+  is not dataset release,
   profile promotion, provider prompt, credential, raw source, or host-path
   metadata. Runtime capability lookups use the sanitized status vocabulary
   `supported`, `unsupported`, `insufficient_evidence`, and `malformed`; consumer
@@ -845,13 +847,18 @@ runner currently enables the branching fixture only when requested with
 `--enable-branching` or `enable_branching=True`, keeping default serial exports
 stable.
 
-Adapter manifests use `schema_version: mcp_adapter_manifest_v1`. Tool-call
-requests use `schema_version: mcp_tool_call_request_v1`, and results use
-`schema_version: mcp_tool_call_result_v1`. The first supported operation is
-`tool.call`. Successful results carry `execution_status: succeeded`; contract or
-schema failures carry `rejected`; runtime failures carry `failed`. Adapter
-contract rejections are non-executable for quality-rate purposes and do not
-inflate verifier success metrics.
+Adapter manifests use `schema_version: mcp_adapter_manifest_v1`. They are built
+from runtime descriptors and `RuntimeSession` tool schemas for opt-in local
+adapter runs. Tool-call requests use `schema_version:
+mcp_tool_call_request_v1`, and results use `schema_version:
+mcp_tool_call_result_v1`. The first supported operation is `tool.call`.
+Successful results carry `execution_status: succeeded`; contract, capability, or
+schema failures carry `rejected`; runtime failures carry `failed`. Tool-call
+arguments are sanitized before they become `runtime_action_request_v1` records,
+and successful adapter execution retains corresponding `runtime_action_result_v1`
+evidence inside the local adapter layer. Adapter contract rejections are
+non-executable for quality-rate purposes and do not inflate verifier success
+metrics.
 
 Generated executable records use `schema_version:
 generated_executable_artifact_v1` and preserve artifact id, artifact kind

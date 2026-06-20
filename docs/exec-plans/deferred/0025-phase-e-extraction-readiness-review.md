@@ -7,8 +7,9 @@
 ## Status
 
 Deferred. Activate only after
-[0025 Phase D](0025-phase-d-adapter-surface-generalization.md) has completed or
-after equivalent runtime, consumer, rollout, and adapter evidence exists.
+[0025 Phase D](../completed/0025-phase-d-adapter-surface-generalization.md)
+has completed or after equivalent runtime, consumer, rollout, and adapter
+evidence exists.
 
 ## Goal
 

@@ -47,17 +47,20 @@ origin aliases and hashes only.
 ## Local MCP-Compatible Adapter Controls
 
 The MCP-compatible adapter path is disabled by default and enabled only with
-`--enable-mcp-adapter` or `enable_mcp_adapter=True`. The first adapter is an
-in-process contacts shim over the already-curated local tool registry. It does
-not discover or connect to arbitrary MCP servers, start browser automation, read
-credentials, broker secrets, access remote filesystems, or execute generated
-handlers.
+`--enable-mcp-adapter` or `enable_mcp_adapter=True`. The adapter surface is an
+in-process runtime-backed shim over already-curated local runtime sessions and
+tool registries for contacts and mobile fixtures. It does not discover or
+connect to arbitrary MCP servers, start browser automation, read credentials,
+broker secrets, access remote filesystems, or execute generated handlers.
 
 Adapter manifests must include environment identity, source-policy hash,
-supported operations, tool schemas, side-effect classes, and verifier
-implications before execution. Adapter request and result envelopes are
-validated locally. Contract failures are rejected as `adapter_contract_rejected`
-with sanitized details; they are not treated as executable verifier failures.
+supported operations, tool schemas, side-effect classes, reset/checkpoint
+capability, and verifier implications before execution. Tool-call request
+envelopes are sanitized before being mapped into `runtime_action_request_v1`;
+tool-call results preserve MCP-compatible adapter lineage while retaining
+runtime action evidence internally. Contract failures are rejected as
+`adapter_contract_rejected` with sanitized details; they are not treated as
+executable verifier failures.
 
 ## LLM Provider Secrets
 

@@ -506,11 +506,11 @@ def _mobile_descriptor() -> RuntimeCapabilityDescriptor:
         supports_checkpoint_restore=True,
         supports_episode_replay=True,
         supports_reward_labels=True,
-        supports_local_adapter=False,
+        supports_local_adapter=True,
         state_changing_tools=("create_phone_reminder", "draft_message_reply"),
         task_taxonomy=seed.task_taxonomy,
         rebuild_seed=seed,
-        descriptor_metadata={"adapter_support": "none"},
+        descriptor_metadata={"adapter_support": "local_runtime_adapter"},
     )
 
 

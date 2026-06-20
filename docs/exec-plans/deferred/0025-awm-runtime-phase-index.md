@@ -6,8 +6,8 @@ Planned on 2026-06-09. This is an umbrella phase index and decision record, not
 a directly executable implementation plan. The executable work is split into
 Phase A-F documents.
 
-Phase A, Phase B, and Phase C completed on 2026-06-19. Phases D-F remain
-deferred behind explicit prerequisites.
+Phase A, Phase B, and Phase C completed on 2026-06-19. Phase D completed on
+2026-06-20. Phases E-F remain deferred behind explicit prerequisites.
 
 Do not move Phase F to active unless Phase E produces an explicit
 `ready_for_extraction_plan` decision.
@@ -67,9 +67,10 @@ packs, not the package boundary.
   - Add reset/checkpoint/list-tools/execute-action/episode-export semantics
     needed by future rollout collectors, without RL training.
   - Completed on 2026-06-19.
-- [0025 Phase D: Adapter Surface Generalization](0025-phase-d-adapter-surface-generalization.md)
+- [0025 Phase D: Adapter Surface Generalization](../completed/0025-phase-d-adapter-surface-generalization.md)
   - Generalize the local in-process adapter surface from contacts-specific
     assumptions to runtime descriptors and action envelopes.
+  - Completed on 2026-06-20.
 - [0025 Phase E: Extraction Readiness Review](0025-phase-e-extraction-readiness-review.md)
   - Produce an evidence-backed decision to keep runtime internal, continue
     hardening, or activate extraction planning.
@@ -85,10 +86,8 @@ replay, and reward-label consumers aligned on descriptor-backed capability
 semantics. Reward-label export from plan 0034 supplied enough pressure for the
 0025 sequence, but not for package extraction.
 
-Keep Phases C-F deferred until their prerequisites complete:
+Keep Phases E-F deferred until their prerequisites complete:
 
-- Phase C requires Phase B consumer inversion.
-- Phase D requires Phase C runtime sessions and action envelopes.
 - Phase E requires Phase D or equivalent runtime/adapter evidence.
 - Phase F requires Phase E status `ready_for_extraction_plan`.
 

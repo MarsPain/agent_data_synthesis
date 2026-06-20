@@ -36,8 +36,9 @@ assembly, and quality reporting.
 - `CandidateTask` remains the public compatibility wrapper, but internal
   `TaskContract` records now split task intent, policy hints, expected final
   answer, and expected state before execution and verification.
-- MCP adapter support remains contacts-only. Mobile profiles that request the
-  adapter are rejected instead of silently falling back.
+- Superseded by plan 0025 Phase D: MCP-compatible local adapter support is now
+  runtime-backed and mobile profiles can explicitly enable the local adapter
+  surface without falling back to contacts behavior.
 - Source-governed profile-local environment input is no longer contacts-only:
   contacts and mobile messages now use one domain importer interface after
   shared source governance admits the local JSON payload.
@@ -68,7 +69,8 @@ The larger 0025 extraction pressure remains unresolved:
 - Episode evidence is an in-memory diagnostic contract consumer, not a replay
   engine, reward/data-quality trainer, Agentic RL collector, or release
   artifact.
-- MCP adapter support remains contacts-only.
+- Superseded by plan 0025 Phase D: local adapter support is now runtime-backed
+  for contacts and mobile; external MCP servers remain out of scope.
 - `CandidateTask` still exposed task intent, policy hints, expected answer, and
   expected state through one compatibility record; 0030 documented that
   pressure but did not migrate the internal boundary.

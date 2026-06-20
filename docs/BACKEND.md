@@ -61,8 +61,9 @@ The first backend should be a local Python pipeline with explicit modules and du
   graph, capability-gap records, bounded tool proposals, and curated local tool
   admission.
 - `synthesis.mcp`: local MCP-compatible adapter manifests, tool-call request and
-  result envelopes, adapter lineage records, and the in-process contacts adapter
-  shim. It does not start an MCP server or connect to external tool servers.
+  result envelopes, adapter lineage records, and the in-process runtime-backed
+  adapter shim for supported local runtimes. It does not start an MCP server or
+  connect to external tool servers.
 - `synthesis.sandbox`: generated executable artifact records, Python static
   safety scans, sandbox admission decisions, redacted sandbox audit records, and
   the restricted local execution helper for explicitly admitted fixture code.
@@ -173,7 +174,8 @@ trajectories, exports, or logs.
    scripted policies.
 11. Execute policy steps directly against the local registry by default. When
    `--enable-mcp-adapter` or `enable_mcp_adapter=True` is explicitly set, route
-   the same policy steps through the local in-process contacts adapter shim. The
+   the same policy steps through the local in-process runtime-backed adapter
+   shim. The
    top-level trajectory still records the normal action, observation,
    state-change, and final-response events; adapter call metadata is stored in
    lineage and rejection details.
@@ -272,13 +274,16 @@ path without external network access by passing `--mock-source-fixture`, which
 injects a fixture-backed HTTP client.
 
 The MCP-compatible adapter path is local and opt-in. `--enable-mcp-adapter`
-builds a manifest for the contacts environment and curated contacts tool
-registry, then executes calls through an in-process shim. The manifest records
-adapter id, protocol label, adapter version, environment id/version,
-source-policy hash, reset/checkpoint support, supported operations, tool schemas,
-side-effect classes, and verifier implications. This path deliberately excludes
-external MCP server discovery, browser automation, credential brokering, remote
-filesystem access, and generated tool handlers.
+builds a manifest from the runtime descriptor plus `RuntimeSession`, then maps
+MCP-compatible tool-call envelopes into runtime action request/result records.
+Contacts keeps its existing adapter identity and lineage fields; mobile message
+runtimes expose `search_phone_messages`, `create_phone_reminder`, and
+`draft_message_reply` through the same in-process adapter surface. The manifest
+records adapter id, protocol label, adapter version, runtime/environment
+id/version, source-policy hash, reset/checkpoint support, supported operations,
+tool schemas, side-effect classes, and verifier implications. This path
+deliberately excludes external MCP server discovery, browser automation,
+credential brokering, remote filesystem access, and generated tool handlers.
 
 The generated-code sandbox fixture is local and opt-in. `--enable-sandbox-fixture`
 creates sanitized `sandbox_audits.jsonl` records for one admitted safe fixture
@@ -306,8 +311,9 @@ behavior.
 Plan 0021 hardened the candidate-processing boundary for a future local async
 runner without activating `synthesis.orchestration`. The synchronous pipeline now
 builds `CandidateExecutionRequest` values, executes each candidate against a
-rebuilt contacts environment, candidate-local tool registry, and candidate-local
-adapter shim when enabled, then emits `ProvisionalCandidateOutcome` records.
+rebuilt domain environment, candidate-local tool registry, and candidate-local
+runtime-backed adapter shim when enabled, then emits
+`ProvisionalCandidateOutcome` records.
 Tool-expansion admissions mutate only that candidate-local registry; proposal
 records are serialized by candidate sequence. `merge_candidate_outcomes()` sorts
 provisional outcomes by stable sequence index, admits the first duplicate
@@ -383,3 +389,9 @@ scripted policies through action envelopes and emits sanitized `episode_log_v1`
 records that replay and reward-label consumers can read. It does not change
 default `main.py` output, train policies, create distributed workers, connect
 external MCP servers, or extract a runtime package.
+
+Plan 0025 Phase D generalizes the local adapter surface onto the same runtime
+boundary. Adapter manifests are now runtime-backed rather than contacts-only,
+and mobile adapter execution remains opt-in, in-process, and action-envelope
+based. This adds adapter evidence for the staged 0025 extraction review while
+keeping external MCP servers and package extraction deferred.

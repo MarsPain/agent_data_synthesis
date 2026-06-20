@@ -9,6 +9,8 @@ There is no active implementation plan at this point.
 
 ## Completed
 
+- [0025-phase-d-adapter-surface-generalization](../completed/0025-phase-d-adapter-surface-generalization.md):
+  completed on 2026-06-20.
 - [0025-phase-c-rollout-ready-runtime-api](../completed/0025-phase-c-rollout-ready-runtime-api.md):
   completed on 2026-06-19.
 - [0025-phase-b-consumer-inversion](../completed/0025-phase-b-consumer-inversion.md):

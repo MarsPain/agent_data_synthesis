@@ -12,12 +12,9 @@ move back to `../active/` and `../../PLANS.md` is updated.
     requirement.
   - Rationale: current fixture-scale runs do not justify async orchestration,
     durable queues, cancellation, and cost tracking complexity.
-- [0025-phase-d-adapter-surface-generalization](0025-phase-d-adapter-surface-generalization.md)
-  - Trigger: Phase C has completed and runtime sessions can execute action
-  envelopes.
 - [0025-phase-e-extraction-readiness-review](0025-phase-e-extraction-readiness-review.md)
-  - Trigger: Phase D or equivalent runtime, consumer, rollout, and adapter
-    evidence exists.
+  - Trigger: Phase D has completed or equivalent runtime, consumer, rollout,
+    and adapter evidence exists.
 - [0025-phase-f-awm-runtime-package-extraction](0025-phase-f-awm-runtime-package-extraction.md)
   - Trigger: Phase E returns `ready_for_extraction_plan`.
 

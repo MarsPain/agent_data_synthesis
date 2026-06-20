@@ -2,13 +2,31 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > `subagent-driven-development` or `executing-plans` to implement this plan
-> task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 ## Status
 
-Deferred. Activate only after
-[0025 Phase C](../completed/0025-phase-c-rollout-ready-runtime-api.md) has completed and
-runtime sessions can execute action envelopes for contacts and mobile.
+Completed on 2026-06-20. [0025 Phase C](0025-phase-c-rollout-ready-runtime-api.md)
+completed first, runtime sessions execute action envelopes for contacts and
+mobile, and this phase generalized the local adapter surface without adding
+external MCP server discovery or network adapter behavior.
+
+Completion evidence:
+
+- `synthesis.mcp.LocalRuntimeAdapterShim` builds runtime-backed adapter
+  manifests from `RuntimeCapabilityDescriptor` and `RuntimeSession`.
+- Existing contacts adapter identity, lineage, request/result envelopes, and
+  quality-report slices remain stable through the compatibility
+  `LocalContactsAdapterShim`.
+- Mobile local adapter support is opt-in and executes `search_phone_messages`,
+  `create_phone_reminder`, and `draft_message_reply` through runtime action
+  envelopes.
+- Unsupported runtime adapter capability returns a sanitized adapter contract
+  rejection instead of falling through to contacts-only checks.
+- Validation passed:
+  `uv run python scripts/validate_docs.py`,
+  `uv run python -m unittest tests.test_mcp_adapters tests.test_runtime_contract tests.test_episode_replay tests.test_reward_labels`,
+  and `uv run python -m unittest`.
 
 ## Goal
 
@@ -26,7 +44,7 @@ This is a local adapter generalization phase, not external MCP integration.
 
 ## Architecture
 
-Current adapter behavior is contacts-first. Phase D changes the direction:
+Current adapter behavior is runtime-backed:
 
 ```text
 RuntimeDescriptor + RuntimeSession
@@ -36,7 +54,7 @@ RuntimeDescriptor + RuntimeSession
   -> episode transition evidence
 ```
 
-The adapter layer should ask runtime descriptors what operations are supported.
+The adapter layer asks runtime descriptors what operations are supported.
 Domain packs provide tool behavior through runtime sessions. Adapter manifests
 describe capability; they do not discover arbitrary servers or execute
 generated handlers.
@@ -80,52 +98,52 @@ generated handlers.
 
 ### Task 1: Runtime Adapter Manifest Contract
 
-- [ ] Add tests for a runtime-backed adapter manifest with runtime id, protocol
+- [x] Add tests for a runtime-backed adapter manifest with runtime id, protocol
   label, tool schemas, operation list, side-effect classes, reset/checkpoint
   support, and source-policy hash.
-- [ ] Implement manifest creation from runtime descriptors and runtime sessions.
-- [ ] Validate that manifests omit secrets, host paths, raw source payloads,
+- [x] Implement manifest creation from runtime descriptors and runtime sessions.
+- [x] Validate that manifests omit secrets, host paths, raw source payloads,
   provider prompts, profile paths, and generated code.
 
 ### Task 2: Request/Result Envelope Alignment
 
-- [ ] Add tests proving existing MCP-compatible tool-call envelopes can map to
+- [x] Add tests proving existing MCP-compatible tool-call envelopes can map to
   runtime action request/result records.
-- [ ] Reuse existing envelope schema where possible; add narrow compatibility
+- [x] Reuse existing envelope schema where possible; add narrow compatibility
   adapters only when the runtime action contract requires it.
-- [ ] Preserve existing contacts adapter lineage fields.
+- [x] Preserve existing contacts adapter lineage fields.
 
 ### Task 3: Remove Contacts-Only Adapter Assumptions
 
-- [ ] Add failing tests showing mobile adapter requests are no longer rejected
+- [x] Add failing tests showing mobile adapter requests are no longer rejected
   solely because the runtime id is mobile.
-- [ ] Replace contacts-specific checks with descriptor capability checks.
-- [ ] Keep unsupported adapter capability as a sanitized contract rejection.
+- [x] Replace contacts-specific checks with descriptor capability checks.
+- [x] Keep unsupported adapter capability as a sanitized contract rejection.
 
 ### Task 4: Mobile Local Adapter
 
-- [ ] Implement mobile adapter manifest construction from the mobile runtime
+- [x] Implement mobile adapter manifest construction from the mobile runtime
   descriptor.
-- [ ] Execute `search_phone_messages`, `create_phone_reminder`, and
+- [x] Execute `search_phone_messages`, `create_phone_reminder`, and
   `draft_message_reply` through runtime action envelopes.
-- [ ] Verify mobile state-changing tools produce action results compatible with
+- [x] Verify mobile state-changing tools produce action results compatible with
   episode replay and reward labels.
 
 ### Task 5: Security Regression
 
-- [ ] Add tests for adapter redaction of local paths, source payloads,
+- [x] Add tests for adapter redaction of local paths, source payloads,
   credentials, headers, provider prompts, and generated code.
-- [ ] Confirm adapter execution remains in-process and opt-in.
-- [ ] Confirm external MCP server discovery remains absent.
+- [x] Confirm adapter execution remains in-process and opt-in.
+- [x] Confirm external MCP server discovery remains absent.
 
 ### Task 6: Docs and Validation
 
-- [ ] Document that Phase D is a local adapter surface, not external MCP
+- [x] Document that Phase D is a local adapter surface, not external MCP
   integration.
-- [ ] Update 0025 overview with Phase D completion evidence.
-- [ ] Run `uv run python scripts/validate_docs.py`.
-- [ ] Run `uv run python -m unittest tests.test_mcp_adapters tests.test_runtime_contract tests.test_episode_replay tests.test_reward_labels`.
-- [ ] Run `uv run python -m unittest`.
+- [x] Update 0025 overview with Phase D completion evidence.
+- [x] Run `uv run python scripts/validate_docs.py`.
+- [x] Run `uv run python -m unittest tests.test_mcp_adapters tests.test_runtime_contract tests.test_episode_replay tests.test_reward_labels`.
+- [x] Run `uv run python -m unittest`.
 
 ## Acceptance Criteria
 

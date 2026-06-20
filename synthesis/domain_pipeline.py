@@ -6,7 +6,7 @@ from typing import Callable
 
 from synthesis.environments import ContactEnvironment, ContactsEnvironmentInput
 from synthesis.execution import SolutionPolicy, scripted_solution_policy
-from synthesis.mcp import LocalContactsAdapterShim
+from synthesis.mcp import LocalRuntimeAdapterShim
 from synthesis.mobile_environment import (
     MobileMessagesEnvironment,
     MobileMessagesEnvironmentInput,
@@ -16,7 +16,7 @@ from synthesis.mobile_tasks import (
     scripted_mobile_solution_policy,
 )
 from synthesis.mobile_tools import build_mobile_tool_registry
-from synthesis.runtime import EnvironmentRuntime, RuntimeSession
+from synthesis.runtime import EnvironmentRuntime, RuntimeSession, runtime_descriptor
 from synthesis.seeds import DomainSeed
 from synthesis.tasks import CandidateTask, generate_foundation_candidates
 from synthesis.tools import ToolRegistry, build_contact_tool_registry
@@ -37,7 +37,7 @@ class DomainPipelineBundle:
     candidate_generator: CandidateGenerator
     policy_generator: PolicyGenerator
     registry_builder: RegistryBuilder
-    adapter_shim: LocalContactsAdapterShim | None = None
+    adapter_shim: LocalRuntimeAdapterShim | None = None
 
     def runtime_session(self) -> RuntimeSession:
         return RuntimeSession(
@@ -72,12 +72,11 @@ def build_domain_pipeline_bundle(
             raise ValueError(
                 "mobile_messages_fixture source input must be MobileMessagesEnvironmentInput"
             )
-        if enable_mcp_adapter:
-            raise ValueError("MCP adapter support is contacts-only for mobile_messages_fixture")
         return _build_mobile_bundle(
             output_dir,
             source_provenance=source_provenance,
             mobile_environment_input=domain_environment_input,
+            enable_mcp_adapter=enable_mcp_adapter,
         )
     raise ValueError(f"Unsupported seed domain: {seed.domain}")
 
@@ -90,14 +89,15 @@ def rebuild_domain_pipeline_bundle(
 ) -> DomainPipelineBundle:
     environment = base_bundle.environment.rebuild(output_dir)
     registry = base_bundle.registry_builder(environment)
-    adapter_shim = None
-    if base_bundle.domain_id == "contacts_fixture" and enable_mcp_adapter:
-        adapter_shim = LocalContactsAdapterShim(
+    adapter_shim = _build_local_adapter_shim(
+        base_bundle.domain_id,
+        RuntimeSession(
             environment=environment,
             registry=registry,
-        )
-    elif enable_mcp_adapter:
-        raise ValueError(f"MCP adapter support is unavailable for {base_bundle.domain_id}")
+            registry_builder=base_bundle.registry_builder,
+        ),
+        enable_mcp_adapter=enable_mcp_adapter,
+    )
     return DomainPipelineBundle(
         domain_id=base_bundle.domain_id,
         environment=environment,
@@ -135,10 +135,15 @@ def _build_contacts_bundle(
             source_provenance=source_provenance,
         )
     registry = build_contact_tool_registry(environment)
-    adapter_shim = (
-        LocalContactsAdapterShim(environment=environment, registry=registry)
-        if enable_mcp_adapter
-        else None
+    session = RuntimeSession(
+        environment=environment,
+        registry=registry,
+        registry_builder=build_contact_tool_registry,
+    )
+    adapter_shim = _build_local_adapter_shim(
+        "contacts_fixture",
+        session,
+        enable_mcp_adapter=enable_mcp_adapter,
     )
     candidate_generator: CandidateGenerator = generate_foundation_candidates
     if include_branching:
@@ -163,6 +168,7 @@ def _build_mobile_bundle(
     *,
     source_provenance: dict[str, object] | None,
     mobile_environment_input: object | None,
+    enable_mcp_adapter: bool,
 ) -> DomainPipelineBundle:
     if mobile_environment_input is not None:
         assert isinstance(mobile_environment_input, MobileMessagesEnvironmentInput)
@@ -174,6 +180,16 @@ def _build_mobile_bundle(
     else:
         environment = MobileMessagesEnvironment.create_fixture(output_dir)
     registry = build_mobile_tool_registry(environment)
+    session = RuntimeSession(
+        environment=environment,
+        registry=registry,
+        registry_builder=build_mobile_tool_registry,
+    )
+    adapter_shim = _build_local_adapter_shim(
+        "mobile_messages_fixture",
+        session,
+        enable_mcp_adapter=enable_mcp_adapter,
+    )
     return DomainPipelineBundle(
         domain_id="mobile_messages_fixture",
         environment=environment,
@@ -182,4 +198,17 @@ def _build_mobile_bundle(
         candidate_generator=generate_mobile_fixture_candidates,
         policy_generator=scripted_mobile_solution_policy,
         registry_builder=build_mobile_tool_registry,
+        adapter_shim=adapter_shim,
     )
+
+
+def _build_local_adapter_shim(
+    runtime_id: str,
+    session: RuntimeSession,
+    *,
+    enable_mcp_adapter: bool,
+) -> LocalRuntimeAdapterShim | None:
+    if not enable_mcp_adapter:
+        return None
+    descriptor = runtime_descriptor(runtime_id)
+    return LocalRuntimeAdapterShim(descriptor=descriptor, session=session)
