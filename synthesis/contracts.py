@@ -212,8 +212,8 @@ EPISODE_REPLAY_CHECK_NAMES = {
     "state_change_hash_match",
     "runtime_metadata_stable",
 }
-EPISODE_REPLAY_RUNTIME_METHODS = {"rebuild", "runtime_metadata"}
-EPISODE_REPLAY_REGISTRY_METHODS = {"execute"}
+EPISODE_REPLAY_RUNTIME_METHODS = {"execute_action", "rebuild", "runtime_metadata"}
+EPISODE_REPLAY_REGISTRY_METHODS: set[str] = set()
 REWARD_LABEL_STATUSES = {"usable", "excluded", "insufficient_evidence"}
 REWARD_LABEL_DECISION_STATUSES = {
     "passed",

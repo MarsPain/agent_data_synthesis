@@ -19,7 +19,7 @@ No active implementation plans.
   until single runs exceed ~10 minutes or 100+ candidates. See the plan's
   "补充思考" section for the full deferral rationale.
 - [0025-phase-f-awm-runtime-package-extraction](exec-plans/deferred/0025-phase-f-awm-runtime-package-extraction.md):
-  deferred until extraction readiness is revisited after completed Phase E1 and
+  deferred until extraction readiness is revisited after completed Phase E2 and
   returns `ready_for_extraction_plan`.
 
 ## Phase Indexes
@@ -61,6 +61,7 @@ No active implementation plans.
 - [0025-phase-d-adapter-surface-generalization](exec-plans/completed/0025-phase-d-adapter-surface-generalization.md): generalized the opt-in local MCP-compatible adapter surface onto runtime descriptors, runtime sessions, and action envelopes while preserving contacts compatibility and adding mobile local adapter support without external MCP servers. Completed on 2026-06-20.
 - [0025-phase-e-extraction-readiness-review](exec-plans/completed/0025-phase-e-extraction-readiness-review.md): completed an evidence-backed extraction decision with status `continue_hardening`, keeping Phase F deferred and pointing the next hardening work at reward-label runtime contracts. Completed on 2026-06-20.
 - [0025-phase-e1-reward-label-runtime-contract-hardening](exec-plans/completed/0025-phase-e1-reward-label-runtime-contract-hardening.md): removed reward-label runtime contract allowlists and moved reward preference grouping to runtime descriptor declarations before the next extraction-readiness review. Completed on 2026-06-20.
+- [0025-phase-e2-runtime-session-replay-boundary-hardening](exec-plans/completed/0025-phase-e2-runtime-session-replay-boundary-hardening.md): hardened executable replay so supported contacts and mobile episodes execute through `RuntimeSession` action envelopes instead of direct registry execution. Completed on 2026-06-29.
 - [0026-dataset-release-coverage-and-admission-ratchet](exec-plans/completed/0026-dataset-release-coverage-and-admission-ratchet.md): tightened dataset release admission with release completeness thresholds, coverage observations, insufficient-evidence outcomes, and a deterministic release-candidate fixture. Completed on 2026-06-09.
 - [0027-dataset-release-pack-and-reproducibility-verification](exec-plans/completed/0027-dataset-release-pack-and-reproducibility-verification.md): added opt-in hash-locked release packs and standalone verification so passed release-candidate artifacts can be audited without rerunning generation. Completed on 2026-06-12.
 - [0028-release-quality-evidence-audit-and-card](exec-plans/completed/0028-release-quality-evidence-audit-and-card.md): added opt-in release quality evidence audits and human-readable dataset release cards for release-candidate artifact sets without implementing full semantic duplicate detection or changing default release admission. Completed on 2026-06-12.

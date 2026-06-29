@@ -181,6 +181,18 @@ class RuntimeContractTest(unittest.TestCase):
             "malformed",
         )
 
+    def test_episode_replay_boundary_contract_names_runtime_session_actions(self) -> None:
+        from synthesis.contracts import (
+            EPISODE_REPLAY_REGISTRY_METHODS,
+            EPISODE_REPLAY_RUNTIME_METHODS,
+        )
+
+        self.assertEqual(
+            EPISODE_REPLAY_RUNTIME_METHODS,
+            {"execute_action", "rebuild", "runtime_metadata"},
+        )
+        self.assertEqual(EPISODE_REPLAY_REGISTRY_METHODS, set())
+
     def test_contacts_fixture_exports_sanitized_runtime_metadata(self) -> None:
         from synthesis.contracts import validate_runtime_metadata_record
 

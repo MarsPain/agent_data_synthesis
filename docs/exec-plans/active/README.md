@@ -9,6 +9,8 @@ No active implementation plans.
 
 ## Completed
 
+- [0025-phase-e2-runtime-session-replay-boundary-hardening](../completed/0025-phase-e2-runtime-session-replay-boundary-hardening.md):
+  completed on 2026-06-29.
 - [0025-phase-e1-reward-label-runtime-contract-hardening](../completed/0025-phase-e1-reward-label-runtime-contract-hardening.md):
   completed on 2026-06-20.
 - [0025-phase-e-extraction-readiness-review](../completed/0025-phase-e-extraction-readiness-review.md):

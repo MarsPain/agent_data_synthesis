@@ -7,12 +7,13 @@ a directly executable implementation plan. The executable work is split into
 Phase A-F documents.
 
 Phase A, Phase B, and Phase C completed on 2026-06-19. Phase D and Phase E
-completed on 2026-06-20. Phase E returned `continue_hardening`, and Phase E1
-completed the reward-label runtime contract hardening follow-up. Phase F
+completed on 2026-06-20. Phase E returned `continue_hardening`, Phase E1
+completed the reward-label runtime contract hardening follow-up, and Phase E2
+completed replay/runtime-session boundary hardening on 2026-06-29. Phase F
 remains deferred behind a future readiness decision.
 
 Do not move Phase F to active unless extraction readiness is revisited after
-Phase E1 and produces an explicit `ready_for_extraction_plan` decision.
+Phase E2 and produces an explicit `ready_for_extraction_plan` decision.
 
 ## Goal
 
@@ -33,9 +34,11 @@ Plans 0030 through 0034 created the pressure needed for a staged 0025:
   quality, replay, and task-contract evidence.
 
 These consumers prove that the runtime boundary is now more than a contacts
-fixture detail. They do not yet justify immediate package extraction because
-reward-label contracts still hard-code supported runtime ids and reward
-preference grouping still encodes contacts/mobile tool branches.
+fixture detail. Phase E1 removed the reward-label runtime contract blockers,
+and Phase E2 removed executable replay's direct registry execution path. They
+do not yet justify immediate package extraction without a fresh
+extraction-readiness review because domain-pack rebuild ownership and package
+contents still need an explicit Phase F activation decision.
 
 ## Decision
 
@@ -79,6 +82,11 @@ packs, not the package boundary.
 - [0025 Phase E1: Reward Label Runtime Contract Hardening](../completed/0025-phase-e1-reward-label-runtime-contract-hardening.md)
   - Remove reward-label runtime contract allowlists and domain-specific
     preference grouping before revisiting extraction readiness.
+- [0025 Phase E2: Runtime Session Replay Boundary Hardening](../completed/0025-phase-e2-runtime-session-replay-boundary-hardening.md)
+  - Make executable replay exercise `RuntimeSession` rebuild/action-envelope
+    semantics before revisiting extraction readiness.
+  - Implementation completed on 2026-06-29; Phase F remains deferred pending a
+    fresh extraction-readiness review.
 - [0025 Phase F: AWM Runtime Package Extraction](0025-phase-f-awm-runtime-package-extraction.md)
   - Extract stable runtime primitives only after a future readiness review says
     the boundary is ready.
@@ -95,8 +103,10 @@ runtime sessions. Phase E completed the extraction review and returned
 
 Keep Phase F deferred until its prerequisites complete:
 
-- Phase E1 removes reward-label contract allowlists and domain-specific
+- Phase E1 removed reward-label contract allowlists and domain-specific
   preference grouping.
+- Phase E2 proved executable replay can use runtime-session action envelopes
+  while keeping domain-pack rebuild policy outside `synthesis.runtime`.
 - A future extraction-readiness review returns `ready_for_extraction_plan`.
 
 ## Phase E Decision
@@ -126,11 +136,20 @@ Phase E blocking evidence before Phase E1:
 
 Phase E1 follow-up removed the reward-label runtime allowlist gate and moved
 reward preference grouping to runtime descriptor declarations. A future
-extraction-readiness review still needs to re-evaluate Phase F activation.
+extraction-readiness review still needs to re-evaluate Phase F activation after
+Phase E2 supplies replay/runtime-session boundary evidence.
+
+Phase E2 follow-up made executable replay obtain a rebuilt
+`RuntimeSession`, execute each action through `RuntimeActionRequest` and
+`RuntimeSession.execute_action(...)`, and compare `RuntimeActionResult`
+observation and state-change hashes against episode transitions. Replay reports
+now record `execute_action` as runtime boundary evidence and no direct registry
+methods for the replay consumer.
 
 Decision: continue internal hardening through
-[0025 Phase E1](../completed/0025-phase-e1-reward-label-runtime-contract-hardening.md). Do
-not activate Phase F from the Phase E result.
+[0025 Phase E2](../completed/0025-phase-e2-runtime-session-replay-boundary-hardening.md). Do
+not activate Phase F from the Phase E, Phase E1, or Phase E2 result without a
+fresh extraction-readiness review returning `ready_for_extraction_plan`.
 
 ## Out of Scope for the Overall 0025 Sequence
 

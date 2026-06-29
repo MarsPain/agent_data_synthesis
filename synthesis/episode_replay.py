@@ -13,9 +13,10 @@ from synthesis.contracts import (
     validate_episode_replay_report_record,
 )
 from synthesis.domain_pipeline import build_domain_pipeline_bundle, rebuild_domain_pipeline_bundle
-from synthesis.episodes import deterministic_content_hash
 from synthesis.episode_quality import EPISODES_FILENAME
 from synthesis.runtime import (
+    RuntimeActionRequest,
+    RuntimeActionResult,
     RuntimeRegistry,
     registered_runtime_ids,
     runtime_capability_status,
@@ -115,11 +116,12 @@ def replay_episode(
         base_root = replay_root / "_base" / runtime_id
         base_bundle = build_domain_pipeline_bundle(seed, base_root)
         bundle = rebuild_domain_pipeline_bundle(base_bundle, replay_root / candidate_id)
+        session = bundle.runtime_session()
     except Exception:
         summary["failed_checks"] = ["runtime_rebuilt"]
         return summary, ("runtime_rebuilt",)
 
-    metadata = bundle.environment.runtime_metadata()
+    metadata = session.runtime_metadata()
     if (
         metadata.runtime_id != runtime_id
         or metadata.runtime_version != str(runtime["runtime_version"])
@@ -132,9 +134,14 @@ def replay_episode(
         if not isinstance(arguments, Mapping):
             failed_checks.append("actions_replayed")
             continue
-        try:
-            observation = bundle.registry.execute(tool_name, dict(arguments))
-        except Exception:
+        request = RuntimeActionRequest(
+            runtime_id=runtime_id,
+            tool_name=tool_name,
+            arguments=dict(arguments),
+            action_id=f"replay_{candidate_id}_{action['transition_index']}",
+        )
+        result = session.execute_action(request)
+        if result.status != "succeeded":
             failed_checks.append("actions_replayed")
             continue
         summary["replayed_action_count"] = int(summary["replayed_action_count"]) + 1
@@ -142,14 +149,14 @@ def replay_episode(
             summary=summary,
             transitions=transitions,
             action=action,
-            replayed_observation=observation,
+            replayed_result=result,
         )
         if tool_name in descriptor.state_changing_tools:
             _compare_state_change(
                 summary=summary,
                 transitions=transitions,
                 action=action,
-                replayed_observation=observation,
+                replayed_result=result,
             )
 
     if summary["replayed_action_count"] != action_count:
@@ -219,10 +226,10 @@ def build_episode_replay_report(
         "checks": checks,
         "episode_summaries": summaries,
         "runtime_boundary_evidence": {
-            "runtime_methods_used": ["rebuild", "runtime_metadata"],
-            "registry_methods_used": ["execute"],
+            "runtime_methods_used": ["rebuild", "runtime_metadata", "execute_action"],
+            "registry_methods_used": [],
             "requires_external_package": False,
-            "extraction_signal": "internal_boundary_sufficient",
+            "extraction_signal": "runtime_session_replay_boundary_exercised",
         },
         "decision": _decision_for_checks(
             episode_count=len(episodes),
@@ -262,7 +269,7 @@ def _compare_observation(
     summary: dict[str, object],
     transitions: Sequence[object],
     action: Mapping[str, object],
-    replayed_observation: Mapping[str, object],
+    replayed_result: RuntimeActionResult,
 ) -> None:
     original = _next_transition(
         transitions,
@@ -273,7 +280,7 @@ def _compare_observation(
     if original is None:
         summary["observation_mismatch_count"] = int(summary["observation_mismatch_count"]) + 1
         return
-    if deterministic_content_hash(dict(replayed_observation)) == original.get("observation_hash"):
+    if replayed_result.export()["observation_hash"] == original.get("observation_hash"):
         summary["observation_match_count"] = int(summary["observation_match_count"]) + 1
     else:
         summary["observation_mismatch_count"] = int(summary["observation_mismatch_count"]) + 1
@@ -284,7 +291,7 @@ def _compare_state_change(
     summary: dict[str, object],
     transitions: Sequence[object],
     action: Mapping[str, object],
-    replayed_observation: Mapping[str, object],
+    replayed_result: RuntimeActionResult,
 ) -> None:
     original = _next_transition(
         transitions,
@@ -294,11 +301,10 @@ def _compare_state_change(
     )
     if original is None:
         return
-    replayed_change = replayed_observation.get("state_change")
-    if not isinstance(replayed_change, Mapping):
+    if replayed_result.state_change is None:
         summary["state_change_mismatch_count"] = int(summary["state_change_mismatch_count"]) + 1
         return
-    if deterministic_content_hash(dict(replayed_change)) == original.get("change_hash"):
+    if replayed_result.export()["state_change_hash"] == original.get("change_hash"):
         summary["state_change_match_count"] = int(summary["state_change_match_count"]) + 1
     else:
         summary["state_change_mismatch_count"] = int(summary["state_change_mismatch_count"]) + 1

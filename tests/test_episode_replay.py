@@ -3,11 +3,13 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from synthesis.domain_pipeline import build_domain_pipeline_bundle
 from synthesis.episodes import build_episode_log
 from synthesis.execution import execute_candidate
 from synthesis.mobile_tasks import generate_mobile_fixture_candidates
+from synthesis.runtime import RuntimeActionRequest, RuntimeSession
 from synthesis.seeds import DomainSeed, foundation_seed
 from synthesis.tasks import generate_foundation_candidates
 
@@ -79,6 +81,74 @@ class EpisodeReplayTest(unittest.TestCase):
         self.assertEqual(summary["state_change_match_count"], 1)
         self.assertEqual(summary["state_change_mismatch_count"], 0)
         self.assertEqual(report["decision"]["status"], "passed")
+
+    def test_supported_replay_executes_contacts_actions_through_runtime_session(self) -> None:
+        from synthesis.episode_replay import build_episode_replay_report
+
+        calls: list[RuntimeActionRequest] = []
+        original_execute_action = RuntimeSession.execute_action
+
+        def spy_execute_action(
+            session: RuntimeSession,
+            request: RuntimeActionRequest,
+        ):
+            calls.append(request)
+            return original_execute_action(session, request)
+
+        with patch.object(RuntimeSession, "execute_action", spy_execute_action):
+            report = build_episode_replay_report(
+                dataset_version="dataset_contacts_replay_session_boundary",
+                episodes=(_episode("candidate_contacts_alice_followup"),),
+            )
+
+        self.assertEqual(report["decision"]["status"], "passed")
+        self.assertEqual(
+            report["runtime_boundary_evidence"]["runtime_methods_used"],
+            ["rebuild", "runtime_metadata", "execute_action"],
+        )
+        self.assertEqual(report["runtime_boundary_evidence"]["registry_methods_used"], [])
+        self.assertEqual(
+            [request.runtime_id for request in calls],
+            ["contacts_fixture", "contacts_fixture"],
+        )
+        self.assertEqual(
+            [request.tool_name for request in calls],
+            ["lookup_contact_email", "record_contact_followup"],
+        )
+
+    def test_supported_replay_executes_mobile_actions_through_runtime_session(self) -> None:
+        from synthesis.episode_replay import build_episode_replay_report
+
+        calls: list[RuntimeActionRequest] = []
+        original_execute_action = RuntimeSession.execute_action
+
+        def spy_execute_action(
+            session: RuntimeSession,
+            request: RuntimeActionRequest,
+        ):
+            calls.append(request)
+            return original_execute_action(session, request)
+
+        with patch.object(RuntimeSession, "execute_action", spy_execute_action):
+            report = build_episode_replay_report(
+                dataset_version="dataset_mobile_replay_session_boundary",
+                episodes=(_episode("candidate_mobile_maya_reminder"),),
+            )
+
+        self.assertEqual(report["decision"]["status"], "passed")
+        self.assertEqual(
+            report["runtime_boundary_evidence"]["runtime_methods_used"],
+            ["rebuild", "runtime_metadata", "execute_action"],
+        )
+        self.assertEqual(report["runtime_boundary_evidence"]["registry_methods_used"], [])
+        self.assertEqual(
+            [request.runtime_id for request in calls],
+            ["mobile_messages_fixture", "mobile_messages_fixture"],
+        )
+        self.assertEqual(
+            [request.tool_name for request in calls],
+            ["search_phone_messages", "create_phone_reminder"],
+        )
 
     def test_replay_support_is_read_from_runtime_registry(self) -> None:
         from synthesis.episode_replay import build_episode_replay_report
