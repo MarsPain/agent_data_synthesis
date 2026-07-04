@@ -5,11 +5,14 @@ is accepted as complete, move it to `../completed/` and update `../../PLANS.md`.
 
 ## Currently Executing
 
-- [0025-phase-g-runtime-extraction-soak-and-compatibility-hardening](0025-phase-g-runtime-extraction-soak-and-compatibility-hardening.md):
-  active after Phase F acceptance; implementation has not started yet.
+There is no active implementation plan at this point.
 
 ## Completed
 
+- [0025-phase-g-runtime-extraction-soak-and-compatibility-hardening](../completed/0025-phase-g-runtime-extraction-soak-and-compatibility-hardening.md):
+  completed on 2026-07-04.
+- [0025-phase-f-awm-runtime-package-extraction](../completed/0025-phase-f-awm-runtime-package-extraction.md):
+  completed on 2026-07-04.
 - [0025-phase-e2-runtime-session-replay-boundary-hardening](../completed/0025-phase-e2-runtime-session-replay-boundary-hardening.md):
   completed on 2026-06-29.
 - [0025-phase-e1-reward-label-runtime-contract-hardening](../completed/0025-phase-e1-reward-label-runtime-contract-hardening.md):

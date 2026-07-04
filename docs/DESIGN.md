@@ -29,14 +29,15 @@ admits bytes, license decisions, source bundles, policy hashes, and sanitized
 events; domain importers convert admitted content into typed environment inputs
 for contacts or mobile without teaching the central pipeline each domain schema.
 
-Environment implementations also satisfy the internal runtime boundary. Contacts
-and mobile fixtures expose `runtime_metadata_v1`, checkpoint/restore, and
-candidate-local rebuild semantics through the same protocol while keeping
-domain-owned SQLite state and tool behavior inside their domain modules.
-Runtime sessions wrap those environments with tool registries so rollout-facing
-consumers can list tools, execute `runtime_action_request_v1` envelopes, receive
-`runtime_action_result_v1` records, and checkpoint/restore without learning
-contacts or mobile business rules.
+Environment implementations also satisfy the extracted `awm_runtime` boundary.
+Contacts and mobile fixtures expose `runtime_metadata_v1`,
+checkpoint/restore, and candidate-local rebuild semantics through the same
+protocol while keeping domain-owned SQLite state and tool behavior inside their
+domain modules. Runtime sessions wrap those environments with tool registries
+so rollout-facing consumers can list tools, execute
+`runtime_action_request_v1` envelopes, receive `runtime_action_result_v1`
+records, and checkpoint/restore without learning contacts or mobile business
+rules.
 
 ### Tool Registry
 
@@ -83,24 +84,26 @@ opt-in `episodes.jsonl` records, validates the `episode_log_v1` contract, scores
 transition completeness and descriptor-derived state-change support, and writes
 `episode_quality_report_v1` summaries without raw arguments, observations,
 final responses, prompts, provider payloads, credentials, source payloads, or
-host paths. It consumes `synthesis.runtime` and `synthesis.episodes`; it does
-not own candidate admission, dataset release, profile promotion, reward model
-training, executable replay, or Agentic RL rollout collection.
+host paths. It consumes `awm_runtime` primitives and repository-owned
+descriptor lookup; it does not own candidate admission, dataset release,
+profile promotion, reward model training, executable replay, or Agentic RL
+rollout collection.
 
 ### Episode Replay
 
 Owns the first execution-facing consumer of runtime episode evidence. It reads
 opt-in `episodes.jsonl` records, validates `episode_log_v1`, resolves replay
 support and rebuild seeds through runtime descriptors, rebuilds fresh supported
-fixture runtimes, re-executes action transitions through `ToolRegistry.execute()`,
-compares replayed observation and state-change hashes, and writes
+fixture runtimes, re-executes action transitions through
+`RuntimeSession.execute_action(...)`, compares replayed observation and
+state-change hashes, and writes
 `episode_replay_report_v1` summaries without raw arguments,
 observations, final responses, prompts, provider payloads, credentials, source
-payloads, or host paths. It consumes `synthesis.runtime`, `synthesis.episodes`,
-`synthesis.episode_quality`, and `synthesis.domain_pipeline`; it does not own
-candidate admission, dataset release, profile promotion, reward model training,
-external MCP environment servers, async orchestration, or AWM runtime package
-extraction.
+payloads, or host paths. It consumes `awm_runtime`, repository-owned descriptor
+lookup, `synthesis.episode_quality`, and `synthesis.domain_pipeline`; it does
+not own candidate admission, dataset release, profile promotion, reward model
+training, external MCP environment servers, async orchestration, or runtime
+package publishing.
 
 ### Reward Labels
 
@@ -111,10 +114,11 @@ preference-group metadata from descriptor-backed reward/state support, and
 writes `reward_label_report_v1` summaries without raw task instructions,
 expected answers, expected state, tool arguments, observations, final responses,
 prompts, provider payloads, credentials, source payloads, or host paths. It
-consumes `synthesis.runtime`, `synthesis.episodes`, `synthesis.episode_quality`,
-`synthesis.episode_replay`, and `synthesis.contracts`; it does not train reward
-models, collect RL rollouts, change release admission, promote profiles, call
-external MCP environment servers, or own AWM runtime package extraction.
+consumes `awm_runtime`, repository-owned descriptor lookup,
+`synthesis.episode_quality`, `synthesis.episode_replay`, and
+`synthesis.contracts`; it does not train reward models, collect RL rollouts,
+change release admission, promote profiles, call external MCP environment
+servers, or own runtime package publishing.
 
 ### Diagnostic Rollouts
 
@@ -164,7 +168,10 @@ Start local and deterministic:
   envelopes, metadata safety checks, and package-neutral episode primitives live
   under `awm_runtime`. The repository-owned contacts/mobile default descriptor
   registry lives under `synthesis.runtime_registry`; `synthesis.runtime` and
-  `synthesis.episodes` are compatibility shims for one migration cycle.
+  `synthesis.episodes` are compatibility shims for one migration cycle. New
+  runtime-facing production imports should use `awm_runtime` or
+  `synthesis.runtime_registry`; compatibility imports are reserved for legacy
+  callers and compatibility tests.
   Replay and reward consumers should ask the registry for capability facts
   instead of owning contacts/mobile runtime allowlists. The runtime boundary
   also owns the sanitized capability-status vocabulary: `supported`,
@@ -178,8 +185,9 @@ Start local and deterministic:
   reader.
 - Episode-replay reporting is a repo-local, synchronous execution consistency
   consumer. It proves the current runtime boundary can serve a non-synthesis
-  executor that rebuilds fixture runtimes and calls registries directly, while
-  keeping full AWM runtime package extraction deferred.
+  executor that rebuilds fixture runtimes and replays actions through
+  `RuntimeSession.execute_action(...)`, while keeping separate package
+  publishing deferred.
 - Reward-label reporting is a repo-local, synchronous scoring consumer. It
   proves sanitized episode, quality, and replay evidence can produce
   preference-ready deterministic labels while keeping reward training, Agentic
@@ -187,7 +195,7 @@ Start local and deterministic:
 - Diagnostic rollout collection is repo-local and synchronous. It executes
   scripted policies through runtime sessions, emits sanitized `episode_log_v1`
   evidence, and keeps RL training, online policy optimization, distributed
-  workers, default CLI output, and package extraction deferred.
+  workers, default CLI output, and package publishing deferred.
 - Domain packs remain responsible for domain state, domain tools, scripted
   policies, verifiers, source import semantics, and rebuild seeds. Consumer
   modules may read descriptor capability facts, but they should not learn

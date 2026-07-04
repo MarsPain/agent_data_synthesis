@@ -8,17 +8,16 @@
 
 Deferred until one of these activation paths is true:
 
-- Preferred path: [0025 Phase G](../active/0025-phase-g-runtime-extraction-soak-and-compatibility-hardening.md)
+- Preferred path: [0025 Phase G](../completed/0025-phase-g-runtime-extraction-soak-and-compatibility-hardening.md)
   has completed and accepted the post-extraction runtime boundary.
 - Fallback path: a post-E2 readiness review records `keep_internal` or
   `continue_hardening`, and the recorded decision explicitly says a third-domain
   probe is the next best way to pressure-test the runtime/domain-pack boundary
   without extracting `awm_runtime`.
 
-This plan is intentionally written before Phase F and Phase G execute. If an
-extracted runtime package exists, use it directly. If the runtime remains
-internal, keep the same domain-pack contract but import runtime primitives from
-the approved internal boundary recorded by the latest 0025 decision.
+This plan was written before Phase F and Phase G executed. The approved runtime
+package boundary is `awm_runtime`; use it directly unless a later 0025 decision
+records a different approved boundary.
 
 ## Goal
 

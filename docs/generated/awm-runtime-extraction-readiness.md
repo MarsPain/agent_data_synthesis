@@ -2,12 +2,13 @@
 
 Generated for Plan 0025 Phase E on 2026-06-20. Updated after Phase E1
 reward-label runtime contract hardening on 2026-06-20, Phase E2
-runtime-session replay boundary hardening on 2026-06-29, and Phase F
-in-repository package-boundary extraction on 2026-07-04.
+runtime-session replay boundary hardening on 2026-06-29, Phase F
+in-repository package-boundary extraction on 2026-07-04, and Phase G
+runtime extraction compatibility soak on 2026-07-04.
 
 ## Decision
 
-Status: `extracted_in_repository`
+Status: `extracted_in_repository_soaked`
 
 Phase F was activated by explicit human direction and implemented as an
 in-repository package boundary. The runtime boundary has real multi-consumer
@@ -22,7 +23,7 @@ sessions, action envelopes, episode transitions/logs, redaction, hashing, and
 episode summaries into `awm_runtime`.
 
 Next plan pointer:
-[0025 Phase G: Runtime Extraction Soak and Compatibility Hardening](../exec-plans/active/0025-phase-g-runtime-extraction-soak-and-compatibility-hardening.md).
+[0037 Domain Pack Contract and Third Domain Probe](../exec-plans/deferred/0037-domain-pack-contract-and-third-domain-probe.md).
 
 ## Summary
 
@@ -72,6 +73,22 @@ Phase F established the package boundary:
   rebuild seeds.
 - `synthesis.runtime` and `synthesis.episodes` remain compatibility re-export
   shims for one migration cycle.
+
+Phase G soaked the boundary:
+
+- `tests.test_runtime_extraction_compatibility` imports `awm_runtime` in a fresh
+  interpreter and asserts dataset, release, profile, source-governance,
+  domain-pipeline, environment, CLI, and main modules are not loaded.
+- Compatibility tests prove `synthesis.runtime` and `synthesis.episodes`
+  re-export the Phase-F-extracted package-neutral symbols while preserving the
+  repository-owned default descriptor registry convenience functions for legacy
+  callers during the one-cycle window.
+- Source guardrails fail runtime-facing production modules that re-center on
+  `synthesis.runtime` or `synthesis.episodes` instead of `awm_runtime` and
+  `synthesis.runtime_registry`.
+- Representative contacts and mobile CLI soak runs completed with replay and
+  reward-label reports. Both replay reports recorded `execute_action` runtime
+  boundary evidence and no direct registry execution methods.
 
 ## Readiness Criteria
 
@@ -162,14 +179,16 @@ Internal-only until another plan separates domain packs:
   `synthesis.seeds.DomainSeed`; this is useful internally but couples replay
   rebuild to this repository's domain-pack model.
 
-Needs hardening or review after extraction:
+Phase G soak outcome:
 
-- Phase G should soak the compatibility window, add stronger import-boundary
-  guardrails, and confirm representative contacts/mobile replay plus
-  reward-label behavior remains stable.
+- The compatibility window remains one migration cycle. Removal requires a
+  follow-on plan that first migrates tests and known callers to `awm_runtime`
+  or `synthesis.runtime_registry`, then removes `synthesis.runtime` and
+  `synthesis.episodes` compatibility imports with focused regression coverage.
+- Adapter manifests remain `synthesis.mcp`-owned local MCP-compatible records;
+  Phase F did not extract adapter manifest construction into `awm_runtime`.
 
-No removal is recommended for compatibility shims until Phase G records the
-compatibility window and removal criteria.
+No removal is recommended for compatibility shims during Phase G.
 
 ## Risks
 
@@ -182,7 +201,8 @@ compatibility window and removal criteria.
 
 ## Required Next Step
 
-Run Phase G compatibility soak before third-domain work, external MCP servers,
-distributed rollout workers, or separate repository publishing. Phase F has
-already kept domain-pack rebuild policy outside `awm_runtime` by placing
-repository-owned default descriptor construction in `synthesis.runtime_registry`.
+Activate plan 0037 for a third-domain probe before external MCP servers,
+distributed rollout workers, or separate repository publishing. Phase F and
+Phase G have kept domain-pack rebuild policy outside `awm_runtime` by placing
+repository-owned default descriptor construction in `synthesis.runtime_registry`
+and guarding new runtime-facing consumers against compatibility-shim imports.

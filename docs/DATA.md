@@ -65,8 +65,8 @@
   the outcome of one runtime action. It records runtime id, tool name, status,
   sanitized observation, observation hash, state-change hash, error class, side
   effect summary, and optional action id.
-- **Runtime Session:** `awm_runtime` in-process runtime-facing object that wraps a domain
-  environment and tool registry with list-tools, execute-action,
+- **Runtime Session:** `awm_runtime` in-process runtime-facing object that wraps
+  a domain environment and tool registry with list-tools, execute-action,
   checkpoint/restore, and rebuild semantics. It is internal infrastructure, not
   an external MCP server.
 - **Tool:** typed callable action exposed to the Agent.
@@ -109,8 +109,9 @@
 - **Episode Replay Report:** opt-in execution-consistency consumer report over
   `episode_log_v1`. It uses the runtime registry to determine replay support,
   state-changing tools, and rebuild seeds, rebuilds fresh supported fixture
-  runtimes, re-executes action transitions through the runtime tool registry,
-  compares replayed observation/state-change hashes, and writes sanitized
+  runtimes, re-executes action transitions through
+  `RuntimeSession.execute_action(...)`, compares replayed
+  observation/state-change hashes, and writes sanitized
   summaries without raw prompts, payloads, tool arguments, observations,
   final-response text, credentials, or host paths.
 - **Reward Label:** opt-in deterministic label record over `episode_log_v1`.
@@ -124,9 +125,9 @@
   summaries, and a local decision status without exposing raw trajectory,
   prompt, source, credential, or host-path content.
 - **Diagnostic Rollout:** repo-local scripted-policy execution through
-  `awm_runtime.RuntimeSession`. It emits sanitized `episode_log_v1` records for diagnostics,
-  replay, and reward-label compatibility. It is not RL training, online policy
-  optimization, release admission, or profile promotion.
+  `awm_runtime.RuntimeSession`. It emits sanitized `episode_log_v1` records for
+  diagnostics, replay, and reward-label compatibility. It is not RL training,
+  online policy optimization, release admission, or profile promotion.
 - **Verifier:** independent checks that decide whether a trajectory satisfies the task.
 - **Refinement Attempt:** bounded critic diagnosis plus one revised candidate or
   solution policy used to rerun a failed candidate.
@@ -140,10 +141,10 @@
   implication, safety notes, and lineage without executable code.
 - **Tool Admission:** local curated decision that either admits a known tool
   implementation into the active registry or rejects the proposal with a reason.
-- **Adapter Manifest:** local MCP-compatible description of an environment/tool
-  bundle, including adapter identity, protocol label, environment metadata,
-  source-policy hash, supported operations, tool schemas, side effects,
-  reset/checkpoint support, and verifier implications.
+- **Adapter Manifest:** `synthesis.mcp`-owned local MCP-compatible description
+  of an environment/tool bundle, including adapter identity, protocol label,
+  environment metadata, source-policy hash, supported operations, tool schemas,
+  side effects, reset/checkpoint support, and verifier implications.
 - **Adapter Call Envelope:** tool-call request and result records routed through
   the local adapter boundary. Result envelopes record observation payloads,
   side-effect summaries, execution status, and classified adapter errors.
@@ -425,8 +426,8 @@ payloads, provider payloads, prompts, credentials, or local paths.
 episode_replay_report_v1` and is generated only when explicitly requested. It
 reads validated `episode_log_v1` records from `episodes.jsonl`, resolves replay
 support and rebuild seeds through runtime descriptors, rebuilds fresh supported
-fixture runtimes, executes action transitions through `ToolRegistry.execute()`,
-and records:
+fixture runtimes, executes action transitions through
+`RuntimeSession.execute_action(...)`, and records:
 
 - artifact input names for `manifest.json` and `episodes.jsonl`;
 - observed episode counts by runtime and unique tool names;
@@ -438,7 +439,8 @@ and records:
   replay counts, observation/state-change match counts, final-response count,
   tool names, and failed check names only;
 - runtime-boundary evidence containing allowlisted runtime methods
-  (`rebuild`, `runtime_metadata`) and registry methods (`execute`);
+  (`rebuild`, `runtime_metadata`, `execute_action`) and no direct tool-registry
+  execution methods;
 - a decision status of `passed`, `watch`, `failed`, or
   `insufficient_evidence`.
 

@@ -165,8 +165,10 @@
   runtime descriptors, registry primitives, sessions, action envelopes, metadata
   safety checks, and package-neutral episode primitives while keeping
   contacts/mobile descriptors in `synthesis.runtime_registry` and domain packs
-  in this repository. Phase G should harden the compatibility window before new
-  domain work leans on the boundary.
+  in this repository. Phase G hardens the one-cycle compatibility window with
+  import-leak tests, compatibility re-export tests, source import guardrails,
+  and representative contacts/mobile replay plus reward-label soak runs before
+  new domain work leans on the boundary.
 - Add async orchestration with durable queues.
 - Evaluate Ray-style distributed workers if throughput requires it.
 - Add monitoring dashboards and cost controls.

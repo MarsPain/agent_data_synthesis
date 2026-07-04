@@ -12,14 +12,10 @@ move back to `../active/` and `../../PLANS.md` is updated.
     requirement.
   - Rationale: current fixture-scale runs do not justify async orchestration,
     durable queues, cancellation, and cost tracking complexity.
-- [0025-phase-g-runtime-extraction-soak-and-compatibility-hardening](../active/0025-phase-g-runtime-extraction-soak-and-compatibility-hardening.md)
-  - Trigger: Phase F package extraction is accepted and contacts/mobile
-    representative replay and reward-label runs still pass.
-  - Rationale: extraction needs a compatibility and import-boundary soak before
-    new domain work leans on the package boundary.
 - [0037-domain-pack-contract-and-third-domain-probe](0037-domain-pack-contract-and-third-domain-probe.md)
-  - Trigger: Phase G is accepted, or a later 0025 decision explicitly chooses a
-    third-domain probe as the next boundary-hardening move.
+  - Trigger: ready for explicit activation after Phase G acceptance, or after a
+    later 0025 decision explicitly chooses a third-domain probe as the next
+    boundary-hardening move.
   - Rationale: a third deterministic domain should prove new domains can join
     through domain-pack contracts instead of core replay/reward/adapter allowlists.
 

@@ -19,7 +19,9 @@ admission artifacts. Canonical design detail lives in [docs/](docs/).
   pipeline boundary.
 - Stable runtime and episode primitives are available through the in-repository
   `awm_runtime` package; `synthesis.runtime` and `synthesis.episodes` remain as
-  compatibility shims for existing callers.
+  one-cycle compatibility shims for existing callers. New runtime-facing code
+  should import `awm_runtime` directly, or `synthesis.runtime_registry` for the
+  repository-owned default contacts/mobile descriptor registry.
 - `run_profile_v1` and `run_profile_v2` fixtures configure deterministic local
   runs, scale probes, release candidates, and profile-local governed sources.
 - Profile-local JSON sources are admitted through shared source governance, then

@@ -162,8 +162,8 @@ Domain packs stay in this repository initially. They depend on `awm_runtime`;
 
 ## Follow-On
 
-After Phase F, run
-[0025 Phase G: Runtime Extraction Soak and Compatibility Hardening](../active/0025-phase-g-runtime-extraction-soak-and-compatibility-hardening.md)
-before third-domain work, external MCP servers, distributed rollout workers, or
-separate repository publishing. Each later capability still requires a new plan
-and explicit trigger.
+After Phase F,
+[0025 Phase G: Runtime Extraction Soak and Compatibility Hardening](0025-phase-g-runtime-extraction-soak-and-compatibility-hardening.md)
+ran before third-domain work, external MCP servers, distributed rollout
+workers, or separate repository publishing. Each later capability still
+requires a new plan and explicit trigger.

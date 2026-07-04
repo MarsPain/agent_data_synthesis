@@ -12,10 +12,11 @@ completed the reward-label runtime contract hardening follow-up, and Phase E2
 completed replay/runtime-session boundary hardening on 2026-06-29.
 
 Phase F was activated by explicit human direction and implemented on
-2026-07-04 as an in-repository `awm_runtime` package boundary. Phase G remains
-the post-extraction compatibility soak and should run before third-domain work,
-external MCP servers, distributed rollout workers, or separate repository
-publishing.
+2026-07-04 as an in-repository `awm_runtime` package boundary. Phase G completed
+on 2026-07-04 as the post-extraction compatibility soak and recorded
+import-boundary, compatibility, contacts, and mobile evidence before
+third-domain work, external MCP servers, distributed rollout workers, or
+separate repository publishing.
 
 ## Goal
 
@@ -95,10 +96,10 @@ packs, not the package boundary.
   - Extracted stable runtime and episode primitives into `awm_runtime` while
     keeping domain-specific descriptor construction in `synthesis`.
   - Implemented on 2026-07-04 by explicit human activation.
-- [0025 Phase G: Runtime Extraction Soak and Compatibility Hardening](../active/0025-phase-g-runtime-extraction-soak-and-compatibility-hardening.md)
+- [0025 Phase G: Runtime Extraction Soak and Compatibility Hardening](../completed/0025-phase-g-runtime-extraction-soak-and-compatibility-hardening.md)
   - Prove the extracted boundary can survive one compatibility cycle without
     import leaks, behavior drift, or new domain-specific assumptions.
-  - Active after Phase F acceptance.
+  - Completed on 2026-07-04.
 
 ## Phase Lifecycle
 
@@ -115,8 +116,10 @@ Phase F extracted package-neutral runtime and episode primitives into
 `synthesis.runtime_registry`, and kept compatibility re-exports at
 `synthesis.runtime` and `synthesis.episodes` for one migration cycle.
 
-Phase G is active after Phase F acceptance and representative contacts and
-mobile replay/reward-label runs passed against the extracted boundary.
+Phase G completed after adding fresh-interpreter import-leak tests,
+compatibility re-export tests, source import guardrails, representative
+contacts/mobile replay and reward-label CLI soak runs, and documentation for the
+one-cycle compatibility window.
 
 ## Phase E Decision
 
@@ -189,7 +192,8 @@ task generation, scripted policies, and verifiers.
 
 The runtime kernel owns cross-domain execution semantics: identity, capability
 declaration, reset/rebuild, checkpoint/restore, tool/action envelope execution,
-state-change evidence, adapter manifest primitives, and episode logging.
+state-change evidence, and episode logging. Adapter manifest construction
+remains in `synthesis.mcp` until a later adapter-specific plan extracts it.
 
 Synthesis remains separate from runtime. Dataset versioning, release admission,
 profile decisions, LLM provider configuration, source governance, and quality
@@ -221,6 +225,5 @@ The full 0025 sequence is complete only when one of these outcomes is recorded:
 - `extracted_soaked`: Phase G has proven the extracted boundary through
   compatibility, import-boundary, and representative consumer checks.
 
-The current outcome is `continue_hardening`. Until a future review records
-`keep_internal` or Phase G reaches `extracted_soaked`, this index remains the
-umbrella for staged runtime-kernel work.
+The current outcome is `extracted_soaked`. The next boundary-pressure plan is
+[0037-domain-pack-contract-and-third-domain-probe](0037-domain-pack-contract-and-third-domain-probe.md).

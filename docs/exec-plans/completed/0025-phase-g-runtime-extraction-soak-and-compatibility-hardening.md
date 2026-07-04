@@ -2,26 +2,26 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > `subagent-driven-development` or `executing-plans` to implement this plan
-> task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 ## Status
 
-Deferred until all activation gates below are true:
+Activated by explicit human direction, implemented in an isolated worktree on
+2026-07-04, and completed on 2026-07-04.
 
-- A post-E2 extraction-readiness review records `ready_for_extraction_plan`.
+Activation gates were satisfied before implementation:
+
+- A post-E2 extraction-readiness review recorded extraction readiness through
+  the Phase F activation path.
 - [0025 Phase F: AWM Runtime Package Extraction](../completed/0025-phase-f-awm-runtime-package-extraction.md)
   has completed and been accepted.
-- Phase F records the extracted package or approved boundary name. The expected
-  name is `awm_runtime`; if Phase F deliberately chooses another in-repository
-  boundary, use that boundary name consistently in this plan.
-- Existing contacts and mobile fixture runs still pass with replay and
-  reward-label reports enabled after Phase F.
+- Phase F recorded `awm_runtime` as the approved in-repository package boundary.
+- Existing contacts and mobile fixture runs passed with replay and reward-label
+  reports enabled after Phase F and again during this Phase G soak.
 
-This plan is intentionally written before Phase F runs. Treat exact package
-module names as flexible only where Phase F explicitly records a different
-approved boundary. The architectural contract is not flexible: runtime contracts
-must remain independent of domain packs, source governance, dataset assembly,
-profile decisions, release reports, CLI wiring, and provider configuration.
+The architectural contract remains: runtime contracts must remain independent
+of domain packs, source governance, dataset assembly, profile decisions, release
+reports, CLI wiring, and provider configuration.
 
 ## Goal
 
@@ -144,194 +144,194 @@ domain packs or synthesis-owned report modules.
 
 ### Task 1: Capture Post-Phase-F Boundary Inventory
 
-- [ ] Read the Phase F completion notes and list the approved public runtime
+- [x] Read the Phase F completion notes and list the approved public runtime
   exports in this plan's work notes before editing code.
-- [ ] Confirm whether the boundary is `awm_runtime` or another approved
+- [x] Confirm whether the boundary is `awm_runtime` or another approved
   package-neutral boundary.
-- [ ] Confirm whether package-neutral episode primitives and adapter manifest
+- [x] Confirm whether package-neutral episode primitives and adapter manifest
   primitives were extracted by Phase F.
-- [ ] Confirm which modules still import `synthesis.runtime` outside
+- [x] Confirm which modules still import `synthesis.runtime` outside
   compatibility files:
 
 ```bash
 rg -n "from synthesis\\.runtime|import synthesis\\.runtime" synthesis tests
 ```
 
-- [ ] Record the intended migration target for each production import found by
+- [x] Record the intended migration target for each production import found by
   the command. Imports inside `synthesis/runtime.py` and explicit compatibility
   tests may remain.
 
 ### Task 2: Add Fresh-Interpreter Import-Leak Tests
 
-- [ ] Add `tests/test_runtime_extraction_compatibility.py` if Phase F did not
+- [x] Add `tests/test_runtime_extraction_compatibility.py` if Phase F did not
   already create an equivalent file.
-- [ ] Add a test that starts a fresh Python interpreter, imports the extracted
+- [x] Add a test that starts a fresh Python interpreter, imports the extracted
   boundary, and asserts forbidden modules are absent from `sys.modules`.
-- [ ] Forbidden modules must include at least:
+- [x] Forbidden modules must include at least:
   `synthesis.datasets`, `synthesis.dataset_release`,
   `synthesis.profile_decisions`, `synthesis.release_pack`,
   `synthesis.release_quality`, `synthesis.sources`, `synthesis.domain_sources`,
   `synthesis.environments`, `synthesis.mobile_environment`,
   `synthesis.domain_pipeline`, `synthesis.pipeline`, and `main`.
-- [ ] If the extracted package is named `awm_runtime`, use this command to run the
+- [x] If the extracted package is named `awm_runtime`, use this command to run the
   focused test:
 
 ```bash
 uv run python -m unittest tests.test_runtime_extraction_compatibility
 ```
 
-- [ ] Expected result: the new import-leak test passes when the extracted package
+- [x] Expected result: the new import-leak test passes when the extracted package
   is package-neutral and fails if importing it loads any forbidden synthesis
   module.
 
 ### Task 3: Add Compatibility Re-Export Tests
 
-- [ ] In `tests/test_runtime_extraction_compatibility.py`, import the public
+- [x] In `tests/test_runtime_extraction_compatibility.py`, import the public
   symbols that Phase F documented as compatibility re-exports from both the
   extracted boundary and `synthesis.runtime`.
-- [ ] Assert old and new imports point at the same objects for the stable symbols
+- [x] Assert old and new imports point at the same objects for the stable symbols
   Phase F extracted. The expected symbol set should include the Phase-F-approved
   equivalents of:
   `RuntimeCapabilityDescriptor`, `RuntimeRegistry`,
   `runtime_capability_status`, `runtime_descriptor`, `RuntimeMetadata`,
   `runtime_metadata_from_environment`, `RuntimeActionRequest`,
   `RuntimeActionResult`, `RuntimeSession`, and `EnvironmentRuntime`.
-- [ ] If Phase F extracted episode primitives, add compatibility assertions for
+- [x] If Phase F extracted episode primitives, add compatibility assertions for
   the extracted episode record/hash/validation symbols that Phase F marks stable.
-- [ ] Do not assert compatibility for domain-owned descriptor construction,
+- [x] Do not assert compatibility for domain-owned descriptor construction,
   domain-specific rebuild seeds, source-governance helpers, dataset artifact
   writing, or CLI functions.
-- [ ] Run:
+- [x] Run:
 
 ```bash
 uv run python -m unittest tests.test_runtime_extraction_compatibility
 ```
 
-- [ ] Expected result: compatibility imports pass without changing public dataset
+- [x] Expected result: compatibility imports pass without changing public dataset
   or report schemas.
 
 ### Task 4: Add Source Import Guardrails
 
-- [ ] Add a source-level test that scans production modules and fails when new
+- [x] Add a source-level test that scans production modules and fails when new
   runtime-facing consumers import from `synthesis.runtime` instead of the
   extracted boundary.
-- [ ] The allowlist should be narrow:
+- [x] The allowlist should be narrow:
   `synthesis/runtime.py`, compatibility tests, and any explicit transitional file
   documented by Phase F.
-- [ ] Scan at least these production modules:
+- [x] Scan at least these production modules:
   `synthesis/domain_pipeline.py`, `synthesis/episodes.py`,
   `synthesis/episode_quality.py`, `synthesis/episode_replay.py`,
   `synthesis/reward_labels.py`, `synthesis/rollouts.py`, and `synthesis/mcp.py`.
-- [ ] If a module still imports `synthesis.runtime`, either migrate it to the
+- [x] If a module still imports `synthesis.runtime`, either migrate it to the
   extracted boundary or add a one-line rationale in the test allowlist explaining
   why Phase F requires that transitional import.
-- [ ] Run:
+- [x] Run:
 
 ```bash
 uv run python -m unittest tests.test_runtime_extraction_compatibility
 ```
 
-- [ ] Expected result: new production code points at the extracted boundary while
+- [x] Expected result: new production code points at the extracted boundary while
   compatibility imports remain available for callers.
 
 ### Task 5: Harden Compatibility Shim Ownership
 
-- [ ] Inspect `synthesis/runtime.py`.
-- [ ] Keep the file as a thin compatibility layer. It may re-export stable
+- [x] Inspect `synthesis/runtime.py`.
+- [x] Keep the file as a thin compatibility layer. It may re-export stable
   symbols from the extracted boundary and host temporary deprecation comments.
-- [ ] Remove or reject any new dataset release, profile decision, source
+- [x] Remove or reject any new dataset release, profile decision, source
   governance, CLI, provider, contacts, or mobile business logic in
   `synthesis/runtime.py`.
-- [ ] If Phase F left domain-specific descriptor construction in
+- [x] If Phase F left domain-specific descriptor construction in
   `synthesis.runtime`, move that construction to a synthesis-owned runtime
   registration module or document why it must remain until a named follow-on
   plan.
-- [ ] Run:
+- [x] Run:
 
 ```bash
 uv run python -m unittest tests.test_awm_runtime_package_boundary tests.test_runtime_extraction_compatibility tests.test_runtime_contract
 ```
 
-- [ ] Expected result: compatibility shim tests and runtime contract tests pass.
+- [x] Expected result: compatibility shim tests and runtime contract tests pass.
 
 ### Task 6: Run Consumer Soak Tests
 
-- [ ] Run the focused consumer tests:
+- [x] Run the focused consumer tests:
 
 ```bash
 uv run python -m unittest tests.test_episode_logs tests.test_episode_quality tests.test_episode_replay tests.test_reward_labels tests.test_runtime_rollouts tests.test_mcp_adapters
 ```
 
-- [ ] Expected result: all focused runtime consumers pass using the extracted
+- [x] Expected result: all focused runtime consumers pass using the extracted
   boundary or compatibility imports approved by this plan.
-- [ ] Run the domain pipeline and CLI tests:
+- [x] Run the domain pipeline and CLI tests:
 
 ```bash
 uv run python -m unittest tests.test_mobile_pipeline tests.test_foundation_pipeline tests.test_cli
 ```
 
-- [ ] Expected result: contacts and mobile behavior remains stable.
+- [x] Expected result: contacts and mobile behavior remains stable.
 
 ### Task 7: Run Representative CLI Soak Commands
 
-- [ ] Run the contacts fixture with replay and reward-label reports:
+- [x] Run the contacts fixture with replay and reward-label reports:
 
 ```bash
 uv run python main.py --write-episode-replay-report --write-reward-label-report --output-dir artifacts/foundation-runtime-extraction-soak
 ```
 
-- [ ] Expected result: command completes, manifest references `episodes`,
+- [x] Expected result: command completes, manifest references `episodes`,
   `episode_replay_report`, `reward_labels`, and `reward_label_report`, and no raw
   prompts, credentials, source payloads, or host paths are emitted in runtime
   summaries.
-- [ ] Run the mobile profile with replay and reward-label reports:
+- [x] Run the mobile profile with replay and reward-label reports:
 
 ```bash
 uv run python main.py --run-profile tests/fixtures/run_profiles/profile-local-mobile-messages.json --write-episode-replay-report --write-reward-label-report --output-dir artifacts/mobile-runtime-extraction-soak
 ```
 
-- [ ] Expected result: command completes with accepted mobile samples and replay
+- [x] Expected result: command completes with accepted mobile samples and replay
   reports continue to record runtime-session action-envelope evidence.
 
 ### Task 8: Update Docs for the Compatibility Window
 
-- [ ] Update `docs/DESIGN.md` so runtime primitives are described as living
+- [x] Update `docs/DESIGN.md` so runtime primitives are described as living
   behind the extracted boundary, while domain packs remain in `synthesis`.
-- [ ] Update `docs/BACKEND.md` so module boundaries distinguish
+- [x] Update `docs/BACKEND.md` so module boundaries distinguish
   `awm_runtime`-owned primitives from synthesis-owned pipeline/report modules.
-- [ ] Update `docs/DATA.md` so runtime metadata, descriptors, action envelopes,
+- [x] Update `docs/DATA.md` so runtime metadata, descriptors, action envelopes,
   and episode contract primitives point to the extracted boundary where Phase F
   actually moved them.
-- [ ] Update `docs/ROADMAP.md` so Phase F extraction and Phase G soak are recorded
+- [x] Update `docs/ROADMAP.md` so Phase F extraction and Phase G soak are recorded
   before third-domain work.
-- [ ] Update `README.md` only if setup, commands, or public import examples change.
-- [ ] Update `docs/generated/awm-runtime-extraction-readiness.md` with the soak
+- [x] Update `README.md` only if setup, commands, or public import examples change.
+- [x] Update `docs/generated/awm-runtime-extraction-readiness.md` with the soak
   outcome and the remaining compatibility window.
-- [ ] Update `docs/exec-plans/deferred/0025-awm-runtime-phase-index.md` with the
+- [x] Update `docs/exec-plans/deferred/0025-awm-runtime-phase-index.md` with the
   Phase G outcome.
 
 ### Task 9: Validation
 
-- [ ] Run documentation validation:
+- [x] Run documentation validation:
 
 ```bash
 uv run python scripts/validate_docs.py
 ```
 
-- [ ] Run the focused Phase G suite:
+- [x] Run the focused Phase G suite:
 
 ```bash
 uv run python -m unittest tests.test_awm_runtime_package_boundary tests.test_runtime_extraction_compatibility tests.test_runtime_contract tests.test_episode_logs tests.test_episode_quality tests.test_episode_replay tests.test_reward_labels tests.test_runtime_rollouts tests.test_mcp_adapters
 ```
 
-- [ ] Run the full suite:
+- [x] Run the full suite:
 
 ```bash
 uv run python -m unittest
 ```
 
-- [ ] Confirm the contacts and mobile CLI soak commands from Task 7 completed.
-- [ ] Record validation evidence in this plan before moving it to
+- [x] Confirm the contacts and mobile CLI soak commands from Task 7 completed.
+- [x] Record validation evidence in this plan before moving it to
   `../completed/`.
 
 ## Acceptance Criteria
@@ -354,3 +354,53 @@ After Phase G is accepted, activate
 [0037-domain-pack-contract-and-third-domain-probe](../deferred/0037-domain-pack-contract-and-third-domain-probe.md)
 to prove that a new domain pack can be added without editing core runtime,
 replay, reward-label, or adapter allowlists.
+
+## Implementation Notes
+
+- Public package boundary confirmed as `awm_runtime`.
+- Package-neutral runtime primitives live in `awm_runtime.runtime`.
+- Package-neutral episode transition/log, hashing, redaction, and summary
+  primitives live in `awm_runtime.episodes`.
+- Adapter manifest construction remains `synthesis.mcp`-owned; Phase F did not
+  extract adapter manifest primitives into `awm_runtime`.
+- Repository-owned contacts/mobile default descriptor construction remains in
+  `synthesis.runtime_registry` because descriptor rebuild seeds are domain-pack
+  concerns.
+- `synthesis.runtime` and `synthesis.episodes` remain one-cycle compatibility
+  shims. New runtime-facing production imports should use `awm_runtime` or
+  `synthesis.runtime_registry`.
+- Source import guardrails scan runtime-facing production modules and allow only
+  explicit compatibility shims/tests to import `synthesis.runtime` or
+  `synthesis.episodes`.
+
+## Validation Evidence
+
+- `uv run python -m unittest tests.test_runtime_extraction_compatibility`
+  failed before implementation because the Phase G compatibility test module did
+  not exist.
+- `uv run python -m unittest tests.test_runtime_extraction_compatibility`
+  passed with 5 tests after adding fresh-interpreter import-leak,
+  compatibility re-export, registry convenience, episode re-export, and source
+  guardrail coverage.
+- `uv run python -m unittest tests.test_awm_runtime_package_boundary tests.test_runtime_extraction_compatibility tests.test_runtime_contract`
+  passed with 27 tests.
+- `uv run python -m unittest tests.test_episode_logs tests.test_episode_quality tests.test_episode_replay tests.test_reward_labels tests.test_runtime_rollouts tests.test_mcp_adapters`
+  passed with 49 tests.
+- `uv run python -m unittest tests.test_mobile_pipeline tests.test_foundation_pipeline tests.test_cli`
+  passed with 84 tests.
+- `uv run python main.py --write-episode-replay-report --write-reward-label-report --output-dir artifacts/foundation-runtime-extraction-soak`
+  completed with `accepted=2 rejected=1`.
+- `uv run python main.py --run-profile tests/fixtures/run_profiles/profile-local-mobile-messages.json --write-episode-replay-report --write-reward-label-report --output-dir artifacts/mobile-runtime-extraction-soak`
+  completed with `accepted=4 rejected=0`.
+- Contacts and mobile soak manifests referenced `episodes`,
+  `episode_replay_report`, `reward_labels`, and `reward_label_report`.
+- Contacts and mobile replay reports passed and recorded runtime methods
+  `rebuild`, `runtime_metadata`, and `execute_action` with no direct registry
+  execution methods.
+- Runtime summary artifact scans found no raw prompt, provider payload,
+  credential, source payload, profile path, host path, or known fixture-path
+  leakage.
+- `uv run python scripts/validate_docs.py` passed.
+- `uv run python -m unittest tests.test_awm_runtime_package_boundary tests.test_runtime_extraction_compatibility tests.test_runtime_contract tests.test_episode_logs tests.test_episode_quality tests.test_episode_replay tests.test_reward_labels tests.test_runtime_rollouts tests.test_mcp_adapters`
+  passed with 76 tests.
+- `uv run python -m unittest` passed with 416 tests.

@@ -34,7 +34,10 @@ The first backend should be a local Python pipeline with explicit modules and du
   construction and default registry selection. Domain-specific rebuild seeds
   stay here rather than in `awm_runtime`.
 - `synthesis.runtime` and `synthesis.episodes`: compatibility re-exports for
-  existing callers during the migration cycle.
+  existing callers during the migration cycle. New runtime-facing production
+  code should import `awm_runtime` primitives directly, or
+  `synthesis.runtime_registry` when it needs repository-owned default
+  contacts/mobile descriptor lookup.
 - `synthesis.rollouts`: diagnostic local rollout collection over runtime
   sessions. It executes scripted policies through action envelopes, enforces
   max-step limits, exports sanitized `episode_log_v1` records, and does not
@@ -50,15 +53,16 @@ The first backend should be a local Python pipeline with explicit modules and du
   over sanitized episode logs. It reads replay support, state-changing tools,
   and rebuild seed facts from the runtime registry, rebuilds fresh supported
   fixture runtimes, re-executes action transitions through
-  `ToolRegistry.execute()`, compares observation/state-change hashes, and writes
-  compact summaries without raw tool payloads, prompts, credentials, or host
-  paths.
+  `RuntimeSession.execute_action(...)`, compares observation/state-change
+  hashes, and writes compact summaries without raw tool payloads, prompts,
+  credentials, or host paths.
 - `synthesis.reward_labels`: opt-in `reward_labels.jsonl` and
   `reward_label_report_v1` construction over sanitized episode, quality, and
   replay evidence. It reads reward-label and state-changing-tool support from
   runtime descriptors, then produces deterministic scalar labels and
   preference-group metadata without training reward models, collecting RL
-  rollouts, changing release admission, or extracting a runtime package.
+  rollouts, changing release admission, or changing the runtime package
+  boundary.
 - `synthesis.tools`: tool definitions, schema generation, registry, dependency
   graph, capability-gap records, bounded tool proposals, and curated local tool
   admission.
@@ -223,8 +227,8 @@ trajectories, exports, or logs.
    only the manifest artifact map to reference both opt-in artifacts. This
    local synchronous consumer rebuilds fixture runtimes and executes tool
    transitions; it does not train reward models, collect RL rollouts, call
-   external MCP environment servers, change release admission, or extract an
-   AWM runtime package.
+   external MCP environment servers, change release admission, or publish a
+   separate runtime package.
 23. When `--write-reward-label-report` is explicitly supplied, write
    `episodes.jsonl`, compute quality and replay evidence in memory when their
    reports were not explicitly requested, write `reward_labels.jsonl` and
@@ -233,7 +237,7 @@ trajectories, exports, or logs.
    synchronous consumer produces deterministic labels from descriptor-backed
    reward/state support; it does not train reward models, collect RL rollouts,
    call external MCP environment servers, change release admission, promote
-   profiles, or extract an AWM runtime package.
+   profiles, or publish a separate runtime package.
 24. When `--write-evaluation-report` is explicitly supplied, resolve the
    deterministic held-out suite from the manifest run-profile domain, write
    `evaluation_report.json`, and rewrite only the manifest artifact map to
@@ -372,7 +376,7 @@ for the report run, rebuilds fresh contacts/mobile fixture runtimes, writes
 `episode_replay_report.json`, and attaches both artifact names to the manifest.
 It gives plan 0025 stronger package-boundary evidence, but still does not
 activate `synthesis.orchestration`, reward training, Agentic RL, external MCP
-environment servers, release admission changes, or runtime package extraction.
+environment servers, release admission changes, or runtime package publishing.
 
 Plan 0034 adds deterministic reward-label export over those same sanitized
 episodes. The consumer is synchronous and opt-in: it persists `episodes.jsonl`
@@ -381,7 +385,7 @@ writes `reward_labels.jsonl` and `reward_label_report.json`, and attaches only
 reward artifacts unless quality/replay reports were explicitly requested. It
 creates local scalar and preference-ready evidence, not reward-model training,
 Agentic RL rollout collection, release admission changes, profile promotion, or
-runtime package extraction.
+runtime package publishing.
 
 Plan 0025 Phase C adds the first rollout-facing runtime API without activating
 RL. Runtime sessions wrap contacts/mobile environments and registries with
@@ -396,4 +400,4 @@ Plan 0025 Phase D generalizes the local adapter surface onto the same runtime
 boundary. Adapter manifests are now runtime-backed rather than contacts-only,
 and mobile adapter execution remains opt-in, in-process, and action-envelope
 based. This adds adapter evidence for the staged 0025 extraction review while
-keeping external MCP servers and package extraction deferred.
+keeping external MCP servers and package publishing deferred.
