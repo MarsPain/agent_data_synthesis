@@ -7,6 +7,11 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from awm_runtime.runtime import (
+    RuntimeActionRequest,
+    RuntimeActionResult,
+    RuntimeRegistry,
+)
 from synthesis.contracts import (
     ContractValidationError,
     validate_episode_log_record,
@@ -14,10 +19,7 @@ from synthesis.contracts import (
 )
 from synthesis.domain_pipeline import build_domain_pipeline_bundle, rebuild_domain_pipeline_bundle
 from synthesis.episode_quality import EPISODES_FILENAME
-from synthesis.runtime import (
-    RuntimeActionRequest,
-    RuntimeActionResult,
-    RuntimeRegistry,
+from synthesis.runtime_registry import (
     registered_runtime_ids,
     runtime_capability_status,
     runtime_descriptor,

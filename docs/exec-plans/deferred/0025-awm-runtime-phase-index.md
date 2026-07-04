@@ -4,16 +4,18 @@
 
 Planned on 2026-06-09. This is an umbrella phase index and decision record, not
 a directly executable implementation plan. The executable work is split into
-Phase A-F documents.
+Phase A-G documents.
 
 Phase A, Phase B, and Phase C completed on 2026-06-19. Phase D and Phase E
 completed on 2026-06-20. Phase E returned `continue_hardening`, Phase E1
 completed the reward-label runtime contract hardening follow-up, and Phase E2
-completed replay/runtime-session boundary hardening on 2026-06-29. Phase F
-remains deferred behind a future readiness decision.
+completed replay/runtime-session boundary hardening on 2026-06-29.
 
-Do not move Phase F to active unless extraction readiness is revisited after
-Phase E2 and produces an explicit `ready_for_extraction_plan` decision.
+Phase F was activated by explicit human direction and implemented on
+2026-07-04 as an in-repository `awm_runtime` package boundary. Phase G remains
+the post-extraction compatibility soak and should run before third-domain work,
+external MCP servers, distributed rollout workers, or separate repository
+publishing.
 
 ## Goal
 
@@ -35,10 +37,10 @@ Plans 0030 through 0034 created the pressure needed for a staged 0025:
 
 These consumers prove that the runtime boundary is now more than a contacts
 fixture detail. Phase E1 removed the reward-label runtime contract blockers,
-and Phase E2 removed executable replay's direct registry execution path. They
-do not yet justify immediate package extraction without a fresh
-extraction-readiness review because domain-pack rebuild ownership and package
-contents still need an explicit Phase F activation decision.
+and Phase E2 removed executable replay's direct registry execution path. Phase F
+then extracted package-neutral primitives while leaving domain-pack rebuild
+ownership and default contacts/mobile descriptor construction inside
+`synthesis`.
 
 ## Decision
 
@@ -50,10 +52,12 @@ Adopt a six-phase path:
 4. Generalize the local adapter surface without connecting external MCP
    servers.
 5. Run an extraction-readiness review.
-6. Extract an `awm_runtime` package only if the review says the boundary is
-   ready.
+6. Extract an in-repository `awm_runtime` package boundary for package-neutral
+   primitives while keeping domain packs in `synthesis`.
+7. Soak the extracted boundary through compatibility, import-boundary, and
+   representative consumer checks before adding another domain.
 
-The intended future extraction unit is an `awm_runtime`-style runtime kernel:
+The extraction unit is an in-repository `awm_runtime` runtime kernel:
 runtime descriptors, runtime sessions, action envelopes, adapter manifest
 primitives, and episode evidence contracts. Contacts and mobile remain domain
 packs, not the package boundary.
@@ -87,9 +91,14 @@ packs, not the package boundary.
     semantics before revisiting extraction readiness.
   - Implementation completed on 2026-06-29; Phase F remains deferred pending a
     fresh extraction-readiness review.
-- [0025 Phase F: AWM Runtime Package Extraction](0025-phase-f-awm-runtime-package-extraction.md)
-  - Extract stable runtime primitives only after a future readiness review says
-    the boundary is ready.
+- [0025 Phase F: AWM Runtime Package Extraction](../completed/0025-phase-f-awm-runtime-package-extraction.md)
+  - Extracted stable runtime and episode primitives into `awm_runtime` while
+    keeping domain-specific descriptor construction in `synthesis`.
+  - Implemented on 2026-07-04 by explicit human activation.
+- [0025 Phase G: Runtime Extraction Soak and Compatibility Hardening](../active/0025-phase-g-runtime-extraction-soak-and-compatibility-hardening.md)
+  - Prove the extracted boundary can survive one compatibility cycle without
+    import leaks, behavior drift, or new domain-specific assumptions.
+  - Active after Phase F acceptance.
 
 ## Phase Lifecycle
 
@@ -101,13 +110,13 @@ Phase D generalized local adapter manifests onto runtime descriptors and
 runtime sessions. Phase E completed the extraction review and returned
 `continue_hardening`, not `ready_for_extraction_plan`.
 
-Keep Phase F deferred until its prerequisites complete:
+Phase F extracted package-neutral runtime and episode primitives into
+`awm_runtime`, moved repository-owned default runtime descriptors to
+`synthesis.runtime_registry`, and kept compatibility re-exports at
+`synthesis.runtime` and `synthesis.episodes` for one migration cycle.
 
-- Phase E1 removed reward-label contract allowlists and domain-specific
-  preference grouping.
-- Phase E2 proved executable replay can use runtime-session action envelopes
-  while keeping domain-pack rebuild policy outside `synthesis.runtime`.
-- A future extraction-readiness review returns `ready_for_extraction_plan`.
+Phase G is active after Phase F acceptance and representative contacts and
+mobile replay/reward-label runs passed against the extracted boundary.
 
 ## Phase E Decision
 
@@ -209,7 +218,9 @@ The full 0025 sequence is complete only when one of these outcomes is recorded:
   extraction decision.
 - `extracted`: Phase F has moved stable runtime primitives behind an approved
   package boundary while preserving synthesis behavior.
+- `extracted_soaked`: Phase G has proven the extracted boundary through
+  compatibility, import-boundary, and representative consumer checks.
 
 The current outcome is `continue_hardening`. Until a future review records
-`keep_internal` or Phase F reaches `extracted`, this index remains the umbrella
-for staged runtime-kernel work.
+`keep_internal` or Phase G reaches `extracted_soaked`, this index remains the
+umbrella for staged runtime-kernel work.

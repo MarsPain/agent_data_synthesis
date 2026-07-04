@@ -1,23 +1,28 @@
 # AWM Runtime Extraction Readiness
 
 Generated for Plan 0025 Phase E on 2026-06-20. Updated after Phase E1
-reward-label runtime contract hardening on 2026-06-20 and Phase E2
-runtime-session replay boundary hardening on 2026-06-29.
+reward-label runtime contract hardening on 2026-06-20, Phase E2
+runtime-session replay boundary hardening on 2026-06-29, and Phase F
+in-repository package-boundary extraction on 2026-07-04.
 
 ## Decision
 
-Status: `continue_hardening`
+Status: `extracted_in_repository`
 
-Do not activate Phase F package extraction yet. The runtime boundary has real
-multi-consumer pressure and enough structure to continue hardening. Phase E1
-removed the reward-label runtime allowlist and moved reward preference grouping
-to runtime descriptor declarations. Phase E2 removed executable replay's direct
-tool-registry execution path and now drives supported replay actions through
-`RuntimeSession.execute_action(...)` and action envelopes. Phase F still
-requires a fresh extraction-readiness review before activation.
+Phase F was activated by explicit human direction and implemented as an
+in-repository package boundary. The runtime boundary has real multi-consumer
+pressure and now has a concrete `awm_runtime` package for package-neutral
+runtime and episode primitives. Phase E1 removed the reward-label runtime
+allowlist and moved reward preference grouping to runtime descriptor
+declarations. Phase E2 removed executable replay's direct tool-registry
+execution path and now drives supported replay actions through
+`RuntimeSession.execute_action(...)` and action envelopes. Phase F then moved
+runtime descriptors, registry primitives, metadata safety checks, runtime
+sessions, action envelopes, episode transitions/logs, redaction, hashing, and
+episode summaries into `awm_runtime`.
 
 Next plan pointer:
-[0025 Phase E2: Runtime Session Replay Boundary Hardening](../exec-plans/completed/0025-phase-e2-runtime-session-replay-boundary-hardening.md).
+[0025 Phase G: Runtime Extraction Soak and Compatibility Hardening](../exec-plans/active/0025-phase-g-runtime-extraction-soak-and-compatibility-hardening.md).
 
 ## Summary
 
@@ -54,6 +59,19 @@ Phase E2 addressed the replay/session boundary leak:
 - `episode_replay_report_v1.runtime_boundary_evidence` now records
   `execute_action` as runtime-session evidence and records no direct registry
   methods for the replay consumer.
+
+Phase F established the package boundary:
+
+- `awm_runtime.runtime` owns package-neutral runtime descriptors, registry
+  primitives, capability status vocabulary, metadata safety checks, runtime
+  sessions, and action envelopes.
+- `awm_runtime.episodes` owns package-neutral episode transition/log,
+  deterministic hash, redaction, and episode-summary primitives.
+- `synthesis.runtime_registry` owns repository-specific contacts/mobile default
+  descriptor construction because those descriptors still contain domain-pack
+  rebuild seeds.
+- `synthesis.runtime` and `synthesis.episodes` remain compatibility re-export
+  shims for one migration cycle.
 
 ## Readiness Criteria
 
@@ -144,30 +162,27 @@ Internal-only until another plan separates domain packs:
   `synthesis.seeds.DomainSeed`; this is useful internally but couples replay
   rebuild to this repository's domain-pack model.
 
-Needs hardening or review before extraction:
+Needs hardening or review after extraction:
 
-- A new extraction-readiness review should re-evaluate the package boundary now
-  that Phase E1 reward-label contract blockers and the Phase E2 replay/session
-  boundary blocker are removed.
+- Phase G should soak the compatibility window, add stronger import-boundary
+  guardrails, and confirm representative contacts/mobile replay plus
+  reward-label behavior remains stable.
 
-No removal is recommended in Phase E because this phase is a decision gate and
-must not change runtime APIs.
+No removal is recommended for compatibility shims until Phase G records the
+compatibility window and removal criteria.
 
 ## Risks
 
-- If Phase F starts without a fresh review, package consumers may inherit
-  unresolved domain-pack rebuild coupling.
-- The runtime package boundary would be blurred by `DomainSeed` rebuild coupling
-  unless Phase F explicitly keeps domain-pack rebuild policy outside the package
-  or introduces a package-neutral rebuild recipe.
+- Future consumers may blur the runtime package boundary if they move
+  domain-pack rebuild policy or `DomainSeed` construction into `awm_runtime`.
+- The compatibility shims can become permanent technical debt unless Phase G
+  records explicit removal criteria.
 - Adapter support is local and in-process only. That is acceptable for this
   extraction decision, but external adapter behavior must remain a later plan.
 
 ## Required Next Step
 
-Run a fresh extraction-readiness review before activating Phase F. Phase E1 has
-removed the reward-label runtime allowlist, replaced domain-specific preference
-grouping with descriptor-owned grouping, and added fake runtime contract tests
-that validate labels and label reports without contacts/mobile contract edits.
-Phase E2 has removed replay's direct registry execution path and added contacts
-and mobile tests proving supported replay uses runtime-session action envelopes.
+Run Phase G compatibility soak before third-domain work, external MCP servers,
+distributed rollout workers, or separate repository publishing. Phase F has
+already kept domain-pack rebuild policy outside `awm_runtime` by placing
+repository-owned default descriptor construction in `synthesis.runtime_registry`.

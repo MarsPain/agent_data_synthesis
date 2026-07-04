@@ -45,12 +45,13 @@
   summaries. It deliberately excludes dataset version, profile decisions,
   release status, provider prompts, raw payloads, credentials, environment
   variables, and host paths.
-- **Runtime Capability Descriptor:** internal registry record for runtime
+- **Runtime Capability Descriptor:** `awm_runtime` registry record for runtime
   identity, domain id, replay/reward eligibility, checkpoint/rebuild support,
   local-adapter support, state-changing tools, task taxonomy, optional replay
   rebuild seed, and sanitized descriptor metadata. Contacts and mobile message
-  fixtures both declare opt-in local-adapter support through this descriptor. It
-  is not dataset release,
+  fixtures both declare opt-in local-adapter support through repository-owned
+  descriptors in `synthesis.runtime_registry`; the descriptor primitive itself
+  remains package-neutral. It is not dataset release,
   profile promotion, provider prompt, credential, raw source, or host-path
   metadata. Runtime capability lookups use the sanitized status vocabulary
   `supported`, `unsupported`, `insufficient_evidence`, and `malformed`; consumer
@@ -64,10 +65,10 @@
   the outcome of one runtime action. It records runtime id, tool name, status,
   sanitized observation, observation hash, state-change hash, error class, side
   effect summary, and optional action id.
-- **Runtime Session:** in-process runtime-facing object that wraps a domain
+- **Runtime Session:** `awm_runtime` in-process runtime-facing object that wraps a domain
   environment and tool registry with list-tools, execute-action,
   checkpoint/restore, and rebuild semantics. It is internal infrastructure, not
-  an external MCP server or package boundary.
+  an external MCP server.
 - **Tool:** typed callable action exposed to the Agent.
 - **Mobile Tool:** domain-owned callable in the mobile fixture. Current tools
   are `search_phone_messages`, `create_phone_reminder`, and
@@ -93,7 +94,7 @@
   trajectory events.
 - **Trajectory:** ordered interaction events including tool calls, observations,
   state changes, and final responses.
-- **Episode Log:** internal evidence view derived from a trajectory. It records
+- **Episode Log:** `awm_runtime` evidence view derived from a trajectory. It records
   ordered transitions, deterministic hashes over sanitized JSON payloads,
   runtime identity, policy identity, verifier identity, and accepted/rejected or
   failed outcome. It is kept internal by default and is written to
@@ -123,7 +124,7 @@
   summaries, and a local decision status without exposing raw trajectory,
   prompt, source, credential, or host-path content.
 - **Diagnostic Rollout:** repo-local scripted-policy execution through
-  `RuntimeSession`. It emits sanitized `episode_log_v1` records for diagnostics,
+  `awm_runtime.RuntimeSession`. It emits sanitized `episode_log_v1` records for diagnostics,
   replay, and reward-label compatibility. It is not RL training, online policy
   optimization, release admission, or profile promotion.
 - **Verifier:** independent checks that decide whether a trajectory satisfies the task.

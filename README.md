@@ -17,6 +17,9 @@ admission artifacts. Canonical design detail lives in [docs/](docs/).
   under `artifacts/foundation/` by default.
 - Contacts and synthetic mobile-message domains run through a shared domain
   pipeline boundary.
+- Stable runtime and episode primitives are available through the in-repository
+  `awm_runtime` package; `synthesis.runtime` and `synthesis.episodes` remain as
+  compatibility shims for existing callers.
 - `run_profile_v1` and `run_profile_v2` fixtures configure deterministic local
   runs, scale probes, release candidates, and profile-local governed sources.
 - Profile-local JSON sources are admitted through shared source governance, then
@@ -29,7 +32,7 @@ admission artifacts. Canonical design detail lives in [docs/](docs/).
   replay, and deterministic reward labels.
 - Remote LLM generation is supported through an OpenAI-compatible API, but local
   LLM serving, distributed workers, external MCP servers, Agentic RL rollout
-  collection, and full AWM runtime extraction are intentionally deferred.
+  collection, and separate `awm_runtime` publishing are intentionally deferred.
 
 ## Quick Start
 

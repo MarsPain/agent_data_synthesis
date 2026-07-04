@@ -3,15 +3,15 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from string import Formatter
 
+from awm_runtime.episodes import build_episode_log
+from awm_runtime.runtime import RuntimeActionRequest, RuntimeSession
 from synthesis.domain_pipeline import DomainPipelineBundle
-from synthesis.episodes import build_episode_log
 from synthesis.execution import (
     PolicyValidationError,
     SolutionPolicy,
     ToolStep,
     validate_solution_policy,
 )
-from synthesis.runtime import RuntimeActionRequest, RuntimeSession
 from synthesis.tasks import CandidateTask
 
 

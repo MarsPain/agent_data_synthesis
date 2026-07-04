@@ -62,6 +62,16 @@ runtime action evidence internally. Contract failures are rejected as
 `adapter_contract_rejected` with sanitized details; they are not treated as
 executable verifier failures.
 
+## Runtime Package Boundary Controls
+
+The in-repository `awm_runtime` package owns runtime metadata safety checks,
+action request/result sanitization, runtime sessions, and package-neutral
+episode hashing/redaction primitives. It must not import domain packs, source
+governance, dataset assembly, profile decisions, release reports, CLI wiring,
+provider configuration, or local host paths. Contacts/mobile descriptor
+construction stays in `synthesis.runtime_registry`; `synthesis.runtime` and
+`synthesis.episodes` are compatibility shims only.
+
 ## LLM Provider Secrets
 
 The synthesis pipeline may call a remote OpenAI-compatible LLM API configured by `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`. The project should not deploy local LLM clusters or expose provider credentials to generated code, tools, environments, fixtures, manifests, trajectory exports, or rejected-candidate diagnostics.

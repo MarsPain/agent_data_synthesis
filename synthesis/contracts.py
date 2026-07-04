@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-from synthesis.tasks import CandidateTask
+if TYPE_CHECKING:
+    from synthesis.tasks import CandidateTask
 
 
 class ContractValidationError(ValueError):
@@ -243,7 +244,9 @@ RUN_PROFILE_SOURCE_KINDS = {
 }
 
 
-def validate_candidate_task(task: object) -> CandidateTask:
+def validate_candidate_task(task: object) -> "CandidateTask":
+    from synthesis.tasks import CandidateTask
+
     if not isinstance(task, CandidateTask):
         raise ContractValidationError("candidate must be a CandidateTask")
     _require_non_empty_string(task.candidate_id, "candidate_id")
@@ -324,7 +327,7 @@ def validate_manifest_record(record: Mapping[str, Any]) -> None:
 
 def validate_runtime_metadata_record(record: Mapping[str, Any]) -> None:
     _require_mapping(record, "runtime_metadata")
-    from synthesis.runtime import validate_runtime_metadata_safety
+    from awm_runtime.runtime import validate_runtime_metadata_safety
 
     validate_runtime_metadata_safety(record)
     unexpected = sorted(str(key) for key in record if key not in RUNTIME_METADATA_KEYS)

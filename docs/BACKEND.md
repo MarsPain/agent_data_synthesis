@@ -24,15 +24,17 @@ The first backend should be a local Python pipeline with explicit modules and du
   input records, reset/checkpoint operations, and state adapters.
 - `synthesis.mobile_sources`: mobile messages JSON importer that converts
   admitted source bytes into `MobileMessagesEnvironmentInput`.
-- `synthesis.runtime`: internal environment runtime protocol, sanitized
+- `awm_runtime`: package-neutral runtime protocol primitives, sanitized
   `runtime_metadata_v1` construction, immutable runtime capability descriptors,
-  deterministic runtime registry lookup, runtime action request/result
-  envelopes, runtime sessions over environment/tool-registry pairs, and shared
-  sanitized capability-status vocabulary for lifecycle and capability evidence
-  shared by contacts and mobile domain environments.
-- `synthesis.episodes`: internal `episode_log_v1` construction, deterministic
-  transition hashing, redaction, and diagnostic episode summaries over existing
-  trajectories.
+  runtime registry primitives, runtime action request/result envelopes, runtime
+  sessions over environment/tool-registry pairs, package-neutral
+  `episode_log_v1` construction, deterministic transition hashing, redaction,
+  and diagnostic episode summaries.
+- `synthesis.runtime_registry`: repository-owned contacts/mobile descriptor
+  construction and default registry selection. Domain-specific rebuild seeds
+  stay here rather than in `awm_runtime`.
+- `synthesis.runtime` and `synthesis.episodes`: compatibility re-exports for
+  existing callers during the migration cycle.
 - `synthesis.rollouts`: diagnostic local rollout collection over runtime
   sessions. It executes scripted policies through action envelopes, enforces
   max-step limits, exports sanitized `episode_log_v1` records, and does not

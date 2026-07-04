@@ -160,15 +160,13 @@
   `reward_labels.jsonl` and `reward_label_report.json` consumer over sanitized
   episode, quality, replay, and task-contract evidence without training a
   reward model or changing release admission.
-- Prepare the environment layer for a future shared AWM runtime without
-  prematurely splitting it into a separate project. Plan 0025 Phase C added
-  runtime sessions, action envelopes, and diagnostic rollout collection after
-  plans 0031, 0032, 0033, and 0034 supplied repo-local data-quality,
-  executable replay, task/policy/verifier, and reward-label evidence. Plan 0025
-  Phase D then generalized the opt-in local adapter surface onto runtime
-  descriptors, runtime sessions, and action envelopes for contacts and mobile
-  without connecting external MCP servers. Runtime package extraction still
-  needs an explicit extraction-readiness review.
+- Extract the stable runtime primitive boundary in-repository before any
+  separate package publishing. Plan 0025 Phase F introduced `awm_runtime` for
+  runtime descriptors, registry primitives, sessions, action envelopes, metadata
+  safety checks, and package-neutral episode primitives while keeping
+  contacts/mobile descriptors in `synthesis.runtime_registry` and domain packs
+  in this repository. Phase G should harden the compatibility window before new
+  domain work leans on the boundary.
 - Add async orchestration with durable queues.
 - Evaluate Ray-style distributed workers if throughput requires it.
 - Add monitoring dashboards and cost controls.

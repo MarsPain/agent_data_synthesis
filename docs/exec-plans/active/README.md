@@ -5,7 +5,8 @@ is accepted as complete, move it to `../completed/` and update `../../PLANS.md`.
 
 ## Currently Executing
 
-No active implementation plans.
+- [0025-phase-g-runtime-extraction-soak-and-compatibility-hardening](0025-phase-g-runtime-extraction-soak-and-compatibility-hardening.md):
+  active after Phase F acceptance; implementation has not started yet.
 
 ## Completed
 

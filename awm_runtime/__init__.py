@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+from awm_runtime.episodes import (
+    EpisodeLog,
+    EpisodeTransition,
+    build_episode_log,
+    deterministic_content_hash,
+    sanitize_episode_value,
+    summarize_episode_for_quality,
+)
 from awm_runtime.runtime import (
     RUNTIME_CAPABILITY_FIELDS,
     RUNTIME_CAPABILITY_STATUSES,
@@ -10,21 +18,19 @@ from awm_runtime.runtime import (
     RuntimeMetadata,
     RuntimeRegistry,
     RuntimeSession,
-    runtime_metadata_from_environment,
-    validate_runtime_descriptor_safety,
-    validate_runtime_metadata_safety,
-)
-from synthesis.runtime_registry import (
-    DEFAULT_RUNTIME_REGISTRY,
     registered_runtime_ids,
     runtime_capability_status,
     runtime_descriptor,
+    runtime_metadata_from_environment,
     runtime_registry_with,
+    validate_runtime_descriptor_safety,
+    validate_runtime_metadata_safety,
 )
 
 __all__ = [
-    "DEFAULT_RUNTIME_REGISTRY",
     "EnvironmentRuntime",
+    "EpisodeLog",
+    "EpisodeTransition",
     "RUNTIME_CAPABILITY_FIELDS",
     "RUNTIME_CAPABILITY_STATUSES",
     "RuntimeActionRequest",
@@ -33,11 +39,15 @@ __all__ = [
     "RuntimeMetadata",
     "RuntimeRegistry",
     "RuntimeSession",
+    "build_episode_log",
+    "deterministic_content_hash",
     "registered_runtime_ids",
     "runtime_capability_status",
     "runtime_descriptor",
     "runtime_metadata_from_environment",
     "runtime_registry_with",
+    "sanitize_episode_value",
+    "summarize_episode_for_quality",
     "validate_runtime_descriptor_safety",
     "validate_runtime_metadata_safety",
 ]

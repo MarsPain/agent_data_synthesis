@@ -9,7 +9,9 @@
 
 ## Active
 
-No active implementation plans.
+- [0025-phase-g-runtime-extraction-soak-and-compatibility-hardening](exec-plans/active/0025-phase-g-runtime-extraction-soak-and-compatibility-hardening.md):
+  active after Phase F acceptance; hardens compatibility, import boundaries,
+  and post-extraction behavior before new domain expansion.
 
 ## Deferred
 
@@ -18,9 +20,9 @@ No active implementation plans.
   concurrency limits, cancellation, and per-role cost tracking; **deferred**
   until single runs exceed ~10 minutes or 100+ candidates. See the plan's
   "补充思考" section for the full deferral rationale.
-- [0025-phase-f-awm-runtime-package-extraction](exec-plans/deferred/0025-phase-f-awm-runtime-package-extraction.md):
-  deferred until extraction readiness is revisited after completed Phase E2 and
-  returns `ready_for_extraction_plan`.
+- [0037-domain-pack-contract-and-third-domain-probe](exec-plans/deferred/0037-domain-pack-contract-and-third-domain-probe.md):
+  deferred until Phase G is accepted, or until a later 0025 decision explicitly
+  chooses third-domain pressure as the next boundary-hardening move.
 
 ## Phase Indexes
 
@@ -62,6 +64,7 @@ No active implementation plans.
 - [0025-phase-e-extraction-readiness-review](exec-plans/completed/0025-phase-e-extraction-readiness-review.md): completed an evidence-backed extraction decision with status `continue_hardening`, keeping Phase F deferred and pointing the next hardening work at reward-label runtime contracts. Completed on 2026-06-20.
 - [0025-phase-e1-reward-label-runtime-contract-hardening](exec-plans/completed/0025-phase-e1-reward-label-runtime-contract-hardening.md): removed reward-label runtime contract allowlists and moved reward preference grouping to runtime descriptor declarations before the next extraction-readiness review. Completed on 2026-06-20.
 - [0025-phase-e2-runtime-session-replay-boundary-hardening](exec-plans/completed/0025-phase-e2-runtime-session-replay-boundary-hardening.md): hardened executable replay so supported contacts and mobile episodes execute through `RuntimeSession` action envelopes instead of direct registry execution. Completed on 2026-06-29.
+- [0025-phase-f-awm-runtime-package-extraction](exec-plans/completed/0025-phase-f-awm-runtime-package-extraction.md): activated by explicit human direction and implemented an in-repository `awm_runtime` package boundary for runtime and episode primitives while preserving compatibility shims. Completed on 2026-07-04.
 - [0026-dataset-release-coverage-and-admission-ratchet](exec-plans/completed/0026-dataset-release-coverage-and-admission-ratchet.md): tightened dataset release admission with release completeness thresholds, coverage observations, insufficient-evidence outcomes, and a deterministic release-candidate fixture. Completed on 2026-06-09.
 - [0027-dataset-release-pack-and-reproducibility-verification](exec-plans/completed/0027-dataset-release-pack-and-reproducibility-verification.md): added opt-in hash-locked release packs and standalone verification so passed release-candidate artifacts can be audited without rerunning generation. Completed on 2026-06-12.
 - [0028-release-quality-evidence-audit-and-card](exec-plans/completed/0028-release-quality-evidence-audit-and-card.md): added opt-in release quality evidence audits and human-readable dataset release cards for release-candidate artifact sets without implementing full semantic duplicate detection or changing default release admission. Completed on 2026-06-12.

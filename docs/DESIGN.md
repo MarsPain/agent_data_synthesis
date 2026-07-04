@@ -160,21 +160,22 @@ Start local and deterministic:
   Runtime-aware code should use `runtime_metadata()` for environment identity,
   reset recipe class, state backend, and checkpoint strategy; sample assembly
   continues to use `metadata()` for the public dataset environment field.
-- Runtime capability descriptors live under `synthesis.runtime` as the internal
-  registry contract for runtime identity, supported replay/reward capabilities,
-  state-changing tools, local-adapter support, and replay rebuild seeds. Replay
-  and reward consumers should ask the registry for capability facts instead of
-  owning contacts/mobile runtime allowlists. The runtime boundary also owns the
-  sanitized capability-status vocabulary: `supported`, `unsupported`,
-  `insufficient_evidence`, and `malformed`.
-- Runtime sessions and action envelopes live under `synthesis.runtime` as the
-  rollout-facing execution boundary. They standardize list-tools,
-  execute-action, checkpoint/restore, and rebuild behavior while leaving domain
-  state and tool semantics in domain packs.
+- Runtime capability descriptors, registry primitives, sessions, action
+  envelopes, metadata safety checks, and package-neutral episode primitives live
+  under `awm_runtime`. The repository-owned contacts/mobile default descriptor
+  registry lives under `synthesis.runtime_registry`; `synthesis.runtime` and
+  `synthesis.episodes` are compatibility shims for one migration cycle.
+  Replay and reward consumers should ask the registry for capability facts
+  instead of owning contacts/mobile runtime allowlists. The runtime boundary
+  also owns the sanitized capability-status vocabulary: `supported`,
+  `unsupported`, `insufficient_evidence`, and `malformed`.
+- Runtime sessions and action envelopes standardize list-tools, execute-action,
+  checkpoint/restore, and rebuild behavior while leaving domain state, rebuild
+  policy, and tool semantics in domain packs.
 - Episode-quality reporting is a repo-local, synchronous runtime evidence
   consumer. It reads known-runtime and state-changing-tool facts from runtime
   descriptors, proving the episode boundary can serve another data-quality
-  reader while keeping full AWM runtime package extraction deferred.
+  reader.
 - Episode-replay reporting is a repo-local, synchronous execution consistency
   consumer. It proves the current runtime boundary can serve a non-synthesis
   executor that rebuilds fixture runtimes and calls registries directly, while
@@ -182,8 +183,7 @@ Start local and deterministic:
 - Reward-label reporting is a repo-local, synchronous scoring consumer. It
   proves sanitized episode, quality, and replay evidence can produce
   preference-ready deterministic labels while keeping reward training, Agentic
-  RL rollout collection, release admission changes, and package extraction
-  deferred.
+  RL rollout collection, and release admission changes deferred.
 - Diagnostic rollout collection is repo-local and synchronous. It executes
   scripted policies through runtime sessions, emits sanitized `episode_log_v1`
   evidence, and keeps RL training, online policy optimization, distributed

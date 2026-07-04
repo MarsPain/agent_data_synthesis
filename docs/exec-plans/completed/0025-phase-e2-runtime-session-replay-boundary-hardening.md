@@ -222,5 +222,5 @@ domain bundle shape. They should be narrowed so domain-pack rebuild stays in
 ## Follow-On
 
 After this phase completes, run a fresh extraction-readiness review. Only move
-[0025 Phase F: AWM Runtime Package Extraction](../deferred/0025-phase-f-awm-runtime-package-extraction.md)
+[0025 Phase F: AWM Runtime Package Extraction](0025-phase-f-awm-runtime-package-extraction.md)
 to active if that review returns `ready_for_extraction_plan`.

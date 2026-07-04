@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from awm_runtime.runtime import EnvironmentRuntime, RuntimeSession
 from synthesis.environments import ContactEnvironment, ContactsEnvironmentInput
 from synthesis.execution import SolutionPolicy, scripted_solution_policy
 from synthesis.mcp import LocalRuntimeAdapterShim
@@ -16,7 +17,7 @@ from synthesis.mobile_tasks import (
     scripted_mobile_solution_policy,
 )
 from synthesis.mobile_tools import build_mobile_tool_registry
-from synthesis.runtime import EnvironmentRuntime, RuntimeSession, runtime_descriptor
+from synthesis.runtime_registry import runtime_descriptor
 from synthesis.seeds import DomainSeed
 from synthesis.tasks import CandidateTask, generate_foundation_candidates
 from synthesis.tools import ToolRegistry, build_contact_tool_registry

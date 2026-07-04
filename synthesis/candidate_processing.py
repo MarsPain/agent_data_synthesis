@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
+from awm_runtime.episodes import build_episode_log
 from synthesis.contracts import ContractValidationError, validate_candidate_task
 from synthesis.datasets import (
     assemble_candidate_schema_rejection,
@@ -19,7 +20,6 @@ from synthesis.execution import (
     SolutionPolicy,
     execute_candidate,
 )
-from synthesis.episodes import build_episode_log
 from synthesis.llm import LLMConfig, LLMProviderError
 from synthesis.mcp import (
     ADAPTER_VERSION,

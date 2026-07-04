@@ -12,8 +12,9 @@ from synthesis.contracts import (
     validate_episode_log_record,
     validate_episode_quality_report_record,
 )
-from synthesis.episodes import summarize_episode_for_quality
-from synthesis.runtime import RuntimeRegistry, runtime_descriptor
+from awm_runtime.episodes import summarize_episode_for_quality
+from awm_runtime.runtime import RuntimeRegistry
+from synthesis.runtime_registry import runtime_descriptor
 
 
 EPISODES_FILENAME = "episodes.jsonl"

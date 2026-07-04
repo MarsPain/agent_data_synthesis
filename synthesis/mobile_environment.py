@@ -5,9 +5,9 @@ from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
+from awm_runtime.runtime import RuntimeMetadata, runtime_metadata_from_environment
 from synthesis.contracts import validate_mobile_messages_environment_input_record
 from synthesis.environments import EnvironmentMetadata
-from synthesis.runtime import RuntimeMetadata, runtime_metadata_from_environment
 
 
 @dataclass(frozen=True)

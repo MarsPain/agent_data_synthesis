@@ -3,6 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
+from awm_runtime.runtime import (
+    RuntimeActionRequest,
+    RuntimeCapabilityDescriptor,
+    RuntimeSession,
+)
 from synthesis.contracts import (
     validate_adapter_call_request_record,
     validate_adapter_call_result_record,
@@ -10,12 +15,7 @@ from synthesis.contracts import (
     validate_adapter_manifest_record,
 )
 from synthesis.environments import ContactEnvironment, EnvironmentMetadata
-from synthesis.runtime import (
-    RuntimeActionRequest,
-    RuntimeCapabilityDescriptor,
-    RuntimeSession,
-    runtime_descriptor,
-)
+from synthesis.runtime_registry import runtime_descriptor
 from synthesis.tools import ToolRegistry
 
 

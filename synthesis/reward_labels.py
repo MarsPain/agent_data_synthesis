@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from awm_runtime.runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
 from synthesis.contracts import (
     ContractValidationError,
     REWARD_LABEL_CHECK_NAMES,
@@ -13,12 +14,7 @@ from synthesis.contracts import (
     validate_reward_label_record,
     validate_reward_label_report_record,
 )
-from synthesis.runtime import (
-    RuntimeCapabilityDescriptor,
-    RuntimeRegistry,
-    runtime_capability_status,
-    runtime_descriptor,
-)
+from synthesis.runtime_registry import runtime_capability_status, runtime_descriptor
 
 
 REWARD_LABELS_FILENAME = "reward_labels.jsonl"
