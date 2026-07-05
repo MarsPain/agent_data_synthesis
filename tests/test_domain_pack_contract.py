@@ -56,6 +56,7 @@ class DomainPackContractTest(unittest.TestCase):
         )
         allowed_exact = {
             "synthesis/contracts.py",
+            "synthesis/domain_sources.py",
             "synthesis/pipeline.py",
             "synthesis/task_contracts.py",
             "synthesis/verification.py",

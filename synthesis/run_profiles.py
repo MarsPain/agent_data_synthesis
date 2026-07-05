@@ -20,7 +20,11 @@ GENERATION_MODES = {
     "llm",
 }
 PROFILE_PURPOSES = {"diagnostic_probe", "release_candidate", "benchmark"}
-SOURCE_KINDS = {"local_contacts_json", "local_mobile_messages_json"}
+SOURCE_KINDS = {
+    "local_contacts_json",
+    "local_mobile_messages_json",
+    "local_workspace_tasks_json",
+}
 SOURCE_KEYS = {"kind", "source_id", "path", "license_label", "max_bytes"}
 DEFAULT_SOURCE_MAX_BYTES = 65536
 FEATURE_KEYS = (
@@ -323,6 +327,7 @@ def _validate_source_domain_compatibility(
     allowed = {
         "contacts_fixture": {"local_contacts_json"},
         "mobile_messages_fixture": {"local_mobile_messages_json"},
+        "workspace_tasks_fixture": {"local_workspace_tasks_json"},
     }
     if source.kind not in allowed.get(normalized_domain, set()):
         raise RunProfileValidationError(

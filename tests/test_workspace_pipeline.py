@@ -123,6 +123,42 @@ class WorkspacePipelineTest(unittest.TestCase):
         self.assertIsInstance(session, RuntimeSession)
         self.assertEqual(session.runtime_metadata().runtime_id, "workspace_tasks_fixture")
 
+    def test_domain_bundle_can_build_workspace_from_source_input(self) -> None:
+        from synthesis.domain_pipeline import build_domain_pipeline_bundle
+        from synthesis.workspace_environment import (
+            WorkspaceEnvironmentInput,
+            WorkspaceProjectRecord,
+            WorkspaceTaskRecord,
+        )
+
+        environment_input = WorkspaceEnvironmentInput(
+            projects=(WorkspaceProjectRecord("project_custom", "Custom Workspace", "active"),),
+            tasks=(
+                WorkspaceTaskRecord(
+                    "task_custom_plan",
+                    "project_custom",
+                    "Prepare custom launch plan",
+                    "high",
+                    "today",
+                ),
+            ),
+            documents=(),
+            comments=(),
+            source_bundle_id="bundle_source_workspace_tasks_v1",
+            source_policy_hash="sha256:" + "1" * 64,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bundle = build_domain_pipeline_bundle(
+                workspace_seed(),
+                Path(tmpdir),
+                source_provenance={"source_policy_hash": "sha256:" + "1" * 64},
+                domain_environment_input=environment_input,
+            )
+            result = bundle.environment.search_workspace_items(query="custom", kind="task")
+
+        self.assertEqual(result["item_id"], "task_custom_plan")
+
     def test_workspace_runtime_descriptor_advertises_domain_capabilities(self) -> None:
         from synthesis.runtime_registry import runtime_descriptor
 

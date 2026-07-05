@@ -83,6 +83,11 @@
   protocol, contacts compatibility importer, mobile messages importer, and
   generic `domain_environment_input` pipeline plumbing while keeping controlled
   network ingestion contacts-only.
+- Add profile-local workspace source admission after the third-domain probe.
+  Implemented in plan 0039 with `local_workspace_tasks_json`, a workspace-owned
+  JSON importer, `workspace_tasks_environment_input_v1`, source-backed workspace
+  CLI/replay/reward/evaluation evidence, and no external workspace APIs,
+  browser automation, async orchestration, or semantic duplicate detection.
 - Add profile-attributed quality and comparison before async orchestration.
   Implemented in plan 0019 with sanitized per-record profile attribution,
   profile quality slices, and parent-comparison visibility over profile slice

@@ -24,6 +24,8 @@ The first backend should be a local Python pipeline with explicit modules and du
   input records, reset/checkpoint operations, and state adapters.
 - `synthesis.mobile_sources`: mobile messages JSON importer that converts
   admitted source bytes into `MobileMessagesEnvironmentInput`.
+- `synthesis.workspace_sources`: workspace tasks JSON importer that converts
+  admitted source bytes into `WorkspaceEnvironmentInput`.
 - `awm_runtime`: package-neutral runtime protocol primitives, sanitized
   `runtime_metadata_v1` construction, immutable runtime capability descriptors,
   runtime registry primitives, runtime action request/result envelopes, runtime
@@ -66,8 +68,9 @@ The first backend should be a local Python pipeline with explicit modules and du
   `synthesis.workspace_tasks`: deterministic third-domain workspace pack. It
   owns local SQLite workspace projects, tasks, documents, comments, workspace
   tool schemas/handlers, deterministic candidates, scripted policies, checkpoint
-  and rebuild semantics, and sanitized runtime metadata. It does not ingest
-  profile-local workspace sources or call external workspace APIs.
+  and rebuild semantics, typed source-backed environment input, and sanitized
+  runtime metadata. It accepts governed profile-local workspace JSON through
+  `synthesis.workspace_sources`; it does not call external workspace APIs.
 - `synthesis.mcp`: local MCP-compatible adapter manifests, tool-call request and
   result envelopes, adapter lineage records, and the in-process runtime-backed
   adapter shim for supported local runtimes. It does not start an MCP server or
@@ -157,12 +160,12 @@ trajectories, exports, or logs.
    allowlisted HTTPS JSON source through the injectable HTTP boundary, enforce
    timeout, byte, content-type, redirect, and request-budget limits, and convert
    the payload into a typed contacts environment input. When a `run_profile_v2`
-   declares `source.kind=local_contacts_json` or
-   `source.kind=local_mobile_messages_json`, read the profile-relative JSON file
+   declares `source.kind=local_contacts_json`,
+   `source.kind=local_mobile_messages_json`, or
+   `source.kind=local_workspace_tasks_json`, read the profile-relative JSON file
    under its byte budget, admit it as `source_kind=local_file`, and hand the
-   admitted bytes to the matching domain importer. The workspace domain is
-   fixture-only in the third-domain probe; supplying a workspace source
-   declaration is rejected. The default pipeline does not fetch external network
+   admitted bytes to the matching domain importer. Controlled network ingestion
+   remains contacts-only. The default pipeline does not fetch external network
    sources or ingest arbitrary local files.
 4. Build or load an environment version with source provenance, source-policy
    hash metadata, and environment-source admission status.
@@ -271,11 +274,11 @@ must not add workspace-specific branches or tool allowlists.
 The run-profile boundary is declarative and synchronous. `--run-profile` supports
 the existing foundation fixture, remote LLM-backed generation when `--use-llm` is
 also supplied, a deterministic contacts scale probe, and `run_profile_v2`
-profile-local domain sources for contacts and mobile messages. Profile-local
-source declarations conflict with `--enable-network-source` and with the
-external source-governance fixture; they write only source kind, source id,
-content hash, license label, and source-policy hash to manifest metadata and
-per-record attribution.
+profile-local domain sources for contacts, mobile messages, and workspace
+tasks. Profile-local source declarations conflict with `--enable-network-source`
+and with the external source-governance fixture; they write only source kind,
+source id, content hash, license label, and source-policy hash to manifest
+metadata and per-record attribution.
 Per-record attribution omits target candidate counts, feature lists, profile
 paths, source paths, payload rows, prompts, headers, API keys, and arbitrary
 profile content. This path does not activate `synthesis.orchestration`, durable

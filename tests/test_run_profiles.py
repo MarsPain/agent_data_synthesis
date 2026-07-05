@@ -279,12 +279,47 @@ class RunProfileTest(unittest.TestCase):
         self.assertEqual(metadata["source"]["kind"], "local_mobile_messages_json")
         self.assertNotIn("path", metadata["source"])
 
+    def test_v2_profile_loads_local_workspace_source_with_sanitized_metadata(self) -> None:
+        from synthesis.run_profiles import load_run_profile
+
+        profile = load_run_profile(
+            Path("tests/fixtures/run_profiles/profile-local-workspace-tasks.json")
+        )
+
+        self.assertEqual(profile.schema_version, "run_profile_v2")
+        self.assertIsNotNone(profile.source)
+        assert profile.source is not None
+        self.assertEqual(profile.seed.domain, "workspace_tasks_fixture")
+        self.assertEqual(profile.source.kind, "local_workspace_tasks_json")
+        self.assertEqual(
+            profile.source.source_id,
+            "source_profile_workspace_tasks_v1",
+        )
+        self.assertEqual(profile.source.relative_path, "workspace-tasks-profile.json")
+        self.assertEqual(profile.source.resolved_path.name, "workspace-tasks-profile.json")
+        self.assertNotIn("workspace-tasks-profile.json", json.dumps(profile.sanitized_metadata()))
+        self.assertNotIn("Finalize launch plan", json.dumps(profile.sanitized_metadata()))
+
+        metadata = profile.sanitized_metadata(
+            source_summary={
+                "kind": "local_workspace_tasks_json",
+                "source_id": "source_profile_workspace_tasks_v1",
+                "content_hash": "sha256:" + "1" * 64,
+                "license_label": "cc-by-4.0",
+                "source_policy_hash": "sha256:" + "2" * 64,
+            }
+        )
+        self.assertEqual(metadata["source"]["kind"], "local_workspace_tasks_json")
+        self.assertNotIn("path", metadata["source"])
+
     def test_v2_source_rejects_domain_source_kind_mismatches(self) -> None:
         from synthesis.run_profiles import RunProfileValidationError, load_run_profile
 
         mismatches = (
             ("contacts", "local_mobile_messages_json"),
+            ("contacts", "local_workspace_tasks_json"),
             ("mobile_messages_fixture", "local_contacts_json"),
+            ("mobile_messages_fixture", "local_workspace_tasks_json"),
             ("workspace_tasks_fixture", "local_contacts_json"),
             ("workspace_tasks_fixture", "local_mobile_messages_json"),
         )

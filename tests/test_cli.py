@@ -343,6 +343,72 @@ class FoundationCliTest(unittest.TestCase):
             )
             self.assertTrue(all(label["label_status"] == "usable" for label in labels))
 
+    def test_main_can_run_profile_local_workspace_tasks_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "workspace-profile-local"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/profile-local-workspace-tasks.json",
+                    "--write-episode-quality-report",
+                    "--write-episode-replay-report",
+                    "--write-reward-label-report",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((output_dir / "source_events.jsonl").exists(), result.stdout)
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["accepted_count"], 4)
+            self.assertEqual(
+                manifest["run_profile"]["source"]["kind"],
+                "local_workspace_tasks_json",
+            )
+            self.assertEqual(
+                manifest["run_profile"]["source"]["source_id"],
+                "source_profile_workspace_tasks_v1",
+            )
+            quality_report = json.loads(
+                (output_dir / "episode_quality_report.json").read_text(encoding="utf-8")
+            )
+            replay_report = json.loads(
+                (output_dir / "episode_replay_report.json").read_text(encoding="utf-8")
+            )
+            reward_report = json.loads(
+                (output_dir / "reward_label_report.json").read_text(encoding="utf-8")
+            )
+            self.assertGreater(
+                quality_report["observed"]["runtime_counts"]["workspace_tasks_fixture"],
+                0,
+            )
+            self.assertGreater(
+                replay_report["observed"]["runtime_counts"]["workspace_tasks_fixture"],
+                0,
+            )
+            self.assertGreater(
+                reward_report["observed"]["runtime_counts"]["workspace_tasks_fixture"],
+                0,
+            )
+            exported_metadata = (
+                (output_dir / "manifest.json").read_text(encoding="utf-8")
+                + (output_dir / "source_events.jsonl").read_text(encoding="utf-8")
+                + (output_dir / "quality_report.json").read_text(encoding="utf-8")
+                + (output_dir / "episode_quality_report.json").read_text(encoding="utf-8")
+                + (output_dir / "episode_replay_report.json").read_text(encoding="utf-8")
+                + (output_dir / "reward_label_report.json").read_text(encoding="utf-8")
+            )
+            self.assertNotIn("workspace-tasks-profile.json", exported_metadata)
+            self.assertNotIn("Launch owners, target dates", exported_metadata)
+            self.assertIn("accepted=4", result.stdout)
+
     def test_mobile_profile_can_write_domain_aware_evaluation_and_profile_decision_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "mobile-agent-fixture"

@@ -246,6 +246,7 @@ REWARD_LABEL_CHECK_NAMES = {
 RUN_PROFILE_SOURCE_KINDS = {
     "local_contacts_json",
     "local_mobile_messages_json",
+    "local_workspace_tasks_json",
 }
 
 
@@ -1996,6 +1997,96 @@ def validate_mobile_messages_environment_input_record(record: Mapping[str, Any])
             draft.get("created_at"),
             f"draft_replies.{index}.created_at",
         )
+
+    source_bundle_id = record.get("source_bundle_id")
+    if source_bundle_id is not None:
+        _require_non_empty_string(source_bundle_id, "source_bundle_id")
+    source_policy_hash = record.get("source_policy_hash")
+    if source_policy_hash is not None:
+        _validate_content_hash(source_policy_hash, "source_policy_hash")
+
+
+def validate_workspace_tasks_environment_input_record(record: Mapping[str, Any]) -> None:
+    _require_mapping(record, "workspace_tasks_environment_input")
+    schema_version = _require_non_empty_string(record.get("schema_version"), "schema_version")
+    if schema_version != "workspace_tasks_environment_input_v1":
+        raise ContractValidationError("schema_version is unsupported")
+
+    projects = _require_sequence(record.get("projects"), "projects")
+    if not projects:
+        raise ContractValidationError("projects must contain at least one project")
+    project_ids: set[str] = set()
+    for index, raw_project in enumerate(projects):
+        project = _require_mapping(raw_project, f"projects.{index}")
+        project_id = _require_non_empty_string(
+            project.get("project_id"),
+            f"projects.{index}.project_id",
+        )
+        if project_id in project_ids:
+            raise ContractValidationError(f"projects.{index}.project_id must be unique")
+        project_ids.add(project_id)
+        _require_non_empty_string(project.get("name"), f"projects.{index}.name")
+        _require_non_empty_string(project.get("status"), f"projects.{index}.status")
+
+    tasks = _require_sequence(record.get("tasks"), "tasks")
+    if not tasks:
+        raise ContractValidationError("tasks must contain at least one task")
+    task_ids: set[str] = set()
+    for index, raw_task in enumerate(tasks):
+        task = _require_mapping(raw_task, f"tasks.{index}")
+        task_id = _require_non_empty_string(task.get("task_id"), f"tasks.{index}.task_id")
+        if task_id in task_ids:
+            raise ContractValidationError(f"tasks.{index}.task_id must be unique")
+        task_ids.add(task_id)
+        project_id = _require_non_empty_string(
+            task.get("project_id"),
+            f"tasks.{index}.project_id",
+        )
+        if project_id not in project_ids:
+            raise ContractValidationError(
+                f"tasks.{index}.project_id must reference a project"
+            )
+        _require_non_empty_string(task.get("title"), f"tasks.{index}.title")
+        _require_non_empty_string(task.get("priority"), f"tasks.{index}.priority")
+        _require_non_empty_string(task.get("due_label"), f"tasks.{index}.due_label")
+        _require_non_empty_string(task.get("status"), f"tasks.{index}.status")
+        _require_non_empty_string(task.get("created_at"), f"tasks.{index}.created_at")
+
+    documents = _require_sequence(record.get("documents"), "documents")
+    for index, raw_document in enumerate(documents):
+        document = _require_mapping(raw_document, f"documents.{index}")
+        _require_non_empty_string(
+            document.get("document_id"),
+            f"documents.{index}.document_id",
+        )
+        project_id = _require_non_empty_string(
+            document.get("project_id"),
+            f"documents.{index}.project_id",
+        )
+        if project_id not in project_ids:
+            raise ContractValidationError(
+                f"documents.{index}.project_id must reference a project"
+            )
+        _require_non_empty_string(document.get("title"), f"documents.{index}.title")
+        _require_non_empty_string(document.get("body"), f"documents.{index}.body")
+
+    comments = _require_sequence(record.get("comments"), "comments")
+    for index, raw_comment in enumerate(comments):
+        comment = _require_mapping(raw_comment, f"comments.{index}")
+        _require_non_empty_string(
+            comment.get("comment_id"),
+            f"comments.{index}.comment_id",
+        )
+        task_id = _require_non_empty_string(
+            comment.get("task_id"),
+            f"comments.{index}.task_id",
+        )
+        if task_id not in task_ids:
+            raise ContractValidationError(
+                f"comments.{index}.task_id must reference a task"
+            )
+        _require_non_empty_string(comment.get("body"), f"comments.{index}.body")
+        _require_non_empty_string(comment.get("created_at"), f"comments.{index}.created_at")
 
     source_bundle_id = record.get("source_bundle_id")
     if source_bundle_id is not None:

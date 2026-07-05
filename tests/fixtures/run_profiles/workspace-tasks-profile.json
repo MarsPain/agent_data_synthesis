@@ -1,0 +1,63 @@
+{
+  "projects": [
+    {"project_id": "project_alpha", "name": "Alpha Launch", "status": "active"},
+    {"project_id": "project_beta", "name": "Beta Research", "status": "active"}
+  ],
+  "tasks": [
+    {
+      "task_id": "task_launch_plan",
+      "project_id": "project_alpha",
+      "title": "Finalize launch plan",
+      "priority": "high",
+      "due_label": "this_week",
+      "status": "open",
+      "created_at": "1970-01-01T00:00:00Z"
+    },
+    {
+      "task_id": "task_metrics_review",
+      "project_id": "project_alpha",
+      "title": "Review launch metrics dashboard",
+      "priority": "medium",
+      "due_label": "next_week",
+      "status": "open",
+      "created_at": "1970-01-01T00:00:00Z"
+    },
+    {
+      "task_id": "task_research_notes",
+      "project_id": "project_beta",
+      "title": "Summarize customer research notes",
+      "priority": "medium",
+      "due_label": "later",
+      "status": "open",
+      "created_at": "1970-01-01T00:00:00Z"
+    }
+  ],
+  "documents": [
+    {
+      "document_id": "doc_launch_brief",
+      "project_id": "project_alpha",
+      "title": "Launch Brief",
+      "body": "Launch owners, target dates, and rollout criteria."
+    },
+    {
+      "document_id": "doc_research_summary",
+      "project_id": "project_beta",
+      "title": "Research Summary",
+      "body": "Customer feedback themes and open questions."
+    }
+  ],
+  "comments": [
+    {
+      "comment_id": "comment_task_launch_plan_owner",
+      "task_id": "task_launch_plan",
+      "body": "Assign launch checklist owner before review.",
+      "created_at": "1970-01-01T00:00:00Z"
+    },
+    {
+      "comment_id": "comment_task_research_notes_source",
+      "task_id": "task_research_notes",
+      "body": "Link research notes to the summary document.",
+      "created_at": "1970-01-01T00:00:00Z"
+    }
+  ]
+}

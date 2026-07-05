@@ -436,6 +436,61 @@ class SourceGovernancePipelineTest(unittest.TestCase):
             self.assertEqual(report["rates"]["executable_rate"], 0.0)
             self.assertIn("rejected", report["slices"]["environment_source_admission"])
 
+    def test_profile_local_workspace_source_runs_pipeline_with_sanitized_events(self) -> None:
+        from synthesis.domain_sources import (
+            ProfileLocalDomainSourceRequest,
+            build_profile_local_domain_source_input,
+            resolve_domain_source_importer,
+        )
+        from synthesis.pipeline import run_foundation_pipeline
+        from tests.test_workspace_pipeline import workspace_seed
+
+        importer = resolve_domain_source_importer(
+            "workspace_tasks_fixture",
+            "local_workspace_tasks_json",
+        )
+        source_input = build_profile_local_domain_source_input(
+            ProfileLocalDomainSourceRequest(
+                domain_id="workspace_tasks_fixture",
+                kind="local_workspace_tasks_json",
+                source_id="source_profile_workspace_tasks_v1",
+                path=Path("tests/fixtures/run_profiles/workspace-tasks-profile.json"),
+                license_label="cc-by-4.0",
+                max_bytes=65536,
+            ),
+            importer=importer,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_foundation_pipeline(
+                Path(tmpdir),
+                dataset_version="dataset_profile_local_workspace_tasks",
+                seed_override=workspace_seed(),
+                source_bundle=source_input.source_bundle,
+                domain_environment_input=source_input.environment_input,
+                source_events=source_input.events,
+                enable_source_audit=True,
+            )
+
+            self.assertEqual(result.accepted_count, 4)
+            self.assertIsNotNone(result.source_events_path)
+            sample = json.loads(result.samples_path.read_text(encoding="utf-8").splitlines()[0])
+            provenance = sample["lineage"]["source_provenance"]
+            self.assertEqual(provenance["source_ids"], ["source_profile_workspace_tasks_v1"])
+            self.assertEqual(provenance["source_kinds"], ["local_file"])
+            self.assertEqual(
+                sample["environment"]["reset_recipe"]["source_bundle_id"],
+                source_input.environment_input.source_bundle_id,
+            )
+            exported = (
+                result.samples_path.read_text(encoding="utf-8")
+                + result.rejections_path.read_text(encoding="utf-8")
+                + result.manifest_path.read_text(encoding="utf-8")
+                + result.source_events_path.read_text(encoding="utf-8")
+            )
+            self.assertNotIn("workspace-tasks-profile.json", exported)
+            self.assertNotIn("Launch owners, target dates", exported)
+
 
 def _source_record() -> dict[str, object]:
     return {

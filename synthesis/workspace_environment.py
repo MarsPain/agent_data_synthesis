@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from awm_runtime.runtime import RuntimeMetadata, runtime_metadata_from_environment
+from synthesis.contracts import validate_workspace_tasks_environment_input_record
 from synthesis.environments import EnvironmentMetadata
 
 
@@ -83,6 +84,19 @@ class WorkspaceEnvironmentInput:
     tasks: tuple[WorkspaceTaskRecord, ...]
     documents: tuple[WorkspaceDocumentRecord, ...]
     comments: tuple[WorkspaceCommentRecord, ...]
+    source_bundle_id: str | None = None
+    source_policy_hash: str | None = None
+
+    def export(self) -> dict[str, object]:
+        return {
+            "schema_version": "workspace_tasks_environment_input_v1",
+            "projects": [project.export() for project in self.projects],
+            "tasks": [task.export() for task in self.tasks],
+            "documents": [document.export() for document in self.documents],
+            "comments": [comment.export() for comment in self.comments],
+            "source_bundle_id": self.source_bundle_id,
+            "source_policy_hash": self.source_policy_hash,
+        }
 
 
 class WorkspaceTasksEnvironment:
@@ -103,8 +117,40 @@ class WorkspaceTasksEnvironment:
                 _insert_workspace_input(connection, _fixture_input())
         return environment
 
-    def __init__(self, database_path: Path) -> None:
+    @classmethod
+    def create_from_input(
+        cls,
+        output_dir: Path,
+        environment_input: WorkspaceEnvironmentInput,
+        *,
+        source_provenance: dict[str, object] | None = None,
+    ) -> "WorkspaceTasksEnvironment":
+        validate_workspace_tasks_environment_input_record(environment_input.export())
+        output_dir.mkdir(parents=True, exist_ok=True)
+        database_path = output_dir / "workspace_tasks.sqlite3"
+        if database_path.exists():
+            database_path.unlink()
+        environment = cls(
+            database_path,
+            source_provenance=source_provenance,
+            source_input=environment_input,
+        )
+        with closing(environment.connect()) as connection:
+            with connection:
+                _create_schema(connection)
+                _insert_workspace_input(connection, environment_input)
+        return environment
+
+    def __init__(
+        self,
+        database_path: Path,
+        *,
+        source_provenance: dict[str, object] | None = None,
+        source_input: WorkspaceEnvironmentInput | None = None,
+    ) -> None:
         self.database_path = database_path
+        self.source_provenance = source_provenance
+        self.source_input = source_input
 
     def connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.database_path)
@@ -116,6 +162,12 @@ class WorkspaceTasksEnvironment:
         self.database_path.write_bytes(checkpoint)
 
     def rebuild(self, output_dir: Path) -> "WorkspaceTasksEnvironment":
+        if self.source_input is not None:
+            return type(self).create_from_input(
+                output_dir,
+                self.source_input,
+                source_provenance=self.source_provenance,
+            )
         return type(self).create_fixture(output_dir)
 
     def search_workspace_items(
@@ -261,20 +313,29 @@ class WorkspaceTasksEnvironment:
         return row is not None
 
     def metadata(self) -> EnvironmentMetadata:
+        reset_recipe: dict[str, object] = {
+            "type": "sqlite_fixture",
+            "fixture": "workspace_tasks",
+            "database": self.database_path.name,
+            "tables": [
+                "workspace_projects",
+                "workspace_tasks",
+                "workspace_documents",
+                "workspace_comments",
+            ],
+        }
+        if self.source_input is not None:
+            reset_recipe.update(
+                {
+                    "source_bundle_id": self.source_input.source_bundle_id,
+                    "source_policy_hash": self.source_input.source_policy_hash,
+                }
+            )
         return EnvironmentMetadata(
             environment_id=self.environment_id,
             version=self.version,
-            reset_recipe={
-                "type": "sqlite_fixture",
-                "fixture": "workspace_tasks",
-                "database": self.database_path.name,
-                "tables": [
-                    "workspace_projects",
-                    "workspace_tasks",
-                    "workspace_documents",
-                    "workspace_comments",
-                ],
-            },
+            reset_recipe=reset_recipe,
+            source_provenance=self.source_provenance,
         )
 
     def runtime_metadata(self) -> RuntimeMetadata:

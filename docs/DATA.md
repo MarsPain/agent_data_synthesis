@@ -6,8 +6,8 @@
 - **Run Profile:** versioned local-run configuration that names a profile id,
   dataset version, seed metadata, generation mode, target candidate count when
   applicable, profile purpose, supported feature flags, and, for
-  `run_profile_v2`, an optional governed local contacts JSON source
-  declaration. Profile purpose is one of `diagnostic_probe`,
+  `run_profile_v2`, an optional governed local JSON source declaration for
+  supported domains. Profile purpose is one of `diagnostic_probe`,
   `release_candidate`, or `benchmark`.
 - **Source Record:** provenance contract for fixture, synthetic, transformed, or
   external/local-file material, including source id, sanitized origin reference,
@@ -39,8 +39,9 @@
 - **Workspace Tasks Environment:** deterministic synthetic workspace fixture
   with projects, task records, lightweight documents, and comments. It uses
   `environment.id: workspace_tasks_fixture`, stores local SQLite state, supports
-  checkpoint/restore and candidate-local rebuilds, and does not read host files,
-  browser profiles, credentials, network resources, or real workspace data.
+  checkpoint/restore and candidate-local rebuilds, may be built from a governed
+  profile-local workspace JSON input, and does not read browser profiles,
+  credentials, network resources, or real workspace data.
 - **Seed Transformation:** bounded expansion record that maps a source seed to a
   target taxonomy node, capability target, and intended difficulty movement.
 - **Environment:** executable stateful world with reset/checkpoint behavior.
@@ -321,11 +322,13 @@ secret-like fields. Non-profile runs omit `run_profile`.
 `run_profile.source` after source admission. That summary contains only `kind`,
 `source_id`, `content_hash`, `license_label`, and `source_policy_hash`.
 Supported profile-local source kinds are `local_contacts_json` for the contacts
-domain and `local_mobile_messages_json` for `mobile_messages_fixture`. The
-profile-local source path is used only at runtime to read the declared JSON file
-relative to the profile directory; manifests, quality reports, source events,
-and rejection metadata must not persist raw local paths, raw contacts payloads,
-raw mobile message payloads, or mobile message bodies.
+domain, `local_mobile_messages_json` for `mobile_messages_fixture`, and
+`local_workspace_tasks_json` for `workspace_tasks_fixture`. The profile-local
+source path is used only at runtime to read the declared JSON file relative to
+the profile directory; manifests, quality reports, source events, and rejection
+metadata must not persist raw local paths, raw contacts payloads, raw mobile
+message payloads, mobile message bodies, raw workspace document bodies, or raw
+task/comment content.
 
 Profile-configured runs also attach a narrow per-record attribution record under
 `lineage.run_profile` for accepted samples and `details.run_profile` for
@@ -513,14 +516,21 @@ threads and source ids must be internally consistent before the environment is
 created. This contract is domain-owned; shared source governance does not
 understand mobile table semantics.
 
+`workspace_tasks_environment_input_v1` is the typed workspace source
+environment input. It contains non-empty `projects` and `tasks`, optional
+`documents` and `comments`, and optional `source_bundle_id`/
+`source_policy_hash`. Tasks and documents must reference declared projects;
+comments must reference declared tasks. This contract is domain-owned; shared
+source governance does not understand workspace table semantics.
+
 `lineage.source_provenance` records the source bundle id, source policy hash,
 source ids, source kinds, license labels, license outcomes, retention/export
-eligibility, `external_source_eligible`, and, for source-backed contacts inputs,
-`environment_source_admission`. Environment metadata carries the same source
-provenance so environment versions can be traced back to the policy hash that
-admitted their source bundle. Network-backed and profile-local environment reset
-recipes also record source bundle id, source policy hash, and sanitized row
-counts; they do not record raw source URLs, raw local paths, or payload text.
+eligibility, `external_source_eligible`, and, for source-backed environment
+inputs, `environment_source_admission`. Environment metadata carries the same
+source provenance so environment versions can be traced back to the policy hash
+that admitted their source bundle. Network-backed and profile-local environment
+reset recipes also record source bundle id and source policy hash; they do not
+record raw source URLs, raw local paths, or payload text.
 Rejected external/local-file source material and rejected
 environment-source inputs use `source_policy_rejected` and store sanitized source
 governance details under `details.source_governance`.

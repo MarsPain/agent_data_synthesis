@@ -24,7 +24,8 @@ admission artifacts. Canonical design detail lives in [docs/](docs/).
 - `run_profile_v1` and `run_profile_v2` fixtures configure deterministic local
   runs, scale probes, release candidates, and profile-local governed sources.
 - Profile-local JSON sources are admitted through shared source governance, then
-  parsed by domain-owned importers for contacts or mobile messages.
+  parsed by domain-owned importers for contacts, mobile messages, or workspace
+  tasks.
 - Candidate processing validates task contracts, executes policies, verifies
   final answers and expected state, classifies rejections, and merges outcomes
   deterministically.
@@ -55,10 +56,11 @@ uv run python main.py --enable-branching --output-dir artifacts/foundation-branc
 uv run python main.py --enable-task-expansion --output-dir artifacts/foundation-task-expansion
 uv run python main.py --enable-source-governance-fixture --output-dir artifacts/foundation-source-governance
 
-# Profile-driven contacts and mobile runs
+# Profile-driven contacts, mobile, and workspace runs
 uv run python main.py --run-profile tests/fixtures/run_profiles/foundation-scale-probe-25.json --write-evaluation-report --write-profile-decision-report --output-dir artifacts/foundation-scale-probe
 uv run python main.py --run-profile tests/fixtures/run_profiles/profile-local-contacts.json --output-dir artifacts/profile-local-contacts
 uv run python main.py --run-profile tests/fixtures/run_profiles/profile-local-mobile-messages.json --write-episode-replay-report --write-reward-label-report --output-dir artifacts/profile-local-mobile
+uv run python main.py --run-profile tests/fixtures/run_profiles/profile-local-workspace-tasks.json --write-episode-replay-report --write-reward-label-report --output-dir artifacts/profile-local-workspace
 
 # Controlled no-network test of the HTTPS source path
 uv run python main.py --enable-network-source --source-url https://allowed.example.test/contacts.json --source-license-label cc-by-4.0 --allowed-source-host allowed.example.test --mock-source-fixture tests/fixtures/contacts.json --output-dir artifacts/foundation-network-source

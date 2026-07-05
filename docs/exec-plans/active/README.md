@@ -9,6 +9,8 @@ No active implementation plan is currently selected.
 
 ## Completed
 
+- [0039-workspace-profile-local-source-admission](../completed/0039-workspace-profile-local-source-admission.md):
+  completed on 2026-07-05.
 - [0038-runtime-compatibility-shim-retirement-and-context-sync](../completed/0038-runtime-compatibility-shim-retirement-and-context-sync.md):
   completed on 2026-07-05.
 - [0025-phase-g-runtime-extraction-soak-and-compatibility-hardening](../completed/0025-phase-g-runtime-extraction-soak-and-compatibility-hardening.md):

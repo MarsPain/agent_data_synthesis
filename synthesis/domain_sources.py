@@ -13,6 +13,7 @@ from synthesis.sources import (
     contacts_environment_input_from_payload,
     source_environment_admission_event,
 )
+from synthesis.workspace_sources import WorkspaceTasksSourceImporter
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,10 @@ def resolve_domain_source_importer(
             "mobile_messages_fixture",
             "local_mobile_messages_json",
         ): MobileMessagesSourceImporter(),
+        (
+            "workspace_tasks_fixture",
+            "local_workspace_tasks_json",
+        ): WorkspaceTasksSourceImporter(),
     }
     importer = importers.get((normalized_domain, source_kind))
     if importer is None:

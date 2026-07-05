@@ -82,6 +82,39 @@ class DomainSourceImporterTest(unittest.TestCase):
         self.assertNotIn("project update tomorrow", exported)
         self.assertNotIn("4821", exported)
 
+    def test_workspace_importer_uses_shared_profile_local_governance(self) -> None:
+        from synthesis.domain_sources import (
+            ProfileLocalDomainSourceRequest,
+            build_profile_local_domain_source_input,
+            resolve_domain_source_importer,
+        )
+        from synthesis.workspace_environment import WorkspaceEnvironmentInput
+
+        importer = resolve_domain_source_importer(
+            "workspace_tasks_fixture",
+            "local_workspace_tasks_json",
+        )
+        source_import = build_profile_local_domain_source_input(
+            ProfileLocalDomainSourceRequest(
+                domain_id="workspace_tasks_fixture",
+                kind="local_workspace_tasks_json",
+                source_id="source_profile_workspace_tasks_v1",
+                path=Path("tests/fixtures/run_profiles/workspace-tasks-profile.json"),
+                license_label="cc-by-4.0",
+                max_bytes=65536,
+            ),
+            importer=importer,
+        )
+
+        self.assertEqual(source_import.domain_id, "workspace_tasks_fixture")
+        self.assertEqual(source_import.source_kind, "local_workspace_tasks_json")
+        self.assertIsInstance(source_import.environment_input, WorkspaceEnvironmentInput)
+        self.assertEqual(source_import.source_summary["kind"], "local_workspace_tasks_json")
+        exported = json.dumps(source_import.events, sort_keys=True)
+        self.assertNotIn("workspace-tasks-profile.json", exported)
+        self.assertNotIn("Finalize launch plan", exported)
+        self.assertNotIn("Launch owners", exported)
+
     def test_resolver_rejects_mismatched_domain_and_source_kind(self) -> None:
         from synthesis.domain_sources import resolve_domain_source_importer
 
@@ -134,6 +167,67 @@ class DomainSourceImporterTest(unittest.TestCase):
         exported = json.dumps(raised.exception.events, sort_keys=True)
         self.assertNotIn(str(path), exported)
         self.assertNotIn("mobile.json", exported)
+
+    def test_workspace_profile_local_source_rejects_payload_without_leaking_content(self) -> None:
+        from synthesis.domain_sources import (
+            ProfileLocalDomainSourceRequest,
+            build_profile_local_domain_source_input,
+            resolve_domain_source_importer,
+        )
+        from synthesis.sources import ControlledSourceFetchError
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "workspace.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "projects": [
+                            {
+                                "project_id": "project_alpha",
+                                "name": "Alpha Launch",
+                                "status": "active",
+                            }
+                        ],
+                        "tasks": [
+                            {
+                                "task_id": "task_bad",
+                                "project_id": "missing_project",
+                                "title": "Leaky raw workspace task",
+                                "priority": "high",
+                                "due_label": "today",
+                            }
+                        ],
+                        "documents": [],
+                        "comments": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            importer = resolve_domain_source_importer(
+                "workspace_tasks_fixture",
+                "local_workspace_tasks_json",
+            )
+
+            with self.assertRaisesRegex(
+                ControlledSourceFetchError,
+                "environment source",
+            ) as raised:
+                build_profile_local_domain_source_input(
+                    ProfileLocalDomainSourceRequest(
+                        domain_id="workspace_tasks_fixture",
+                        kind="local_workspace_tasks_json",
+                        source_id="source_workspace_bad",
+                        path=path,
+                        license_label="cc-by-4.0",
+                        max_bytes=65536,
+                    ),
+                    importer=importer,
+                )
+
+        exported = json.dumps(raised.exception.events, sort_keys=True)
+        self.assertNotIn(str(path), exported)
+        self.assertNotIn("workspace.json", exported)
+        self.assertNotIn("Leaky raw workspace task", exported)
 
 
 if __name__ == "__main__":

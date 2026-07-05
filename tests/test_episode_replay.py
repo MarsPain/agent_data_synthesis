@@ -110,6 +110,22 @@ class EpisodeReplayTest(unittest.TestCase):
         self.assertEqual(summary["state_change_mismatch_count"], 0)
         self.assertEqual(report["decision"]["status"], "passed")
 
+    def test_source_backed_workspace_replay_uses_descriptor_boundary(self) -> None:
+        from synthesis.episode_replay import build_episode_replay_report
+
+        episodes = (_source_backed_workspace_episode("candidate_workspace_launch_checklist_task"),)
+
+        report = build_episode_replay_report(
+            dataset_version="dataset_source_backed_workspace_replay",
+            episodes=episodes,
+        )
+
+        self.assertEqual(report["decision"]["status"], "passed")
+        self.assertEqual(
+            report["observed"]["runtime_counts"],
+            {"workspace_tasks_fixture": 1},
+        )
+
     def test_supported_replay_executes_contacts_actions_through_runtime_session(self) -> None:
         from synthesis.episode_replay import build_episode_replay_report
 
@@ -374,6 +390,53 @@ def _episode(candidate_id: str) -> dict[str, object]:
     task = next(candidate for candidate in candidates if candidate.candidate_id == candidate_id)
     with tempfile.TemporaryDirectory() as tmpdir:
         bundle = build_domain_pipeline_bundle(seed, Path(tmpdir))
+        policy = bundle.policy_generator(task)
+        execution = execute_candidate(task, bundle.registry, policy=policy)
+        return build_episode_log(
+            candidate_id=task.candidate_id,
+            runtime_metadata=bundle.environment.runtime_metadata(),
+            policy=policy,
+            verifier=bundle.verifier,
+            trajectory=execution.trajectory,
+            outcome_status="accepted",
+        ).export()
+
+
+def _source_backed_workspace_episode(candidate_id: str) -> dict[str, object]:
+    from synthesis.domain_sources import (
+        ProfileLocalDomainSourceRequest,
+        build_profile_local_domain_source_input,
+        resolve_domain_source_importer,
+    )
+
+    seed = workspace_seed()
+    task = next(
+        candidate
+        for candidate in generate_workspace_fixture_candidates(seed)
+        if candidate.candidate_id == candidate_id
+    )
+    importer = resolve_domain_source_importer(
+        "workspace_tasks_fixture",
+        "local_workspace_tasks_json",
+    )
+    source_input = build_profile_local_domain_source_input(
+        ProfileLocalDomainSourceRequest(
+            domain_id="workspace_tasks_fixture",
+            kind="local_workspace_tasks_json",
+            source_id="source_profile_workspace_tasks_v1",
+            path=Path("tests/fixtures/run_profiles/workspace-tasks-profile.json"),
+            license_label="cc-by-4.0",
+            max_bytes=65536,
+        ),
+        importer=importer,
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        bundle = build_domain_pipeline_bundle(
+            seed,
+            Path(tmpdir),
+            source_provenance={"source_policy_hash": "sha256:" + "1" * 64},
+            domain_environment_input=source_input.environment_input,
+        )
         policy = bundle.policy_generator(task)
         execution = execute_candidate(task, bundle.registry, policy=policy)
         return build_episode_log(

@@ -22,7 +22,7 @@ from synthesis.seeds import DomainSeed
 from synthesis.tasks import CandidateTask, generate_foundation_candidates
 from synthesis.tools import ToolRegistry, build_contact_tool_registry
 from synthesis.verification import ExactAnswerVerifier
-from synthesis.workspace_environment import WorkspaceTasksEnvironment
+from synthesis.workspace_environment import WorkspaceEnvironmentInput, WorkspaceTasksEnvironment
 from synthesis.workspace_tasks import (
     generate_workspace_fixture_candidates,
     scripted_workspace_solution_policy,
@@ -86,10 +86,17 @@ def build_domain_pipeline_bundle(
             enable_mcp_adapter=enable_mcp_adapter,
         )
     if seed.domain == "workspace_tasks_fixture":
-        if domain_environment_input is not None:
-            raise ValueError("workspace_tasks_fixture source input is not supported")
+        if (
+            domain_environment_input is not None
+            and not isinstance(domain_environment_input, WorkspaceEnvironmentInput)
+        ):
+            raise ValueError(
+                "workspace_tasks_fixture source input must be WorkspaceEnvironmentInput"
+            )
         return _build_workspace_bundle(
             output_dir,
+            source_provenance=source_provenance,
+            workspace_environment_input=domain_environment_input,
             enable_mcp_adapter=enable_mcp_adapter,
         )
     raise ValueError(f"Unsupported seed domain: {seed.domain}")
@@ -219,9 +226,19 @@ def _build_mobile_bundle(
 def _build_workspace_bundle(
     output_dir: Path,
     *,
+    source_provenance: dict[str, object] | None,
+    workspace_environment_input: object | None,
     enable_mcp_adapter: bool,
 ) -> DomainPipelineBundle:
-    environment = WorkspaceTasksEnvironment.create_fixture(output_dir)
+    if workspace_environment_input is not None:
+        assert isinstance(workspace_environment_input, WorkspaceEnvironmentInput)
+        environment = WorkspaceTasksEnvironment.create_from_input(
+            output_dir,
+            workspace_environment_input,
+            source_provenance=source_provenance,
+        )
+    else:
+        environment = WorkspaceTasksEnvironment.create_fixture(output_dir)
     registry = build_workspace_tool_registry(environment)
     session = RuntimeSession(
         environment=environment,

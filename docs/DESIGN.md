@@ -27,7 +27,10 @@ Owns executable environment construction, state schema, fixture generation, rese
 Profile-local source payload parsing is domain-owned. Shared source governance
 admits bytes, license decisions, source bundles, policy hashes, and sanitized
 events; domain importers convert admitted content into typed environment inputs
-for contacts or mobile without teaching the central pipeline each domain schema.
+for contacts, mobile messages, or workspace tasks without teaching the central
+pipeline each domain schema. Workspace source ingestion is profile-local JSON
+only; it excludes external workspace APIs, browser profiles, credentials, and
+real user data.
 
 Environment implementations also satisfy the extracted `awm_runtime` boundary.
 Contacts, mobile, and workspace fixtures expose `runtime_metadata_v1`,
