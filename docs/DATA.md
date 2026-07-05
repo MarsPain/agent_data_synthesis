@@ -728,14 +728,16 @@ Release completeness is a deterministic evidence layer inside
 `dataset_release_report_v1`. It is computed from sanitized manifest counts and
 quality-report slices; it must not read raw samples, raw source payloads, local
 profile paths, prompts, provider payloads, headers, API keys, or arbitrary
-profile JSON. Current release completeness thresholds are:
-
-- `min_accepted_samples`: `5`.
-- `max_rejection_rate`: `0.2`.
-- `required_task_types`: `lookup_contact_email`, `contact_followup`, and
-  `contact_branch_fallback`.
-- `required_tool_combinations`: `lookup_contact_email` and
-  `lookup_contact_email+record_contact_followup`.
+profile JSON. Current release completeness thresholds are domain-aware. All
+supported local release-candidate domains require at least `5` accepted samples
+and at most `0.2` rejection rate. Contacts require `lookup_contact_email`,
+`contact_followup`, and `contact_branch_fallback` task-type coverage. Mobile
+requires `mobile_message_lookup`, `mobile_message_to_reminder`,
+`mobile_draft_reply`, and `mobile_branch_fallback`. Workspace requires
+`workspace_item_lookup`, `workspace_task_creation`, `workspace_comment_update`,
+and `workspace_branch_fallback`. Required tool-combination coverage is
+domain-specific; dataset release reports store the exact threshold list used in
+`release_completeness.thresholds`.
 
 The report records:
 

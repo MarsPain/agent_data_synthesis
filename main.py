@@ -557,6 +557,16 @@ def main() -> int:
             manifest_path=result.manifest_path,
             card_path=dataset_release_card_path,
         )
+        if dataset_release_pack_path is not None:
+            try:
+                write_dataset_release_pack(
+                    manifest_path=result.manifest_path,
+                    dataset_release_report_path=dataset_release_report_path,
+                    output_path=dataset_release_pack_path,
+                )
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
 
     print(
         "Foundation pipeline complete: "

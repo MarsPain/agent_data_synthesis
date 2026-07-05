@@ -9,10 +9,11 @@ Agent training data is scarce because real interactions rarely expose complete o
 1. User provides a `run_profile_v1` or `run_profile_v2` file for the current
    local MVP. The profile maps domain config and optional seed records to
    validated seed metadata, generation mode, target candidate count when
-   applicable, and supported feature flags. A `run_profile_v2` file may also
-   declare one governed profile-relative contacts JSON source.
-2. System validates any profile-declared contacts source through source policy,
-   byte limits, license labels, local-file sandbox rules, and typed contacts
+   applicable, profile purpose, and supported feature flags. A `run_profile_v2`
+   file may also declare one governed profile-relative JSON source for contacts,
+   mobile messages, or workspace tasks.
+2. System validates any profile-declared source through source policy, byte
+   limits, license labels, local-file sandbox rules, and domain-owned typed
    environment input parsing, then builds a small executable environment from
    the admitted source or from the default fixture.
 3. System registers typed tools over that environment.
@@ -27,7 +28,10 @@ Agent training data is scarce because real interactions rarely expose complete o
 - Works through a local synchronous runner without distributed infrastructure or local LLM cluster deployment.
 - Uses a remote OpenAI-compatible LLM API for LLM-backed generation.
 - Supports deterministic foundation, contacts scale-probe, and profile-local
-  contacts source profiles before async orchestration is activated.
+  governed source profiles before async orchestration is activated.
+- Supports local release-candidate evidence packs for contacts, mobile
+  messages, and workspace tasks through explicit evaluation, profile decision,
+  dataset release, release pack, release audit, and release card artifacts.
 - Keeps profile-local source artifacts sanitized by storing source ids, hashes,
   license labels, and policy hashes instead of raw local paths or payloads.
 - Produces verifiable JSONL samples.

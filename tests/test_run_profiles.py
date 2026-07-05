@@ -162,6 +162,21 @@ class RunProfileTest(unittest.TestCase):
             "workspace_fixture",
         )
 
+    def test_load_release_candidate_profiles_for_mobile_and_workspace(self) -> None:
+        from synthesis.run_profiles import load_run_profile
+
+        mobile = load_run_profile(
+            Path("tests/fixtures/run_profiles/mobile-messages-release-candidate.json")
+        )
+        workspace = load_run_profile(
+            Path("tests/fixtures/run_profiles/workspace-tasks-release-candidate.json")
+        )
+
+        self.assertEqual(mobile.profile_purpose, "release_candidate")
+        self.assertEqual(mobile.generation.mode, "mobile_fixture")
+        self.assertEqual(workspace.profile_purpose, "release_candidate")
+        self.assertEqual(workspace.generation.mode, "workspace_fixture")
+
     def test_profile_purpose_participates_in_config_hash(self) -> None:
         from synthesis.run_profiles import load_run_profile
 

@@ -68,6 +68,20 @@ def generate_mobile_fixture_candidates(seed: DomainSeed) -> list[CandidateTask]:
             },
         ),
         CandidateTask(
+            candidate_id="candidate_mobile_delivery_code_lookup",
+            instruction="Find the delivery pickup code in the phone inbox.",
+            constraints={
+                "domain": "mobile_messages_fixture",
+                "task_type": "mobile_message_lookup",
+                "required_tools": ["search_phone_messages"],
+            },
+            difficulty=_difficulty(tool_count=1, state_changes=0),
+            tool_name="search_phone_messages",
+            arguments={"query": "pickup code", "participant": "Delivery"},
+            expected_answer="4821",
+            seed_ids=(seed.seed_id,),
+        ),
+        CandidateTask(
             candidate_id="candidate_mobile_delivery_branch_fallback",
             instruction=(
                 "Find the delivery pickup code. If no direct sender match exists, "

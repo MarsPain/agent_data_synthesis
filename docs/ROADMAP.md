@@ -88,6 +88,11 @@
   JSON importer, `workspace_tasks_environment_input_v1`, source-backed workspace
   CLI/replay/reward/evaluation evidence, and no external workspace APIs,
   browser automation, async orchestration, or semantic duplicate detection.
+- Harden release-candidate evidence across all three deterministic domains.
+  Implemented in plan 0040 with explicit domain-aware release completeness
+  thresholds, mobile/workspace release-candidate profiles, deterministic sample
+  floor coverage, and end-to-end release artifact smoke tests without
+  activating async orchestration or semantic duplicate detection.
 - Add profile-attributed quality and comparison before async orchestration.
   Implemented in plan 0019 with sanitized per-record profile attribution,
   profile quality slices, and parent-comparison visibility over profile slice

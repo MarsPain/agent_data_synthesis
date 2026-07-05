@@ -38,6 +38,21 @@ class WorkspacePipelineTest(unittest.TestCase):
             self.assertEqual(candidate.constraints["domain"], "workspace_tasks_fixture")
             self.assertIn("task_type", candidate.constraints)
 
+    def test_workspace_release_candidate_fixture_has_release_sample_floor(self) -> None:
+        from synthesis.workspace_tasks import generate_workspace_fixture_candidates
+
+        candidates = generate_workspace_fixture_candidates(workspace_seed())
+
+        self.assertGreaterEqual(len(candidates), 5)
+        self.assertTrue(
+            {
+                "workspace_item_lookup",
+                "workspace_task_creation",
+                "workspace_comment_update",
+                "workspace_branch_fallback",
+            }.issubset({candidate.constraints["task_type"] for candidate in candidates})
+        )
+
     def test_workspace_candidates_export_through_candidate_task_contract(self) -> None:
         from synthesis.workspace_tasks import generate_workspace_fixture_candidates
 

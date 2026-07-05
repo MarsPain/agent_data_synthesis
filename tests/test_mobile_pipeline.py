@@ -40,6 +40,21 @@ class MobilePipelineTest(unittest.TestCase):
             self.assertEqual(candidate.constraints["domain"], "mobile_messages_fixture")
             self.assertIn("task_type", candidate.constraints)
 
+    def test_mobile_release_candidate_fixture_has_release_sample_floor(self) -> None:
+        from synthesis.mobile_tasks import generate_mobile_fixture_candidates
+
+        candidates = generate_mobile_fixture_candidates(mobile_seed())
+
+        self.assertGreaterEqual(len(candidates), 5)
+        self.assertTrue(
+            {
+                "mobile_message_lookup",
+                "mobile_message_to_reminder",
+                "mobile_draft_reply",
+                "mobile_branch_fallback",
+            }.issubset({candidate.constraints["task_type"] for candidate in candidates})
+        )
+
     def test_scripted_mobile_policy_covers_lookup_reminder_draft_and_branch(self) -> None:
         from synthesis.mobile_tasks import (
             generate_mobile_fixture_candidates,
@@ -185,7 +200,7 @@ class MobilePipelineTest(unittest.TestCase):
                 result.quality_report_path.read_text(encoding="utf-8")
             )
 
-        self.assertEqual(result.accepted_count, 4)
+        self.assertEqual(result.accepted_count, 5)
         self.assertEqual(result.rejected_count, 0)
         for sample in samples:
             validate_sample_record(sample)
@@ -257,7 +272,7 @@ class MobilePipelineTest(unittest.TestCase):
                 + result.source_events_path.read_text(encoding="utf-8")
             )
 
-        self.assertEqual(result.accepted_count, 4)
+        self.assertEqual(result.accepted_count, 5)
         self.assertIsNotNone(result.source_events_path)
         self.assertNotIn("mobile-messages-profile.json", metadata_exported)
         self.assertNotIn("project update tomorrow", metadata_exported)
@@ -281,7 +296,7 @@ class MobilePipelineTest(unittest.TestCase):
                 for line in result.episode_logs_path.read_text(encoding="utf-8").splitlines()
             ]
 
-        self.assertEqual(len(episodes), 4)
+        self.assertEqual(len(episodes), 5)
         self.assertTrue(
             any(
                 episode["runtime"]["runtime_id"] == "mobile_messages_fixture"

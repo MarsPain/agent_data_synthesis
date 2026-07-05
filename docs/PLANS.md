@@ -30,6 +30,7 @@ No active implementation plan is currently selected.
 
 ## Completed
 
+- [0040-multi-domain-release-candidate-evidence-hardening](exec-plans/completed/0040-multi-domain-release-candidate-evidence-hardening.md): hardened release-candidate evidence across contacts, mobile messages, and workspace tasks with explicit domain-aware release completeness thresholds, mobile/workspace release profiles, deterministic sample-floor coverage, and end-to-end release artifact smoke tests. Completed on 2026-07-05.
 - [0001-foundation](exec-plans/completed/0001-foundation.md): established the local executable framework foundation. Completed on 2026-05-16.
 - [0002-data-contracts-and-quality-gates](exec-plans/completed/0002-data-contracts-and-quality-gates.md): enforced dataset contracts and quality gates over the local foundation runner. Completed on 2026-05-16.
 - [0003-quality-reporting-and-curriculum-foundation](exec-plans/completed/0003-quality-reporting-and-curriculum-foundation.md): added quality reports, metric slicing, duplicate gates, logical gates, parent comparison, and first-pass curriculum metadata. Completed on 2026-05-16.

@@ -8,6 +8,7 @@ from typing import Any
 
 from synthesis.contracts import validate_dataset_release_report_record
 from synthesis.profile_decisions import evaluation_domain_id, manifest_domain_id
+from synthesis.runtime_registry import release_completeness_threshold_record
 
 
 DATASET_RELEASE_REPORT_SCHEMA_VERSION = "dataset_release_report_v1"
@@ -36,7 +37,7 @@ class ReleaseCompletenessThresholds:
         }
 
 
-RELEASE_COMPLETENESS_THRESHOLDS = ReleaseCompletenessThresholds(
+FALLBACK_RELEASE_COMPLETENESS_THRESHOLDS = ReleaseCompletenessThresholds(
     min_accepted_samples=5,
     max_rejection_rate=0.2,
     required_task_types=(
@@ -49,6 +50,8 @@ RELEASE_COMPLETENESS_THRESHOLDS = ReleaseCompletenessThresholds(
         "lookup_contact_email+record_contact_followup",
     ),
 )
+
+
 @dataclass(frozen=True)
 class DatasetReleaseInputs:
     manifest: Mapping[str, Any]
@@ -430,14 +433,32 @@ def _release_completeness_thresholds(
     task_types: list[str],
     tool_combinations: list[str],
 ) -> ReleaseCompletenessThresholds:
-    if domain_id not in {None, "contacts_fixture"}:
+    threshold_record = release_completeness_threshold_record(domain_id)
+    if threshold_record is not None:
         return ReleaseCompletenessThresholds(
-            min_accepted_samples=RELEASE_COMPLETENESS_THRESHOLDS.min_accepted_samples,
-            max_rejection_rate=RELEASE_COMPLETENESS_THRESHOLDS.max_rejection_rate,
-            required_task_types=tuple(task_types),
-            required_tool_combinations=tuple(tool_combinations),
+            min_accepted_samples=_threshold_int(
+                threshold_record.get("min_accepted_samples"),
+                "min_accepted_samples",
+            ),
+            max_rejection_rate=_threshold_number(
+                threshold_record.get("max_rejection_rate"),
+                "max_rejection_rate",
+            ),
+            required_task_types=_threshold_strings(
+                threshold_record.get("required_task_types"),
+                "required_task_types",
+            ),
+            required_tool_combinations=_threshold_strings(
+                threshold_record.get("required_tool_combinations"),
+                "required_tool_combinations",
+            ),
         )
-    return RELEASE_COMPLETENESS_THRESHOLDS
+    return ReleaseCompletenessThresholds(
+        min_accepted_samples=FALLBACK_RELEASE_COMPLETENESS_THRESHOLDS.min_accepted_samples,
+        max_rejection_rate=FALLBACK_RELEASE_COMPLETENESS_THRESHOLDS.max_rejection_rate,
+        required_task_types=tuple(task_types),
+        required_tool_combinations=tuple(tool_combinations),
+    )
 
 
 def _release_completeness_decision(
@@ -592,3 +613,26 @@ def _optional_number(primary: object, fallback: float) -> float:
     if isinstance(primary, (int, float)) and not isinstance(primary, bool):
         return float(primary)
     return fallback
+
+
+def _threshold_int(raw: object, path: str) -> int:
+    if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0:
+        return raw
+    raise ValueError(f"release threshold {path} must be a positive integer")
+
+
+def _threshold_number(raw: object, path: str) -> float:
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool) and float(raw) >= 0.0:
+        return float(raw)
+    raise ValueError(f"release threshold {path} must be a non-negative number")
+
+
+def _threshold_strings(raw: object, path: str) -> tuple[str, ...]:
+    if not isinstance(raw, list):
+        raise ValueError(f"release threshold {path} must be a list")
+    values: list[str] = []
+    for index, value in enumerate(raw):
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"release threshold {path}.{index} must be a non-empty string")
+        values.append(value)
+    return tuple(values)

@@ -472,7 +472,7 @@ class SourceGovernancePipelineTest(unittest.TestCase):
                 enable_source_audit=True,
             )
 
-            self.assertEqual(result.accepted_count, 4)
+            self.assertEqual(result.accepted_count, 5)
             self.assertIsNotNone(result.source_events_path)
             sample = json.loads(result.samples_path.read_text(encoding="utf-8").splitlines()[0])
             provenance = sample["lineage"]["source_provenance"]

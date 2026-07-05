@@ -81,13 +81,15 @@ class DatasetReleaseTest(unittest.TestCase):
                 accepted=6,
                 rejected=1,
                 task_types=(
-                    "lookup_contact_email",
-                    "contact_followup",
-                    "contact_branch_fallback",
+                    "mobile_message_lookup",
+                    "mobile_message_to_reminder",
+                    "mobile_draft_reply",
+                    "mobile_branch_fallback",
                 ),
                 tool_combinations=(
-                    "lookup_contact_email",
-                    "lookup_contact_email > record_contact_followup",
+                    "search_phone_messages",
+                    "search_phone_messages > create_phone_reminder",
+                    "search_phone_messages > draft_message_reply",
                 ),
             ),
             evaluation_report=_domain_evaluation_report(
@@ -119,13 +121,15 @@ class DatasetReleaseTest(unittest.TestCase):
                 accepted=6,
                 rejected=1,
                 task_types=(
-                    "lookup_contact_email",
-                    "contact_followup",
-                    "contact_branch_fallback",
+                    "mobile_message_lookup",
+                    "mobile_message_to_reminder",
+                    "mobile_draft_reply",
+                    "mobile_branch_fallback",
                 ),
                 tool_combinations=(
-                    "lookup_contact_email",
-                    "lookup_contact_email > record_contact_followup",
+                    "search_phone_messages",
+                    "search_phone_messages > create_phone_reminder",
+                    "search_phone_messages > draft_message_reply",
                 ),
             ),
             evaluation_report=_domain_evaluation_report(
@@ -137,6 +141,51 @@ class DatasetReleaseTest(unittest.TestCase):
         )
 
         self.assertEqual(report["decisions"]["dataset_release"]["status"], "passed")
+
+    def test_mobile_release_candidate_missing_required_slices_is_insufficient(self) -> None:
+        from synthesis.dataset_release import build_dataset_release_report
+
+        report = build_dataset_release_report(
+            manifest=_mobile_manifest(
+                profile_purpose="release_candidate",
+                accepted_count=6,
+                rejected_count=0,
+            ),
+            quality_report=_quality_report(
+                accepted=6,
+                rejected=0,
+                task_types=("mobile_message_lookup",),
+                tool_combinations=("search_phone_messages",),
+            ),
+            evaluation_report=_domain_evaluation_report(
+                status="passed",
+                domain_id="mobile_messages_fixture",
+                suite_id="mobile_messages_heldout_v1",
+            ),
+            profile_decision_report=_profile_decision_report(
+                profile_promotion_status="passed"
+            ),
+        )
+
+        completeness = report["release_completeness"]
+        self.assertEqual(completeness["decision"]["status"], "insufficient_evidence")
+        self.assertEqual(
+            set(completeness["thresholds"]["required_task_types"]),
+            {
+                "mobile_message_lookup",
+                "mobile_message_to_reminder",
+                "mobile_draft_reply",
+                "mobile_branch_fallback",
+            },
+        )
+        self.assertIn(
+            "task_type_coverage",
+            completeness["decision"]["triggered_by"],
+        )
+        self.assertIn(
+            "tool_combination_coverage",
+            completeness["decision"]["triggered_by"],
+        )
 
     def test_workspace_release_candidate_with_workspace_evaluation_domain_passes(self) -> None:
         from synthesis.dataset_release import build_dataset_release_report
@@ -171,6 +220,51 @@ class DatasetReleaseTest(unittest.TestCase):
         )
 
         self.assertEqual(report["decisions"]["dataset_release"]["status"], "passed")
+
+    def test_workspace_release_candidate_missing_required_slices_is_insufficient(self) -> None:
+        from synthesis.dataset_release import build_dataset_release_report
+
+        report = build_dataset_release_report(
+            manifest=_workspace_manifest(
+                profile_purpose="release_candidate",
+                accepted_count=6,
+                rejected_count=0,
+            ),
+            quality_report=_quality_report(
+                accepted=6,
+                rejected=0,
+                task_types=("workspace_item_lookup",),
+                tool_combinations=("search_workspace_items",),
+            ),
+            evaluation_report=_domain_evaluation_report(
+                status="passed",
+                domain_id="workspace_tasks_fixture",
+                suite_id="workspace_tasks_heldout_v1",
+            ),
+            profile_decision_report=_profile_decision_report(
+                profile_promotion_status="passed"
+            ),
+        )
+
+        completeness = report["release_completeness"]
+        self.assertEqual(completeness["decision"]["status"], "insufficient_evidence")
+        self.assertEqual(
+            set(completeness["thresholds"]["required_task_types"]),
+            {
+                "workspace_item_lookup",
+                "workspace_task_creation",
+                "workspace_comment_update",
+                "workspace_branch_fallback",
+            },
+        )
+        self.assertIn(
+            "task_type_coverage",
+            completeness["decision"]["triggered_by"],
+        )
+        self.assertIn(
+            "tool_combination_coverage",
+            completeness["decision"]["triggered_by"],
+        )
 
     def test_workspace_release_candidate_with_mobile_evaluation_domain_is_insufficient(self) -> None:
         from synthesis.dataset_release import build_dataset_release_report

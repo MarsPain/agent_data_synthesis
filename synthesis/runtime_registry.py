@@ -35,6 +35,19 @@ def runtime_registry_with(
     return registry
 
 
+def release_completeness_threshold_record(runtime_id: str | None) -> dict[str, object] | None:
+    normalized_runtime_id = "contacts_fixture" if runtime_id in {None, "contacts"} else runtime_id
+    threshold = _RELEASE_COMPLETENESS_THRESHOLDS.get(normalized_runtime_id)
+    if threshold is None:
+        return None
+    return {
+        "min_accepted_samples": threshold["min_accepted_samples"],
+        "max_rejection_rate": threshold["max_rejection_rate"],
+        "required_task_types": list(threshold["required_task_types"]),
+        "required_tool_combinations": list(threshold["required_tool_combinations"]),
+    }
+
+
 def _registry(registry: RuntimeRegistry | None) -> RuntimeRegistry:
     return DEFAULT_RUNTIME_REGISTRY if registry is None else registry
 
@@ -144,3 +157,50 @@ DEFAULT_RUNTIME_REGISTRY = RuntimeRegistry(
         _workspace_descriptor(),
     )
 )
+
+
+_RELEASE_COMPLETENESS_THRESHOLDS: dict[str, dict[str, object]] = {
+    "contacts_fixture": {
+        "min_accepted_samples": 5,
+        "max_rejection_rate": 0.2,
+        "required_task_types": (
+            "lookup_contact_email",
+            "contact_followup",
+            "contact_branch_fallback",
+        ),
+        "required_tool_combinations": (
+            "lookup_contact_email",
+            "lookup_contact_email+record_contact_followup",
+        ),
+    },
+    "mobile_messages_fixture": {
+        "min_accepted_samples": 5,
+        "max_rejection_rate": 0.2,
+        "required_task_types": (
+            "mobile_message_lookup",
+            "mobile_message_to_reminder",
+            "mobile_draft_reply",
+            "mobile_branch_fallback",
+        ),
+        "required_tool_combinations": (
+            "search_phone_messages",
+            "search_phone_messages+create_phone_reminder",
+            "search_phone_messages+draft_message_reply",
+        ),
+    },
+    "workspace_tasks_fixture": {
+        "min_accepted_samples": 5,
+        "max_rejection_rate": 0.2,
+        "required_task_types": (
+            "workspace_item_lookup",
+            "workspace_task_creation",
+            "workspace_comment_update",
+            "workspace_branch_fallback",
+        ),
+        "required_tool_combinations": (
+            "search_workspace_items",
+            "search_workspace_items+create_workspace_task",
+            "search_workspace_items+add_workspace_comment",
+        ),
+    },
+}

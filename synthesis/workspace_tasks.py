@@ -24,6 +24,20 @@ def generate_workspace_fixture_candidates(seed: DomainSeed) -> list[CandidateTas
             seed_ids=(seed.seed_id,),
         ),
         CandidateTask(
+            candidate_id="candidate_workspace_metrics_review_lookup",
+            instruction="Find the workspace task about the launch metrics dashboard.",
+            constraints={
+                "domain": "workspace_tasks_fixture",
+                "task_type": "workspace_item_lookup",
+                "required_tools": ["search_workspace_items"],
+            },
+            difficulty=_difficulty(tool_count=1, state_changes=0),
+            tool_name="search_workspace_items",
+            arguments={"query": "metrics dashboard", "kind": "task"},
+            expected_answer="task_metrics_review",
+            seed_ids=(seed.seed_id,),
+        ),
+        CandidateTask(
             candidate_id="candidate_workspace_launch_checklist_task",
             instruction=(
                 "Find the launch project and create a high-priority launch checklist "

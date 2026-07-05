@@ -11,6 +11,44 @@ from unittest.mock import patch
 
 
 class FoundationCliTest(unittest.TestCase):
+    def _assert_release_artifact_set(self, output_dir: Path) -> None:
+        manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+        for artifact_name in (
+            "evaluation_report",
+            "profile_decision_report",
+            "dataset_release_report",
+            "dataset_release_pack",
+            "release_quality_audit",
+            "dataset_release_card",
+        ):
+            self.assertIn(artifact_name, manifest["artifacts"])
+            self.assertTrue((output_dir / manifest["artifacts"][artifact_name]).exists())
+
+        release_report = json.loads(
+            (output_dir / "dataset_release_report.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(release_report["decisions"]["dataset_release"]["status"], "passed")
+        self.assertEqual(
+            release_report["release_completeness"]["decision"]["status"],
+            "passed",
+        )
+        verification = subprocess.run(
+            [
+                sys.executable,
+                "scripts/verify_dataset_release.py",
+                "--output-dir",
+                str(output_dir),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            verification.returncode,
+            0,
+            verification.stdout + verification.stderr,
+        )
+
     def test_default_output_directory_is_outside_docs(self) -> None:
         from main import parse_args
 
@@ -332,11 +370,11 @@ class FoundationCliTest(unittest.TestCase):
             )
             self.assertEqual(
                 replay_report["observed"]["runtime_counts"]["workspace_tasks_fixture"],
-                4,
+                5,
             )
             self.assertEqual(
                 reward_report["observed"]["runtime_counts"]["workspace_tasks_fixture"],
-                4,
+                5,
             )
             self.assertTrue(
                 all(label["runtime_id"] == "workspace_tasks_fixture" for label in labels)
@@ -367,7 +405,7 @@ class FoundationCliTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue((output_dir / "source_events.jsonl").exists(), result.stdout)
             manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["accepted_count"], 4)
+            self.assertEqual(manifest["accepted_count"], 5)
             self.assertEqual(
                 manifest["run_profile"]["source"]["kind"],
                 "local_workspace_tasks_json",
@@ -407,7 +445,7 @@ class FoundationCliTest(unittest.TestCase):
             )
             self.assertNotIn("workspace-tasks-profile.json", exported_metadata)
             self.assertNotIn("Launch owners, target dates", exported_metadata)
-            self.assertIn("accepted=4", result.stdout)
+            self.assertIn("accepted=5", result.stdout)
 
     def test_mobile_profile_can_write_domain_aware_evaluation_and_profile_decision_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -719,7 +757,7 @@ class FoundationCliTest(unittest.TestCase):
                 self.assertTrue((output_dir / artifact_name).exists(), artifact_name)
             manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["dataset_version"], "dataset_mobile_agent_fixture")
-            self.assertEqual(manifest["accepted_count"], 4)
+            self.assertEqual(manifest["accepted_count"], 5)
             self.assertEqual(manifest["rejected_count"], 0)
             self.assertEqual(manifest["run_profile"]["generation_mode"], "mobile_fixture")
             samples = [
@@ -733,7 +771,7 @@ class FoundationCliTest(unittest.TestCase):
             self.assertIn("search_phone_messages", tool_names)
             self.assertIn("create_phone_reminder", tool_names)
             self.assertIn("draft_message_reply", tool_names)
-            self.assertIn("accepted=4", result.stdout)
+            self.assertIn("accepted=5", result.stdout)
 
     def test_default_main_output_remains_contacts_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -948,7 +986,7 @@ class FoundationCliTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue((output_dir / "source_events.jsonl").exists(), result.stdout)
             manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["accepted_count"], 4)
+            self.assertEqual(manifest["accepted_count"], 5)
             self.assertEqual(
                 manifest["run_profile"]["source"]["kind"],
                 "local_mobile_messages_json",
@@ -989,7 +1027,7 @@ class FoundationCliTest(unittest.TestCase):
             self.assertNotIn("mobile-messages-profile.json", exported_metadata)
             self.assertNotIn("project update tomorrow", exported_metadata)
             self.assertNotIn("4821", exported_metadata)
-            self.assertIn("accepted=4", result.stdout)
+            self.assertIn("accepted=5", result.stdout)
 
     def test_main_rejects_profile_local_source_conflicting_with_network_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1515,6 +1553,58 @@ class FoundationCliTest(unittest.TestCase):
             self.assertIn("release_quality_audit_status:", card)
             self.assertIn("release_quality_audit=", result.stdout)
             self.assertIn("dataset_release_card=", result.stdout)
+
+    def test_mobile_release_candidate_profile_can_write_release_artifact_set(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "mobile-release"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/mobile-messages-release-candidate.json",
+                    "--write-evaluation-report",
+                    "--write-profile-decision-report",
+                    "--write-dataset-release-report",
+                    "--write-dataset-release-pack",
+                    "--write-release-quality-audit",
+                    "--write-dataset-release-card",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self._assert_release_artifact_set(output_dir)
+
+    def test_workspace_release_candidate_profile_can_write_release_artifact_set(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "workspace-release"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/workspace-tasks-release-candidate.json",
+                    "--write-evaluation-report",
+                    "--write-profile-decision-report",
+                    "--write-dataset-release-report",
+                    "--write-dataset-release-pack",
+                    "--write-release-quality-audit",
+                    "--write-dataset-release-card",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self._assert_release_artifact_set(output_dir)
 
     def test_release_quality_audit_requires_dataset_release_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
