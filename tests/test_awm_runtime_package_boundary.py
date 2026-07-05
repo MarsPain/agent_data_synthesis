@@ -95,50 +95,6 @@ class AwmRuntimePackageBoundaryTest(unittest.TestCase):
         self.assertEqual(RuntimeActionResult.__name__, "RuntimeActionResult")
         self.assertEqual(RuntimeSession.__name__, "RuntimeSession")
 
-    def test_compatibility_runtime_imports_reexport_new_boundary_symbols(self) -> None:
-        import awm_runtime
-        import synthesis.runtime as compatibility_runtime
-
-        self.assertIs(
-            compatibility_runtime.RuntimeCapabilityDescriptor,
-            awm_runtime.RuntimeCapabilityDescriptor,
-        )
-        self.assertIs(compatibility_runtime.RuntimeRegistry, awm_runtime.RuntimeRegistry)
-        self.assertIs(compatibility_runtime.RuntimeMetadata, awm_runtime.RuntimeMetadata)
-        self.assertIs(compatibility_runtime.RuntimeActionRequest, awm_runtime.RuntimeActionRequest)
-        self.assertIs(compatibility_runtime.RuntimeActionResult, awm_runtime.RuntimeActionResult)
-        self.assertIs(compatibility_runtime.RuntimeSession, awm_runtime.RuntimeSession)
-        self.assertEqual(
-            compatibility_runtime.registered_runtime_ids(),
-            (
-                "contacts_fixture",
-                "mobile_messages_fixture",
-                "workspace_tasks_fixture",
-            ),
-        )
-
-    def test_episode_boundary_and_compatibility_imports_match(self) -> None:
-        import awm_runtime.episodes as boundary_episodes
-        import synthesis.episodes as compatibility_episodes
-
-        self.assertIs(
-            compatibility_episodes.EpisodeTransition,
-            boundary_episodes.EpisodeTransition,
-        )
-        self.assertIs(compatibility_episodes.EpisodeLog, boundary_episodes.EpisodeLog)
-        self.assertIs(
-            compatibility_episodes.build_episode_log,
-            boundary_episodes.build_episode_log,
-        )
-        self.assertIs(
-            compatibility_episodes.deterministic_content_hash,
-            boundary_episodes.deterministic_content_hash,
-        )
-        self.assertIs(
-            compatibility_episodes.summarize_episode_for_quality,
-            boundary_episodes.summarize_episode_for_quality,
-        )
-
     def test_runtime_facing_production_modules_do_not_import_compatibility_shims(self) -> None:
         runtime_facing_paths = (
             "synthesis/candidate_processing.py",

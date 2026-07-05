@@ -30,14 +30,10 @@ The first backend should be a local Python pipeline with explicit modules and du
   sessions over environment/tool-registry pairs, package-neutral
   `episode_log_v1` construction, deterministic transition hashing, redaction,
   and diagnostic episode summaries.
-- `synthesis.runtime_registry`: repository-owned contacts/mobile/workspace descriptor
-  construction and default registry selection. Domain-specific rebuild seeds
-  stay here rather than in `awm_runtime`.
-- `synthesis.runtime` and `synthesis.episodes`: compatibility re-exports for
-  existing callers during the migration cycle. New runtime-facing production
-  code should import `awm_runtime` primitives directly, or
-  `synthesis.runtime_registry` when it needs repository-owned default
-  contacts/mobile descriptor lookup.
+- `synthesis.runtime_registry`: repository-owned contacts/mobile/workspace
+  descriptor construction and default registry selection. Domain-specific
+  rebuild seeds stay here rather than in `awm_runtime`; runtime-facing code uses
+  this module for repository-owned default descriptor lookup.
 - `synthesis.rollouts`: diagnostic local rollout collection over runtime
   sessions. It executes scripted policies through action envelopes, enforces
   max-step limits, exports sanitized `episode_log_v1` records, and does not
@@ -385,11 +381,13 @@ extraction.
 
 Plan 0032 adds the first repo-local execution-facing consumer of those episode
 logs. The consumer is synchronous and opt-in: it persists `episodes.jsonl` only
-for the report run, rebuilds fresh contacts/mobile fixture runtimes, writes
-`episode_replay_report.json`, and attaches both artifact names to the manifest.
-It gives plan 0025 stronger package-boundary evidence, but still does not
-activate `synthesis.orchestration`, reward training, Agentic RL, external MCP
-environment servers, release admission changes, or runtime package publishing.
+for the report run, rebuilds fresh fixture runtimes through descriptor-owned
+rebuild seeds, writes `episode_replay_report.json`, and attaches both artifact
+names to the manifest. Contacts, mobile, and workspace fixtures now share this
+runtime boundary. It gives plan 0025 stronger package-boundary evidence, but
+still does not activate `synthesis.orchestration`, reward training, Agentic RL,
+external MCP environment servers, release admission changes, or runtime package
+publishing.
 
 Plan 0034 adds deterministic reward-label export over those same sanitized
 episodes. The consumer is synchronous and opt-in: it persists `episodes.jsonl`
@@ -401,13 +399,13 @@ Agentic RL rollout collection, release admission changes, profile promotion, or
 runtime package publishing.
 
 Plan 0025 Phase C adds the first rollout-facing runtime API without activating
-RL. Runtime sessions wrap contacts/mobile environments and registries with
-list-tools, checkpoint/restore, rebuild, and execute-action semantics.
+RL. Runtime sessions wrap contacts/mobile/workspace environments and registries
+with list-tools, checkpoint/restore, rebuild, and execute-action semantics.
 Diagnostic rollout collection remains synchronous and local: it executes
 scripted policies through action envelopes and emits sanitized `episode_log_v1`
 records that replay and reward-label consumers can read. It does not change
 default `main.py` output, train policies, create distributed workers, connect
-external MCP servers, or extract a runtime package.
+external MCP servers, or publish a separate runtime package.
 
 Plan 0025 Phase D generalizes the local adapter surface onto the same runtime
 boundary. Adapter manifests are now runtime-backed rather than contacts-only,

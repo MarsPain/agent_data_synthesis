@@ -68,21 +68,22 @@ Phase F established the package boundary:
   sessions, and action envelopes.
 - `awm_runtime.episodes` owns package-neutral episode transition/log,
   deterministic hash, redaction, and episode-summary primitives.
-- `synthesis.runtime_registry` owns repository-specific contacts/mobile default
-  descriptor construction because those descriptors still contain domain-pack
-  rebuild seeds.
-- `synthesis.runtime` and `synthesis.episodes` remain compatibility re-export
-  shims for one migration cycle.
+- `synthesis.runtime_registry` owns repository-specific
+  contacts/mobile/workspace default descriptor construction because those
+  descriptors still contain domain-pack rebuild seeds.
+- Plan 0038 closed the one-cycle compatibility window by removing
+  `synthesis.runtime` and `synthesis.episodes`; runtime-facing callers now use
+  direct `awm_runtime` imports or repository descriptor lookup through
+  `synthesis.runtime_registry`.
 
 Phase G soaked the boundary:
 
 - `tests.test_runtime_extraction_compatibility` imports `awm_runtime` in a fresh
   interpreter and asserts dataset, release, profile, source-governance,
   domain-pipeline, environment, CLI, and main modules are not loaded.
-- Compatibility tests prove `synthesis.runtime` and `synthesis.episodes`
-  re-export the Phase-F-extracted package-neutral symbols while preserving the
-  repository-owned default descriptor registry convenience functions for legacy
-  callers during the one-cycle window.
+- Compatibility tests now prove the removed `synthesis.runtime` and
+  `synthesis.episodes` shim files stay deleted and no Python source or test
+  imports them after the one-cycle window.
 - Source guardrails fail runtime-facing production modules that re-center on
   `synthesis.runtime` or `synthesis.episodes` instead of `awm_runtime` and
   `synthesis.runtime_registry`.
@@ -94,10 +95,10 @@ Phase G soaked the boundary:
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
-| At least two production domain runtimes use the same descriptor/session boundary. | Pass | `synthesis.runtime.DEFAULT_RUNTIME_REGISTRY`; `synthesis.domain_pipeline.DomainPipelineBundle.runtime_session`; `tests.test_runtime_contract.RuntimeContractTest.test_contacts_and_mobile_satisfy_shared_runtime_protocol`. |
+| Three production domain runtimes use the same descriptor/session boundary. | Pass | `synthesis.runtime_registry.DEFAULT_RUNTIME_REGISTRY`; `synthesis.domain_pipeline.DomainPipelineBundle.runtime_session`; `tests.test_runtime_contract.RuntimeContractTest.test_contacts_mobile_and_workspace_satisfy_shared_runtime_protocol`. |
 | At least one fake/minimal runtime test proves the boundary is not contacts/mobile-specific. | Pass | `tests.test_runtime_contract` fake descriptor coverage; `tests.test_episode_quality.test_fake_runtime_descriptor_is_accepted_without_consumer_allowlist`; `tests.test_episode_replay.test_fake_runtime_without_replay_support_reports_unsupported`; `tests.test_reward_labels.test_fake_runtime_reward_capability_status_is_descriptor_derived`. |
 | Synthesis, episode quality, executable replay, reward labels, rollouts, and local adapter manifests consume descriptors or sessions. | Pass | `synthesis.domain_pipeline`, `synthesis.episode_quality`, `synthesis.episode_replay`, `synthesis.reward_labels`, `synthesis.rollouts`, and `synthesis.mcp` consume descriptors, sessions, action envelopes, or episode logs. Replay now executes actions through `RuntimeSession.execute_action(...)`; reward-label contracts now use record/report-local runtime evidence instead of a contract allowlist. |
-| Runtime metadata and descriptors reject dataset/release/profile/provider/credential/raw-source/host-path leakage. | Pass | `synthesis.runtime.validate_runtime_descriptor_safety`, `synthesis.runtime.validate_runtime_metadata_safety`, `tests.test_runtime_contract.test_runtime_descriptor_safety_rejects_profile_release_paths_prompts_and_secrets`, and adapter redaction tests in `tests.test_mcp_adapters`. |
+| Runtime metadata and descriptors reject dataset/release/profile/provider/credential/raw-source/host-path leakage. | Pass | `awm_runtime.validate_runtime_descriptor_safety`, `awm_runtime.validate_runtime_metadata_safety`, `tests.test_runtime_contract.test_runtime_descriptor_safety_rejects_profile_release_paths_prompts_and_secrets`, and adapter redaction tests in `tests.test_mcp_adapters`. |
 | Adding a new runtime does not require editing core replay or reward-label allowlists. | Pass | Replay uses descriptor lookup. Reward-label fake-runtime tests validate labels and reports without adding the fake runtime to a contract allowlist. |
 | Unused runtime methods are removed or explicitly marked experimental. | Pass | `RuntimeSession` methods are exercised by rollouts, adapter shims, replay, and tests. `RuntimeSession.rebuild` is covered by runtime contract tests, while executable replay deliberately keeps domain-pack rebuild ownership in `synthesis.domain_pipeline` and consumes the rebuilt candidate as a `RuntimeSession`. |
 | Docs define runtime, domain pack, synthesis, reward, release, and adapter ownership. | Pass | `docs/exec-plans/indexes/0025-awm-runtime-phase-index.md`, `docs/DESIGN.md`, `docs/BACKEND.md`, `docs/DATA.md`, and Phase A-D completion notes define the intended ownership boundaries. |
@@ -106,7 +107,7 @@ Phase G soaked the boundary:
 
 Runtime-facing modules:
 
-- `synthesis.runtime` contains explicit forbidden-key checks for dataset release,
+- `awm_runtime` contains explicit forbidden-key checks for dataset release,
   dataset version, profile decisions, provider payloads, credentials, raw
   sources, and local paths. These are safety rules, not leakage.
 - `RuntimeCapabilityDescriptor.descriptor_metadata` and `RuntimeMetadata.export`
@@ -174,35 +175,37 @@ Extraction-eligible after hardening:
 
 Internal-only until another plan separates domain packs:
 
-- Default contacts/mobile descriptor construction and `_mobile_messages_seed`.
+- Default contacts/mobile/workspace descriptor construction and domain-pack
+  rebuild seeds.
 - `RuntimeCapabilityDescriptor.rebuild_seed` when it points at
   `synthesis.seeds.DomainSeed`; this is useful internally but couples replay
   rebuild to this repository's domain-pack model.
 
-Phase G soak outcome:
+Plan 0038 shim-retirement outcome:
 
-- The compatibility window remains one migration cycle. Removal requires a
-  follow-on plan that first migrates tests and known callers to `awm_runtime`
-  or `synthesis.runtime_registry`, then removes `synthesis.runtime` and
-  `synthesis.episodes` compatibility imports with focused regression coverage.
+- The compatibility window is closed. Tests and known callers import
+  package-neutral primitives from `awm_runtime` or repository-owned descriptor
+  lookup from `synthesis.runtime_registry`; `synthesis.runtime` and
+  `synthesis.episodes` are removed with focused guardrail coverage.
 - Adapter manifests remain `synthesis.mcp`-owned local MCP-compatible records;
   Phase F did not extract adapter manifest construction into `awm_runtime`.
 
-No removal is recommended for compatibility shims during Phase G.
+No compatibility shim removal remains pending after plan 0038.
 
 ## Risks
 
 - Future consumers may blur the runtime package boundary if they move
   domain-pack rebuild policy or `DomainSeed` construction into `awm_runtime`.
-- The compatibility shims can become permanent technical debt unless Phase G
-  records explicit removal criteria.
+- Future compatibility redirects can become permanent technical debt unless they
+  are time-boxed and paired with removal guardrails.
 - Adapter support is local and in-process only. That is acceptable for this
   extraction decision, but external adapter behavior must remain a later plan.
 
 ## Required Next Step
 
-Activate plan 0037 for a third-domain probe before external MCP servers,
-distributed rollout workers, or separate repository publishing. Phase F and
-Phase G have kept domain-pack rebuild policy outside `awm_runtime` by placing
+Keep external MCP servers, distributed rollout workers, and separate repository
+publishing behind explicit future plans. Phase F, Phase G, plan 0037, and plan
+0038 have kept domain-pack rebuild policy outside `awm_runtime` by placing
 repository-owned default descriptor construction in `synthesis.runtime_registry`
-and guarding new runtime-facing consumers against compatibility-shim imports.
+and guarding runtime-facing consumers against retired compatibility-shim
+imports.

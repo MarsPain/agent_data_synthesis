@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from awm_runtime import build_episode_log
 from synthesis.domain_pipeline import build_domain_pipeline_bundle
-from synthesis.episodes import build_episode_log
 from synthesis.execution import execute_candidate
 from synthesis.mobile_tasks import generate_mobile_fixture_candidates
 from synthesis.seeds import DomainSeed, foundation_seed
@@ -124,9 +124,9 @@ class RewardLabelsTest(unittest.TestCase):
         )
 
     def test_reward_runtime_support_is_read_from_runtime_registry(self) -> None:
+        from awm_runtime import RuntimeRegistry
         from synthesis.episode_quality import build_episode_quality_report
         from synthesis.reward_labels import build_reward_labels
-        from synthesis.runtime import RuntimeRegistry
 
         episodes = (_episode("candidate_contacts_alice"),)
         labels = build_reward_labels(
@@ -145,8 +145,8 @@ class RewardLabelsTest(unittest.TestCase):
         self.assertIn("runtime_unsupported", label["reasons"])
 
     def test_reward_state_changing_tools_are_descriptor_derived(self) -> None:
+        from awm_runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
         from synthesis.reward_labels import build_reward_labels
-        from synthesis.runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
 
         episodes = (_episode("candidate_contacts_alice_followup"),)
         registry = RuntimeRegistry(
@@ -178,8 +178,8 @@ class RewardLabelsTest(unittest.TestCase):
         self.assertNotIn("state_change_support_missing", label["reasons"])
 
     def test_fake_runtime_reward_capability_status_is_descriptor_derived(self) -> None:
+        from awm_runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
         from synthesis.reward_labels import reward_label_runtime_capability_status
-        from synthesis.runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
 
         registry = RuntimeRegistry(
             (
@@ -248,7 +248,7 @@ class RewardLabelsTest(unittest.TestCase):
         )
         from synthesis.episode_quality import build_episode_quality_report
         from synthesis.reward_labels import build_reward_label_report, build_reward_labels
-        from synthesis.runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
+        from awm_runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
 
         episode = _with_runtime_and_tool(
             _episode("candidate_contacts_alice"),
@@ -297,9 +297,9 @@ class RewardLabelsTest(unittest.TestCase):
         validate_reward_label_report_record(report)
 
     def test_preference_grouping_is_descriptor_owned_for_fake_runtime(self) -> None:
+        from awm_runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
         from synthesis.episode_quality import build_episode_quality_report
         from synthesis.reward_labels import build_reward_labels
-        from synthesis.runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
 
         episode = _with_runtime_and_tool(
             _episode("candidate_contacts_alice"),

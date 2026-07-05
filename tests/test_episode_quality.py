@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from awm_runtime import build_episode_log
 from synthesis.domain_pipeline import build_domain_pipeline_bundle
-from synthesis.episodes import build_episode_log
 from synthesis.execution import execute_candidate
 from synthesis.mobile_tasks import generate_mobile_fixture_candidates
 from synthesis.seeds import DomainSeed, foundation_seed
@@ -123,8 +123,8 @@ class EpisodeQualityTest(unittest.TestCase):
         self.assertEqual(report["decision"]["status"], "passed")
 
     def test_fake_runtime_descriptor_is_accepted_without_consumer_allowlist(self) -> None:
+        from awm_runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
         from synthesis.episode_quality import build_episode_quality_report
-        from synthesis.runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
 
         episode = _with_runtime_and_tool(
             _episode("candidate_contacts_alice"),
@@ -161,8 +161,8 @@ class EpisodeQualityTest(unittest.TestCase):
         self.assertEqual(report["decision"]["status"], "passed")
 
     def test_state_changing_tools_are_derived_from_runtime_descriptor(self) -> None:
+        from awm_runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
         from synthesis.episode_quality import build_episode_quality_report
-        from synthesis.runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
 
         episode = _with_runtime_and_tool(
             _episode("candidate_contacts_alice"),
@@ -198,8 +198,8 @@ class EpisodeQualityTest(unittest.TestCase):
         self.assertEqual(report["decision"]["status"], "watch")
 
     def test_unknown_runtime_is_unsupported_not_malformed_evidence(self) -> None:
+        from awm_runtime import RuntimeRegistry
         from synthesis.episode_quality import build_episode_quality_report
-        from synthesis.runtime import RuntimeRegistry
 
         episode = _with_runtime_and_tool(
             _episode("candidate_contacts_alice"),

@@ -68,9 +68,10 @@ The in-repository `awm_runtime` package owns runtime metadata safety checks,
 action request/result sanitization, runtime sessions, and package-neutral
 episode hashing/redaction primitives. It must not import domain packs, source
 governance, dataset assembly, profile decisions, release reports, CLI wiring,
-provider configuration, or local host paths. Contacts/mobile descriptor
-construction stays in `synthesis.runtime_registry`; `synthesis.runtime` and
-`synthesis.episodes` are compatibility shims only.
+provider configuration, or local host paths. Contacts/mobile/workspace
+descriptor construction stays in `synthesis.runtime_registry`; the retired
+`synthesis.runtime` and `synthesis.episodes` compatibility modules must not be
+reintroduced.
 
 ## LLM Provider Secrets
 

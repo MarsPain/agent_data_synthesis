@@ -7,7 +7,7 @@ environment state, tool calls, observations, verifier results, lineage, and
 quality evidence.
 
 The repository is still early-stage, but it now has a working synchronous
-pipeline with two deterministic domains, source governance, profile-based runs,
+pipeline with three deterministic domains, source governance, profile-based runs,
 runtime episode evidence, replay checks, reward-label export, and release
 admission artifacts. Canonical design detail lives in [docs/](docs/).
 
@@ -15,13 +15,12 @@ admission artifacts. Canonical design detail lives in [docs/](docs/).
 
 - `main.py` runs the local synchronous foundation pipeline and writes outputs
   under `artifacts/foundation/` by default.
-- Contacts and synthetic mobile-message domains run through a shared domain
-  pipeline boundary.
+- Contacts, synthetic mobile-message, and workspace-task domains run through a
+  shared domain pipeline boundary.
 - Stable runtime and episode primitives are available through the in-repository
-  `awm_runtime` package; `synthesis.runtime` and `synthesis.episodes` remain as
-  one-cycle compatibility shims for existing callers. New runtime-facing code
-  should import `awm_runtime` directly, or `synthesis.runtime_registry` for the
-  repository-owned default contacts/mobile descriptor registry.
+  `awm_runtime` package. Runtime-facing code imports `awm_runtime` directly, or
+  `synthesis.runtime_registry` for the repository-owned default
+  contacts/mobile/workspace descriptor registry.
 - `run_profile_v1` and `run_profile_v2` fixtures configure deterministic local
   runs, scale probes, release candidates, and profile-local governed sources.
 - Profile-local JSON sources are admitted through shared source governance, then

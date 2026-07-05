@@ -13,7 +13,7 @@ from synthesis.workspace_environment import WorkspaceTasksEnvironment
 
 class RuntimeContractTest(unittest.TestCase):
     def test_runtime_descriptor_exports_capability_contract(self) -> None:
-        from synthesis.runtime import RuntimeCapabilityDescriptor
+        from awm_runtime import RuntimeCapabilityDescriptor
         from synthesis.seeds import DomainSeed
 
         descriptor = RuntimeCapabilityDescriptor(
@@ -51,8 +51,8 @@ class RuntimeContractTest(unittest.TestCase):
     def test_runtime_descriptor_safety_rejects_profile_release_paths_prompts_and_secrets(
         self,
     ) -> None:
+        from awm_runtime import RuntimeCapabilityDescriptor
         from synthesis.contracts import ContractValidationError
-        from synthesis.runtime import RuntimeCapabilityDescriptor
 
         forbidden_metadata = (
             {"dataset_version": "dataset_test"},
@@ -85,7 +85,7 @@ class RuntimeContractTest(unittest.TestCase):
                     )
 
     def test_default_runtime_registry_contains_contacts_mobile_and_workspace_descriptors(self) -> None:
-        from synthesis.runtime import registered_runtime_ids, runtime_descriptor
+        from synthesis.runtime_registry import registered_runtime_ids, runtime_descriptor
 
         self.assertEqual(
             registered_runtime_ids(),
@@ -118,13 +118,9 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertIn("create_workspace_task", workspace.state_changing_tools)
 
     def test_runtime_registry_rejects_unknown_and_duplicate_runtime_ids(self) -> None:
+        from awm_runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
         from synthesis.contracts import ContractValidationError
-        from synthesis.runtime import (
-            RuntimeCapabilityDescriptor,
-            RuntimeRegistry,
-            registered_runtime_ids,
-            runtime_descriptor,
-        )
+        from synthesis.runtime_registry import registered_runtime_ids, runtime_descriptor
 
         descriptor = RuntimeCapabilityDescriptor(
             runtime_id="fake_runtime",
@@ -148,8 +144,8 @@ class RuntimeContractTest(unittest.TestCase):
             RuntimeRegistry((descriptor, descriptor))
 
     def test_runtime_capability_status_uses_shared_sanitized_vocabulary(self) -> None:
-        from synthesis.runtime import (
-            RUNTIME_CAPABILITY_STATUSES,
+        from awm_runtime import RUNTIME_CAPABILITY_STATUSES
+        from synthesis.runtime_registry import (
             runtime_capability_status,
         )
 
@@ -263,7 +259,7 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertNotIn(tmpdir.lower(), serialized)
 
     def test_contacts_mobile_and_workspace_satisfy_shared_runtime_protocol(self) -> None:
-        from synthesis.runtime import EnvironmentRuntime
+        from awm_runtime import EnvironmentRuntime
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -344,8 +340,8 @@ class RuntimeContractTest(unittest.TestCase):
             )
 
     def test_runtime_metadata_safety_rejects_profile_release_paths_prompts_and_secrets(self) -> None:
+        from awm_runtime import validate_runtime_metadata_safety
         from synthesis.contracts import ContractValidationError
-        from synthesis.runtime import validate_runtime_metadata_safety
 
         forbidden_records = (
             {"dataset_version": "dataset_test"},
@@ -366,7 +362,7 @@ class RuntimeContractTest(unittest.TestCase):
                     validate_runtime_metadata_safety(record)
 
     def test_runtime_action_request_exports_sanitized_contract(self) -> None:
-        from synthesis.runtime import RuntimeActionRequest
+        from awm_runtime import RuntimeActionRequest
 
         request = RuntimeActionRequest(
             runtime_id="contacts_fixture",
@@ -393,8 +389,8 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertNotIn("/Users/H", serialized)
 
     def test_runtime_action_result_exports_success_hashes_and_side_effect_summary(self) -> None:
+        from awm_runtime import RuntimeActionResult
         from synthesis.contracts import validate_runtime_action_result_record
-        from synthesis.runtime import RuntimeActionResult
 
         result = RuntimeActionResult.succeeded(
             runtime_id="contacts_fixture",
@@ -425,7 +421,7 @@ class RuntimeContractTest(unittest.TestCase):
             validate_runtime_action_request_record,
             validate_runtime_action_result_record,
         )
-        from synthesis.runtime import RuntimeActionRequest, RuntimeActionResult
+        from awm_runtime import RuntimeActionRequest, RuntimeActionResult
 
         request = RuntimeActionRequest(
             runtime_id="contacts_fixture",
@@ -454,7 +450,7 @@ class RuntimeContractTest(unittest.TestCase):
             validate_runtime_action_result_record({**result, "status": "deferred"})
 
     def test_runtime_session_lists_tools_executes_actions_and_restores_checkpoint(self) -> None:
-        from synthesis.runtime import RuntimeActionRequest, RuntimeSession
+        from awm_runtime import RuntimeActionRequest, RuntimeSession
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -485,7 +481,7 @@ class RuntimeContractTest(unittest.TestCase):
     def test_runtime_session_rejects_wrong_runtime_and_unsupported_tool_without_corrupting_state(
         self,
     ) -> None:
-        from synthesis.runtime import RuntimeActionRequest, RuntimeSession
+        from awm_runtime import RuntimeActionRequest, RuntimeSession
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -519,8 +515,8 @@ class RuntimeContractTest(unittest.TestCase):
             self.assertFalse(environment.has_followup("Alice Zhang", "Send follow-up email."))
 
     def test_domain_pipeline_bundle_exposes_runtime_session(self) -> None:
+        from awm_runtime import RuntimeActionRequest, RuntimeSession
         from synthesis.domain_pipeline import build_domain_pipeline_bundle
-        from synthesis.runtime import RuntimeActionRequest, RuntimeSession
         from synthesis.seeds import foundation_seed
 
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -28,8 +28,8 @@ def mobile_seed() -> DomainSeed:
 
 class EpisodeLogTest(unittest.TestCase):
     def test_builds_valid_episode_log_from_contacts_trajectory(self) -> None:
+        from awm_runtime import build_episode_log, summarize_episode_for_quality
         from synthesis.contracts import validate_episode_log_record
-        from synthesis.episodes import build_episode_log, summarize_episode_for_quality
 
         with tempfile.TemporaryDirectory() as tmpdir:
             bundle = build_domain_pipeline_bundle(foundation_seed(), Path(tmpdir))
@@ -69,8 +69,8 @@ class EpisodeLogTest(unittest.TestCase):
         self.assertEqual(summary["tool_names"], ["lookup_contact_email"])
 
     def test_builds_mobile_state_change_episode_log(self) -> None:
+        from awm_runtime import build_episode_log, summarize_episode_for_quality
         from synthesis.contracts import validate_episode_log_record
-        from synthesis.episodes import build_episode_log, summarize_episode_for_quality
 
         with tempfile.TemporaryDirectory() as tmpdir:
             seed = mobile_seed()
@@ -105,7 +105,7 @@ class EpisodeLogTest(unittest.TestCase):
         )
 
     def test_episode_hashes_are_deterministic_over_sorted_sanitized_json(self) -> None:
-        from synthesis.episodes import deterministic_content_hash
+        from awm_runtime import deterministic_content_hash
 
         left = {"b": 2, "a": {"nested": True}}
         right = {"a": {"nested": True}, "b": 2}
@@ -141,10 +141,9 @@ class EpisodeLogTest(unittest.TestCase):
                     validate_episode_log_record(record)
 
     def test_episode_contract_accepts_toolless_error_and_redacted_final_response(self) -> None:
+        from awm_runtime import RuntimeMetadata, build_episode_log
         from synthesis.contracts import validate_episode_log_record
-        from synthesis.episodes import build_episode_log
         from synthesis.execution import SolutionPolicy, ToolStep
-        from synthesis.runtime import RuntimeMetadata
         from synthesis.verification import ExactAnswerVerifier
 
         runtime = RuntimeMetadata(
@@ -181,9 +180,8 @@ class EpisodeLogTest(unittest.TestCase):
         self.assertEqual(episode["transitions"][1]["content"], "[redacted]")
 
     def test_episode_redaction_excludes_paths_prompts_headers_keys_payloads_and_env(self) -> None:
-        from synthesis.episodes import build_episode_log
+        from awm_runtime import RuntimeMetadata, build_episode_log
         from synthesis.execution import SolutionPolicy, ToolStep
-        from synthesis.runtime import RuntimeMetadata
         from synthesis.verification import ExactAnswerVerifier
 
         runtime = RuntimeMetadata(

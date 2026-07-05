@@ -53,10 +53,10 @@
 - **Runtime Capability Descriptor:** `awm_runtime` registry record for runtime
   identity, domain id, replay/reward eligibility, checkpoint/rebuild support,
   local-adapter support, state-changing tools, task taxonomy, optional replay
-  rebuild seed, and sanitized descriptor metadata. Contacts and mobile message
-  fixtures both declare opt-in local-adapter support through repository-owned
-  descriptors in `synthesis.runtime_registry`; the descriptor primitive itself
-  remains package-neutral. It is not dataset release,
+  rebuild seed, and sanitized descriptor metadata. Contacts, mobile message,
+  and workspace task fixtures declare opt-in local-adapter support through
+  repository-owned descriptors in `synthesis.runtime_registry`; the descriptor
+  primitive itself remains package-neutral. It is not dataset release,
   profile promotion, provider prompt, credential, raw source, or host-path
   metadata. Runtime capability lookups use the sanitized status vocabulary
   `supported`, `unsupported`, `insufficient_evidence`, and `malformed`; consumer

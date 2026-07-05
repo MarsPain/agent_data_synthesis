@@ -5,10 +5,12 @@ is accepted as complete, move it to `../completed/` and update `../../PLANS.md`.
 
 ## Currently Executing
 
-- No active implementation plan is currently selected.
+No active implementation plan is currently selected.
 
 ## Completed
 
+- [0038-runtime-compatibility-shim-retirement-and-context-sync](../completed/0038-runtime-compatibility-shim-retirement-and-context-sync.md):
+  completed on 2026-07-05.
 - [0025-phase-g-runtime-extraction-soak-and-compatibility-hardening](../completed/0025-phase-g-runtime-extraction-soak-and-compatibility-hardening.md):
   completed on 2026-07-04.
 - [0025-phase-f-awm-runtime-package-extraction](../completed/0025-phase-f-awm-runtime-package-extraction.md):

@@ -166,15 +166,15 @@ Start local and deterministic:
   continues to use `metadata()` for the public dataset environment field.
 - Runtime capability descriptors, registry primitives, sessions, action
   envelopes, metadata safety checks, and package-neutral episode primitives live
-  under `awm_runtime`. The repository-owned contacts/mobile default descriptor
-  registry lives under `synthesis.runtime_registry`; `synthesis.runtime` and
-  `synthesis.episodes` are compatibility shims for one migration cycle. New
-  runtime-facing production imports should use `awm_runtime` or
-  `synthesis.runtime_registry`; compatibility imports are reserved for legacy
-  callers and compatibility tests.
+  under `awm_runtime`. The repository-owned contacts/mobile/workspace default
+  descriptor registry lives under `synthesis.runtime_registry`. Runtime-facing
+  production code imports package-neutral primitives from `awm_runtime` and
+  repository-owned default descriptor lookup from `synthesis.runtime_registry`;
+  the one-cycle `synthesis.runtime` and `synthesis.episodes` compatibility
+  window is closed.
   Replay and reward consumers should ask the registry for capability facts
-  instead of owning contacts/mobile runtime allowlists. The runtime boundary
-  also owns the sanitized capability-status vocabulary: `supported`,
+  instead of owning contacts/mobile/workspace runtime allowlists. The runtime
+  boundary also owns the sanitized capability-status vocabulary: `supported`,
   `unsupported`, `insufficient_evidence`, and `malformed`.
 - Runtime sessions and action envelopes standardize list-tools, execute-action,
   checkpoint/restore, and rebuild behavior while leaving domain state, rebuild

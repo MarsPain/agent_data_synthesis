@@ -43,4 +43,4 @@ uv run python -m unittest
 - The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
 - Current active work is tracked in [docs/PLANS.md](docs/PLANS.md). No active
   implementation plan is currently selected.
-- Latest completed work is documented in [docs/exec-plans/completed/0037-domain-pack-contract-and-third-domain-probe.md](docs/exec-plans/completed/0037-domain-pack-contract-and-third-domain-probe.md).
+- Latest completed work is documented in [docs/exec-plans/completed/0038-runtime-compatibility-shim-retirement-and-context-sync.md](docs/exec-plans/completed/0038-runtime-compatibility-shim-retirement-and-context-sync.md).

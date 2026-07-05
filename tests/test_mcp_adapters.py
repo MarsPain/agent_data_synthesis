@@ -116,7 +116,7 @@ class RuntimeBackedLocalAdapterTest(unittest.TestCase):
     def test_contacts_manifest_is_runtime_backed_and_preserves_existing_identity(self) -> None:
         from synthesis.domain_pipeline import build_domain_pipeline_bundle
         from synthesis.mcp import LocalRuntimeAdapterShim
-        from synthesis.runtime import runtime_descriptor
+        from synthesis.runtime_registry import runtime_descriptor
         from synthesis.seeds import foundation_seed
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -140,7 +140,7 @@ class RuntimeBackedLocalAdapterTest(unittest.TestCase):
         from synthesis.contracts import validate_adapter_call_request_record
         from synthesis.domain_pipeline import build_domain_pipeline_bundle
         from synthesis.mcp import LocalRuntimeAdapterShim, ToolCallRequest
-        from synthesis.runtime import runtime_descriptor
+        from synthesis.runtime_registry import runtime_descriptor
         from synthesis.seeds import foundation_seed
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -184,7 +184,7 @@ class RuntimeBackedLocalAdapterTest(unittest.TestCase):
     def test_mobile_runtime_adapter_executes_local_tools(self) -> None:
         from synthesis.domain_pipeline import build_domain_pipeline_bundle
         from synthesis.mcp import ToolCallRequest
-        from synthesis.runtime import runtime_descriptor
+        from synthesis.runtime_registry import runtime_descriptor
         from tests.test_mobile_pipeline import mobile_seed
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -243,7 +243,7 @@ class RuntimeBackedLocalAdapterTest(unittest.TestCase):
     def test_workspace_runtime_adapter_executes_local_tools(self) -> None:
         from synthesis.domain_pipeline import build_domain_pipeline_bundle
         from synthesis.mcp import ToolCallRequest
-        from synthesis.runtime import runtime_descriptor
+        from synthesis.runtime_registry import runtime_descriptor
         from tests.test_workspace_pipeline import workspace_seed
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -301,9 +301,9 @@ class RuntimeBackedLocalAdapterTest(unittest.TestCase):
         self.assertEqual(comment.side_effect_summary["class"], "state_mutating")
 
     def test_unsupported_runtime_adapter_capability_is_sanitized_rejection(self) -> None:
+        from awm_runtime import RuntimeCapabilityDescriptor
         from synthesis.domain_pipeline import build_domain_pipeline_bundle
         from synthesis.mcp import LocalRuntimeAdapterShim, ToolCallRequest
-        from synthesis.runtime import RuntimeCapabilityDescriptor
         from synthesis.seeds import DomainSeed, foundation_seed
 
         descriptor = RuntimeCapabilityDescriptor(

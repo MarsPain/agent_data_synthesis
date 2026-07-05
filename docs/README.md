@@ -34,6 +34,7 @@
 ## Execution Plans
 
 - [exec-plans/active/README.md](exec-plans/active/README.md): active plan bucket.
+- [exec-plans/completed/0038-runtime-compatibility-shim-retirement-and-context-sync.md](exec-plans/completed/0038-runtime-compatibility-shim-retirement-and-context-sync.md): completed runtime/episode compatibility shim retirement and three-domain context sync.
 - [exec-plans/completed/0037-domain-pack-contract-and-third-domain-probe.md](exec-plans/completed/0037-domain-pack-contract-and-third-domain-probe.md): completed third-domain workspace probe for domain-pack contract pressure.
 - [exec-plans/completed/README.md](exec-plans/completed/README.md): completed plan bucket.
 - [exec-plans/completed/0025-phase-b-consumer-inversion.md](exec-plans/completed/0025-phase-b-consumer-inversion.md): completed Phase B inversion of replay, quality, and reward consumers onto runtime capabilities.

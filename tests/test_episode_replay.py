@@ -5,11 +5,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from awm_runtime import RuntimeActionRequest, RuntimeSession, build_episode_log
 from synthesis.domain_pipeline import build_domain_pipeline_bundle
-from synthesis.episodes import build_episode_log
 from synthesis.execution import execute_candidate
 from synthesis.mobile_tasks import generate_mobile_fixture_candidates
-from synthesis.runtime import RuntimeActionRequest, RuntimeSession
 from synthesis.seeds import DomainSeed, foundation_seed
 from synthesis.tasks import generate_foundation_candidates
 from synthesis.workspace_tasks import generate_workspace_fixture_candidates
@@ -214,8 +213,8 @@ class EpisodeReplayTest(unittest.TestCase):
         )
 
     def test_replay_support_is_read_from_runtime_registry(self) -> None:
+        from awm_runtime import RuntimeRegistry
         from synthesis.episode_replay import build_episode_replay_report
-        from synthesis.runtime import RuntimeRegistry
 
         report = build_episode_replay_report(
             dataset_version="dataset_contacts_replay_registry_override",
@@ -276,8 +275,8 @@ class EpisodeReplayTest(unittest.TestCase):
         )
 
     def test_fake_runtime_without_replay_support_reports_unsupported(self) -> None:
+        from awm_runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
         from synthesis.episode_replay import build_episode_replay_report
-        from synthesis.runtime import RuntimeCapabilityDescriptor, RuntimeRegistry
 
         episode = _episode("candidate_contacts_alice")
         episode = {

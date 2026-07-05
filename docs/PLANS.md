@@ -10,7 +10,7 @@
 
 ## Active
 
-- No active implementation plan is currently selected.
+No active implementation plan is currently selected.
 
 ## Deferred
 
@@ -74,6 +74,7 @@
 - [0035-domain-source-admission-interface](exec-plans/completed/0035-domain-source-admission-interface.md): promoted profile-local source ingestion into a domain source importer protocol, preserved contacts compatibility, added mobile messages source-backed runs, and replaced contacts-specific pipeline source plumbing with generic `domain_environment_input` while keeping controlled network source ingestion contacts-only. Completed on 2026-06-14.
 - [0036-domain-aware-held-out-evaluation-and-release-semantics](exec-plans/completed/0036-domain-aware-held-out-evaluation-and-release-semantics.md): made held-out evaluation, profile promotion, and dataset release admission domain-aware across contacts and mobile messages so mismatched evaluation evidence is insufficient rather than releaseable. Completed on 2026-06-19.
 - [0037-domain-pack-contract-and-third-domain-probe](exec-plans/completed/0037-domain-pack-contract-and-third-domain-probe.md): added the deterministic workspace tasks domain pack, runtime descriptor, run profile, held-out suite, replay/reward/rollout/adapter/evaluation evidence, and no-core-allowlist regression coverage. Completed on 2026-07-05.
+- [0038-runtime-compatibility-shim-retirement-and-context-sync](exec-plans/completed/0038-runtime-compatibility-shim-retirement-and-context-sync.md): removed the one-cycle `synthesis.runtime` and `synthesis.episodes` compatibility shims, migrated tests to direct `awm_runtime` and `synthesis.runtime_registry` imports, and synced root/canonical docs around the current three-domain runtime boundary. Completed on 2026-07-05.
 
 ## Technical Debt
 

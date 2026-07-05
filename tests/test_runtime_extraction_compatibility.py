@@ -1,11 +1,41 @@
 from __future__ import annotations
 
+import ast
 import re
 import subprocess
 import sys
 import textwrap
 import unittest
 from pathlib import Path
+
+
+def _python_files_under(paths: tuple[str, ...]) -> list[Path]:
+    files: list[Path] = []
+    for root in paths:
+        root_path = Path(root)
+        if root_path.is_file() and root_path.suffix == ".py":
+            files.append(root_path)
+            continue
+        if root_path.is_dir():
+            files.extend(
+                path for path in root_path.rglob("*.py") if ".venv" not in path.parts
+            )
+    return sorted(files)
+
+
+def _removed_shim_import_violations(paths: tuple[str, ...]) -> list[str]:
+    removed_modules = {"synthesis.runtime", "synthesis.episodes"}
+    violations: list[str] = []
+    for path in _python_files_under(paths):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module in removed_modules:
+                violations.append(f"{path}:{node.lineno}: from {node.module} import ...")
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name in removed_modules:
+                        violations.append(f"{path}:{node.lineno}: import {alias.name}")
+    return violations
 
 
 class RuntimeExtractionCompatibilityTest(unittest.TestCase):
@@ -48,118 +78,25 @@ class RuntimeExtractionCompatibilityTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_synthesis_runtime_reexports_boundary_owned_runtime_symbols(self) -> None:
-        import awm_runtime
-        import synthesis.runtime as compatibility_runtime
+    def test_runtime_compatibility_shim_files_are_removed(self) -> None:
+        self.assertFalse(Path("synthesis/runtime.py").exists())
+        self.assertFalse(Path("synthesis/episodes.py").exists())
 
-        boundary_owned_symbols = (
-            "EnvironmentRuntime",
-            "RUNTIME_CAPABILITY_FIELDS",
-            "RUNTIME_CAPABILITY_STATUSES",
-            "RuntimeActionRequest",
-            "RuntimeActionResult",
-            "RuntimeCapabilityDescriptor",
-            "RuntimeMetadata",
-            "RuntimeRegistry",
-            "RuntimeSession",
-            "runtime_metadata_from_environment",
-            "validate_runtime_descriptor_safety",
-            "validate_runtime_metadata_safety",
-        )
-
-        for symbol_name in boundary_owned_symbols:
-            with self.subTest(symbol_name=symbol_name):
-                self.assertIs(
-                    getattr(compatibility_runtime, symbol_name),
-                    getattr(awm_runtime, symbol_name),
-                )
-
-    def test_synthesis_runtime_registry_convenience_functions_match_with_explicit_registry(
-        self,
-    ) -> None:
-        import awm_runtime
-        import synthesis.runtime as compatibility_runtime
-
-        descriptor = awm_runtime.RuntimeCapabilityDescriptor(
-            runtime_id="fake_runtime",
-            runtime_version="runtime_fake_v1",
-            domain_id="fake_domain",
-            supports_rebuild=False,
-            supports_checkpoint_restore=False,
-            supports_episode_replay=False,
-            supports_reward_labels=True,
-            supports_local_adapter=False,
-            state_changing_tools=("fake_write",),
-            task_taxonomy=("fake_lookup",),
-        )
-        registry = awm_runtime.RuntimeRegistry((descriptor,))
-
-        self.assertEqual(
-            compatibility_runtime.registered_runtime_ids(registry),
-            awm_runtime.registered_runtime_ids(registry),
-        )
-        self.assertIs(
-            compatibility_runtime.runtime_descriptor("fake_runtime", registry),
-            awm_runtime.runtime_descriptor("fake_runtime", registry),
-        )
-        self.assertEqual(
-            compatibility_runtime.runtime_capability_status(
-                "fake_runtime",
-                "supports_reward_labels",
-                registry,
-            ),
-            awm_runtime.runtime_capability_status(
-                "fake_runtime",
-                "supports_reward_labels",
-                registry,
-            ),
-        )
-        self.assertEqual(
-            compatibility_runtime.runtime_registry_with(
-                descriptor,
-                base=awm_runtime.RuntimeRegistry(()),
-            ).registered_runtime_ids(),
-            awm_runtime.runtime_registry_with(
-                descriptor,
-                base=awm_runtime.RuntimeRegistry(()),
-            ).registered_runtime_ids(),
-        )
-
-    def test_synthesis_episodes_reexports_boundary_episode_symbols(self) -> None:
-        import awm_runtime
-        import synthesis.episodes as compatibility_episodes
-
-        boundary_owned_symbols = (
-            "EpisodeLog",
-            "EpisodeTransition",
-            "build_episode_log",
-            "deterministic_content_hash",
-            "sanitize_episode_value",
-            "summarize_episode_for_quality",
-        )
-
-        for symbol_name in boundary_owned_symbols:
-            with self.subTest(symbol_name=symbol_name):
-                self.assertIs(
-                    getattr(compatibility_episodes, symbol_name),
-                    getattr(awm_runtime, symbol_name),
-                )
+    def test_no_python_imports_reference_removed_runtime_shims(self) -> None:
+        violations = _removed_shim_import_violations(("synthesis", "tests"))
+        self.assertEqual(violations, [])
 
     def test_runtime_facing_production_modules_do_not_import_compatibility_shims(
         self,
     ) -> None:
         runtime_facing_paths = (
             "synthesis/domain_pipeline.py",
-            "synthesis/episodes.py",
             "synthesis/episode_quality.py",
             "synthesis/episode_replay.py",
             "synthesis/reward_labels.py",
             "synthesis/rollouts.py",
             "synthesis/mcp.py",
         )
-        compatibility_shims = {
-            "synthesis/episodes.py": "compatibility shim for legacy episode imports",
-        }
         forbidden_imports = (
             re.compile(r"^\s*from\s+synthesis\.runtime\s+import\s+", re.MULTILINE),
             re.compile(r"^\s*import\s+synthesis\.runtime\s*$", re.MULTILINE),
@@ -168,8 +105,6 @@ class RuntimeExtractionCompatibilityTest(unittest.TestCase):
         )
         violations: list[str] = []
         for relative_path in runtime_facing_paths:
-            if relative_path in compatibility_shims:
-                continue
             source = Path(relative_path).read_text(encoding="utf-8")
             for forbidden_import in forbidden_imports:
                 if forbidden_import.search(source):

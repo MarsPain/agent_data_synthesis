@@ -117,8 +117,8 @@ class WorkspaceTasksEnvironmentTest(unittest.TestCase):
             )
 
     def test_metadata_and_runtime_metadata_are_sanitized(self) -> None:
+        from awm_runtime import validate_runtime_metadata_safety
         from synthesis.contracts import validate_runtime_metadata_record
-        from synthesis.runtime import validate_runtime_metadata_safety
         from synthesis.workspace_environment import WorkspaceTasksEnvironment
 
         with tempfile.TemporaryDirectory() as tmpdir:
