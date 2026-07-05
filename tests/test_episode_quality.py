@@ -11,6 +11,7 @@ from synthesis.execution import execute_candidate
 from synthesis.mobile_tasks import generate_mobile_fixture_candidates
 from synthesis.seeds import DomainSeed, foundation_seed
 from synthesis.tasks import generate_foundation_candidates
+from synthesis.workspace_tasks import generate_workspace_fixture_candidates
 
 
 def mobile_seed() -> DomainSeed:
@@ -23,6 +24,20 @@ def mobile_seed() -> DomainSeed:
             "mobile_message_to_reminder",
             "mobile_draft_reply",
             "mobile_branch_fallback",
+        ),
+    )
+
+
+def workspace_seed() -> DomainSeed:
+    return DomainSeed(
+        seed_id="seed_workspace_tasks_v1",
+        domain="workspace_tasks_fixture",
+        description="Synthetic workspace projects, tasks, documents, and comments.",
+        task_taxonomy=(
+            "workspace_item_lookup",
+            "workspace_task_creation",
+            "workspace_comment_update",
+            "workspace_branch_fallback",
         ),
     )
 
@@ -89,6 +104,20 @@ class EpisodeQualityTest(unittest.TestCase):
 
         summary = report["episode_summaries"][0]
         self.assertEqual(summary["runtime_id"], "mobile_messages_fixture")
+        self.assertEqual(summary["state_change_count"], 1)
+        self.assertEqual(summary["failed_checks"], [])
+        self.assertEqual(report["decision"]["status"], "passed")
+
+    def test_workspace_state_change_episode_uses_descriptor_state_changing_tools(self) -> None:
+        from synthesis.episode_quality import build_episode_quality_report
+
+        report = build_episode_quality_report(
+            dataset_version="dataset_workspace_quality_test",
+            episodes=(_episode("candidate_workspace_launch_checklist_task"),),
+        )
+
+        summary = report["episode_summaries"][0]
+        self.assertEqual(summary["runtime_id"], "workspace_tasks_fixture")
         self.assertEqual(summary["state_change_count"], 1)
         self.assertEqual(summary["failed_checks"], [])
         self.assertEqual(report["decision"]["status"], "passed")
@@ -267,6 +296,9 @@ def _episode(candidate_id: str) -> dict[str, object]:
     if candidate_id.startswith("candidate_mobile_"):
         seed = mobile_seed()
         candidates = generate_mobile_fixture_candidates(seed)
+    elif candidate_id.startswith("candidate_workspace_"):
+        seed = workspace_seed()
+        candidates = generate_workspace_fixture_candidates(seed)
     else:
         seed = foundation_seed()
         candidates = generate_foundation_candidates(seed)

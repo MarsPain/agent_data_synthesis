@@ -57,7 +57,7 @@ later plan has evidence that the public schema should change.
 - [0032-executable-episode-replay-consistency-probe.md](0032-executable-episode-replay-consistency-probe.md)
   proved executable replay can rebuild fixture runtimes and execute action
   transitions, but explicitly left the `CandidateTask` split unresolved.
-- [../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
+- [../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
   remains deferred until reward/RL workflows, external MCP environment servers,
   or stronger cross-consumer package-boundary pressure justify extraction. This
   plan is a pre-extraction de-risking step, not the extraction itself.
@@ -300,7 +300,7 @@ Rules:
   [../../DATA.md](../../DATA.md), [../../BACKEND.md](../../BACKEND.md),
   [../../ROADMAP.md](../../ROADMAP.md),
   [../../generated/mobile-domain-pipeline-pressure.md](../../generated/mobile-domain-pipeline-pressure.md),
-  [../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md),
+  [../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md),
   [README.md](README.md), and [../../PLANS.md](../../PLANS.md).
 
 ## Implementation Tasks
@@ -597,7 +597,7 @@ Expected result: CLI tests pass.
   keep reward labels, Agentic RL, external MCP, and mobile source-governed input
   unresolved.
 - [x] Update
-  [../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md):
+  [../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md):
   record plan 0033 as risk-reduction evidence for runtime extraction, but keep
   0025 deferred.
 - [x] Update [../../PLANS.md](../../PLANS.md) and

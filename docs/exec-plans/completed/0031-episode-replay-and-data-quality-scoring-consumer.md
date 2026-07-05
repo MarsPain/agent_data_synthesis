@@ -47,7 +47,7 @@ second consumer before full plan 0025 is activated.
 - [../completed/0030-runtime-contract-and-episode-evidence.md](../completed/0030-runtime-contract-and-episode-evidence.md)
   added shared contacts/mobile runtime metadata, internal episode logs, and a
   diagnostic episode summary helper.
-- [../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
+- [../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
   requires at least one additional consumer, such as reward/data-quality
   evaluation or Agentic RL, before considering package extraction.
 - [../../generated/mobile-domain-pipeline-pressure.md](../../generated/mobile-domain-pipeline-pressure.md)
@@ -247,7 +247,7 @@ Validation rules:
 - Update [../../DATA.md](../../DATA.md), [../../DESIGN.md](../../DESIGN.md),
   [../../BACKEND.md](../../BACKEND.md), [../../ROADMAP.md](../../ROADMAP.md),
   [../../generated/mobile-domain-pipeline-pressure.md](../../generated/mobile-domain-pipeline-pressure.md),
-  [../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md),
+  [../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md),
   [../active/README.md](README.md), and [../../PLANS.md](../../PLANS.md).
 
 ## Implementation Tasks
@@ -530,7 +530,7 @@ uv run python -m unittest tests.test_cli tests.test_episode_quality
 - [x] Update [../../generated/mobile-domain-pipeline-pressure.md](../../generated/mobile-domain-pipeline-pressure.md)
   to mark the in-memory-only episode pressure as partially resolved by the
   opt-in quality report, while executable replay/RL remain unresolved.
-- [x] Update [../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
+- [x] Update [../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
   to say 0031 supplies a second repo-local data-quality consumer, but package
   extraction still needs replay/adapter/RL pressure and extraction criteria.
 - [x] Keep [../deferred/0014-async-local-orchestration-with-durable-queues.md](../deferred/0014-async-local-orchestration-with-durable-queues.md)

@@ -15,6 +15,7 @@ from synthesis.execution import execute_candidate
 from synthesis.mobile_tasks import generate_mobile_fixture_candidates
 from synthesis.seeds import DomainSeed
 from synthesis.tasks import CandidateTask
+from synthesis.workspace_tasks import generate_workspace_fixture_candidates
 
 
 EVALUATION_REPORT_SCHEMA_VERSION = "evaluation_report_v1"
@@ -259,12 +260,94 @@ def mobile_messages_heldout_suite() -> HeldoutSuite:
     )
 
 
+def workspace_tasks_heldout_suite() -> HeldoutSuite:
+    seed_ids = ("heldout_workspace_tasks_seed_v1",)
+    generated = {
+        str(candidate.constraints.get("task_type")): candidate
+        for candidate in generate_workspace_fixture_candidates(_workspace_heldout_seed())
+    }
+    tasks = (
+        HeldoutTask(
+            task_id="heldout_workspace_lookup_launch",
+            capability_tags=("workspace_item_lookup",),
+            candidate=_heldout_workspace_candidate(
+                generated["workspace_item_lookup"],
+                candidate_id="heldout_workspace_lookup_launch",
+                seed_ids=seed_ids,
+            ),
+        ),
+        HeldoutTask(
+            task_id="heldout_workspace_task_creation_launch",
+            capability_tags=("workspace_task_creation",),
+            candidate=_heldout_workspace_candidate(
+                generated["workspace_task_creation"],
+                candidate_id="heldout_workspace_task_creation_launch",
+                seed_ids=seed_ids,
+            ),
+        ),
+        HeldoutTask(
+            task_id="heldout_workspace_comment_update_launch",
+            capability_tags=("workspace_comment_update",),
+            candidate=_heldout_workspace_candidate(
+                generated["workspace_comment_update"],
+                candidate_id="heldout_workspace_comment_update_launch",
+                seed_ids=seed_ids,
+            ),
+        ),
+        HeldoutTask(
+            task_id="heldout_workspace_branch_fallback_launch",
+            capability_tags=("workspace_branching",),
+            candidate=_heldout_workspace_candidate(
+                generated["workspace_branch_fallback"],
+                candidate_id="heldout_workspace_branch_fallback_launch",
+                seed_ids=seed_ids,
+            ),
+        ),
+        HeldoutTask(
+            task_id="heldout_workspace_missing_item",
+            capability_tags=("workspace_missing_item",),
+            expected_outcome="controlled_failure",
+            expected_failure_cause="verification_failed",
+            candidate=CandidateTask(
+                candidate_id="heldout_workspace_missing_item",
+                instruction="Held-out negative case: verify a missing workspace item fails safely.",
+                constraints={
+                    "domain": "workspace_tasks_fixture",
+                    "task_type": "workspace_missing_item",
+                    "required_tools": ["search_workspace_items"],
+                    "heldout": True,
+                },
+                difficulty={
+                    "level": "easy",
+                    "tool_count": 1,
+                    "constraint_count": 2,
+                    "state_changes": 0,
+                    "ambiguity": "missing_workspace_item",
+                    "recovery_paths": 0,
+                },
+                tool_name="search_workspace_items",
+                arguments={"query": "nonexistent launch invoice", "kind": "task"},
+                expected_answer="task_missing_invoice",
+                seed_ids=seed_ids,
+            ),
+        ),
+    )
+    return HeldoutSuite(
+        suite_id="workspace_tasks_heldout_v1",
+        suite_version="workspace_tasks_heldout_v1",
+        domain_id="workspace_tasks_fixture",
+        tasks=tasks,
+    )
+
+
 def resolve_heldout_suite(domain_id: str) -> HeldoutSuite:
     normalized = "contacts_fixture" if domain_id == "contacts" else domain_id
     if normalized == "contacts_fixture":
         return contacts_heldout_suite()
     if normalized == "mobile_messages_fixture":
         return mobile_messages_heldout_suite()
+    if normalized == "workspace_tasks_fixture":
+        return workspace_tasks_heldout_suite()
     raise ValueError(f"unsupported held-out evaluation domain: {domain_id}")
 
 
@@ -277,6 +360,16 @@ def _default_thresholds_for_domain(domain_id: str) -> EvaluationThresholds:
                 "mobile_message_lookup": 1.0,
                 "mobile_message_to_reminder": 1.0,
                 "mobile_missing_message": 1.0,
+            }
+        )
+    if domain_id == "workspace_tasks_fixture":
+        return EvaluationThresholds(
+            min_capability_pass_rates={
+                "workspace_branching": 1.0,
+                "workspace_comment_update": 1.0,
+                "workspace_item_lookup": 1.0,
+                "workspace_missing_item": 1.0,
+                "workspace_task_creation": 1.0,
             }
         )
     return EvaluationThresholds()
@@ -511,6 +604,21 @@ def _mobile_heldout_seed() -> DomainSeed:
     )
 
 
+def _workspace_heldout_seed() -> DomainSeed:
+    return DomainSeed(
+        seed_id="heldout_workspace_tasks_seed_v1",
+        domain="workspace_tasks_fixture",
+        description="Held-out synthetic workspace tasks evaluation seed.",
+        task_taxonomy=(
+            "workspace_item_lookup",
+            "workspace_task_creation",
+            "workspace_comment_update",
+            "workspace_branch_fallback",
+            "workspace_missing_item",
+        ),
+    )
+
+
 def _suite_seed(suite: HeldoutSuite) -> DomainSeed:
     if suite.domain_id == "contacts_fixture":
         return DomainSeed(
@@ -526,10 +634,28 @@ def _suite_seed(suite: HeldoutSuite) -> DomainSeed:
         )
     if suite.domain_id == "mobile_messages_fixture":
         return _mobile_heldout_seed()
+    if suite.domain_id == "workspace_tasks_fixture":
+        return _workspace_heldout_seed()
     raise ValueError(f"unsupported held-out evaluation domain: {suite.domain_id}")
 
 
 def _heldout_mobile_candidate(
+    candidate: CandidateTask,
+    *,
+    candidate_id: str,
+    seed_ids: tuple[str, ...],
+) -> CandidateTask:
+    constraints = dict(candidate.constraints)
+    constraints["heldout"] = True
+    return replace(
+        candidate,
+        candidate_id=candidate_id,
+        constraints=constraints,
+        seed_ids=seed_ids,
+    )
+
+
+def _heldout_workspace_candidate(
     candidate: CandidateTask,
     *,
     candidate_id: str,

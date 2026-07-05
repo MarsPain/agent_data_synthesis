@@ -8,6 +8,7 @@ from synthesis.domain_pipeline import build_domain_pipeline_bundle
 from synthesis.mobile_tasks import generate_mobile_fixture_candidates
 from synthesis.seeds import DomainSeed, foundation_seed
 from synthesis.tasks import generate_foundation_candidates
+from synthesis.workspace_tasks import generate_workspace_fixture_candidates
 
 
 def mobile_seed() -> DomainSeed:
@@ -20,6 +21,20 @@ def mobile_seed() -> DomainSeed:
             "mobile_message_to_reminder",
             "mobile_draft_reply",
             "mobile_branch_fallback",
+        ),
+    )
+
+
+def workspace_seed() -> DomainSeed:
+    return DomainSeed(
+        seed_id="seed_workspace_tasks_v1",
+        domain="workspace_tasks_fixture",
+        description="Synthetic workspace projects, tasks, documents, and comments.",
+        task_taxonomy=(
+            "workspace_item_lookup",
+            "workspace_task_creation",
+            "workspace_comment_update",
+            "workspace_branch_fallback",
         ),
     )
 
@@ -104,6 +119,49 @@ class RuntimeRolloutTest(unittest.TestCase):
             episodes=episodes,
             episode_quality_report=build_episode_quality_report(
                 dataset_version="dataset_rollout_mobile",
+                episodes=episodes,
+            ),
+            episode_replay_report=replay_report,
+        )
+        self.assertEqual(labels[0]["label_status"], "usable")
+
+    def test_workspace_rollout_exports_state_change_episode(self) -> None:
+        from synthesis.contracts import validate_episode_log_record
+        from synthesis.episode_quality import build_episode_quality_report
+        from synthesis.episode_replay import build_episode_replay_report
+        from synthesis.reward_labels import build_reward_labels
+        from synthesis.rollouts import collect_diagnostic_rollout_episodes
+
+        seed = workspace_seed()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bundle = build_domain_pipeline_bundle(seed, Path(tmpdir))
+            task = next(
+                candidate
+                for candidate in generate_workspace_fixture_candidates(seed)
+                if candidate.candidate_id == "candidate_workspace_launch_checklist_task"
+            )
+
+            episodes = collect_diagnostic_rollout_episodes(
+                bundle=bundle,
+                tasks=(task,),
+                max_steps=3,
+            )
+
+        episode = episodes[0]
+        validate_episode_log_record(episode)
+        self.assertEqual(episode["runtime"]["runtime_id"], "workspace_tasks_fixture")
+        self.assertIn(
+            "state_change",
+            [transition["event_type"] for transition in episode["transitions"]],
+        )
+        replay_report = build_episode_replay_report(
+            dataset_version="dataset_rollout_workspace",
+            episodes=episodes,
+        )
+        labels = build_reward_labels(
+            episodes=episodes,
+            episode_quality_report=build_episode_quality_report(
+                dataset_version="dataset_rollout_workspace",
                 episodes=episodes,
             ),
             episode_replay_report=replay_report,

@@ -34,6 +34,7 @@
 ## Execution Plans
 
 - [exec-plans/active/README.md](exec-plans/active/README.md): active plan bucket.
+- [exec-plans/completed/0037-domain-pack-contract-and-third-domain-probe.md](exec-plans/completed/0037-domain-pack-contract-and-third-domain-probe.md): completed third-domain workspace probe for domain-pack contract pressure.
 - [exec-plans/completed/README.md](exec-plans/completed/README.md): completed plan bucket.
 - [exec-plans/completed/0025-phase-b-consumer-inversion.md](exec-plans/completed/0025-phase-b-consumer-inversion.md): completed Phase B inversion of replay, quality, and reward consumers onto runtime capabilities.
 - [exec-plans/completed/0025-phase-c-rollout-ready-runtime-api.md](exec-plans/completed/0025-phase-c-rollout-ready-runtime-api.md): completed Phase C runtime session, action-envelope, and diagnostic rollout infrastructure.
@@ -44,8 +45,9 @@
 - [exec-plans/completed/0036-domain-aware-held-out-evaluation-and-release-semantics.md](exec-plans/completed/0036-domain-aware-held-out-evaluation-and-release-semantics.md): completed plan for domain-aware held-out evaluation and release semantics.
 - [exec-plans/deferred/README.md](exec-plans/deferred/README.md): deferred plan bucket.
 - [exec-plans/deferred/0014-async-local-orchestration-with-durable-queues.md](exec-plans/deferred/0014-async-local-orchestration-with-durable-queues.md): deferred async local orchestration with durable queues plan.
-- [exec-plans/deferred/0025-awm-runtime-phase-index.md](exec-plans/deferred/0025-awm-runtime-phase-index.md): umbrella phase index and decision record for the staged AWM runtime-kernel work.
-- [exec-plans/deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](exec-plans/deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md): compatibility redirect for historical 0025 links.
+- [exec-plans/indexes/README.md](exec-plans/indexes/README.md): historical plan indexes and decision records.
+- [exec-plans/indexes/0025-awm-runtime-phase-index.md](exec-plans/indexes/0025-awm-runtime-phase-index.md): umbrella phase index and decision record for the staged AWM runtime-kernel work.
+- [exec-plans/indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md](exec-plans/indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md): compatibility redirect for historical 0025 links.
 - [exec-plans/completed/0025-phase-f-awm-runtime-package-extraction.md](exec-plans/completed/0025-phase-f-awm-runtime-package-extraction.md): completed Phase F package extraction plan that established the in-repository `awm_runtime` boundary.
 - [exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md](exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md): source provenance, license eligibility, default-deny network policy, sandbox policy, source-event audit artifacts, and reporting slices.
 - [exec-plans/completed/0012-controlled-network-backed-environment-synthesis.md](exec-plans/completed/0012-controlled-network-backed-environment-synthesis.md): controlled opt-in HTTPS source ingestion, allowlisted host enforcement, request budgets, payload limits, contacts environment-source admission, and sanitized fetch/admission audit events.

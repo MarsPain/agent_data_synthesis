@@ -41,6 +41,6 @@ uv run python -m unittest
 
 - `main.py` runs the local foundation pipeline and writes runtime outputs to `artifacts/foundation/` by default.
 - The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
-- Current active work is tracked in [docs/PLANS.md](docs/PLANS.md); there is no
-  active implementation plan at this point.
-- Latest completed work is documented in [docs/exec-plans/completed/0025-phase-e1-reward-label-runtime-contract-hardening.md](docs/exec-plans/completed/0025-phase-e1-reward-label-runtime-contract-hardening.md).
+- Current active work is tracked in [docs/PLANS.md](docs/PLANS.md). No active
+  implementation plan is currently selected.
+- Latest completed work is documented in [docs/exec-plans/completed/0037-domain-pack-contract-and-third-domain-probe.md](docs/exec-plans/completed/0037-domain-pack-contract-and-third-domain-probe.md).

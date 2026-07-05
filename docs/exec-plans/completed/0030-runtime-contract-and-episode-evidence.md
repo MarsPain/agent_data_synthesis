@@ -55,7 +55,7 @@ scope.
   execution hints, expected answer, and expected state; MCP adapters and
   source-governed input are still contacts-only; the domain bundle is not yet an
   AWM runtime package.
-- [../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
+- [../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
   defines the broader target: a shared runtime boundary with reset,
   checkpoint/restore, adapter compatibility, and episode evidence.
 - [../../DESIGN.md](../../DESIGN.md) treats environment synthesis, tool
@@ -405,7 +405,7 @@ uv run python -m unittest tests.test_candidate_processing tests.test_mobile_pipe
 - [x] Update [../../generated/mobile-domain-pipeline-pressure.md](../../generated/mobile-domain-pipeline-pressure.md)
   with which 0029 pressures were resolved by 0030 and which remain for future
   plans.
-- [x] Keep [../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
+- [x] Keep [../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
   deferred unless a real replay, reward/data-quality, RL, or external MCP
   environment consumer is implemented.
 

@@ -9,4 +9,6 @@ Phase A is complete at
 [../completed/0025-phase-a-internal-runtime-kernel-hardening.md](../completed/0025-phase-a-internal-runtime-kernel-hardening.md).
 Phase B is complete at
 [../completed/0025-phase-b-consumer-inversion.md](../completed/0025-phase-b-consumer-inversion.md).
-Phases C-F remain in this deferred bucket until their prerequisites are met.
+Phases C-G are complete and linked from the canonical phase index. The current
+0025 outcome is `extracted_soaked`; this redirect remains only so historical
+plan links continue to resolve.

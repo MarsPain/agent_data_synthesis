@@ -10,6 +10,7 @@ from synthesis.execution import execute_candidate
 from synthesis.mobile_tasks import generate_mobile_fixture_candidates
 from synthesis.seeds import DomainSeed, foundation_seed
 from synthesis.tasks import generate_foundation_candidates
+from synthesis.workspace_tasks import generate_workspace_fixture_candidates
 
 
 def mobile_seed() -> DomainSeed:
@@ -22,6 +23,20 @@ def mobile_seed() -> DomainSeed:
             "mobile_message_to_reminder",
             "mobile_draft_reply",
             "mobile_branch_fallback",
+        ),
+    )
+
+
+def workspace_seed() -> DomainSeed:
+    return DomainSeed(
+        seed_id="seed_workspace_tasks_v1",
+        domain="workspace_tasks_fixture",
+        description="Synthetic workspace projects, tasks, documents, and comments.",
+        task_taxonomy=(
+            "workspace_item_lookup",
+            "workspace_task_creation",
+            "workspace_comment_update",
+            "workspace_branch_fallback",
         ),
     )
 
@@ -80,6 +95,33 @@ class RewardLabelsTest(unittest.TestCase):
         self.assertEqual(label["runtime_id"], "mobile_messages_fixture")
         self.assertEqual(label["components"]["state_support"], 1.0)
         self.assertEqual(label["label_status"], "usable")
+
+    def test_workspace_state_change_label_uses_descriptor_preference_group(self) -> None:
+        from synthesis.episode_quality import build_episode_quality_report
+        from synthesis.episode_replay import build_episode_replay_report
+        from synthesis.reward_labels import build_reward_labels
+
+        episodes = (_episode("candidate_workspace_launch_checklist_task"),)
+        labels = build_reward_labels(
+            episodes=episodes,
+            episode_quality_report=build_episode_quality_report(
+                dataset_version="dataset_reward_workspace",
+                episodes=episodes,
+            ),
+            episode_replay_report=build_episode_replay_report(
+                dataset_version="dataset_reward_workspace",
+                episodes=episodes,
+            ),
+        )
+
+        label = labels[0]
+        self.assertEqual(label["runtime_id"], "workspace_tasks_fixture")
+        self.assertEqual(label["label_status"], "usable")
+        self.assertEqual(label["components"]["state_support"], 1.0)
+        self.assertEqual(
+            label["preference_group"]["group_id"],
+            "pref_workspace_tasks_fixture_workspace_task_creation",
+        )
 
     def test_reward_runtime_support_is_read_from_runtime_registry(self) -> None:
         from synthesis.episode_quality import build_episode_quality_report
@@ -300,7 +342,7 @@ class RewardLabelsTest(unittest.TestCase):
             "pref_fake_group_runtime_fake_declared_lookup",
         )
 
-    def test_contacts_and_mobile_flow_through_quality_replay_and_reward_consumers(self) -> None:
+    def test_contacts_mobile_and_workspace_flow_through_quality_replay_and_reward_consumers(self) -> None:
         from synthesis.episode_quality import build_episode_quality_report
         from synthesis.episode_replay import build_episode_replay_report
         from synthesis.reward_labels import build_reward_label_report, build_reward_labels
@@ -308,6 +350,7 @@ class RewardLabelsTest(unittest.TestCase):
         episodes = (
             _episode("candidate_contacts_alice"),
             _episode("candidate_mobile_maya_reminder"),
+            _episode("candidate_workspace_launch_checklist_task"),
         )
         quality_report = build_episode_quality_report(
             dataset_version="dataset_cross_consumer_regression",
@@ -333,11 +376,19 @@ class RewardLabelsTest(unittest.TestCase):
         self.assertEqual(reward_report["decision"]["status"], "passed")
         self.assertEqual(
             quality_report["observed"]["runtime_counts"],
-            {"contacts_fixture": 1, "mobile_messages_fixture": 1},
+            {
+                "contacts_fixture": 1,
+                "mobile_messages_fixture": 1,
+                "workspace_tasks_fixture": 1,
+            },
         )
         self.assertEqual(
             reward_report["observed"]["runtime_counts"],
-            {"contacts_fixture": 1, "mobile_messages_fixture": 1},
+            {
+                "contacts_fixture": 1,
+                "mobile_messages_fixture": 1,
+                "workspace_tasks_fixture": 1,
+            },
         )
         self.assertEqual({label["label_status"] for label in labels}, {"usable"})
 
@@ -464,6 +515,9 @@ def _episode(candidate_id: str) -> dict[str, object]:
     if candidate_id.startswith("candidate_mobile_"):
         seed = mobile_seed()
         candidates = generate_mobile_fixture_candidates(seed)
+    elif candidate_id.startswith("candidate_workspace_"):
+        seed = workspace_seed()
+        candidates = generate_workspace_fixture_candidates(seed)
     else:
         seed = foundation_seed()
         candidates = generate_foundation_candidates(seed)

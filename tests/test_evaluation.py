@@ -68,6 +68,35 @@ class HeldoutEvaluationTest(unittest.TestCase):
             ],
         )
 
+    def test_workspace_suite_has_stable_ids_and_capability_tags(self) -> None:
+        from synthesis.evaluation import workspace_tasks_heldout_suite
+
+        suite = workspace_tasks_heldout_suite()
+
+        self.assertEqual(suite.suite_id, "workspace_tasks_heldout_v1")
+        self.assertEqual(suite.domain_id, "workspace_tasks_fixture")
+        self.assertEqual(
+            [task.task_id for task in suite.tasks],
+            [
+                "heldout_workspace_lookup_launch",
+                "heldout_workspace_task_creation_launch",
+                "heldout_workspace_comment_update_launch",
+                "heldout_workspace_branch_fallback_launch",
+                "heldout_workspace_missing_item",
+            ],
+        )
+        observed_tags = sorted({tag for task in suite.tasks for tag in task.capability_tags})
+        self.assertEqual(
+            observed_tags,
+            [
+                "workspace_branching",
+                "workspace_comment_update",
+                "workspace_item_lookup",
+                "workspace_missing_item",
+                "workspace_task_creation",
+            ],
+        )
+
     def test_resolve_heldout_suite_rejects_unsupported_domain(self) -> None:
         from synthesis.evaluation import resolve_heldout_suite
 
@@ -128,6 +157,31 @@ class HeldoutEvaluationTest(unittest.TestCase):
         self.assertEqual(report["capability_slices"]["mobile_message_to_reminder"]["passed"], 1)
         self.assertEqual(report["capability_slices"]["mobile_draft_reply"]["passed"], 1)
         self.assertEqual(report["capability_slices"]["mobile_missing_message"]["passed"], 1)
+        self.assertEqual(report["decision"]["status"], "passed")
+        validate_evaluation_report_record(report)
+
+    def test_workspace_report_counts_slices_and_validates(self) -> None:
+        from synthesis.contracts import validate_evaluation_report_record
+        from synthesis.evaluation import build_evaluation_report
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest_path, quality_report_path = _write_workspace_inputs(Path(tmpdir))
+
+            report = build_evaluation_report(
+                manifest_path=manifest_path,
+                quality_report_path=quality_report_path,
+            )
+
+        self.assertEqual(report["suite"]["suite_id"], "workspace_tasks_heldout_v1")
+        self.assertEqual(report["suite"]["domain_id"], "workspace_tasks_fixture")
+        self.assertEqual(report["domain"]["domain_id"], "workspace_tasks_fixture")
+        self.assertEqual(report["counts"]["total"], 5)
+        self.assertEqual(report["counts"]["passed"], 5)
+        self.assertEqual(report["counts"]["failed"], 0)
+        self.assertEqual(report["capability_slices"]["workspace_item_lookup"]["passed"], 1)
+        self.assertEqual(report["capability_slices"]["workspace_task_creation"]["passed"], 1)
+        self.assertEqual(report["capability_slices"]["workspace_comment_update"]["passed"], 1)
+        self.assertEqual(report["capability_slices"]["workspace_missing_item"]["passed"], 1)
         self.assertEqual(report["decision"]["status"], "passed")
         validate_evaluation_report_record(report)
 
@@ -341,6 +395,54 @@ def _write_mobile_inputs(tmp_path: Path) -> tuple[Path, Path]:
     quality_report = {
         "schema_version": "quality_report_v1",
         "dataset_version": "dataset_mobile_test",
+        "counts": {"total": 4, "accepted": 4, "rejected": 0, "executable": 4},
+        "rates": {"success_rate": 1.0, "executable_rate": 1.0},
+        "rejection_causes": {},
+        "slices": {},
+    }
+    manifest_path = tmp_path / "manifest.json"
+    quality_report_path = tmp_path / "quality_report.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    quality_report_path.write_text(json.dumps(quality_report), encoding="utf-8")
+    return manifest_path, quality_report_path
+
+
+def _write_workspace_inputs(tmp_path: Path) -> tuple[Path, Path]:
+    manifest = {
+        "schema_version": "dataset_manifest_v1",
+        "dataset_version": "dataset_workspace_test",
+        "parent_dataset_version": None,
+        "accepted_count": 4,
+        "rejected_count": 0,
+        "artifacts": {
+            "samples": "samples.jsonl",
+            "rejections": "rejections.jsonl",
+            "quality_report": "quality_report.json",
+        },
+        "quality": {"success_rate": 1.0, "executable_rate": 1.0},
+        "environment_versions": ["env_workspace_tasks_v1"],
+        "tool_versions": [
+            "tool_search_workspace_items_v1",
+            "tool_create_workspace_task_v1",
+            "tool_add_workspace_comment_v1",
+        ],
+        "verifier_versions": ["verifier_exact_answer_state_v2"],
+        "generator_config_hashes": ["workspace-fixture-task-generation-v1"],
+        "rejection_causes": {},
+        "run_profile": {
+            "schema_version": "run_profile_v1",
+            "profile_id": "workspace_tasks_fixture",
+            "profile_purpose": "diagnostic_probe",
+            "generation_mode": "workspace_fixture",
+            "target_candidate_count": 4,
+            "config_hash": "sha256:" + "5" * 64,
+            "enabled_features": [],
+            "seed": {"domain": "workspace_tasks_fixture"},
+        },
+    }
+    quality_report = {
+        "schema_version": "quality_report_v1",
+        "dataset_version": "dataset_workspace_test",
         "counts": {"total": 4, "accepted": 4, "rejected": 0, "executable": 4},
         "rates": {"success_rate": 1.0, "executable_rate": 1.0},
         "rejection_causes": {},

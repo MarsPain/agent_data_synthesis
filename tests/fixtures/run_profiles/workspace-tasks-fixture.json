@@ -1,0 +1,28 @@
+{
+  "schema_version": "run_profile_v1",
+  "profile_id": "workspace_tasks_fixture",
+  "dataset_version": "dataset_workspace_tasks_fixture",
+  "profile_purpose": "diagnostic_probe",
+  "seed": {
+    "seed_id": "seed_workspace_tasks_v1",
+    "domain": "workspace_tasks_fixture",
+    "description": "Synthetic workspace projects, tasks, documents, and comments.",
+    "task_taxonomy": [
+      "workspace_item_lookup",
+      "workspace_task_creation",
+      "workspace_comment_update",
+      "workspace_branch_fallback"
+    ]
+  },
+  "generation": {
+    "mode": "workspace_fixture"
+  },
+  "features": {
+    "enable_branching": false,
+    "enable_task_expansion": false,
+    "enable_refinement": false,
+    "enable_mcp_adapter": false,
+    "enable_sandbox_fixture": false,
+    "enable_source_governance_fixture": false
+  }
+}

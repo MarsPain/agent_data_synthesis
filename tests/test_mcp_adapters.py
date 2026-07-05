@@ -240,6 +240,66 @@ class RuntimeBackedLocalAdapterTest(unittest.TestCase):
         self.assertEqual(draft.execution_status, "succeeded")
         self.assertEqual(draft.side_effect_summary["class"], "state_mutating")
 
+    def test_workspace_runtime_adapter_executes_local_tools(self) -> None:
+        from synthesis.domain_pipeline import build_domain_pipeline_bundle
+        from synthesis.mcp import ToolCallRequest
+        from synthesis.runtime import runtime_descriptor
+        from tests.test_workspace_pipeline import workspace_seed
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bundle = build_domain_pipeline_bundle(
+                workspace_seed(),
+                Path(tmpdir),
+                enable_mcp_adapter=True,
+            )
+            adapter = bundle.adapter_shim
+            assert adapter is not None
+
+            manifest = adapter.manifest.export()
+            lookup = adapter.call_tool(
+                ToolCallRequest(
+                    call_id="call_workspace_lookup",
+                    adapter_id=manifest["adapter_id"],
+                    tool_name="search_workspace_items",
+                    arguments={"query": "launch", "kind": "task"},
+                )
+            )
+            task = adapter.call_tool(
+                ToolCallRequest(
+                    call_id="call_workspace_task",
+                    adapter_id=manifest["adapter_id"],
+                    tool_name="create_workspace_task",
+                    arguments={
+                        "project_id": "project_alpha",
+                        "title": "Prepare launch checklist",
+                        "priority": "high",
+                        "due_label": "this_week",
+                    },
+                )
+            )
+            comment = adapter.call_tool(
+                ToolCallRequest(
+                    call_id="call_workspace_comment",
+                    adapter_id=manifest["adapter_id"],
+                    tool_name="add_workspace_comment",
+                    arguments={
+                        "task_id": "task_prepare_launch_checklist",
+                        "comment": "Added launch checklist owner.",
+                    },
+                )
+            )
+
+        self.assertTrue(runtime_descriptor("workspace_tasks_fixture").supports_local_adapter)
+        self.assertEqual(manifest["environment"]["id"], "workspace_tasks_fixture")
+        self.assertEqual(manifest["adapter_id"], "workspace_tasks_fixture_local_mcp_adapter")
+        self.assertEqual(lookup.execution_status, "succeeded")
+        self.assertEqual(lookup.observation["item_id"], "task_launch_plan")
+        self.assertEqual(task.execution_status, "succeeded")
+        self.assertEqual(task.side_effect_summary["class"], "state_mutating")
+        self.assertTrue(task.runtime_action["side_effect_summary"]["state_changed"])
+        self.assertEqual(comment.execution_status, "succeeded")
+        self.assertEqual(comment.side_effect_summary["class"], "state_mutating")
+
     def test_unsupported_runtime_adapter_capability_is_sanitized_rejection(self) -> None:
         from synthesis.domain_pipeline import build_domain_pipeline_bundle
         from synthesis.mcp import LocalRuntimeAdapterShim, ToolCallRequest

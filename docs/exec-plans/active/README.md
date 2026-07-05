@@ -5,7 +5,7 @@ is accepted as complete, move it to `../completed/` and update `../../PLANS.md`.
 
 ## Currently Executing
 
-There is no active implementation plan at this point.
+- No active implementation plan is currently selected.
 
 ## Completed
 

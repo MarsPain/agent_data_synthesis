@@ -27,6 +27,7 @@ REQUIRED_DIRS = [
     "docs/exec-plans/active",
     "docs/exec-plans/completed",
     "docs/exec-plans/deferred",
+    "docs/exec-plans/indexes",
     "docs/exec-plans/tech-debt",
     "docs/generated",
     "docs/product-specs",

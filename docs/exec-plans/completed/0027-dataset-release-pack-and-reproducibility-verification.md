@@ -49,7 +49,7 @@ creation time; it does not claim downstream model improvement.
 - [../deferred/0014-async-local-orchestration-with-durable-queues.md](../deferred/0014-async-local-orchestration-with-durable-queues.md)
   remains deferred because current release-candidate runs are small,
   synchronous, and cheap to rerun.
-- [../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
+- [../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
   remains deferred because no second runtime consumer exists yet.
 - [../tech-debt/README.md](../tech-debt/README.md) keeps semantic duplicate
   detection deferred until volume or curriculum-benchmark signals justify it.

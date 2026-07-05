@@ -6,6 +6,10 @@ Planned on 2026-06-09. This is an umbrella phase index and decision record, not
 a directly executable implementation plan. The executable work is split into
 Phase A-G documents.
 
+All executable 0025 phase plans are complete. This file remains in the
+phase-index bucket as the historical index and decision record for the staged
+runtime-kernel work.
+
 Phase A, Phase B, and Phase C completed on 2026-06-19. Phase D and Phase E
 completed on 2026-06-20. Phase E returned `continue_hardening`, Phase E1
 completed the reward-label runtime contract hardening follow-up, and Phase E2
@@ -225,5 +229,5 @@ The full 0025 sequence is complete only when one of these outcomes is recorded:
 - `extracted_soaked`: Phase G has proven the extracted boundary through
   compatibility, import-boundary, and representative consumer checks.
 
-The current outcome is `extracted_soaked`. The next boundary-pressure plan is
-[0037-domain-pack-contract-and-third-domain-probe](0037-domain-pack-contract-and-third-domain-probe.md).
+The current outcome is `extracted_soaked`. The active boundary-pressure plan is
+[0037-domain-pack-contract-and-third-domain-probe](../completed/0037-domain-pack-contract-and-third-domain-probe.md).

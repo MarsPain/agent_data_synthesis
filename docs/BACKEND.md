@@ -30,7 +30,7 @@ The first backend should be a local Python pipeline with explicit modules and du
   sessions over environment/tool-registry pairs, package-neutral
   `episode_log_v1` construction, deterministic transition hashing, redaction,
   and diagnostic episode summaries.
-- `synthesis.runtime_registry`: repository-owned contacts/mobile descriptor
+- `synthesis.runtime_registry`: repository-owned contacts/mobile/workspace descriptor
   construction and default registry selection. Domain-specific rebuild seeds
   stay here rather than in `awm_runtime`.
 - `synthesis.runtime` and `synthesis.episodes`: compatibility re-exports for
@@ -66,6 +66,12 @@ The first backend should be a local Python pipeline with explicit modules and du
 - `synthesis.tools`: tool definitions, schema generation, registry, dependency
   graph, capability-gap records, bounded tool proposals, and curated local tool
   admission.
+- `synthesis.workspace_environment`, `synthesis.workspace_tools`, and
+  `synthesis.workspace_tasks`: deterministic third-domain workspace pack. It
+  owns local SQLite workspace projects, tasks, documents, comments, workspace
+  tool schemas/handlers, deterministic candidates, scripted policies, checkpoint
+  and rebuild semantics, and sanitized runtime metadata. It does not ingest
+  profile-local workspace sources or call external workspace APIs.
 - `synthesis.mcp`: local MCP-compatible adapter manifests, tool-call request and
   result envelopes, adapter lineage records, and the in-process runtime-backed
   adapter shim for supported local runtimes. It does not start an MCP server or
@@ -158,8 +164,10 @@ trajectories, exports, or logs.
    declares `source.kind=local_contacts_json` or
    `source.kind=local_mobile_messages_json`, read the profile-relative JSON file
    under its byte budget, admit it as `source_kind=local_file`, and hand the
-   admitted bytes to the matching domain importer. The default pipeline does not
-   fetch external network sources or ingest arbitrary local files.
+   admitted bytes to the matching domain importer. The workspace domain is
+   fixture-only in the third-domain probe; supplying a workspace source
+   declaration is rejected. The default pipeline does not fetch external network
+   sources or ingest arbitrary local files.
 4. Build or load an environment version with source provenance, source-policy
    hash metadata, and environment-source admission status.
 5. Build or load a tool registry version.
@@ -238,6 +246,11 @@ trajectories, exports, or logs.
    reward/state support; it does not train reward models, collect RL rollouts,
    call external MCP environment servers, change release admission, promote
    profiles, or publish a separate runtime package.
+
+The workspace third-domain probe follows the same consumer rule as contacts and
+mobile: replay, reward labels, episode quality, rollouts, and local adapter
+execution use runtime descriptors, `RuntimeSession`, and action envelopes. They
+must not add workspace-specific branches or tool allowlists.
 24. When `--write-evaluation-report` is explicitly supplied, resolve the
    deterministic held-out suite from the manifest run-profile domain, write
    `evaluation_report.json`, and rewrite only the manifest artifact map to

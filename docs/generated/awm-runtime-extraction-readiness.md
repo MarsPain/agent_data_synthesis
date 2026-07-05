@@ -23,7 +23,7 @@ sessions, action envelopes, episode transitions/logs, redaction, hashing, and
 episode summaries into `awm_runtime`.
 
 Next plan pointer:
-[0037 Domain Pack Contract and Third Domain Probe](../exec-plans/deferred/0037-domain-pack-contract-and-third-domain-probe.md).
+[0037 Domain Pack Contract and Third Domain Probe](../exec-plans/completed/0037-domain-pack-contract-and-third-domain-probe.md).
 
 ## Summary
 
@@ -100,7 +100,7 @@ Phase G soaked the boundary:
 | Runtime metadata and descriptors reject dataset/release/profile/provider/credential/raw-source/host-path leakage. | Pass | `synthesis.runtime.validate_runtime_descriptor_safety`, `synthesis.runtime.validate_runtime_metadata_safety`, `tests.test_runtime_contract.test_runtime_descriptor_safety_rejects_profile_release_paths_prompts_and_secrets`, and adapter redaction tests in `tests.test_mcp_adapters`. |
 | Adding a new runtime does not require editing core replay or reward-label allowlists. | Pass | Replay uses descriptor lookup. Reward-label fake-runtime tests validate labels and reports without adding the fake runtime to a contract allowlist. |
 | Unused runtime methods are removed or explicitly marked experimental. | Pass | `RuntimeSession` methods are exercised by rollouts, adapter shims, replay, and tests. `RuntimeSession.rebuild` is covered by runtime contract tests, while executable replay deliberately keeps domain-pack rebuild ownership in `synthesis.domain_pipeline` and consumes the rebuilt candidate as a `RuntimeSession`. |
-| Docs define runtime, domain pack, synthesis, reward, release, and adapter ownership. | Pass | `docs/exec-plans/deferred/0025-awm-runtime-phase-index.md`, `docs/DESIGN.md`, `docs/BACKEND.md`, `docs/DATA.md`, and Phase A-D completion notes define the intended ownership boundaries. |
+| Docs define runtime, domain pack, synthesis, reward, release, and adapter ownership. | Pass | `docs/exec-plans/indexes/0025-awm-runtime-phase-index.md`, `docs/DESIGN.md`, `docs/BACKEND.md`, `docs/DATA.md`, and Phase A-D completion notes define the intended ownership boundaries. |
 
 ## Boundary Leakage Audit
 

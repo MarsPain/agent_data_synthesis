@@ -85,6 +85,7 @@ RUN_PROFILE_GENERATION_MODES = {
     "foundation_fixture",
     "deterministic_scale_probe",
     "mobile_fixture",
+    "workspace_fixture",
     "llm",
 }
 RUN_PROFILE_PURPOSES = {"diagnostic_probe", "release_candidate", "benchmark"}
@@ -120,7 +121,11 @@ MANIFEST_ARTIFACT_KEYS = {
 EVALUATION_TASK_STATUSES = {"passed", "failed"}
 EVALUATION_DECISION_STATUSES = {"passed", "failed", "insufficient_evidence"}
 EVALUATION_EXPECTED_OUTCOMES = {"passed", "controlled_failure"}
-EVALUATION_DOMAINS = {"contacts_fixture", "mobile_messages_fixture"}
+EVALUATION_DOMAINS = {
+    "contacts_fixture",
+    "mobile_messages_fixture",
+    "workspace_tasks_fixture",
+}
 PROFILE_PROMOTION_STATUSES = {"passed", "failed", "blocked", "insufficient_evidence"}
 DATASET_RELEASE_STATUSES = {
     "passed",
@@ -2727,7 +2732,12 @@ def _validate_run_profile_metadata(raw: object) -> None:
     if "seed" in profile:
         seed = _require_mapping(profile.get("seed"), "run_profile.seed")
         domain = _require_non_empty_string(seed.get("domain"), "run_profile.seed.domain")
-        if domain not in {"contacts", "contacts_fixture", "mobile_messages_fixture"}:
+        if domain not in {
+            "contacts",
+            "contacts_fixture",
+            "mobile_messages_fixture",
+            "workspace_tasks_fixture",
+        }:
             raise ContractValidationError("run_profile.seed.domain is unsupported")
     if "source" in profile:
         if schema_version != "run_profile_v2":

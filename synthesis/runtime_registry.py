@@ -53,6 +53,20 @@ def _mobile_messages_seed() -> DomainSeed:
     )
 
 
+def _workspace_tasks_seed() -> DomainSeed:
+    return DomainSeed(
+        seed_id="seed_workspace_tasks_v1",
+        domain="workspace_tasks_fixture",
+        description="Synthetic workspace projects, tasks, documents, and comments.",
+        task_taxonomy=(
+            "workspace_item_lookup",
+            "workspace_task_creation",
+            "workspace_comment_update",
+            "workspace_branch_fallback",
+        ),
+    )
+
+
 def _contacts_descriptor() -> RuntimeCapabilityDescriptor:
     seed = foundation_seed()
     return RuntimeCapabilityDescriptor(
@@ -99,9 +113,34 @@ def _mobile_descriptor() -> RuntimeCapabilityDescriptor:
     )
 
 
+def _workspace_descriptor() -> RuntimeCapabilityDescriptor:
+    seed = _workspace_tasks_seed()
+    return RuntimeCapabilityDescriptor(
+        runtime_id="workspace_tasks_fixture",
+        runtime_version="workspace_tasks_fixture_v1",
+        domain_id="workspace_tasks_fixture",
+        supports_rebuild=True,
+        supports_checkpoint_restore=True,
+        supports_episode_replay=True,
+        supports_reward_labels=True,
+        supports_local_adapter=True,
+        state_changing_tools=("create_workspace_task", "add_workspace_comment"),
+        task_taxonomy=seed.task_taxonomy,
+        reward_preference_groups={
+            "__default__": "workspace_item_lookup",
+            "search_workspace_items": "workspace_item_lookup",
+            "create_workspace_task": "workspace_task_creation",
+            "add_workspace_comment": "workspace_comment_update",
+        },
+        rebuild_seed=seed,
+        descriptor_metadata={"adapter_support": "local_runtime_adapter"},
+    )
+
+
 DEFAULT_RUNTIME_REGISTRY = RuntimeRegistry(
     (
         _contacts_descriptor(),
         _mobile_descriptor(),
+        _workspace_descriptor(),
     )
 )

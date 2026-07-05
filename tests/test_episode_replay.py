@@ -12,6 +12,7 @@ from synthesis.mobile_tasks import generate_mobile_fixture_candidates
 from synthesis.runtime import RuntimeActionRequest, RuntimeSession
 from synthesis.seeds import DomainSeed, foundation_seed
 from synthesis.tasks import generate_foundation_candidates
+from synthesis.workspace_tasks import generate_workspace_fixture_candidates
 
 
 def mobile_seed() -> DomainSeed:
@@ -24,6 +25,20 @@ def mobile_seed() -> DomainSeed:
             "mobile_message_to_reminder",
             "mobile_draft_reply",
             "mobile_branch_fallback",
+        ),
+    )
+
+
+def workspace_seed() -> DomainSeed:
+    return DomainSeed(
+        seed_id="seed_workspace_tasks_v1",
+        domain="workspace_tasks_fixture",
+        description="Synthetic workspace projects, tasks, documents, and comments.",
+        task_taxonomy=(
+            "workspace_item_lookup",
+            "workspace_task_creation",
+            "workspace_comment_update",
+            "workspace_branch_fallback",
         ),
     )
 
@@ -78,6 +93,20 @@ class EpisodeReplayTest(unittest.TestCase):
 
         summary = report["episode_summaries"][0]
         self.assertEqual(summary["runtime_id"], "mobile_messages_fixture")
+        self.assertEqual(summary["state_change_match_count"], 1)
+        self.assertEqual(summary["state_change_mismatch_count"], 0)
+        self.assertEqual(report["decision"]["status"], "passed")
+
+    def test_workspace_state_change_replay_matches_state_change_evidence(self) -> None:
+        from synthesis.episode_replay import build_episode_replay_report
+
+        report = build_episode_replay_report(
+            dataset_version="dataset_workspace_replay_test",
+            episodes=(_episode("candidate_workspace_launch_checklist_task"),),
+        )
+
+        summary = report["episode_summaries"][0]
+        self.assertEqual(summary["runtime_id"], "workspace_tasks_fixture")
         self.assertEqual(summary["state_change_match_count"], 1)
         self.assertEqual(summary["state_change_mismatch_count"], 0)
         self.assertEqual(report["decision"]["status"], "passed")
@@ -150,6 +179,40 @@ class EpisodeReplayTest(unittest.TestCase):
             ["search_phone_messages", "create_phone_reminder"],
         )
 
+    def test_supported_replay_executes_workspace_actions_through_runtime_session(self) -> None:
+        from synthesis.episode_replay import build_episode_replay_report
+
+        calls: list[RuntimeActionRequest] = []
+        original_execute_action = RuntimeSession.execute_action
+
+        def spy_execute_action(
+            session: RuntimeSession,
+            request: RuntimeActionRequest,
+        ):
+            calls.append(request)
+            return original_execute_action(session, request)
+
+        with patch.object(RuntimeSession, "execute_action", spy_execute_action):
+            report = build_episode_replay_report(
+                dataset_version="dataset_workspace_replay_session_boundary",
+                episodes=(_episode("candidate_workspace_launch_checklist_task"),),
+            )
+
+        self.assertEqual(report["decision"]["status"], "passed")
+        self.assertEqual(
+            report["runtime_boundary_evidence"]["runtime_methods_used"],
+            ["rebuild", "runtime_metadata", "execute_action"],
+        )
+        self.assertEqual(report["runtime_boundary_evidence"]["registry_methods_used"], [])
+        self.assertEqual(
+            [request.runtime_id for request in calls],
+            ["workspace_tasks_fixture", "workspace_tasks_fixture"],
+        )
+        self.assertEqual(
+            [request.tool_name for request in calls],
+            ["search_workspace_items", "create_workspace_task"],
+        )
+
     def test_replay_support_is_read_from_runtime_registry(self) -> None:
         from synthesis.episode_replay import build_episode_replay_report
         from synthesis.runtime import RuntimeRegistry
@@ -191,7 +254,13 @@ class EpisodeReplayTest(unittest.TestCase):
 
         self.assertEqual(
             thresholds.supported_runtimes,
-            frozenset({"contacts_fixture", "mobile_messages_fixture"}),
+            frozenset(
+                {
+                    "contacts_fixture",
+                    "mobile_messages_fixture",
+                    "workspace_tasks_fixture",
+                }
+            ),
         )
         self.assertEqual(
             thresholds.state_changing_tools,
@@ -200,6 +269,8 @@ class EpisodeReplayTest(unittest.TestCase):
                     "record_contact_followup",
                     "create_phone_reminder",
                     "draft_message_reply",
+                    "create_workspace_task",
+                    "add_workspace_comment",
                 }
             ),
         )
@@ -295,6 +366,9 @@ def _episode(candidate_id: str) -> dict[str, object]:
     if candidate_id.startswith("candidate_mobile_"):
         seed = mobile_seed()
         candidates = generate_mobile_fixture_candidates(seed)
+    elif candidate_id.startswith("candidate_workspace_"):
+        seed = workspace_seed()
+        candidates = generate_workspace_fixture_candidates(seed)
     else:
         seed = foundation_seed()
         candidates = generate_foundation_candidates(seed)

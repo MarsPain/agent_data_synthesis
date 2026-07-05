@@ -16,6 +16,7 @@ GENERATION_MODES = {
     "foundation_fixture",
     "deterministic_scale_probe",
     "mobile_fixture",
+    "workspace_fixture",
     "llm",
 }
 PROFILE_PURPOSES = {"diagnostic_probe", "release_candidate", "benchmark"}
@@ -246,7 +247,11 @@ def _load_profile_purpose(value: object, *, generation_mode: str) -> str:
 
 
 def _default_profile_purpose(generation_mode: str) -> str:
-    if generation_mode in {"deterministic_scale_probe", "mobile_fixture"}:
+    if generation_mode in {
+        "deterministic_scale_probe",
+        "mobile_fixture",
+        "workspace_fixture",
+    }:
         return "diagnostic_probe"
     return "release_candidate"
 

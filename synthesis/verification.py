@@ -78,6 +78,10 @@ def _state_checks(
             checks.append(_mobile_reminder_check(expected, environment))
         elif state_check.check_type == "mobile_draft_reply":
             checks.append(_mobile_draft_reply_check(expected, environment))
+        elif state_check.check_type == "workspace_task":
+            checks.append(_workspace_task_check(expected, environment))
+        elif state_check.check_type == "workspace_comment":
+            checks.append(_workspace_comment_check(expected, environment))
     return checks
 
 
@@ -185,6 +189,77 @@ def _mobile_draft_reply_check(
         "name": "mobile_draft_reply_state_matches_expected",
         "passed": actual,
         "expected": {"thread_id": thread_id, "body": body},
+        "actual": {"exists": actual},
+        "cause": "solution_logic_error",
+    }
+
+
+def _workspace_task_check(
+    expected_task: dict[str, object],
+    environment: Any | None,
+) -> dict[str, object]:
+    project_id = expected_task.get("project_id")
+    title = expected_task.get("title")
+    priority = expected_task.get("priority")
+    due_label = expected_task.get("due_label")
+    if not all(
+        isinstance(value, str)
+        for value in (project_id, title, priority, due_label)
+    ):
+        return {
+            "name": "workspace_task_state_matches_expected",
+            "passed": False,
+            "expected": expected_task,
+            "actual": None,
+            "cause": "solution_logic_error",
+        }
+    actual = (
+        environment.has_workspace_task(
+            project_id=project_id,
+            title=title,
+            priority=priority,
+            due_label=due_label,
+        )
+        if environment is not None and hasattr(environment, "has_workspace_task")
+        else False
+    )
+    return {
+        "name": "workspace_task_state_matches_expected",
+        "passed": actual,
+        "expected": {
+            "project_id": project_id,
+            "title": title,
+            "priority": priority,
+            "due_label": due_label,
+        },
+        "actual": {"exists": actual},
+        "cause": "solution_logic_error",
+    }
+
+
+def _workspace_comment_check(
+    expected_comment: dict[str, object],
+    environment: Any | None,
+) -> dict[str, object]:
+    task_id = expected_comment.get("task_id")
+    comment = expected_comment.get("comment")
+    if not isinstance(task_id, str) or not isinstance(comment, str):
+        return {
+            "name": "workspace_comment_state_matches_expected",
+            "passed": False,
+            "expected": expected_comment,
+            "actual": None,
+            "cause": "solution_logic_error",
+        }
+    actual = (
+        environment.has_workspace_comment(task_id=task_id, comment=comment)
+        if environment is not None and hasattr(environment, "has_workspace_comment")
+        else False
+    )
+    return {
+        "name": "workspace_comment_state_matches_expected",
+        "passed": actual,
+        "expected": {"task_id": task_id, "comment": comment},
         "actual": {"exists": actual},
         "cause": "solution_logic_error",
     }

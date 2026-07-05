@@ -6,10 +6,11 @@
 - `completed`: accepted plans with completion date.
 - `tech-debt`: known unresolved debt with impact and target stage.
 - `deferred`: planned but postponed until a concrete trigger condition is met.
+- `indexes`: historical navigation and decision records, not executable plans.
 
 ## Active
 
-There is no active implementation plan at this point.
+- No active implementation plan is currently selected.
 
 ## Deferred
 
@@ -18,16 +19,13 @@ There is no active implementation plan at this point.
   concurrency limits, cancellation, and per-role cost tracking; **deferred**
   until single runs exceed ~10 minutes or 100+ candidates. See the plan's
   "补充思考" section for the full deferral rationale.
-- [0037-domain-pack-contract-and-third-domain-probe](exec-plans/deferred/0037-domain-pack-contract-and-third-domain-probe.md):
-  ready for explicit activation after Phase G acceptance; remains deferred until
-  a human triggers the third-domain probe.
 
 ## Phase Indexes
 
-- [0025-awm-runtime-phase-index](exec-plans/deferred/0025-awm-runtime-phase-index.md):
+- [0025-awm-runtime-phase-index](exec-plans/indexes/0025-awm-runtime-phase-index.md):
   umbrella decision record for the staged AWM runtime-kernel work. This is not
   a directly executable implementation plan. Historical links to
-  [0025-awm-runtime-boundary-and-shared-environment-kernel](exec-plans/deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
+  [0025-awm-runtime-boundary-and-shared-environment-kernel](exec-plans/indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
   are preserved by a redirect stub.
 
 ## Completed
@@ -75,6 +73,7 @@ There is no active implementation plan at this point.
 - [0034-reward-label-export-and-runtime-scoring-consumer](exec-plans/completed/0034-reward-label-export-and-runtime-scoring-consumer.md): added opt-in deterministic reward-label export and runtime scoring over sanitized episode evidence without reward-model training, RL rollout collection, release admission changes, or AWM runtime package extraction. Completed on 2026-06-14.
 - [0035-domain-source-admission-interface](exec-plans/completed/0035-domain-source-admission-interface.md): promoted profile-local source ingestion into a domain source importer protocol, preserved contacts compatibility, added mobile messages source-backed runs, and replaced contacts-specific pipeline source plumbing with generic `domain_environment_input` while keeping controlled network source ingestion contacts-only. Completed on 2026-06-14.
 - [0036-domain-aware-held-out-evaluation-and-release-semantics](exec-plans/completed/0036-domain-aware-held-out-evaluation-and-release-semantics.md): made held-out evaluation, profile promotion, and dataset release admission domain-aware across contacts and mobile messages so mismatched evaluation evidence is insufficient rather than releaseable. Completed on 2026-06-19.
+- [0037-domain-pack-contract-and-third-domain-probe](exec-plans/completed/0037-domain-pack-contract-and-third-domain-probe.md): added the deterministic workspace tasks domain pack, runtime descriptor, run profile, held-out suite, replay/reward/rollout/adapter/evaluation evidence, and no-core-allowlist regression coverage. Completed on 2026-07-05.
 
 ## Technical Debt
 

@@ -49,8 +49,6 @@ RELEASE_COMPLETENESS_THRESHOLDS = ReleaseCompletenessThresholds(
         "lookup_contact_email+record_contact_followup",
     ),
 )
-
-
 @dataclass(frozen=True)
 class DatasetReleaseInputs:
     manifest: Mapping[str, Any]
@@ -84,6 +82,7 @@ def build_dataset_release_report(
     release_completeness = _release_completeness(
         quality_report=quality_report,
         observed=observed,
+        domain_id=manifest_domain_id(manifest),
     )
     report: dict[str, object] = {
         "schema_version": DATASET_RELEASE_REPORT_SCHEMA_VERSION,
@@ -386,8 +385,8 @@ def _release_completeness(
     *,
     quality_report: Mapping[str, Any],
     observed: Mapping[str, object],
+    domain_id: str | None,
 ) -> dict[str, object]:
-    thresholds = RELEASE_COMPLETENESS_THRESHOLDS
     accepted = _optional_int(observed.get("accepted"), 0)
     rejected = _optional_int(observed.get("rejected"), 0)
     total = accepted + rejected
@@ -407,6 +406,11 @@ def _release_completeness(
         "task_types": task_types,
         "tool_combinations": tool_combinations,
     }
+    thresholds = _release_completeness_thresholds(
+        domain_id,
+        task_types=task_types,
+        tool_combinations=tool_combinations,
+    )
     return {
         "thresholds": thresholds.export(),
         "observed": observed_summary,
@@ -418,6 +422,22 @@ def _release_completeness(
             tool_combinations=tool_combinations,
         ),
     }
+
+
+def _release_completeness_thresholds(
+    domain_id: str | None,
+    *,
+    task_types: list[str],
+    tool_combinations: list[str],
+) -> ReleaseCompletenessThresholds:
+    if domain_id not in {None, "contacts_fixture"}:
+        return ReleaseCompletenessThresholds(
+            min_accepted_samples=RELEASE_COMPLETENESS_THRESHOLDS.min_accepted_samples,
+            max_rejection_rate=RELEASE_COMPLETENESS_THRESHOLDS.max_rejection_rate,
+            required_task_types=tuple(task_types),
+            required_tool_combinations=tuple(tool_combinations),
+        )
+    return RELEASE_COMPLETENESS_THRESHOLDS
 
 
 def _release_completeness_decision(

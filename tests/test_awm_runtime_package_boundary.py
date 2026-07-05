@@ -110,7 +110,11 @@ class AwmRuntimePackageBoundaryTest(unittest.TestCase):
         self.assertIs(compatibility_runtime.RuntimeSession, awm_runtime.RuntimeSession)
         self.assertEqual(
             compatibility_runtime.registered_runtime_ids(),
-            ("contacts_fixture", "mobile_messages_fixture"),
+            (
+                "contacts_fixture",
+                "mobile_messages_fixture",
+                "workspace_tasks_fixture",
+            ),
         )
 
     def test_episode_boundary_and_compatibility_imports_match(self) -> None:

@@ -51,7 +51,7 @@ downstream model quality.
 - [../completed/0033-task-intent-policy-verifier-contract-split.md](../completed/0033-task-intent-policy-verifier-contract-split.md)
   split task intent, policy hints, expected final-answer evidence, and expected
   state checks internally while preserving public artifact schemas.
-- [../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
+- [../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
   keeps package extraction deferred until reward/RL workflows, external MCP
   environment servers, or stronger cross-consumer pressure justify it. This
   plan supplies reward-label consumer evidence without extracting.
@@ -315,7 +315,7 @@ Decision rules:
 - Update [../../DATA.md](../../DATA.md), [../../DESIGN.md](../../DESIGN.md),
   [../../BACKEND.md](../../BACKEND.md), [../../ROADMAP.md](../../ROADMAP.md),
   [../../generated/mobile-domain-pipeline-pressure.md](../../generated/mobile-domain-pipeline-pressure.md),
-  [../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md),
+  [../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md),
   [../../PLANS.md](../../PLANS.md), [README.md](README.md),
   [../../README.md](../../README.md), and [../../../README.md](../../../README.md).
 
@@ -616,7 +616,7 @@ uv run python -m unittest tests.test_foundation_pipeline tests.test_mobile_pipel
   semantic duplicate detection, async orchestration, and package extraction
   remain unresolved.
 - [ ] Update
-  [../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md):
+  [../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md):
   add plan 0034 as reward-label consumer evidence and keep extraction deferred
   unless a separate extraction decision finds stronger pressure.
 - [ ] Update [../../PLANS.md](../../PLANS.md), [README.md](README.md),

@@ -7,7 +7,7 @@
 ## Status
 
 Completed on 2026-06-19. This was the first executable phase of
-[0025-awm-runtime-phase-index](../deferred/0025-awm-runtime-phase-index.md).
+[0025-awm-runtime-phase-index](../indexes/0025-awm-runtime-phase-index.md).
 Phase B is complete as the next runtime-kernel phase. Later phases remain
 deferred unless their own triggers are met.
 

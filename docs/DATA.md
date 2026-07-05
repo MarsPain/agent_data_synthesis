@@ -36,6 +36,11 @@
   with message threads, messages, reminders, and draft replies. It uses
   `environment.id: mobile_messages_fixture` and supports checkpoint/restore and
   candidate-local rebuilds without real mobile OS access.
+- **Workspace Tasks Environment:** deterministic synthetic workspace fixture
+  with projects, task records, lightweight documents, and comments. It uses
+  `environment.id: workspace_tasks_fixture`, stores local SQLite state, supports
+  checkpoint/restore and candidate-local rebuilds, and does not read host files,
+  browser profiles, credentials, network resources, or real workspace data.
 - **Seed Transformation:** bounded expansion record that maps a source seed to a
   target taxonomy node, capability target, and intended difficulty movement.
 - **Environment:** executable stateful world with reset/checkpoint behavior.
@@ -74,6 +79,10 @@
   are `search_phone_messages`, `create_phone_reminder`, and
   `draft_message_reply`; draft tools create local draft state only and do not
   send real messages.
+- **Workspace Tool:** domain-owned callable in the workspace fixture. Current
+  tools are `search_workspace_items`, `create_workspace_task`, and
+  `add_workspace_comment`. Search is read-only; task and comment creation are
+  state-mutating and expose sanitized state-change summaries.
 - **Task:** user-facing goal plus structured constraints and difficulty metadata.
 - **Task Contract:** internal execution/verification view derived from
   `CandidateTask`. It separates task intent, execution policy hints, expected
@@ -609,8 +618,9 @@ suggester and editor metadata do not overwrite those fields.
 generated only when explicitly requested. The report resolves a deterministic
 held-out suite from the manifest run-profile domain. Contacts profiles use
 `contacts_heldout_v1`; mobile messages profiles use
-`mobile_messages_heldout_v1`. Both suites are separate from generated
-candidates and scale-probe duplicate patterns, and both execute fixed held-out
+`mobile_messages_heldout_v1`; workspace profiles use
+`workspace_tasks_heldout_v1`. These suites are separate from generated
+candidates and scale-probe duplicate patterns, and they execute fixed held-out
 tasks through the domain pipeline environment, tool registry, scripted policy
 execution, and verifier contracts.
 

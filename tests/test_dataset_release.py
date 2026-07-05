@@ -138,6 +138,80 @@ class DatasetReleaseTest(unittest.TestCase):
 
         self.assertEqual(report["decisions"]["dataset_release"]["status"], "passed")
 
+    def test_workspace_release_candidate_with_workspace_evaluation_domain_passes(self) -> None:
+        from synthesis.dataset_release import build_dataset_release_report
+
+        report = build_dataset_release_report(
+            manifest=_workspace_manifest(
+                profile_purpose="release_candidate",
+                accepted_count=6,
+                rejected_count=1,
+            ),
+            quality_report=_quality_report(
+                accepted=6,
+                rejected=1,
+                task_types=(
+                    "workspace_item_lookup",
+                    "workspace_task_creation",
+                    "workspace_comment_update",
+                    "workspace_branch_fallback",
+                ),
+                tool_combinations=(
+                    "search_workspace_items",
+                    "search_workspace_items > create_workspace_task",
+                    "search_workspace_items > add_workspace_comment",
+                ),
+            ),
+            evaluation_report=_domain_evaluation_report(
+                status="passed",
+                domain_id="workspace_tasks_fixture",
+                suite_id="workspace_tasks_heldout_v1",
+            ),
+            profile_decision_report=_profile_decision_report(profile_promotion_status="passed"),
+        )
+
+        self.assertEqual(report["decisions"]["dataset_release"]["status"], "passed")
+
+    def test_workspace_release_candidate_with_mobile_evaluation_domain_is_insufficient(self) -> None:
+        from synthesis.dataset_release import build_dataset_release_report
+
+        report = build_dataset_release_report(
+            manifest=_workspace_manifest(
+                profile_purpose="release_candidate",
+                accepted_count=6,
+                rejected_count=1,
+            ),
+            quality_report=_quality_report(
+                accepted=6,
+                rejected=1,
+                task_types=(
+                    "workspace_item_lookup",
+                    "workspace_task_creation",
+                    "workspace_comment_update",
+                    "workspace_branch_fallback",
+                ),
+                tool_combinations=(
+                    "search_workspace_items",
+                    "search_workspace_items > create_workspace_task",
+                    "search_workspace_items > add_workspace_comment",
+                ),
+            ),
+            evaluation_report=_domain_evaluation_report(
+                status="passed",
+                domain_id="mobile_messages_fixture",
+                suite_id="mobile_messages_heldout_v1",
+            ),
+            profile_decision_report=_profile_decision_report(profile_promotion_status="passed"),
+        )
+
+        decision = report["decisions"]["dataset_release"]
+        self.assertEqual(decision["status"], "insufficient_evidence")
+        self.assertIn("evaluation_domain", decision["triggered_by"])
+        self.assertIn(
+            "evaluation domain mobile_messages_fixture does not match manifest domain workspace_tasks_fixture",
+            decision["reasons"],
+        )
+
     def test_diagnostic_profile_is_ineligible_for_release(self) -> None:
         from synthesis.dataset_release import build_dataset_release_report
 
@@ -287,6 +361,30 @@ def _mobile_manifest(
             "profile_id": "profile_local_mobile_messages",
             "generation_mode": "mobile_fixture",
             "seed": {"domain": "mobile_messages_fixture"},
+        }
+    )
+    return manifest
+
+
+def _workspace_manifest(
+    *,
+    profile_purpose: str,
+    accepted_count: int = 3,
+    rejected_count: int = 0,
+) -> dict[str, object]:
+    manifest = _manifest(
+        profile_purpose=profile_purpose,
+        accepted_count=accepted_count,
+        rejected_count=rejected_count,
+    )
+    run_profile = manifest["run_profile"]
+    assert isinstance(run_profile, dict)
+    run_profile.update(
+        {
+            "schema_version": "run_profile_v1",
+            "profile_id": "workspace_tasks_fixture",
+            "generation_mode": "workspace_fixture",
+            "seed": {"domain": "workspace_tasks_fixture"},
         }
     )
     return manifest

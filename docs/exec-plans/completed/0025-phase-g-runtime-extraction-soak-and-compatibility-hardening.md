@@ -85,7 +85,7 @@ domain packs or synthesis-owned report modules.
 
 - Moving contacts or mobile domain packs out of this repository.
 - Adding a third domain. That is covered by
-  [0037-domain-pack-contract-and-third-domain-probe](../deferred/0037-domain-pack-contract-and-third-domain-probe.md).
+  [0037-domain-pack-contract-and-third-domain-probe](0037-domain-pack-contract-and-third-domain-probe.md).
 - Publishing `awm_runtime` to PyPI or moving it to another repository.
 - Removing `synthesis.runtime` compatibility re-exports during this phase.
 - Changing public dataset, rejection, manifest, release, profile-decision, replay,
@@ -137,7 +137,7 @@ domain packs or synthesis-owned report modules.
     ownership language.
 - Modify: `docs/generated/awm-runtime-extraction-readiness.md`
   - Record Phase F completion and Phase G soak evidence.
-- Modify: `docs/exec-plans/deferred/0025-awm-runtime-phase-index.md`
+- Modify: `docs/exec-plans/indexes/0025-awm-runtime-phase-index.md`
   - Update 0025 status after Phase G completes.
 
 ## Implementation Tasks
@@ -307,7 +307,7 @@ uv run python main.py --run-profile tests/fixtures/run_profiles/profile-local-mo
 - [x] Update `README.md` only if setup, commands, or public import examples change.
 - [x] Update `docs/generated/awm-runtime-extraction-readiness.md` with the soak
   outcome and the remaining compatibility window.
-- [x] Update `docs/exec-plans/deferred/0025-awm-runtime-phase-index.md` with the
+- [x] Update `docs/exec-plans/indexes/0025-awm-runtime-phase-index.md` with the
   Phase G outcome.
 
 ### Task 9: Validation
@@ -351,7 +351,7 @@ uv run python -m unittest
 ## Follow-On
 
 After Phase G is accepted, activate
-[0037-domain-pack-contract-and-third-domain-probe](../deferred/0037-domain-pack-contract-and-third-domain-probe.md)
+[0037-domain-pack-contract-and-third-domain-probe](0037-domain-pack-contract-and-third-domain-probe.md)
 to prove that a new domain pack can be added without editing core runtime,
 replay, reward-label, or adapter allowlists.
 

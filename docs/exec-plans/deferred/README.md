@@ -12,17 +12,3 @@ move back to `../active/` and `../../PLANS.md` is updated.
     requirement.
   - Rationale: current fixture-scale runs do not justify async orchestration,
     durable queues, cancellation, and cost tracking complexity.
-- [0037-domain-pack-contract-and-third-domain-probe](0037-domain-pack-contract-and-third-domain-probe.md)
-  - Trigger: ready for explicit activation after Phase G acceptance, or after a
-    later 0025 decision explicitly chooses a third-domain probe as the next
-    boundary-hardening move.
-  - Rationale: a third deterministic domain should prove new domains can join
-    through domain-pack contracts instead of core replay/reward/adapter allowlists.
-
-## Phase Indexes
-
-- [0025-awm-runtime-phase-index](0025-awm-runtime-phase-index.md):
-  umbrella decision record for the staged AWM runtime-kernel work. This is not
-  a directly executable plan. Historical links to
-  [0025-awm-runtime-boundary-and-shared-environment-kernel](0025-awm-runtime-boundary-and-shared-environment-kernel.md)
-  are preserved through a redirect stub.

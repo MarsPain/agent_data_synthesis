@@ -205,6 +205,42 @@ class ProfileDecisionReportTest(unittest.TestCase):
         self.assertEqual(report["evaluation"]["suite_id"], "mobile_messages_heldout_v1")
         self.assertEqual(report["decisions"]["profile_promotion"]["status"], "passed")
 
+    def test_profile_promotion_passes_when_workspace_evaluation_domain_matches_manifest(self) -> None:
+        from synthesis.profile_decisions import build_profile_decision_report
+
+        inputs = _workspace_report_inputs(total=10, accepted=5, rejected=5)
+
+        report = build_profile_decision_report(
+            **inputs,
+            evaluation_report=_workspace_evaluation_report(status="passed"),
+            evaluation_report_path=Path("evaluation_report.json"),
+        )
+
+        self.assertEqual(report["evaluation"]["domain_id"], "workspace_tasks_fixture")
+        self.assertEqual(report["evaluation"]["suite_id"], "workspace_tasks_heldout_v1")
+        self.assertEqual(report["decisions"]["profile_promotion"]["status"], "passed")
+
+    def test_workspace_profile_promotion_is_insufficient_when_evaluation_domain_mismatches_manifest(self) -> None:
+        from synthesis.profile_decisions import build_profile_decision_report
+
+        inputs = _workspace_report_inputs(total=10, accepted=5, rejected=5)
+
+        report = build_profile_decision_report(
+            **inputs,
+            evaluation_report=_mobile_evaluation_report(status="passed"),
+            evaluation_report_path=Path("evaluation_report.json"),
+        )
+
+        self.assertEqual(report["evaluation"]["domain_id"], "mobile_messages_fixture")
+        self.assertEqual(
+            report["decisions"]["profile_promotion"]["status"],
+            "insufficient_evidence",
+        )
+        self.assertIn(
+            "evaluation domain mobile_messages_fixture does not match manifest domain workspace_tasks_fixture",
+            report["decisions"]["profile_promotion"]["reasons"],
+        )
+
     def test_evaluation_failed_report_fails_mvp_quality_floor(self) -> None:
         from synthesis.profile_decisions import build_profile_decision_report
 
@@ -465,6 +501,42 @@ def _mobile_report_inputs(
     return inputs
 
 
+def _workspace_report_inputs(
+    *,
+    total: int,
+    accepted: int,
+    rejected: int,
+) -> dict[str, object]:
+    inputs = _report_inputs(total=total, accepted=accepted, rejected=rejected)
+    manifest = inputs["manifest"]
+    assert isinstance(manifest, dict)
+    manifest["environment_versions"] = ["env_workspace_tasks_v1"]
+    manifest["tool_versions"] = [
+        "tool_search_workspace_items_v1",
+        "tool_create_workspace_task_v1",
+        "tool_add_workspace_comment_v1",
+    ]
+    run_profile = manifest["run_profile"]
+    assert isinstance(run_profile, dict)
+    run_profile.update(
+        {
+            "schema_version": "run_profile_v1",
+            "profile_id": "workspace_tasks_fixture",
+            "generation_mode": "workspace_fixture",
+            "profile_purpose": "diagnostic_probe",
+            "seed": {"domain": "workspace_tasks_fixture"},
+        }
+    )
+    quality_report = inputs["quality_report"]
+    assert isinstance(quality_report, dict)
+    slices = quality_report["slices"]
+    assert isinstance(slices, dict)
+    slices["run_profile_id"] = {"workspace_tasks_fixture": {}}
+    slices["generation_mode"] = {"workspace_fixture": {}}
+    slices["run_profile_schema_version"] = {"run_profile_v1": {}}
+    return inputs
+
+
 def _evaluation_report(
     *,
     status: str,
@@ -533,6 +605,26 @@ def _mobile_evaluation_report(
     }
     report["domain"] = {
         "domain_id": "mobile_messages_fixture",
+        "source": "test",
+    }
+    return report
+
+
+def _workspace_evaluation_report(
+    *,
+    status: str,
+    pass_rate: float = 0.8,
+    regressed: int = 0,
+) -> dict[str, object]:
+    report = _evaluation_report(status=status, pass_rate=pass_rate, regressed=regressed)
+    report["suite"] = {
+        "suite_id": "workspace_tasks_heldout_v1",
+        "suite_version": "workspace_tasks_heldout_v1",
+        "domain_id": "workspace_tasks_fixture",
+        "task_count": 5,
+    }
+    report["domain"] = {
+        "domain_id": "workspace_tasks_fixture",
         "source": "test",
     }
     return report

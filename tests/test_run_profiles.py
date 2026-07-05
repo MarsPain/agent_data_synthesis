@@ -146,6 +146,22 @@ class RunProfileTest(unittest.TestCase):
             "mobile_fixture",
         )
 
+    def test_workspace_fixture_profile_loads_as_diagnostic_probe(self) -> None:
+        from synthesis.run_profiles import load_run_profile
+
+        profile = load_run_profile(
+            Path("tests/fixtures/run_profiles/workspace-tasks-fixture.json")
+        )
+
+        self.assertEqual(profile.profile_id, "workspace_tasks_fixture")
+        self.assertEqual(profile.seed.domain, "workspace_tasks_fixture")
+        self.assertEqual(profile.generation.mode, "workspace_fixture")
+        self.assertEqual(profile.profile_purpose, "diagnostic_probe")
+        self.assertEqual(
+            profile.sanitized_metadata()["generation_mode"],
+            "workspace_fixture",
+        )
+
     def test_profile_purpose_participates_in_config_hash(self) -> None:
         from synthesis.run_profiles import load_run_profile
 
@@ -269,6 +285,8 @@ class RunProfileTest(unittest.TestCase):
         mismatches = (
             ("contacts", "local_mobile_messages_json"),
             ("mobile_messages_fixture", "local_contacts_json"),
+            ("workspace_tasks_fixture", "local_contacts_json"),
+            ("workspace_tasks_fixture", "local_mobile_messages_json"),
         )
         for domain, source_kind in mismatches:
             with self.subTest(domain=domain, source_kind=source_kind):

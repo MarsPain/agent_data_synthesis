@@ -51,7 +51,7 @@ deferred plan 0025 by showing which runtime methods an execution consumer needs.
 - [../completed/0031-episode-replay-and-data-quality-scoring-consumer.md](../completed/0031-episode-replay-and-data-quality-scoring-consumer.md)
   added opt-in `episodes.jsonl` export and `episode_quality_report_v1` scoring,
   but explicitly excluded replaying actions against fresh runtime state.
-- [../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
+- [../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
   keeps AWM runtime extraction deferred until stronger replay, reward/RL,
   external MCP, or cross-consumer package-boundary pressure appears.
 - [../../generated/mobile-domain-pipeline-pressure.md](../../generated/mobile-domain-pipeline-pressure.md)
@@ -286,7 +286,7 @@ Decision rules:
 - Update [../../DATA.md](../../DATA.md), [../../DESIGN.md](../../DESIGN.md),
   [../../BACKEND.md](../../BACKEND.md), [../../ROADMAP.md](../../ROADMAP.md),
   [../../generated/mobile-domain-pipeline-pressure.md](../../generated/mobile-domain-pipeline-pressure.md),
-  [../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md),
+  [../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md),
   [README.md](README.md), and [../../PLANS.md](../../PLANS.md).
 
 ## Implementation Tasks
@@ -591,7 +591,7 @@ uv run python -m unittest tests.test_episode_replay tests.test_cli tests.test_fo
   record which replay pressure is resolved and which pressures remain:
   reward-label export, Agentic RL rollout collection, external MCP servers,
   mobile source-governed input, and the `CandidateTask` split.
-- [x] Update [../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md):
+- [x] Update [../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md):
   state that plan 0032 supplies execution-facing consumer evidence, but that
   package extraction remains deferred until reward/RL, external MCP, or clearer
   cross-consumer package-boundary pressure appears.

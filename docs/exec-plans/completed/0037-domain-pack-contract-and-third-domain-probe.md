@@ -2,18 +2,26 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > `subagent-driven-development` or `executing-plans` to implement this plan
-> task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 ## Status
 
-Deferred until one of these activation paths is true:
+Completed on 2026-07-05.
 
-- Preferred path: [0025 Phase G](../completed/0025-phase-g-runtime-extraction-soak-and-compatibility-hardening.md)
-  has completed and accepted the post-extraction runtime boundary.
-- Fallback path: a post-E2 readiness review records `keep_internal` or
-  `continue_hardening`, and the recorded decision explicitly says a third-domain
-  probe is the next best way to pressure-test the runtime/domain-pack boundary
-  without extracting `awm_runtime`.
+Validation evidence recorded on completion:
+
+- `uv run python -m unittest tests.test_workspace_environment tests.test_workspace_tools tests.test_workspace_pipeline tests.test_domain_pack_contract`
+- `uv run python -m unittest tests.test_runtime_contract tests.test_episode_quality tests.test_episode_replay tests.test_reward_labels tests.test_runtime_rollouts tests.test_mcp_adapters`
+- `uv run python -m unittest tests.test_run_profiles tests.test_evaluation tests.test_profile_decisions tests.test_dataset_release tests.test_cli tests.test_foundation_pipeline tests.test_mobile_pipeline`
+- `uv run python -m unittest`
+- `uv run python scripts/validate_docs.py`
+- `uv run python main.py --run-profile tests/fixtures/run_profiles/workspace-tasks-fixture.json --write-episode-replay-report --write-reward-label-report --output-dir artifacts/workspace-third-domain-probe`
+- `uv run python main.py --run-profile tests/fixtures/run_profiles/workspace-tasks-fixture.json --write-evaluation-report --write-profile-decision-report --output-dir artifacts/workspace-third-domain-evaluation`
+
+The preferred activation path is satisfied:
+[0025 Phase G](../completed/0025-phase-g-runtime-extraction-soak-and-compatibility-hardening.md)
+completed on 2026-07-04 and accepted the post-extraction runtime boundary.
+This plan is now the active boundary-pressure implementation plan.
 
 This plan was written before Phase F and Phase G executed. The approved runtime
 package boundary is `awm_runtime`; use it directly unless a later 0025 decision
@@ -182,340 +190,340 @@ is explicitly responsible for routing domains.
 
 ### Task 1: Add Workspace Environment Contract Tests
 
-- [ ] Create `tests/test_workspace_environment.py`.
-- [ ] Test that `WorkspaceTasksEnvironment.create_fixture(tmp_path)` creates a
+- [x] Create `tests/test_workspace_environment.py`.
+- [x] Test that `WorkspaceTasksEnvironment.create_fixture(tmp_path)` creates a
   deterministic environment with at least two projects, three tasks, two
   documents, and two comments.
-- [ ] Test `search_workspace_items(query="launch", kind="task")` returns a
+- [x] Test `search_workspace_items(query="launch", kind="task")` returns a
   deterministic task summary without raw filesystem paths.
-- [ ] Test `create_workspace_task(project_id="project_alpha", title="Prepare launch checklist", priority="high", due_label="this_week")`
+- [x] Test `create_workspace_task(project_id="project_alpha", title="Prepare launch checklist", priority="high", due_label="this_week")`
   records a task that can be inspected by state helpers.
-- [ ] Test `add_workspace_comment(task_id=created_task_id, comment="Added launch checklist owner.")`
+- [x] Test `add_workspace_comment(task_id=created_task_id, comment="Added launch checklist owner.")`
   records a comment that can be inspected by state helpers.
-- [ ] Test checkpoint/restore rolls back created tasks and comments.
-- [ ] Test `metadata()` returns `environment.id == "workspace_tasks_fixture"`.
-- [ ] Test `runtime_metadata()` uses runtime id `workspace_tasks_fixture`,
+- [x] Test checkpoint/restore rolls back created tasks and comments.
+- [x] Test `metadata()` returns `environment.id == "workspace_tasks_fixture"`.
+- [x] Test `runtime_metadata()` uses runtime id `workspace_tasks_fixture`,
   excludes dataset/profile/release/provider/source raw payload fields, and passes
   runtime metadata safety validation.
-- [ ] Run:
+- [x] Run:
 
 ```bash
 uv run python -m unittest tests.test_workspace_environment
 ```
 
-- [ ] Expected result before implementation: tests fail because the workspace
+- [x] Expected result before implementation: tests fail because the workspace
   environment does not exist.
 
 ### Task 2: Implement Workspace Environment
 
-- [ ] Create `synthesis/workspace_environment.py`.
-- [ ] Define immutable records for workspace projects, tasks, documents, and
+- [x] Create `synthesis/workspace_environment.py`.
+- [x] Define immutable records for workspace projects, tasks, documents, and
   comments.
-- [ ] Implement `WorkspaceTasksEnvironment.create_fixture(output_dir: Path)`.
-- [ ] Implement deterministic search, task creation, comment creation,
+- [x] Implement `WorkspaceTasksEnvironment.create_fixture(output_dir: Path)`.
+- [x] Implement deterministic search, task creation, comment creation,
   state-inspection helpers, checkpoint, restore, rebuild, `metadata()`, and
   `runtime_metadata()`.
-- [ ] Keep all state local to the environment. Do not read host files, network
+- [x] Keep all state local to the environment. Do not read host files, network
   resources, credentials, browser profiles, or user data.
-- [ ] Run:
+- [x] Run:
 
 ```bash
 uv run python -m unittest tests.test_workspace_environment
 ```
 
-- [ ] Expected result: workspace environment tests pass.
+- [x] Expected result: workspace environment tests pass.
 
 ### Task 3: Add Workspace Tool Registry Tests
 
-- [ ] Create `tests/test_workspace_tools.py`.
-- [ ] Test `build_workspace_tool_registry(environment)` exports exactly
+- [x] Create `tests/test_workspace_tools.py`.
+- [x] Test `build_workspace_tool_registry(environment)` exports exactly
   `search_workspace_items`, `create_workspace_task`, and
   `add_workspace_comment`.
-- [ ] Test each tool rejects missing required arguments and wrong argument types.
-- [ ] Test `search_workspace_items` is read-only and returns a deterministic
+- [x] Test each tool rejects missing required arguments and wrong argument types.
+- [x] Test `search_workspace_items` is read-only and returns a deterministic
   observation summary.
-- [ ] Test `create_workspace_task` and `add_workspace_comment` return
+- [x] Test `create_workspace_task` and `add_workspace_comment` return
   state-change summaries that identify changed state without raw internal state
   dumps.
-- [ ] Test the registry side-effect metadata marks only task creation and comment
+- [x] Test the registry side-effect metadata marks only task creation and comment
   creation as state-changing.
-- [ ] Run:
+- [x] Run:
 
 ```bash
 uv run python -m unittest tests.test_workspace_tools
 ```
 
-- [ ] Expected result before implementation: tests fail because workspace tools
+- [x] Expected result before implementation: tests fail because workspace tools
   do not exist.
 
 ### Task 4: Implement Workspace Tools
 
-- [ ] Create `synthesis/workspace_tools.py`.
-- [ ] Implement `build_workspace_tool_registry(environment)`.
-- [ ] Implement `search_workspace_items`, `create_workspace_task`, and
+- [x] Create `synthesis/workspace_tools.py`.
+- [x] Implement `build_workspace_tool_registry(environment)`.
+- [x] Implement `search_workspace_items`, `create_workspace_task`, and
   `add_workspace_comment` using the existing `ToolRegistry` and schema patterns.
-- [ ] Ensure all observations and state-change summaries are deterministic and
+- [x] Ensure all observations and state-change summaries are deterministic and
   sanitized.
-- [ ] Run:
+- [x] Run:
 
 ```bash
 uv run python -m unittest tests.test_workspace_tools tests.test_workspace_environment
 ```
 
-- [ ] Expected result: workspace environment and tool tests pass.
+- [x] Expected result: workspace environment and tool tests pass.
 
 ### Task 5: Add Workspace Candidate and Policy Tests
 
-- [ ] Create `tests/test_workspace_pipeline.py`.
-- [ ] Test `generate_workspace_fixture_candidates(seed)` returns at least four
+- [x] Create `tests/test_workspace_pipeline.py`.
+- [x] Test `generate_workspace_fixture_candidates(seed)` returns at least four
   candidates covering lookup, task creation, comment update, and branch fallback.
-- [ ] Test each candidate exports through the existing `CandidateTask` contract
+- [x] Test each candidate exports through the existing `CandidateTask` contract
   without adding public workspace-only schema fields.
-- [ ] Test `scripted_workspace_solution_policy(task)` uses only workspace tools
+- [x] Test `scripted_workspace_solution_policy(task)` uses only workspace tools
   and produces deterministic tool steps.
-- [ ] Test workspace expected-state declarations can express created task and
+- [x] Test workspace expected-state declarations can express created task and
   added comment outcomes.
-- [ ] Run:
+- [x] Run:
 
 ```bash
 uv run python -m unittest tests.test_workspace_pipeline
 ```
 
-- [ ] Expected result before implementation: tests fail because workspace task
+- [x] Expected result before implementation: tests fail because workspace task
   generation and policy code do not exist.
 
 ### Task 6: Implement Workspace Candidates and Policies
 
-- [ ] Create `synthesis/workspace_tasks.py`.
-- [ ] Implement deterministic workspace candidates with existing `CandidateTask`
+- [x] Create `synthesis/workspace_tasks.py`.
+- [x] Implement deterministic workspace candidates with existing `CandidateTask`
   shapes.
-- [ ] Implement `scripted_workspace_solution_policy(task)` using
+- [x] Implement `scripted_workspace_solution_policy(task)` using
   `search_workspace_items`, `create_workspace_task`, and
   `add_workspace_comment`.
-- [ ] Keep task-intent, policy-hint, expected-outcome, and expected-state behavior
+- [x] Keep task-intent, policy-hint, expected-outcome, and expected-state behavior
   internal through existing task-contract conversion.
-- [ ] Run:
+- [x] Run:
 
 ```bash
 uv run python -m unittest tests.test_workspace_pipeline
 ```
 
-- [ ] Expected result: workspace candidate and policy tests pass.
+- [x] Expected result: workspace candidate and policy tests pass.
 
 ### Task 7: Add Workspace Domain Bundle and Runtime Descriptor Tests
 
-- [ ] Extend `tests/test_workspace_pipeline.py` or create
+- [x] Extend `tests/test_workspace_pipeline.py` or create
   `tests/test_domain_pack_contract.py`.
-- [ ] Test `build_domain_pipeline_bundle(seed, tmp_path)` accepts
+- [x] Test `build_domain_pipeline_bundle(seed, tmp_path)` accepts
   `seed.domain == "workspace_tasks_fixture"` and returns:
   `domain_id == "workspace_tasks_fixture"`, a workspace environment, a workspace
   registry, an exact-answer verifier, a candidate generator, a policy generator,
   and a runtime session.
-- [ ] Extend `tests/test_runtime_contract.py` to prove contacts, mobile, and
+- [x] Extend `tests/test_runtime_contract.py` to prove contacts, mobile, and
   workspace satisfy the shared runtime protocol.
-- [ ] Add a descriptor test proving `runtime_descriptor("workspace_tasks_fixture")`
+- [x] Add a descriptor test proving `runtime_descriptor("workspace_tasks_fixture")`
   or the Phase-G-approved descriptor lookup returns replay support,
   reward-label support, local-adapter support, state-changing tools, task
   taxonomy, and reward preference groups without editing replay or reward-label
   allowlists.
-- [ ] Run:
+- [x] Run:
 
 ```bash
 uv run python -m unittest tests.test_workspace_pipeline tests.test_domain_pack_contract tests.test_runtime_contract
 ```
 
-- [ ] Expected result before implementation: tests fail because the workspace
+- [x] Expected result before implementation: tests fail because the workspace
   domain is not registered.
 
 ### Task 8: Register Workspace Domain Pack
 
-- [ ] Modify `synthesis/domain_pipeline.py` or the Phase-G-approved domain-pack
+- [x] Modify `synthesis/domain_pipeline.py` or the Phase-G-approved domain-pack
   registry to register `workspace_tasks_fixture`.
-- [ ] Modify synthesis-owned runtime registration code to register the workspace
+- [x] Modify synthesis-owned runtime registration code to register the workspace
   runtime descriptor.
-- [ ] Keep the extracted runtime package free of workspace imports. Runtime
+- [x] Keep the extracted runtime package free of workspace imports. Runtime
   package tests from Phase G must still pass.
-- [ ] Run:
+- [x] Run:
 
 ```bash
 uv run python -m unittest tests.test_workspace_pipeline tests.test_domain_pack_contract tests.test_runtime_contract tests.test_awm_runtime_package_boundary tests.test_runtime_extraction_compatibility
 ```
 
-- [ ] Expected result: workspace domain registration works and runtime package
+- [x] Expected result: workspace domain registration works and runtime package
   boundary tests still pass.
 
 ### Task 9: Add Workspace Verification Support
 
-- [ ] Add failing tests in `tests/test_workspace_pipeline.py` or
+- [x] Add failing tests in `tests/test_workspace_pipeline.py` or
   `tests/test_task_contracts.py` for workspace expected-state checks:
   created task exists with expected project/title/priority/due label, and comment
   exists on the expected task.
-- [ ] Modify `synthesis/verification.py` only if existing exact-state helpers
+- [x] Modify `synthesis/verification.py` only if existing exact-state helpers
   cannot express the workspace state checks generically.
-- [ ] Preserve contacts follow-up and mobile reminder/draft verification behavior.
-- [ ] Run:
+- [x] Preserve contacts follow-up and mobile reminder/draft verification behavior.
+- [x] Run:
 
 ```bash
 uv run python -m unittest tests.test_workspace_pipeline tests.test_task_contracts tests.test_mobile_pipeline tests.test_foundation_pipeline
 ```
 
-- [ ] Expected result: workspace, contacts, and mobile verification paths pass.
+- [x] Expected result: workspace, contacts, and mobile verification paths pass.
 
 ### Task 10: Add Workspace Episode Consumer Coverage
 
-- [ ] Extend `tests/test_episode_quality.py` with a workspace episode-quality
+- [x] Extend `tests/test_episode_quality.py` with a workspace episode-quality
   case that reads descriptor-derived state-changing tools.
-- [ ] Extend `tests/test_episode_replay.py` with a workspace replay case that
+- [x] Extend `tests/test_episode_replay.py` with a workspace replay case that
   rebuilds a fresh workspace runtime and executes actions through
   `RuntimeSession.execute_action(...)`.
-- [ ] Extend `tests/test_reward_labels.py` with a workspace reward-label case
+- [x] Extend `tests/test_reward_labels.py` with a workspace reward-label case
   that uses descriptor-derived reward support and preference groups.
-- [ ] Extend `tests/test_runtime_rollouts.py` with a diagnostic workspace rollout
+- [x] Extend `tests/test_runtime_rollouts.py` with a diagnostic workspace rollout
   case.
-- [ ] Extend `tests/test_mcp_adapters.py` with workspace local-adapter manifest
+- [x] Extend `tests/test_mcp_adapters.py` with workspace local-adapter manifest
   and action-envelope execution coverage.
-- [ ] Do not add workspace-specific allowlists inside replay, reward labels,
+- [x] Do not add workspace-specific allowlists inside replay, reward labels,
   episode quality, rollouts, or local adapter code.
-- [ ] Run:
+- [x] Run:
 
 ```bash
 uv run python -m unittest tests.test_episode_quality tests.test_episode_replay tests.test_reward_labels tests.test_runtime_rollouts tests.test_mcp_adapters
 ```
 
-- [ ] Expected result: existing consumers handle workspace through descriptors,
+- [x] Expected result: existing consumers handle workspace through descriptors,
   runtime sessions, action envelopes, and existing domain bundle registration.
 
 ### Task 11: Add Workspace Run Profile and CLI Coverage
 
-- [ ] Modify `synthesis/run_profiles.py` to add `workspace_fixture` to generation
+- [x] Modify `synthesis/run_profiles.py` to add `workspace_fixture` to generation
   modes.
-- [ ] Create `tests/fixtures/run_profiles/workspace-tasks-fixture.json` with:
+- [x] Create `tests/fixtures/run_profiles/workspace-tasks-fixture.json` with:
   schema version `run_profile_v1`, profile id `workspace_tasks_fixture`, dataset
   version `dataset_workspace_tasks_fixture`, profile purpose `diagnostic_probe`,
   seed domain `workspace_tasks_fixture`, and generation mode `workspace_fixture`.
-- [ ] Extend `tests/test_run_profiles.py` with a passing workspace profile test
+- [x] Extend `tests/test_run_profiles.py` with a passing workspace profile test
   and a rejection test for mismatched workspace source declarations if source
   fields are supplied.
-- [ ] Extend `tests/test_cli.py` with a workspace fixture command that writes
+- [x] Extend `tests/test_cli.py` with a workspace fixture command that writes
   samples, rejections, manifest, quality report, episodes, replay report, reward
   labels, and reward-label report when the relevant flags are supplied.
-- [ ] Run:
+- [x] Run:
 
 ```bash
 uv run python -m unittest tests.test_run_profiles tests.test_cli
 ```
 
-- [ ] Expected result: workspace run profile and CLI coverage pass.
+- [x] Expected result: workspace run profile and CLI coverage pass.
 
 ### Task 12: Add Domain-Aware Evaluation and Release Evidence
 
-- [ ] Modify `synthesis/evaluation.py` to add a workspace held-out suite and
+- [x] Modify `synthesis/evaluation.py` to add a workspace held-out suite and
   resolver entry for `workspace_tasks_fixture`.
-- [ ] Extend `tests/test_evaluation.py` with workspace suite identity and report
+- [x] Extend `tests/test_evaluation.py` with workspace suite identity and report
   generation tests.
-- [ ] Extend `tests/test_profile_decisions.py` with a workspace profile-decision
+- [x] Extend `tests/test_profile_decisions.py` with a workspace profile-decision
   case and a mismatched-domain insufficient-evidence case.
-- [ ] Extend `tests/test_dataset_release.py` with a workspace release-candidate
+- [x] Extend `tests/test_dataset_release.py` with a workspace release-candidate
   evidence case and a mismatched-domain rejection case.
-- [ ] Preserve contacts and mobile evaluation/report behavior.
-- [ ] Run:
+- [x] Preserve contacts and mobile evaluation/report behavior.
+- [x] Run:
 
 ```bash
 uv run python -m unittest tests.test_evaluation tests.test_profile_decisions tests.test_dataset_release
 ```
 
-- [ ] Expected result: workspace evaluation evidence is domain-aware and
+- [x] Expected result: workspace evaluation evidence is domain-aware and
   mismatched evaluation remains insufficient for promotion or release.
 
 ### Task 13: Add No-Core-Allowlist Regression Tests
 
-- [ ] In `tests/test_domain_pack_contract.py`, add source scans proving workspace
+- [x] In `tests/test_domain_pack_contract.py`, add source scans proving workspace
   support did not add workspace-specific branches to:
   `synthesis/episode_quality.py`, `synthesis/episode_replay.py`,
   `synthesis/reward_labels.py`, `synthesis/rollouts.py`,
   `synthesis/mcp.py`, `synthesis/profile_decisions.py`, and
   `synthesis/dataset_release.py`.
-- [ ] Allow workspace-specific code only in workspace modules, domain pipeline or
+- [x] Allow workspace-specific code only in workspace modules, domain pipeline or
   domain-pack registry, evaluation suite registration, run-profile mode
   validation, tests, docs, and fixtures.
-- [ ] Run:
+- [x] Run:
 
 ```bash
 uv run python -m unittest tests.test_domain_pack_contract
 ```
 
-- [ ] Expected result: the domain pack is visible through registration and
+- [x] Expected result: the domain pack is visible through registration and
   descriptors, not through core consumer allowlists.
 
 ### Task 14: Run Representative Workspace CLI Commands
 
-- [ ] Run the deterministic workspace profile with replay and reward labels:
+- [x] Run the deterministic workspace profile with replay and reward labels:
 
 ```bash
 uv run python main.py --run-profile tests/fixtures/run_profiles/workspace-tasks-fixture.json --write-episode-replay-report --write-reward-label-report --output-dir artifacts/workspace-third-domain-probe
 ```
 
-- [ ] Expected result: command completes with accepted workspace samples,
+- [x] Expected result: command completes with accepted workspace samples,
   replayable episodes, reward labels, and sanitized manifest artifact references.
-- [ ] Run the workspace profile with evaluation and profile decision reports:
+- [x] Run the workspace profile with evaluation and profile decision reports:
 
 ```bash
 uv run python main.py --run-profile tests/fixtures/run_profiles/workspace-tasks-fixture.json --write-evaluation-report --write-profile-decision-report --output-dir artifacts/workspace-third-domain-evaluation
 ```
 
-- [ ] Expected result: command completes with workspace-domain evaluation evidence
+- [x] Expected result: command completes with workspace-domain evaluation evidence
   and no domain mismatch.
 
 ### Task 15: Documentation
 
-- [ ] Update `docs/DESIGN.md` with the third-domain proof and the domain-pack
+- [x] Update `docs/DESIGN.md` with the third-domain proof and the domain-pack
   ownership contract.
-- [ ] Update `docs/BACKEND.md` with workspace module boundaries and the rule that
+- [x] Update `docs/BACKEND.md` with workspace module boundaries and the rule that
   consumers use runtime descriptors/sessions rather than workspace branches.
-- [ ] Update `docs/DATA.md` with workspace environment, tools, tasks, runtime
+- [x] Update `docs/DATA.md` with workspace environment, tools, tasks, runtime
   descriptor, and evaluation evidence entities.
-- [ ] Update `docs/ROADMAP.md` to mark the third-domain probe complete when the
+- [x] Update `docs/ROADMAP.md` to mark the third-domain probe complete when the
   plan finishes.
-- [ ] Create `docs/generated/domain-pack-third-domain-pressure.md` unless the
+- [x] Create `docs/generated/domain-pack-third-domain-pressure.md` unless the
   existing generated mobile pressure note is explicitly broadened.
-- [ ] Link the generated note from `docs/generated/README.md`.
-- [ ] Update `docs/PLANS.md` and plan bucket indexes when the plan moves from
+- [x] Link the generated note from `docs/generated/README.md`.
+- [x] Update `docs/PLANS.md` and plan bucket indexes when the plan moves from
   deferred to active or completed.
 
 ### Task 16: Validation
 
-- [ ] Run documentation validation:
+- [x] Run documentation validation:
 
 ```bash
 uv run python scripts/validate_docs.py
 ```
 
-- [ ] Run the focused workspace suite:
+- [x] Run the focused workspace suite:
 
 ```bash
 uv run python -m unittest tests.test_workspace_environment tests.test_workspace_tools tests.test_workspace_pipeline tests.test_domain_pack_contract
 ```
 
-- [ ] Run runtime and consumer tests:
+- [x] Run runtime and consumer tests:
 
 ```bash
 uv run python -m unittest tests.test_runtime_contract tests.test_episode_quality tests.test_episode_replay tests.test_reward_labels tests.test_runtime_rollouts tests.test_mcp_adapters
 ```
 
-- [ ] Run pipeline, evaluation, release, and CLI tests:
+- [x] Run pipeline, evaluation, release, and CLI tests:
 
 ```bash
 uv run python -m unittest tests.test_run_profiles tests.test_evaluation tests.test_profile_decisions tests.test_dataset_release tests.test_cli tests.test_foundation_pipeline tests.test_mobile_pipeline
 ```
 
-- [ ] Run the full suite:
+- [x] Run the full suite:
 
 ```bash
 uv run python -m unittest
 ```
 
-- [ ] Run both representative workspace CLI commands from Task 14.
-- [ ] Record validation evidence in this plan before moving it to
+- [x] Run both representative workspace CLI commands from Task 14.
+- [x] Record validation evidence in this plan before moving it to
   `../completed/`.
 
 ## Acceptance Criteria
@@ -541,4 +549,4 @@ After this plan, consider release-grade review-loop work before scale work:
 - semantic duplicate detection only when release evidence or dataset volume
   triggers `TD-0002`;
 - async orchestration only when run duration or candidate volume triggers plan
-  [0014](0014-async-local-orchestration-with-durable-queues.md).
+  [0014](../deferred/0014-async-local-orchestration-with-durable-queues.md).

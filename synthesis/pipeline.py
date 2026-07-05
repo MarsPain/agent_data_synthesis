@@ -604,4 +604,17 @@ def _run_foundation_quality_gates(
         if result.get("message_id") != "msg_maya_project_update":
             raise FoundationGateError("search_phone_messages smoke check returned unexpected data")
         return
+    if domain_id == "workspace_tasks_fixture":
+        if "search_workspace_items" not in names:
+            raise FoundationGateError("search_workspace_items is not registered")
+        try:
+            result = registry.execute(
+                "search_workspace_items",
+                {"query": "launch", "kind": "task"},
+            )
+        except Exception as exc:
+            raise FoundationGateError(f"search_workspace_items smoke check failed: {exc}") from exc
+        if result.get("item_id") != "task_launch_plan":
+            raise FoundationGateError("search_workspace_items smoke check returned unexpected data")
+        return
     raise FoundationGateError(f"unsupported pipeline domain: {domain_id}")

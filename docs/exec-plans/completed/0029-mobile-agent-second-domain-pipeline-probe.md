@@ -54,7 +54,7 @@ path.
 - [../completed/0021-candidate-isolation-and-deterministic-merge.md](../completed/0021-candidate-isolation-and-deterministic-merge.md)
   established candidate-local environment, registry, and adapter isolation, but
   only for contacts.
-- [../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../deferred/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
+- [../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md](../indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
   says a second domain environment is one valid pressure signal for the future
   runtime boundary. This plan supplies that evidence without extracting a
   separate runtime package.

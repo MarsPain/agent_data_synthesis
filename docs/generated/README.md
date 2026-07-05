@@ -15,4 +15,5 @@ Use `uv run python main.py --use-llm --output-dir artifacts/foundation-llm` to e
 ## Architecture Pressure Notes
 
 - [Mobile domain pipeline pressure](mobile-domain-pipeline-pressure.md): second-domain evidence from the synthetic phone messages/reminders/draft-reply probe.
+- [Domain pack third domain pressure](domain-pack-third-domain-pressure.md): third-domain evidence from the deterministic workspace tasks fixture and domain-pack contract scan.
 - [AWM runtime extraction readiness](awm-runtime-extraction-readiness.md): Phase E evidence-backed extraction decision for the internal runtime kernel.

@@ -11,11 +11,14 @@ from synthesis.tasks import CandidateTask
 SUPPORTED_TASK_CONTRACT_DOMAINS = (
     "contacts_fixture",
     "mobile_messages_fixture",
+    "workspace_tasks_fixture",
 )
 SUPPORTED_EXPECTED_STATE_CHECKS = (
     "contact_followup",
     "mobile_reminder",
     "mobile_draft_reply",
+    "workspace_task",
+    "workspace_comment",
 )
 
 _UNSAFE_KEY_FRAGMENTS = (
@@ -243,12 +246,16 @@ def _domain_id(candidate: CandidateTask) -> str:
     raw_domain = candidate.constraints.get("domain")
     if raw_domain == "mobile_messages_fixture":
         return "mobile_messages_fixture"
+    if raw_domain == "workspace_tasks_fixture":
+        return "workspace_tasks_fixture"
     if raw_domain in {"contacts", "contacts_fixture"}:
         return "contacts_fixture"
     if raw_domain is not None:
         return str(raw_domain)
     if any(str(seed_id).startswith("seed_mobile") for seed_id in candidate.seed_ids):
         return "mobile_messages_fixture"
+    if any(str(seed_id).startswith("seed_workspace") for seed_id in candidate.seed_ids):
+        return "workspace_tasks_fixture"
     return "contacts_fixture"
 
 
@@ -260,6 +267,8 @@ def _task_type(candidate: CandidateTask, domain_id: str) -> str:
         return "contact_lookup"
     if domain_id == "mobile_messages_fixture":
         return "mobile_message_lookup"
+    if domain_id == "workspace_tasks_fixture":
+        return "workspace_item_lookup"
     return "unknown_task"
 
 

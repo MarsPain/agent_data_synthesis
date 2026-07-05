@@ -284,6 +284,65 @@ class FoundationCliTest(unittest.TestCase):
             )
             self.assertEqual(report["decision"]["status"], "passed")
 
+    def test_workspace_profile_can_write_replay_and_reward_label_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "workspace-tasks-fixture"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/workspace-tasks-fixture.json",
+                    "--write-episode-replay-report",
+                    "--write-reward-label-report",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            replay_report = json.loads(
+                (output_dir / "episode_replay_report.json").read_text(encoding="utf-8")
+            )
+            reward_report = json.loads(
+                (output_dir / "reward_label_report.json").read_text(encoding="utf-8")
+            )
+            labels = [
+                json.loads(line)
+                for line in (output_dir / "reward_labels.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+
+            self.assertEqual(manifest["run_profile"]["seed"]["domain"], "workspace_tasks_fixture")
+            self.assertEqual(manifest["artifacts"]["episodes"], "episodes.jsonl")
+            self.assertEqual(
+                manifest["artifacts"]["episode_replay_report"],
+                "episode_replay_report.json",
+            )
+            self.assertEqual(manifest["artifacts"]["reward_labels"], "reward_labels.jsonl")
+            self.assertEqual(
+                manifest["artifacts"]["reward_label_report"],
+                "reward_label_report.json",
+            )
+            self.assertEqual(
+                replay_report["observed"]["runtime_counts"]["workspace_tasks_fixture"],
+                4,
+            )
+            self.assertEqual(
+                reward_report["observed"]["runtime_counts"]["workspace_tasks_fixture"],
+                4,
+            )
+            self.assertTrue(
+                all(label["runtime_id"] == "workspace_tasks_fixture" for label in labels)
+            )
+            self.assertTrue(all(label["label_status"] == "usable" for label in labels))
+
     def test_mobile_profile_can_write_domain_aware_evaluation_and_profile_decision_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "mobile-agent-fixture"

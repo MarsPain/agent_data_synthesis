@@ -22,6 +22,12 @@ from synthesis.seeds import DomainSeed
 from synthesis.tasks import CandidateTask, generate_foundation_candidates
 from synthesis.tools import ToolRegistry, build_contact_tool_registry
 from synthesis.verification import ExactAnswerVerifier
+from synthesis.workspace_environment import WorkspaceTasksEnvironment
+from synthesis.workspace_tasks import (
+    generate_workspace_fixture_candidates,
+    scripted_workspace_solution_policy,
+)
+from synthesis.workspace_tools import build_workspace_tool_registry
 
 
 CandidateGenerator = Callable[[DomainSeed], list[CandidateTask]]
@@ -77,6 +83,13 @@ def build_domain_pipeline_bundle(
             output_dir,
             source_provenance=source_provenance,
             mobile_environment_input=domain_environment_input,
+            enable_mcp_adapter=enable_mcp_adapter,
+        )
+    if seed.domain == "workspace_tasks_fixture":
+        if domain_environment_input is not None:
+            raise ValueError("workspace_tasks_fixture source input is not supported")
+        return _build_workspace_bundle(
+            output_dir,
             enable_mcp_adapter=enable_mcp_adapter,
         )
     raise ValueError(f"Unsupported seed domain: {seed.domain}")
@@ -199,6 +212,35 @@ def _build_mobile_bundle(
         candidate_generator=generate_mobile_fixture_candidates,
         policy_generator=scripted_mobile_solution_policy,
         registry_builder=build_mobile_tool_registry,
+        adapter_shim=adapter_shim,
+    )
+
+
+def _build_workspace_bundle(
+    output_dir: Path,
+    *,
+    enable_mcp_adapter: bool,
+) -> DomainPipelineBundle:
+    environment = WorkspaceTasksEnvironment.create_fixture(output_dir)
+    registry = build_workspace_tool_registry(environment)
+    session = RuntimeSession(
+        environment=environment,
+        registry=registry,
+        registry_builder=build_workspace_tool_registry,
+    )
+    adapter_shim = _build_local_adapter_shim(
+        "workspace_tasks_fixture",
+        session,
+        enable_mcp_adapter=enable_mcp_adapter,
+    )
+    return DomainPipelineBundle(
+        domain_id="workspace_tasks_fixture",
+        environment=environment,
+        registry=registry,
+        verifier=ExactAnswerVerifier(),
+        candidate_generator=generate_workspace_fixture_candidates,
+        policy_generator=scripted_workspace_solution_policy,
+        registry_builder=build_workspace_tool_registry,
         adapter_shim=adapter_shim,
     )
 

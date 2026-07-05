@@ -97,7 +97,7 @@ Extraction is eligible only if all of these are true:
 ## File Map
 
 - Add `docs/generated/awm-runtime-extraction-readiness.md`.
-- Modify `docs/exec-plans/deferred/0025-awm-runtime-phase-index.md`
+- Modify `docs/exec-plans/indexes/0025-awm-runtime-phase-index.md`
   with the readiness decision.
 - Modify `docs/PLANS.md` and `docs/exec-plans/deferred/README.md` if Phase F
   becomes the next deferred or active plan.

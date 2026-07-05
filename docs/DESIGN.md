@@ -30,7 +30,7 @@ events; domain importers convert admitted content into typed environment inputs
 for contacts or mobile without teaching the central pipeline each domain schema.
 
 Environment implementations also satisfy the extracted `awm_runtime` boundary.
-Contacts and mobile fixtures expose `runtime_metadata_v1`,
+Contacts, mobile, and workspace fixtures expose `runtime_metadata_v1`,
 checkpoint/restore, and candidate-local rebuild semantics through the same
 protocol while keeping domain-owned SQLite state and tool behavior inside their
 domain modules. Runtime sessions wrap those environments with tool registries
@@ -57,10 +57,10 @@ separate internal records.
 
 Owns policy execution, tool call recording, observation capture, retries, and error classification.
 
-Scripted contacts and mobile policies can consume internal policy hints while
-the public policy-generator API continues to accept `CandidateTask`. This keeps
-deterministic trajectories stable while reducing coupling between generator-era
-task records and execution planning.
+Scripted contacts, mobile, and workspace policies can consume internal policy
+hints while the public policy-generator API continues to accept
+`CandidateTask`. This keeps deterministic trajectories stable while reducing
+coupling between generator-era task records and execution planning.
 
 Execution can now derive internal `episode_log_v1` evidence from existing
 trajectories. Episode evidence records ordered actions, observations,
@@ -199,7 +199,13 @@ Start local and deterministic:
 - Domain packs remain responsible for domain state, domain tools, scripted
   policies, verifiers, source import semantics, and rebuild seeds. Consumer
   modules may read descriptor capability facts, but they should not learn
-  contacts/mobile business rules or hard-code domain-specific runtime branches.
+  contacts, mobile, or workspace business rules or hard-code domain-specific
+  runtime branches. The third-domain workspace probe preserves this contract:
+  workspace-specific code lives in workspace-owned modules plus domain
+  registration/evaluation/run-profile boundaries, while replay, reward labels,
+  episode quality, rollouts, adapters, profile decisions, and dataset release
+  continue to consume descriptors, runtime sessions, action envelopes, and
+  generic report fields.
 - Task-intent, policy-hint, expected-outcome, and expected-state contracts are
   internal only. They de-risk future reward/RL/runtime consumers without
   changing `CandidateTask.export()`, `samples.jsonl`, `rejections.jsonl`, or

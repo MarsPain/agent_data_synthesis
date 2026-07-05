@@ -8,6 +8,7 @@ from pathlib import Path
 from synthesis.environments import ContactEnvironment
 from synthesis.mobile_environment import MobileMessagesEnvironment
 from synthesis.tools import build_contact_tool_registry
+from synthesis.workspace_environment import WorkspaceTasksEnvironment
 
 
 class RuntimeContractTest(unittest.TestCase):
@@ -83,12 +84,16 @@ class RuntimeContractTest(unittest.TestCase):
                         descriptor_metadata=metadata,
                     )
 
-    def test_default_runtime_registry_contains_contacts_and_mobile_descriptors(self) -> None:
+    def test_default_runtime_registry_contains_contacts_mobile_and_workspace_descriptors(self) -> None:
         from synthesis.runtime import registered_runtime_ids, runtime_descriptor
 
         self.assertEqual(
             registered_runtime_ids(),
-            ("contacts_fixture", "mobile_messages_fixture"),
+            (
+                "contacts_fixture",
+                "mobile_messages_fixture",
+                "workspace_tasks_fixture",
+            ),
         )
 
         contacts = runtime_descriptor("contacts_fixture")
@@ -104,6 +109,13 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertTrue(mobile.supports_reward_labels)
         self.assertTrue(mobile.supports_local_adapter)
         self.assertIn("create_phone_reminder", mobile.state_changing_tools)
+
+        workspace = runtime_descriptor("workspace_tasks_fixture")
+        self.assertEqual(workspace.domain_id, "workspace_tasks_fixture")
+        self.assertTrue(workspace.supports_episode_replay)
+        self.assertTrue(workspace.supports_reward_labels)
+        self.assertTrue(workspace.supports_local_adapter)
+        self.assertIn("create_workspace_task", workspace.state_changing_tools)
 
     def test_runtime_registry_rejects_unknown_and_duplicate_runtime_ids(self) -> None:
         from synthesis.contracts import ContractValidationError
@@ -231,15 +243,35 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertNotIn("device_id", serialized)
         self.assertNotIn(tmpdir.lower(), serialized)
 
-    def test_contacts_and_mobile_satisfy_shared_runtime_protocol(self) -> None:
+    def test_workspace_fixture_exports_sanitized_runtime_metadata(self) -> None:
+        from synthesis.contracts import validate_runtime_metadata_record
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            environment = WorkspaceTasksEnvironment.create_fixture(Path(tmpdir))
+            metadata = environment.runtime_metadata().export()
+
+        validate_runtime_metadata_record(metadata)
+        serialized = json.dumps(metadata, sort_keys=True).lower()
+        self.assertEqual(metadata["schema_version"], "runtime_metadata_v1")
+        self.assertEqual(metadata["runtime_id"], "workspace_tasks_fixture")
+        self.assertEqual(metadata["environment_id"], "workspace_tasks_fixture")
+        self.assertEqual(metadata["state_backend"], "sqlite")
+        self.assertEqual(metadata["checkpoint_strategy"], "sqlite_backup")
+        self.assertEqual(metadata["reset_recipe"], "sqlite_fixture:workspace_tasks")
+        self.assertNotIn("raw_payload", serialized)
+        self.assertNotIn("profile", serialized)
+        self.assertNotIn(tmpdir.lower(), serialized)
+
+    def test_contacts_mobile_and_workspace_satisfy_shared_runtime_protocol(self) -> None:
         from synthesis.runtime import EnvironmentRuntime
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             contacts = ContactEnvironment.create_fixture(root / "contacts")
             mobile = MobileMessagesEnvironment.create_fixture(root / "mobile")
+            workspace = WorkspaceTasksEnvironment.create_fixture(root / "workspace")
 
-            for environment in (contacts, mobile):
+            for environment in (contacts, mobile, workspace):
                 with self.subTest(runtime_id=environment.environment_id):
                     self.assertIsInstance(environment, EnvironmentRuntime)
                     checkpoint = environment.checkpoint()
@@ -282,6 +314,32 @@ class RuntimeContractTest(unittest.TestCase):
                     title="Send the project update",
                     due_at="tomorrow 9 AM",
                     source_message_id="msg_maya_project_update",
+                )
+            )
+
+            workspace = WorkspaceTasksEnvironment.create_fixture(root / "workspace")
+            workspace_checkpoint = workspace.checkpoint()
+            workspace.create_workspace_task(
+                project_id="project_alpha",
+                title="Prepare launch checklist",
+                priority="high",
+                due_label="this_week",
+            )
+            self.assertTrue(
+                workspace.has_workspace_task(
+                    project_id="project_alpha",
+                    title="Prepare launch checklist",
+                    priority="high",
+                    due_label="this_week",
+                )
+            )
+            workspace.restore_checkpoint(workspace_checkpoint)
+            self.assertFalse(
+                workspace.has_workspace_task(
+                    project_id="project_alpha",
+                    title="Prepare launch checklist",
+                    priority="high",
+                    due_label="this_week",
                 )
             )
 

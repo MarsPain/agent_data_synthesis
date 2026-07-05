@@ -126,7 +126,7 @@ domain bundle shape. They should be narrowed so domain-pack rebuild stays in
   if shared runtime-session behavior changes.
 - Update `docs/generated/awm-runtime-extraction-readiness.md` after
   implementation evidence is available.
-- Update `docs/exec-plans/deferred/0025-awm-runtime-phase-index.md` when this
+- Update `docs/exec-plans/indexes/0025-awm-runtime-phase-index.md` when this
   phase completes or when the readiness review decision changes.
 
 ## Implementation Tasks

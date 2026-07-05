@@ -169,6 +169,11 @@
   import-leak tests, compatibility re-export tests, source import guardrails,
   and representative contacts/mobile replay plus reward-label soak runs before
   new domain work leans on the boundary.
+- Add a third deterministic domain pack after the runtime extraction soak.
+  Implemented in plan 0037 with a fixture-only workspace tasks domain,
+  workspace tools, deterministic candidates and policies, runtime descriptor
+  support, replay/reward/rollout/adapter/evaluation evidence, run-profile and
+  CLI coverage, and no workspace-specific allowlists in core consumers.
 - Add async orchestration with durable queues.
 - Evaluate Ray-style distributed workers if throughput requires it.
 - Add monitoring dashboards and cost controls.
