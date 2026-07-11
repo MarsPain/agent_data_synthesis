@@ -4,6 +4,7 @@ Completed implementation plans will be moved here with completion dates and vali
 
 ## Completed
 
+- [0042-representative-scale-and-downstream-evidence](0042-representative-scale-and-downstream-evidence.md): diagnostic-versus-representative three-domain aggregation and a hash-locked, sanitized external benchmark evidence exchange without release-admission changes. Completed on 2026-07-11.
 - [0041-release-review-resolution-and-evidence](0041-release-review-resolution-and-evidence.md): separate deterministic redacted release-review queue, explicit local reviewer decisions, aggregate offline resolution evidence, and controlled post-pack manifest attachment without changing sample or release admission. Completed on 2026-07-11.
 - [0040-multi-domain-release-candidate-evidence-hardening](0040-multi-domain-release-candidate-evidence-hardening.md): domain-aware release completeness, release-candidate evidence across contacts, mobile messages, and workspace tasks, and end-to-end release artifact smoke coverage. Completed on 2026-07-05.
 - [0001-foundation](0001-foundation.md): local executable foundation. Completed on 2026-05-16.

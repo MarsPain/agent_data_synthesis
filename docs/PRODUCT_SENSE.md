@@ -22,7 +22,11 @@ Accepted verified trajectories per dollar at a target quality floor.
 - Aggregate release-review minutes recorded for explicit review resolutions.
   This is workflow-cost evidence only, not a measure of reviewer effectiveness
   or downstream model gain.
-- Downstream model improvement on held-out Agent tasks.
+- Downstream model improvement on held-out Agent tasks. Plan 0042 can record a
+  hash-bound baseline/treatment metric comparison supplied by an external
+  system. An `improved` result means only that the declared treatment beats the
+  declared baseline on the protocol's primary metric; it does not prove
+  causality, general model quality, or dataset releaseability.
 
 ## Non-Goals
 

@@ -150,9 +150,12 @@ Model and training-system identities are opaque sanitized aliases.
 
 ## Downstream Benchmark Result Contract
 
-`downstream_benchmark_result.json` uses
-`schema_version: downstream_benchmark_result_v1`. It is an explicit external
-input validated against one benchmark bundle. It records:
+An external system supplies a strict
+`downstream_benchmark_observation_v1` record containing benchmark/release/suite
+identity, evaluation seed ids and sample count, and baseline/treatment aliases
+plus metric values. The repository validates that observation against one
+bundle and writes `downstream_benchmark_result.json` with
+`schema_version: downstream_benchmark_result_v1`. The normalized result records:
 
 - benchmark id, dataset version, release id, and release-pack hash;
 - opaque baseline and treatment model aliases;
@@ -186,7 +189,7 @@ contracts and does not own candidate generation or admission.
 ### `synthesis.downstream_benchmark`
 
 Owns benchmark bundle construction, release-pack verification integration,
-external-result validation, delta calculation, sanitized failure reporting, and
+external-observation validation, delta calculation, sanitized failure reporting, and
 deterministic writing. It does not invoke a trainer or model API.
 
 ### Standalone scripts

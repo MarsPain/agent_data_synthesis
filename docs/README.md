@@ -37,7 +37,7 @@
 - [PLANS.md](PLANS.md): canonical execution-plan lifecycle and current state.
 - [exec-plans/active/README.md](exec-plans/active/README.md): active plan bucket.
 - [exec-plans/completed/README.md](exec-plans/completed/README.md): complete accepted-plan history.
-- [exec-plans/completed/0041-release-review-resolution-and-evidence.md](exec-plans/completed/0041-release-review-resolution-and-evidence.md): latest completed plan.
+- [exec-plans/completed/0042-representative-scale-and-downstream-evidence.md](exec-plans/completed/0042-representative-scale-and-downstream-evidence.md): latest completed plan for three-domain scale evidence and downstream benchmark exchange.
 - [exec-plans/deferred/README.md](exec-plans/deferred/README.md): deferred plans and activation triggers.
 - [exec-plans/indexes/README.md](exec-plans/indexes/README.md): historical plan indexes and decision records.
 - [exec-plans/tech-debt/README.md](exec-plans/tech-debt/README.md): technical debt bucket.

@@ -1,0 +1,18 @@
+{
+  "campaign_label": "three_domain_diagnostic",
+  "runs": [
+    {
+      "artifact_dir": "contacts_fixture",
+      "domain_id": "contacts_fixture"
+    },
+    {
+      "artifact_dir": "mobile_messages_fixture",
+      "domain_id": "mobile_messages_fixture"
+    },
+    {
+      "artifact_dir": "workspace_tasks_fixture",
+      "domain_id": "workspace_tasks_fixture"
+    }
+  ],
+  "schema_version": "representative_scale_campaign_v1"
+}

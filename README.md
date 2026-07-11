@@ -75,6 +75,11 @@ uv run python scripts/verify_dataset_release.py --output-dir artifacts/workspace
 
 # After a reviewer creates the local, reviewer-owned decisions file
 uv run python scripts/write_review_resolution.py --output-dir artifacts/mobile-release-candidate --decisions-path artifacts/mobile-release-candidate/review_decisions.jsonl
+
+# Offline representative-scale and downstream evidence exchange
+uv run python scripts/write_representative_scale_evidence.py --campaign artifacts/evidence-campaign/campaign.json --output artifacts/evidence-campaign/representative_scale_evidence.json
+uv run python scripts/write_downstream_benchmark_bundle.py --release-pack artifacts/contacts-release/dataset_release_pack.json --benchmark-suite-id external_agent_tasks_v1 --benchmark-suite-version external_agent_tasks_v1 --output artifacts/downstream/downstream_benchmark_bundle.json
+uv run python scripts/import_downstream_benchmark_result.py --bundle artifacts/downstream/downstream_benchmark_bundle.json --observation artifacts/downstream/external_observation.json --output artifacts/downstream/downstream_benchmark_result.json
 ```
 
 ## Optional LLM Configuration
@@ -104,6 +109,9 @@ paths, and host paths must not be written to public artifacts.
   `dataset_release_pack.json`, `release_quality_audit.json`,
   `dataset_release_card.md`, opt-in `release_review_queue.jsonl`, and offline
   `review_resolution_report.json`.
+- Standalone evidence artifacts: `representative_scale_evidence.json`,
+  `downstream_benchmark_bundle.json`, and `downstream_benchmark_result.json`.
+  They consume existing artifacts and are never written by default `main.py`.
 - Review artifacts are separate: candidate rejection routing uses
   `review_queue.jsonl`; release-audit watch signals use
   `release_review_queue.jsonl`. The local reviewer-owned

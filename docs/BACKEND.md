@@ -402,6 +402,15 @@ Remaining async work is still deferred to plan 0014: durable queues, workers,
 cancellation, resumption, external process isolation, and per-role async cost
 tracking are not active runtime behavior.
 
+Plan 0042 adds two offline consumers above the artifact boundary.
+`synthesis.scale_evidence` validates and aggregates exactly one contacts,
+mobile-messages, and workspace-tasks run without rerunning generation or
+persisting input directories. `synthesis.downstream_benchmark` verifies an
+existing release pack, binds its bytes to a fixed external benchmark protocol,
+and normalizes a strict external observation. Neither consumer mutates
+manifests, release admission, profile decisions, review evidence, or release
+pack bytes, and neither invokes a trainer, model API, worker, or scheduler.
+
 Plan 0030 stabilizes the internal runtime contract before any AWM runtime
 package extraction. Contacts and mobile environments now satisfy the same
 runtime protocol and accepted executions can produce sanitized in-memory episode

@@ -34,6 +34,9 @@ uv run python main.py --run-profile tests/fixtures/run_profiles/profile-local-wo
 uv run python main.py --write-episode-replay-report --output-dir artifacts/foundation-episode-replay
 uv run python main.py --write-reward-label-report --output-dir artifacts/foundation-reward-labels
 uv run python main.py --run-profile tests/fixtures/run_profiles/foundation-scale-probe-25.json --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --output-dir artifacts/foundation-scale-probe
+uv run python scripts/write_representative_scale_evidence.py --campaign artifacts/evidence-campaign/campaign.json --output artifacts/evidence-campaign/representative_scale_evidence.json
+uv run python scripts/write_downstream_benchmark_bundle.py --release-pack artifacts/contacts-release/dataset_release_pack.json --benchmark-suite-id external_agent_tasks_v1 --benchmark-suite-version external_agent_tasks_v1 --output artifacts/downstream/downstream_benchmark_bundle.json
+uv run python scripts/import_downstream_benchmark_result.py --bundle artifacts/downstream/downstream_benchmark_bundle.json --observation artifacts/downstream/external_observation.json --output artifacts/downstream/downstream_benchmark_result.json
 uv run python scripts/validate_docs.py
 uv run python -m unittest
 ```
@@ -44,4 +47,4 @@ uv run python -m unittest
 - The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
 - No implementation plan is currently active; lifecycle state is tracked in
   [docs/PLANS.md](docs/PLANS.md).
-- Latest completed work is documented in [docs/exec-plans/completed/0041-release-review-resolution-and-evidence.md](docs/exec-plans/completed/0041-release-review-resolution-and-evidence.md).
+- Latest completed work is documented in [docs/exec-plans/completed/0042-representative-scale-and-downstream-evidence.md](docs/exec-plans/completed/0042-representative-scale-and-downstream-evidence.md).

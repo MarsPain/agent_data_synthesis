@@ -100,6 +100,13 @@
   controlled post-pack manifest append. This workflow does not change sample or
   release admission. Semantic duplicate detection and async orchestration remain
   behind their existing volume/runtime activation triggers.
+- Add representative scale and downstream benchmark evidence before selecting
+  the next infrastructure or data-quality feature. Implemented in plan 0042
+  with diagnostic-versus-representative classification, three-domain evidence
+  aggregation, a hash-locked external benchmark bundle, and sanitized result
+  import. No real representative campaign was supplied during implementation,
+  so plan 0014 and TD-0002 remain deferred; domain-representative generation and
+  evidence is the next candidate direction.
 - Add profile-attributed quality and comparison before async orchestration.
   Implemented in plan 0019 with sanitized per-record profile attribution,
   profile quality slices, and parent-comparison visibility over profile slice

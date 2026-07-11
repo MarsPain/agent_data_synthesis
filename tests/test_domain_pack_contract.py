@@ -58,6 +58,7 @@ class DomainPackContractTest(unittest.TestCase):
             "synthesis/contracts.py",
             "synthesis/domain_sources.py",
             "synthesis/pipeline.py",
+            "synthesis/scale_evidence.py",
             "synthesis/task_contracts.py",
             "synthesis/verification.py",
         }

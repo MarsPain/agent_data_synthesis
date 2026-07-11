@@ -7,7 +7,195 @@ import unittest
 from pathlib import Path
 
 
+_DIGEST = "a" * 64
+
+
+def _valid_scale_campaign() -> dict[str, object]:
+    return {
+        "schema_version": "representative_scale_campaign_v1",
+        "campaign_label": "three_domain_scale",
+        "runs": [
+            {"domain_id": domain, "artifact_dir": f"runs/{domain}"}
+            for domain in (
+                "contacts_fixture",
+                "mobile_messages_fixture",
+                "workspace_tasks_fixture",
+            )
+        ],
+    }
+
+
+def _valid_scale_evidence() -> dict[str, object]:
+    artifact_names = (
+        "manifest",
+        "quality_report",
+        "evaluation_report",
+        "profile_decision_report",
+        "dataset_release_report",
+        "release_quality_audit",
+    )
+    domains = []
+    for domain in (
+        "contacts_fixture",
+        "mobile_messages_fixture",
+        "workspace_tasks_fixture",
+    ):
+        domains.append(
+            {
+                "domain_id": domain,
+                "dataset_version": f"dataset_{domain}",
+                "profile_id": f"profile_{domain}",
+                "generation_mode": "foundation_fixture",
+                "classification": "diagnostic_only",
+                "artifacts": {
+                    name: {"path": f"{name}.json", "sha256": _DIGEST}
+                    for name in artifact_names
+                },
+                "observed": {
+                    "total_candidates": 5,
+                    "accepted": 5,
+                    "rejected": 0,
+                    "runtime_seconds": 0.1,
+                    "exact_duplicate_count": 0,
+                    "exact_duplicate_rate": 0.0,
+                    "heldout_status": "passed",
+                    "mvp_quality_floor_status": "passed",
+                    "profile_promotion_status": "passed",
+                    "dataset_release_status": "passed",
+                    "release_audit_status": "watch",
+                    "review_resolution_status": None,
+                },
+                "signals": [],
+            }
+        )
+    return {
+        "schema_version": "representative_scale_evidence_v1",
+        "campaign_id": "scale_campaign:sha256:" + _DIGEST,
+        "campaign_label": "three_domain_scale",
+        "domains": domains,
+        "review": {
+            "queued": 0,
+            "resolved": 0,
+            "pending": 0,
+            "confirmed_issue": 0,
+            "accepted_risk": 0,
+            "needs_follow_up": 0,
+            "review_minutes": 0,
+        },
+        "triggered_signals": [],
+        "decision": {
+            "recommendation": "expand_representative_evidence",
+            "reasons": ["no representative domain run is available"],
+        },
+    }
+
+
+def _valid_benchmark_bundle() -> dict[str, object]:
+    return {
+        "schema_version": "downstream_benchmark_bundle_v1",
+        "benchmark_id": "downstream_benchmark:sha256:" + _DIGEST,
+        "dataset_version": "dataset_release",
+        "release": {
+            "release_id": "dataset_release:sha256:" + _DIGEST,
+            "pack_path": "dataset_release_pack.json",
+            "pack_sha256": _DIGEST,
+            "pack_byte_count": 123,
+        },
+        "protocol": {
+            "protocol_version": "external_agent_benchmark_v1",
+            "benchmark_suite_id": "external_agent_tasks_v1",
+            "benchmark_suite_version": "external_agent_tasks_v1",
+            "baseline_arm": "baseline_without_synthetic_release",
+            "treatment_arm": "treatment_with_exact_synthetic_release",
+            "primary_metric": "task_success_rate",
+            "metrics": [{"name": "task_success_rate", "direction": "higher_is_better", "minimum": 0.0, "maximum": 1.0}],
+            "result_schema_version": "downstream_benchmark_result_v1",
+        },
+        "claims": {
+            "changes_release_admission": False,
+            "proves_causality": False,
+            "trains_inside_repository": False,
+        },
+    }
+
+
+def _valid_benchmark_observation() -> dict[str, object]:
+    return {
+        "schema_version": "downstream_benchmark_observation_v1",
+        "benchmark_id": "downstream_benchmark:sha256:" + _DIGEST,
+        "dataset_version": "dataset_release",
+        "release_id": "dataset_release:sha256:" + _DIGEST,
+        "release_pack_sha256": _DIGEST,
+        "benchmark_suite_id": "external_agent_tasks_v1",
+        "benchmark_suite_version": "external_agent_tasks_v1",
+        "evaluation_seed_ids": ["seed_01", "seed_02"],
+        "evaluation_sample_count": 200,
+        "arms": {
+            "baseline": {"model_alias": "baseline_model", "metrics": {"task_success_rate": 0.61}},
+            "treatment": {"model_alias": "treatment_model", "metrics": {"task_success_rate": 0.67}},
+        },
+    }
+
+
+def _valid_benchmark_result() -> dict[str, object]:
+    observation = _valid_benchmark_observation()
+    return {
+        **observation,
+        "schema_version": "downstream_benchmark_result_v1",
+        "comparison": {"primary_metric": "task_success_rate", "absolute_delta": 0.06, "relative_delta": 0.06 / 0.61},
+        "decision": {"status": "improved", "reasons": ["treatment primary metric exceeds baseline primary metric"]},
+    }
+
+
+def _scale_evidence_with_duplicate_rate(rate: float) -> dict[str, object]:
+    record = _valid_scale_evidence()
+    record["domains"][0]["observed"]["exact_duplicate_rate"] = rate
+    return record
+
+
 class DatasetContractTest(unittest.TestCase):
+    def test_plan_0042_evidence_contracts_accept_minimal_valid_records(self) -> None:
+        from synthesis.contracts import (
+            validate_downstream_benchmark_bundle_record,
+            validate_downstream_benchmark_observation_record,
+            validate_downstream_benchmark_result_record,
+            validate_representative_scale_campaign_record,
+            validate_representative_scale_evidence_record,
+        )
+
+        validate_representative_scale_campaign_record(_valid_scale_campaign())
+        validate_representative_scale_evidence_record(_valid_scale_evidence())
+        validate_downstream_benchmark_bundle_record(_valid_benchmark_bundle())
+        validate_downstream_benchmark_observation_record(_valid_benchmark_observation())
+        validate_downstream_benchmark_result_record(_valid_benchmark_result())
+
+    def test_plan_0042_evidence_contracts_reject_malformed_records(self) -> None:
+        from synthesis.contracts import (
+            ContractValidationError,
+            validate_downstream_benchmark_bundle_record,
+            validate_downstream_benchmark_observation_record,
+            validate_downstream_benchmark_result_record,
+            validate_representative_scale_campaign_record,
+            validate_representative_scale_evidence_record,
+        )
+
+        cases = (
+            (validate_representative_scale_campaign_record, {**_valid_scale_campaign(), "extra": True}),
+            (validate_representative_scale_campaign_record, {**_valid_scale_campaign(), "campaign_label": "/tmp/campaign"}),
+            (validate_representative_scale_campaign_record, {**_valid_scale_campaign(), "runs": [_valid_scale_campaign()["runs"][0]] * 3}),
+            (validate_representative_scale_evidence_record, {**_valid_scale_evidence(), "campaign_id": "bad"}),
+            (validate_representative_scale_evidence_record, {**_valid_scale_evidence(), "decision": {"recommendation": "train_model_now", "reasons": ["bad"]}}),
+            (validate_representative_scale_evidence_record, _scale_evidence_with_duplicate_rate(1.1)),
+            (validate_downstream_benchmark_bundle_record, {**_valid_benchmark_bundle(), "claims": {"changes_release_admission": "false", "proves_causality": False, "trains_inside_repository": False}}),
+            (validate_downstream_benchmark_observation_record, {**_valid_benchmark_observation(), "evaluation_seed_ids": ["seed_01", "seed_01"]}),
+            (validate_downstream_benchmark_observation_record, {**_valid_benchmark_observation(), "arms": {**_valid_benchmark_observation()["arms"], "baseline": {"model_alias": "baseline", "metrics": {"task_success_rate": float("nan")}}}}),
+            (validate_downstream_benchmark_result_record, {**_valid_benchmark_result(), "decision": {"status": "maybe", "reasons": ["bad"]}}),
+        )
+        for validator, record in cases:
+            with self.subTest(validator=validator.__name__):
+                with self.assertRaises(ContractValidationError):
+                    validator(record)
+
     def test_sample_contract_requires_lineage_seed_ids(self) -> None:
         from synthesis.contracts import ContractValidationError, validate_sample_record
 

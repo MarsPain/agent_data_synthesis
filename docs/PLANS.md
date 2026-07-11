@@ -10,8 +10,7 @@
 
 ## Active
 
-No active implementation plan is selected. New work should be activated only
-after its scope and trigger are documented here.
+- None.
 
 ## Deferred
 
@@ -31,6 +30,7 @@ after its scope and trigger are documented here.
 
 ## Completed
 
+- [0042-representative-scale-and-downstream-evidence](exec-plans/completed/0042-representative-scale-and-downstream-evidence.md): added diagnostic-versus-representative three-domain aggregation and a hash-locked, sanitized external benchmark evidence exchange without changing generation or release admission. Completed on 2026-07-11.
 - [0041-release-review-resolution-and-evidence](exec-plans/completed/0041-release-review-resolution-and-evidence.md): added a separate deterministic redacted release-review queue, explicit local reviewer decisions, aggregate offline resolution evidence, and controlled post-pack manifest attachment without changing sample or release admission. Completed on 2026-07-11.
 - [0040-multi-domain-release-candidate-evidence-hardening](exec-plans/completed/0040-multi-domain-release-candidate-evidence-hardening.md): hardened release-candidate evidence across contacts, mobile messages, and workspace tasks with explicit domain-aware release completeness thresholds, mobile/workspace release profiles, deterministic sample-floor coverage, and end-to-end release artifact smoke tests. Completed on 2026-07-05.
 - [0001-foundation](exec-plans/completed/0001-foundation.md): established the local executable framework foundation. Completed on 2026-05-16.

@@ -172,6 +172,40 @@ REVIEW_RESOLUTION_STATUSES = {
     "pending_review",
     "insufficient_evidence",
 }
+REPRESENTATIVE_SCALE_CLASSIFICATIONS = {
+    "representative",
+    "diagnostic_only",
+    "insufficient_evidence",
+}
+REPRESENTATIVE_SCALE_RECOMMENDATIONS = {
+    "activate_async_orchestration",
+    "activate_semantic_duplicate_detection",
+    "improve_generation_or_verification",
+    "expand_representative_evidence",
+    "no_change_recommended",
+}
+DOWNSTREAM_BENCHMARK_STATUSES = {
+    "improved",
+    "no_detected_improvement",
+    "insufficient_evidence",
+}
+REPRESENTATIVE_SCALE_DOMAINS = (
+    "contacts_fixture",
+    "mobile_messages_fixture",
+    "workspace_tasks_fixture",
+)
+REPRESENTATIVE_SCALE_SIGNALS = {
+    "async_orchestration",
+    "semantic_duplicate_detection",
+}
+DOWNSTREAM_RESULT_REASON_CODES = {
+    "observation_unreadable_or_malformed",
+    "benchmark_identity_mismatch",
+    "release_identity_mismatch",
+    "benchmark_suite_mismatch",
+    "evaluation_identity_invalid",
+    "metric_contract_invalid",
+}
 REVIEW_ITEM_ID_RE = re.compile(r"^review_item:sha256:[0-9a-f]{64}$")
 REVIEWER_ALIAS_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 SAFE_REVIEW_SAMPLE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
@@ -1090,6 +1124,283 @@ def _validate_episode_transition(raw: object, expected_index: int) -> None:
             transition.get("error"),
             f"episode_log.transitions.{expected_index - 1}.error",
         )
+
+
+def validate_representative_scale_campaign_record(record: Mapping[str, Any]) -> None:
+    campaign = _require_mapping(record, "representative_scale_campaign")
+    _require_exact_keys(campaign, {"schema_version", "campaign_label", "runs"}, "representative_scale_campaign")
+    if campaign.get("schema_version") != "representative_scale_campaign_v1":
+        raise ContractValidationError("schema_version is unsupported")
+    campaign_label = _require_non_empty_string(campaign.get("campaign_label"), "campaign_label")
+    if not ARTIFACT_ID_RE.fullmatch(campaign_label):
+        raise ContractValidationError("campaign_label must be a safe identifier")
+    runs = _require_sequence(campaign.get("runs"), "runs")
+    if len(runs) != len(REPRESENTATIVE_SCALE_DOMAINS):
+        raise ContractValidationError("runs must contain exactly three supported domains")
+    seen: set[str] = set()
+    for index, raw_run in enumerate(runs):
+        run = _require_mapping(raw_run, f"runs.{index}")
+        _require_exact_keys(run, {"domain_id", "artifact_dir"}, f"runs.{index}")
+        domain_id = _require_non_empty_string(run.get("domain_id"), f"runs.{index}.domain_id")
+        if domain_id not in REPRESENTATIVE_SCALE_DOMAINS or domain_id in seen:
+            raise ContractValidationError(f"runs.{index}.domain_id is unsupported or duplicated")
+        seen.add(domain_id)
+        _validate_safe_input_path(
+            _require_non_empty_string(run.get("artifact_dir"), f"runs.{index}.artifact_dir"),
+            f"runs.{index}.artifact_dir",
+        )
+    if seen != set(REPRESENTATIVE_SCALE_DOMAINS):
+        raise ContractValidationError("runs must contain every supported domain")
+
+
+def validate_representative_scale_evidence_record(record: Mapping[str, Any]) -> None:
+    evidence = _require_mapping(record, "representative_scale_evidence")
+    _require_exact_keys(
+        evidence,
+        {"schema_version", "campaign_id", "campaign_label", "domains", "review", "triggered_signals", "decision"},
+        "representative_scale_evidence",
+    )
+    if evidence.get("schema_version") != "representative_scale_evidence_v1":
+        raise ContractValidationError("schema_version is unsupported")
+    _validate_canonical_digest_id(evidence.get("campaign_id"), "campaign_id", "scale_campaign")
+    campaign_label = _require_non_empty_string(evidence.get("campaign_label"), "campaign_label")
+    if not ARTIFACT_ID_RE.fullmatch(campaign_label):
+        raise ContractValidationError("campaign_label must be a safe identifier")
+    domains = _require_sequence(evidence.get("domains"), "domains")
+    if len(domains) != len(REPRESENTATIVE_SCALE_DOMAINS):
+        raise ContractValidationError("domains must contain exactly three entries")
+    for index, (raw_domain, expected_domain) in enumerate(zip(domains, REPRESENTATIVE_SCALE_DOMAINS)):
+        _validate_scale_domain_summary(raw_domain, index=index, expected_domain=expected_domain)
+    review = _require_mapping(evidence.get("review"), "review")
+    review_keys = {"queued", "resolved", "pending", "confirmed_issue", "accepted_risk", "needs_follow_up", "review_minutes"}
+    _require_exact_keys(review, review_keys, "review")
+    for key in review_keys:
+        _require_int(review.get(key), f"review.{key}")
+    signals = _require_sequence(evidence.get("triggered_signals"), "triggered_signals")
+    _validate_unique_vocabulary(signals, REPRESENTATIVE_SCALE_SIGNALS, "triggered_signals")
+    decision = _require_mapping(evidence.get("decision"), "decision")
+    _require_exact_keys(decision, {"recommendation", "reasons"}, "decision")
+    recommendation = _require_non_empty_string(decision.get("recommendation"), "decision.recommendation")
+    if recommendation not in REPRESENTATIVE_SCALE_RECOMMENDATIONS:
+        raise ContractValidationError("decision.recommendation is unsupported")
+    _require_non_empty_string_sequence(decision.get("reasons"), "decision.reasons")
+
+
+def validate_downstream_benchmark_bundle_record(record: Mapping[str, Any]) -> None:
+    bundle = _require_mapping(record, "downstream_benchmark_bundle")
+    _require_exact_keys(bundle, {"schema_version", "benchmark_id", "dataset_version", "release", "protocol", "claims"}, "downstream_benchmark_bundle")
+    if bundle.get("schema_version") != "downstream_benchmark_bundle_v1":
+        raise ContractValidationError("schema_version is unsupported")
+    _validate_canonical_digest_id(bundle.get("benchmark_id"), "benchmark_id", "downstream_benchmark")
+    dataset_version = _require_non_empty_string(bundle.get("dataset_version"), "dataset_version")
+    release = _require_mapping(bundle.get("release"), "release")
+    _require_exact_keys(release, {"release_id", "pack_path", "pack_sha256", "pack_byte_count"}, "release")
+    _validate_release_id(release.get("release_id"), dataset_version, "release.release_id")
+    _validate_artifact_filename(_require_non_empty_string(release.get("pack_path"), "release.pack_path"), "release.pack_path")
+    _validate_plain_sha256(release.get("pack_sha256"), "release.pack_sha256")
+    _require_int(release.get("pack_byte_count"), "release.pack_byte_count")
+    _validate_benchmark_protocol(bundle.get("protocol"))
+    claims = _require_mapping(bundle.get("claims"), "claims")
+    claim_keys = {"changes_release_admission", "proves_causality", "trains_inside_repository"}
+    _require_exact_keys(claims, claim_keys, "claims")
+    for key in claim_keys:
+        if claims.get(key) is not False:
+            raise ContractValidationError(f"claims.{key} must be false")
+
+
+def validate_downstream_benchmark_observation_record(record: Mapping[str, Any]) -> None:
+    _validate_benchmark_observation_fields(record, schema_version="downstream_benchmark_observation_v1")
+
+
+def validate_downstream_benchmark_result_record(record: Mapping[str, Any]) -> None:
+    result = _require_mapping(record, "downstream_benchmark_result")
+    base_keys = _benchmark_observation_keys()
+    _require_exact_keys(result, base_keys | {"comparison", "decision"}, "downstream_benchmark_result")
+    if result.get("schema_version") != "downstream_benchmark_result_v1":
+        raise ContractValidationError("schema_version is unsupported")
+    decision = _require_mapping(result.get("decision"), "decision")
+    _require_exact_keys(decision, {"status", "reasons"}, "decision")
+    status = _require_non_empty_string(decision.get("status"), "decision.status")
+    if status not in DOWNSTREAM_BENCHMARK_STATUSES:
+        raise ContractValidationError("decision.status is unsupported")
+    reasons = _require_non_empty_string_sequence(decision.get("reasons"), "decision.reasons")
+    if status == "insufficient_evidence":
+        _validate_benchmark_identity_fields(result)
+        if result.get("evaluation_seed_ids") != [] or result.get("evaluation_sample_count") != 0:
+            raise ContractValidationError("insufficient_evidence evaluation identity must be empty")
+        if result.get("arms") is not None or result.get("comparison") is not None:
+            raise ContractValidationError("insufficient_evidence arms and comparison must be null")
+        if len(reasons) != 1 or reasons[0] not in DOWNSTREAM_RESULT_REASON_CODES:
+            raise ContractValidationError("insufficient_evidence reason is unsupported")
+        return
+    _validate_benchmark_observation_fields(result, schema_version="downstream_benchmark_result_v1", allow_result_keys=True)
+    comparison = _require_mapping(result.get("comparison"), "comparison")
+    _require_exact_keys(comparison, {"primary_metric", "absolute_delta", "relative_delta"}, "comparison")
+    _require_non_empty_string(comparison.get("primary_metric"), "comparison.primary_metric")
+    if not math.isfinite(_require_number(comparison.get("absolute_delta"), "comparison.absolute_delta")):
+        raise ContractValidationError("comparison.absolute_delta must be finite")
+    relative = comparison.get("relative_delta")
+    if relative is not None and not math.isfinite(_require_number(relative, "comparison.relative_delta")):
+        raise ContractValidationError("comparison.relative_delta must be finite")
+
+
+def _benchmark_observation_keys() -> set[str]:
+    return {"schema_version", "benchmark_id", "dataset_version", "release_id", "release_pack_sha256", "benchmark_suite_id", "benchmark_suite_version", "evaluation_seed_ids", "evaluation_sample_count", "arms"}
+
+
+def _validate_benchmark_observation_fields(record: Mapping[str, Any], *, schema_version: str, allow_result_keys: bool = False) -> None:
+    observation = _require_mapping(record, "downstream_benchmark_observation")
+    if not allow_result_keys:
+        _require_exact_keys(observation, _benchmark_observation_keys(), "downstream_benchmark_observation")
+    if observation.get("schema_version") != schema_version:
+        raise ContractValidationError("schema_version is unsupported")
+    dataset_version = _validate_benchmark_identity_fields(observation)
+    _validate_release_id(observation.get("release_id"), dataset_version, "release_id")
+    seeds = _require_sequence(observation.get("evaluation_seed_ids"), "evaluation_seed_ids")
+    if not seeds:
+        raise ContractValidationError("evaluation_seed_ids must not be empty")
+    seen: set[str] = set()
+    for index, seed in enumerate(seeds):
+        value = _require_non_empty_string(seed, f"evaluation_seed_ids.{index}")
+        if value in seen:
+            raise ContractValidationError("evaluation_seed_ids must be unique")
+        seen.add(value)
+    _require_positive_int(observation.get("evaluation_sample_count"), "evaluation_sample_count")
+    arms = _require_mapping(observation.get("arms"), "arms")
+    _require_exact_keys(arms, {"baseline", "treatment"}, "arms")
+    for arm_name in ("baseline", "treatment"):
+        arm = _require_mapping(arms.get(arm_name), f"arms.{arm_name}")
+        _require_exact_keys(arm, {"model_alias", "metrics"}, f"arms.{arm_name}")
+        alias = _require_non_empty_string(arm.get("model_alias"), f"arms.{arm_name}.model_alias")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", alias):
+            raise ContractValidationError(f"arms.{arm_name}.model_alias is unsafe")
+        metrics = _require_mapping(arm.get("metrics"), f"arms.{arm_name}.metrics")
+        if not metrics:
+            raise ContractValidationError(f"arms.{arm_name}.metrics must not be empty")
+        for metric_name, raw_value in metrics.items():
+            _require_non_empty_string(metric_name, f"arms.{arm_name}.metrics.name")
+            value = _require_number(raw_value, f"arms.{arm_name}.metrics.{metric_name}")
+            if not math.isfinite(value):
+                raise ContractValidationError(f"arms.{arm_name}.metrics.{metric_name} must be finite")
+
+
+def _validate_benchmark_identity_fields(record: Mapping[str, Any]) -> str:
+    _validate_canonical_digest_id(record.get("benchmark_id"), "benchmark_id", "downstream_benchmark")
+    dataset_version = _require_non_empty_string(record.get("dataset_version"), "dataset_version")
+    _validate_release_id(record.get("release_id"), dataset_version, "release_id")
+    _validate_plain_sha256(record.get("release_pack_sha256"), "release_pack_sha256")
+    _require_non_empty_string(record.get("benchmark_suite_id"), "benchmark_suite_id")
+    _require_non_empty_string(record.get("benchmark_suite_version"), "benchmark_suite_version")
+    return dataset_version
+
+
+def _validate_benchmark_protocol(raw: object) -> None:
+    protocol = _require_mapping(raw, "protocol")
+    keys = {"protocol_version", "benchmark_suite_id", "benchmark_suite_version", "baseline_arm", "treatment_arm", "primary_metric", "metrics", "result_schema_version"}
+    _require_exact_keys(protocol, keys, "protocol")
+    if protocol.get("protocol_version") != "external_agent_benchmark_v1" or protocol.get("result_schema_version") != "downstream_benchmark_result_v1":
+        raise ContractValidationError("protocol version is unsupported")
+    for key in ("benchmark_suite_id", "benchmark_suite_version", "primary_metric"):
+        _require_non_empty_string(protocol.get(key), f"protocol.{key}")
+    if protocol.get("baseline_arm") != "baseline_without_synthetic_release" or protocol.get("treatment_arm") != "treatment_with_exact_synthetic_release":
+        raise ContractValidationError("protocol arms are unsupported")
+    metrics = _require_sequence(protocol.get("metrics"), "protocol.metrics")
+    if not metrics:
+        raise ContractValidationError("protocol.metrics must not be empty")
+    names: set[str] = set()
+    for index, raw_metric in enumerate(metrics):
+        metric = _require_mapping(raw_metric, f"protocol.metrics.{index}")
+        _require_exact_keys(metric, {"name", "direction", "minimum", "maximum"}, f"protocol.metrics.{index}")
+        name = _require_non_empty_string(metric.get("name"), f"protocol.metrics.{index}.name")
+        if name in names:
+            raise ContractValidationError("protocol metric names must be unique")
+        names.add(name)
+        if metric.get("direction") not in {"higher_is_better", "lower_is_better"}:
+            raise ContractValidationError(f"protocol.metrics.{index}.direction is unsupported")
+        minimum = _require_number(metric.get("minimum"), f"protocol.metrics.{index}.minimum")
+        maximum = _require_number(metric.get("maximum"), f"protocol.metrics.{index}.maximum")
+        if not math.isfinite(minimum) or not math.isfinite(maximum) or minimum > maximum:
+            raise ContractValidationError(f"protocol.metrics.{index} bounds are invalid")
+    if protocol.get("primary_metric") not in names:
+        raise ContractValidationError("protocol.primary_metric must name a protocol metric")
+
+
+def _validate_scale_domain_summary(raw: object, *, index: int, expected_domain: str) -> None:
+    domain = _require_mapping(raw, f"domains.{index}")
+    keys = {"domain_id", "dataset_version", "profile_id", "generation_mode", "classification", "artifacts", "observed", "signals"}
+    _require_exact_keys(domain, keys, f"domains.{index}")
+    if domain.get("domain_id") != expected_domain:
+        raise ContractValidationError("domains must use the fixed supported order")
+    for key in ("dataset_version", "profile_id", "generation_mode"):
+        _require_non_empty_string(domain.get(key), f"domains.{index}.{key}")
+    if domain.get("classification") not in REPRESENTATIVE_SCALE_CLASSIFICATIONS:
+        raise ContractValidationError(f"domains.{index}.classification is unsupported")
+    artifacts = _require_mapping(domain.get("artifacts"), f"domains.{index}.artifacts")
+    required = {"manifest", "quality_report", "evaluation_report", "profile_decision_report", "dataset_release_report", "release_quality_audit"}
+    if not required.issubset(artifacts) or set(artifacts) - required - {"review_resolution_report"}:
+        raise ContractValidationError(f"domains.{index}.artifacts has invalid keys")
+    for name, raw_artifact in artifacts.items():
+        artifact = _require_mapping(raw_artifact, f"domains.{index}.artifacts.{name}")
+        _require_exact_keys(artifact, {"path", "sha256"}, f"domains.{index}.artifacts.{name}")
+        _validate_artifact_filename(_require_non_empty_string(artifact.get("path"), f"domains.{index}.artifacts.{name}.path"), f"domains.{index}.artifacts.{name}.path")
+        _validate_plain_sha256(artifact.get("sha256"), f"domains.{index}.artifacts.{name}.sha256")
+    observed = _require_mapping(domain.get("observed"), f"domains.{index}.observed")
+    observed_keys = {"total_candidates", "accepted", "rejected", "runtime_seconds", "exact_duplicate_count", "exact_duplicate_rate", "heldout_status", "mvp_quality_floor_status", "profile_promotion_status", "dataset_release_status", "release_audit_status", "review_resolution_status"}
+    _require_exact_keys(observed, observed_keys, f"domains.{index}.observed")
+    for key in ("total_candidates", "accepted", "rejected", "exact_duplicate_count"):
+        _require_int(observed.get(key), f"domains.{index}.observed.{key}")
+    runtime_seconds = _require_number(observed.get("runtime_seconds"), f"domains.{index}.observed.runtime_seconds")
+    if not math.isfinite(runtime_seconds) or runtime_seconds < 0:
+        raise ContractValidationError(f"domains.{index}.observed.runtime_seconds is invalid")
+    duplicate_rate = _require_number(observed.get("exact_duplicate_rate"), f"domains.{index}.observed.exact_duplicate_rate")
+    _validate_rate(duplicate_rate, f"domains.{index}.observed.exact_duplicate_rate")
+    if observed.get("accepted") + observed.get("rejected") != observed.get("total_candidates"):
+        raise ContractValidationError(f"domains.{index}.observed counts must sum to total_candidates")
+    for key in ("heldout_status", "mvp_quality_floor_status", "profile_promotion_status", "dataset_release_status", "release_audit_status"):
+        _require_non_empty_string(observed.get(key), f"domains.{index}.observed.{key}")
+    review_status = observed.get("review_resolution_status")
+    if review_status is not None:
+        _require_non_empty_string(review_status, f"domains.{index}.observed.review_resolution_status")
+    _validate_unique_vocabulary(_require_sequence(domain.get("signals"), f"domains.{index}.signals"), REPRESENTATIVE_SCALE_SIGNALS, f"domains.{index}.signals")
+
+
+def _validate_unique_vocabulary(values: Sequence[Any], allowed: set[str], path: str) -> None:
+    seen: set[str] = set()
+    for index, raw_value in enumerate(values):
+        value = _require_non_empty_string(raw_value, f"{path}.{index}")
+        if value not in allowed or value in seen:
+            raise ContractValidationError(f"{path}.{index} is unsupported or duplicated")
+        seen.add(value)
+
+
+def _validate_safe_input_path(value: str, path: str) -> None:
+    normalized = value.replace("\\", "/")
+    parts = normalized.split("/")
+    if value.startswith(("/", "~")) or re.match(r"^[A-Za-z]:", value) or ".." in parts or "" in parts:
+        raise ContractValidationError(f"{path} must be a safe relative path")
+
+
+def _validate_plain_sha256(raw: object, path: str) -> str:
+    value = _require_non_empty_string(raw, path)
+    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+        raise ContractValidationError(f"{path} must be a lowercase sha256 digest")
+    return value
+
+
+def _validate_canonical_digest_id(raw: object, path: str, prefix: str) -> None:
+    value = _require_non_empty_string(raw, path)
+    expected = f"{prefix}:sha256:"
+    if not value.startswith(expected):
+        raise ContractValidationError(f"{path} must use the {expected} prefix")
+    _validate_plain_sha256(value.removeprefix(expected), path)
+
+
+def _validate_release_id(raw: object, dataset_version: str, path: str) -> None:
+    value = _require_non_empty_string(raw, path)
+    prefix = f"{dataset_version}:sha256:"
+    if not value.startswith(prefix):
+        raise ContractValidationError(f"{path} must match dataset_version")
+    _validate_plain_sha256(value.removeprefix(prefix), path)
 
 
 def validate_profile_decision_report_record(record: Mapping[str, Any]) -> None:

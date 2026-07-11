@@ -1155,3 +1155,34 @@ any provider call until a later plan explicitly enables and validates their
 output contracts.
 
 Do not store `AGENT_DATA_API_KEY` or raw provider credentials in manifests, samples, trajectory logs, or rejected-candidate diagnostics.
+
+## Representative Scale And Downstream Evidence
+
+`representative_scale_campaign_v1` is an input-only object containing a label
+and exactly one relative artifact directory for each supported domain. The
+directory values are resolved relative to the campaign file and are never
+persisted. `representative_scale_evidence_v1` stores fixed-order sanitized
+domain summaries, artifact basenames and SHA-256 digests, existing
+profile-decision signals, aggregate review counts, and one conservative
+recommendation. `foundation_fixture`, `deterministic_scale_probe`,
+`mobile_fixture`, and `workspace_fixture` are always `diagnostic_only`;
+malformed or identity-mismatched evidence is `insufficient_evidence`. Only a
+consistent approved non-fixture mode can be `representative` and support an
+activation recommendation.
+
+`downstream_benchmark_bundle_v1` can be built only from a standalone-verified
+`dataset_release_pack_v1`. It binds the release id, pack basename, raw-byte
+digest and byte count to `external_agent_benchmark_v1`, including declared
+metric directions and bounds. External systems return the exact-key
+`downstream_benchmark_observation_v1` identity/evaluation/arms object.
+`downstream_benchmark_result_v1` preserves valid sanitized observations and
+adds deterministic absolute/relative deltas plus `improved`,
+`no_detected_improvement`, or `insufficient_evidence`. Invalid observations
+retain only bundle identities, empty evaluation identity, null arms/comparison,
+and one fixed reason code. Trainer logs, commands, credentials, paths, arbitrary
+metadata, and raw external payloads are never copied.
+
+These standalone artifacts are not attached to the manifest. Fixture-scale
+results are diagnostic, external training remains outside this repository, and
+downstream status never changes sample admission, profile promotion, dataset
+release, review resolution, or release-pack bytes.

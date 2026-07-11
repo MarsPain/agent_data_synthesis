@@ -1,0 +1,28 @@
+{
+  "arms": {
+    "baseline": {
+      "metrics": {
+        "task_success_rate": 0.61
+      },
+      "model_alias": "baseline_model_a"
+    },
+    "treatment": {
+      "metrics": {
+        "task_success_rate": 0.67
+      },
+      "model_alias": "treatment_model_a"
+    }
+  },
+  "benchmark_id": "downstream_benchmark:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "benchmark_suite_id": "external_agent_tasks_v1",
+  "benchmark_suite_version": "external_agent_tasks_v1",
+  "dataset_version": "dataset_release",
+  "evaluation_sample_count": 200,
+  "evaluation_seed_ids": [
+    "seed_01",
+    "seed_02"
+  ],
+  "release_id": "dataset_release:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "release_pack_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "schema_version": "downstream_benchmark_observation_v1"
+}
