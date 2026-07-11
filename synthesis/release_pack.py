@@ -12,7 +12,9 @@ from synthesis.contracts import (
     validate_dataset_release_pack_record,
     validate_dataset_release_report_record,
     validate_manifest_record,
+    validate_review_resolution_report_record,
 )
+from synthesis.datasets import serialize_dataset_manifest
 
 
 DATASET_RELEASE_PACK_SCHEMA_VERSION = "dataset_release_pack_v1"
@@ -53,14 +55,18 @@ class ReleaseArtifactRecord:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class PostPackManifestAssessment:
+    status: str
+
+
 def build_dataset_release_pack(
     *,
     manifest_path: Path,
     dataset_release_report_path: Path,
 ) -> dict[str, object]:
     base_dir = manifest_path.parent
-    manifest = _load_mapping(manifest_path, "manifest")
-    validate_manifest_record(manifest)
+    manifest = _load_canonical_manifest(manifest_path)
     dataset_release_report = _load_mapping(
         dataset_release_report_path,
         "dataset_release_report",
@@ -135,6 +141,7 @@ def verify_dataset_release_pack(pack_path: Path) -> dict[str, object]:
         )
 
     reasons: list[str] = []
+    allowed_post_pack_review_attachment = False
     base_dir = pack_path.parent
     artifacts = _mapping_value(pack.get("artifacts"), "artifacts")
     for key, raw_artifact in artifacts.items():
@@ -153,6 +160,24 @@ def verify_dataset_release_pack(pack_path: Path) -> dict[str, object]:
             artifact.get("byte_count"),
             f"artifacts.{key}.byte_count",
         )
+        manifest_mismatch = (
+            current.sha256 != expected_hash
+            or current.byte_count != expected_byte_count
+        )
+        if key == "manifest" and manifest_mismatch:
+            assessment = _assess_post_pack_review_resolution_attachment(
+                manifest_path=artifact_path,
+                expected_hash=expected_hash,
+                expected_byte_count=expected_byte_count,
+                pack_dataset_version=_string_value(
+                    pack.get("dataset_version"),
+                    "dataset_version",
+                ),
+            )
+            if assessment.status == "allowed":
+                allowed_post_pack_review_attachment = True
+                continue
+            reasons.append(assessment.status)
         if current.sha256 != expected_hash:
             reasons.append(f"{key} hash mismatch")
         if current.byte_count != expected_byte_count:
@@ -170,6 +195,16 @@ def verify_dataset_release_pack(pack_path: Path) -> dict[str, object]:
     reasons.extend(_release_evidence_failure_reasons(pack, referenced))
     if reasons:
         return _verification_result("failed", reasons)
+    if allowed_post_pack_review_attachment:
+        return _verification_result(
+            "passed",
+            [
+                "allowed: manifest raw hash mismatch was exempted for a controlled "
+                "post-pack review resolution attachment",
+                "all other referenced artifacts match recorded hashes",
+                "release evidence is internally consistent",
+            ],
+        )
     return _verification_result(
         "passed",
         [
@@ -186,6 +221,70 @@ def _artifact_record(path: Path) -> ReleaseArtifactRecord:
         sha256="sha256:" + hashlib.sha256(data).hexdigest(),
         byte_count=len(data),
     )
+
+
+def _assess_post_pack_review_resolution_attachment(
+    *,
+    manifest_path: Path,
+    expected_hash: str,
+    expected_byte_count: int,
+    pack_dataset_version: str,
+) -> PostPackManifestAssessment:
+    try:
+        manifest = _load_mapping(manifest_path, "manifest")
+        validate_manifest_record(manifest)
+        manifest_dataset_version = _string_value(
+            manifest.get("dataset_version"),
+            "manifest.dataset_version",
+        )
+        if manifest_dataset_version != pack_dataset_version:
+            return PostPackManifestAssessment("uncontrolled_manifest_drift")
+
+        artifacts = dict(
+            _mapping_value(manifest.get("artifacts"), "manifest.artifacts")
+        )
+    except (
+        OSError,
+        json.JSONDecodeError,
+        ContractValidationError,
+        RecursionError,
+        ValueError,
+    ):
+        return PostPackManifestAssessment("invalid_manifest")
+
+    if "review_resolution_report" not in artifacts:
+        return PostPackManifestAssessment("uncontrolled_manifest_drift")
+    report_name = _string_value(
+        artifacts.pop("review_resolution_report"),
+        "manifest.artifacts.review_resolution_report",
+    )
+    try:
+        report = _load_mapping(
+            manifest_path.parent / report_name,
+            "review_resolution_report",
+        )
+        validate_review_resolution_report_record(report)
+    except (
+        OSError,
+        json.JSONDecodeError,
+        ContractValidationError,
+        RecursionError,
+        ValueError,
+    ):
+        return PostPackManifestAssessment("invalid_review_report")
+
+    if report.get("dataset_version") != pack_dataset_version:
+        return PostPackManifestAssessment("review_dataset_mismatch")
+
+    original_manifest = dict(manifest)
+    original_manifest["artifacts"] = artifacts
+    original_bytes = serialize_dataset_manifest(original_manifest).encode("utf-8")
+    if (
+        len(original_bytes) == expected_byte_count
+        and "sha256:" + hashlib.sha256(original_bytes).hexdigest() == expected_hash
+    ):
+        return PostPackManifestAssessment("allowed")
+    return PostPackManifestAssessment("uncontrolled_manifest_drift")
 
 
 def _release_artifact_paths(
@@ -385,6 +484,15 @@ def _verification_result(status: str, reasons: list[str]) -> dict[str, object]:
 def _load_mapping(path: Path, label: str) -> Mapping[str, Any]:
     record = json.loads(path.read_text(encoding="utf-8"))
     return _mapping_value(record, label)
+
+
+def _load_canonical_manifest(path: Path) -> Mapping[str, Any]:
+    raw_manifest = path.read_text(encoding="utf-8")
+    manifest = _mapping_value(json.loads(raw_manifest), "manifest")
+    validate_manifest_record(manifest)
+    if raw_manifest != serialize_dataset_manifest(manifest):
+        raise ValueError("manifest must use canonical dataset manifest serialization")
+    return manifest
 
 
 def _mapping_value(raw: object, path: str) -> Mapping[str, Any]:

@@ -11,6 +11,47 @@ from unittest.mock import patch
 
 
 class FoundationCliTest(unittest.TestCase):
+    def _run_release_review_pipeline(
+        self,
+        output_dir: Path,
+        *,
+        profile_path: str = "tests/fixtures/run_profiles/mobile-messages-release-candidate.json",
+        write_release_pack: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
+        command = [
+            sys.executable,
+            "main.py",
+            "--run-profile",
+            profile_path,
+            "--write-evaluation-report",
+            "--write-profile-decision-report",
+            "--write-dataset-release-report",
+            "--write-release-quality-audit",
+            "--write-release-review-queue",
+        ]
+        if write_release_pack:
+            command.append("--write-dataset-release-pack")
+        command.extend(["--output-dir", str(output_dir)])
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                "AGENT_DATA_API_KEY": "release-review-credential-sentinel",
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result
+
+    def _snapshot_output_artifacts(self, output_dir: Path) -> dict[str, bytes]:
+        return {
+            path.name: path.read_bytes()
+            for path in output_dir.iterdir()
+            if path.is_file() and path.name != "manifest.json"
+        }
+
     def _assert_release_artifact_set(self, output_dir: Path) -> None:
         manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
         for artifact_name in (
@@ -97,6 +138,8 @@ class FoundationCliTest(unittest.TestCase):
             self.assertFalse((output_dir / "dataset_release_pack.json").exists())
             self.assertFalse((output_dir / "release_quality_audit.json").exists())
             self.assertFalse((output_dir / "dataset_release_card.md").exists())
+            self.assertFalse((output_dir / "release_review_queue.jsonl").exists())
+            self.assertFalse((output_dir / "review_resolution_report.json").exists())
             manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["dataset_version"], "dataset_cli_test")
             self.assertNotIn("episodes", manifest["artifacts"])
@@ -108,6 +151,8 @@ class FoundationCliTest(unittest.TestCase):
             self.assertNotIn("dataset_release_pack", manifest["artifacts"])
             self.assertNotIn("release_quality_audit", manifest["artifacts"])
             self.assertNotIn("dataset_release_card", manifest["artifacts"])
+            self.assertNotIn("release_review_queue", manifest["artifacts"])
+            self.assertNotIn("review_resolution_report", manifest["artifacts"])
             self.assertIn("accepted=2", result.stdout)
             self.assertNotIn("reward_label_report=", result.stdout)
             self.assertNotIn("secret-test-key", result.stdout)
@@ -1580,6 +1625,624 @@ class FoundationCliTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self._assert_release_artifact_set(output_dir)
 
+    def test_mobile_release_candidate_can_write_release_review_queue(self) -> None:
+        from synthesis.contracts import validate_release_review_item_record
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "mobile-release-review"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/mobile-messages-release-candidate.json",
+                    "--write-evaluation-report",
+                    "--write-profile-decision-report",
+                    "--write-dataset-release-report",
+                    "--write-release-quality-audit",
+                    "--write-release-review-queue",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            audit = json.loads(
+                (output_dir / "release_quality_audit.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(audit["decision"]["status"], "watch")
+            queue_path = output_dir / "release_review_queue.jsonl"
+            self.assertTrue(queue_path.exists(), result.stdout)
+            queue = [
+                json.loads(line)
+                for line in queue_path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertGreater(len(queue), 0)
+            for item in queue:
+                validate_release_review_item_record(item)
+            manifest = json.loads(
+                (output_dir / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                manifest["artifacts"]["release_review_queue"],
+                "release_review_queue.jsonl",
+            )
+            self.assertIn("release_review_queue=", result.stdout)
+
+    def test_clear_release_quality_audit_does_not_write_review_queue(self) -> None:
+        from main import _write_release_review_queue_for_audit
+        from synthesis.release_quality import (
+            ReleaseQualityThresholds,
+            build_release_quality_audit,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "clear-release-review"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/mobile-messages-release-candidate.json",
+                    "--write-evaluation-report",
+                    "--write-profile-decision-report",
+                    "--write-dataset-release-report",
+                    "--write-release-quality-audit",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            manifest_path = output_dir / "manifest.json"
+            audit_path = output_dir / "release_quality_audit.json"
+            audit = build_release_quality_audit(
+                manifest_path=manifest_path,
+                thresholds=ReleaseQualityThresholds(
+                    small_release_watch_accepted_samples=1,
+                    max_largest_task_type_share=1.0,
+                    max_largest_tool_combination_share=1.0,
+                    max_exact_duplicate_rate=1.0,
+                    max_duplicate_family_size=100,
+                ),
+            )
+            self.assertEqual(audit["decision"]["status"], "clear")
+            for status in ("clear", "blocked", "insufficient_evidence"):
+                with self.subTest(status=status):
+                    non_watch_audit = json.loads(json.dumps(audit))
+                    non_watch_audit["decision"] = {
+                        "status": status,
+                        "reasons": ["no release review work is required"],
+                        "triggered_by": [],
+                    }
+                    audit_path.write_text(
+                        json.dumps(
+                            non_watch_audit,
+                            ensure_ascii=False,
+                            indent=2,
+                            sort_keys=True,
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+
+                    queue_path = _write_release_review_queue_for_audit(
+                        manifest_path=manifest_path,
+                        audit_path=audit_path,
+                    )
+
+                    self.assertIsNone(queue_path)
+                    self.assertFalse(
+                        (output_dir / "release_review_queue.jsonl").exists()
+                    )
+                    manifest = json.loads(
+                        manifest_path.read_text(encoding="utf-8")
+                    )
+                    self.assertNotIn("release_review_queue", manifest["artifacts"])
+
+    def test_offline_review_resolution_writes_sanitized_insufficient_report_for_malformed_decisions(
+        self,
+    ) -> None:
+        from synthesis.contracts import validate_review_resolution_report_record
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "malformed-review-resolution"
+            self._run_release_review_pipeline(output_dir)
+            artifacts_before = self._snapshot_output_artifacts(output_dir)
+            decisions_path = output_dir / "review_decisions.jsonl"
+            decisions_path.write_text("{raw-secret-decision\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/write_review_resolution.py",
+                    "--output-dir",
+                    str(output_dir),
+                    "--decisions-path",
+                    str(decisions_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            report_path = output_dir / "review_resolution_report.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            validate_review_resolution_report_record(report)
+            self.assertEqual(report["decision"]["status"], "insufficient_evidence")
+            exported = report_path.read_text(encoding="utf-8")
+            self.assertNotIn("raw-secret-decision", exported)
+            manifest = json.loads(
+                (output_dir / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                manifest["artifacts"]["review_resolution_report"],
+                "review_resolution_report.json",
+            )
+            for artifact_name, content in artifacts_before.items():
+                self.assertEqual((output_dir / artifact_name).read_bytes(), content)
+            self.assertIn("review_resolution_report=", result.stdout)
+
+    def test_offline_review_resolution_requires_valid_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_dir = Path(tmpdir)
+            cases = (("absent", None), ("malformed", "{raw-manifest\n"))
+            for case_name, manifest_content in cases:
+                with self.subTest(case_name=case_name):
+                    output_dir = base_dir / case_name
+                    output_dir.mkdir()
+                    if manifest_content is not None:
+                        (output_dir / "manifest.json").write_text(
+                            manifest_content,
+                            encoding="utf-8",
+                        )
+
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            "scripts/write_review_resolution.py",
+                            "--output-dir",
+                            str(output_dir),
+                            "--decisions-path",
+                            str(output_dir / "review_decisions.jsonl"),
+                        ],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertIn("manifest is absent or malformed", result.stderr)
+                    self.assertNotIn("raw-manifest", result.stderr)
+                    self.assertFalse(
+                        (output_dir / "review_resolution_report.json").exists()
+                    )
+
+    def test_offline_review_resolution_reports_pending_decisions(self) -> None:
+        from synthesis.contracts import validate_review_resolution_report_record
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "pending-review-resolution"
+            self._run_release_review_pipeline(
+                output_dir,
+                profile_path=(
+                    "tests/fixtures/run_profiles/foundation-scale-probe-25.json"
+                ),
+            )
+            queue = [
+                json.loads(line)
+                for line in (output_dir / "release_review_queue.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            self.assertGreaterEqual(len(queue), 2)
+            decisions_path = output_dir / "review_decisions.jsonl"
+            decision = {
+                "schema_version": "review_decision_v1",
+                "review_item_id": queue[0]["review_item_id"],
+                "outcome": "accepted_risk",
+                "reason_code": "sufficient_context",
+                "review_minutes": 3,
+                "reviewer_alias": "quality_reviewer_1",
+                "decided_at": "1970-01-01T00:00:00Z",
+            }
+            decisions_path.write_text(
+                json.dumps(decision, ensure_ascii=True, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/write_review_resolution.py",
+                    "--output-dir",
+                    str(output_dir),
+                    "--decisions-path",
+                    str(decisions_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            report = json.loads(
+                (output_dir / "review_resolution_report.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            validate_review_resolution_report_record(report)
+            self.assertEqual(report["decision"]["status"], "pending_review")
+            self.assertEqual(report["counts"]["queued"], len(queue))
+            self.assertEqual(report["counts"]["resolved"], 1)
+            self.assertEqual(report["counts"]["pending"], len(queue) - 1)
+            self.assertEqual(report["counts"]["accepted_risk"], 1)
+            self.assertEqual(report["counts"]["review_minutes"], 3)
+
+    def test_offline_review_resolution_reports_completed_decisions(self) -> None:
+        from synthesis.contracts import validate_review_resolution_report_record
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "completed-review-resolution"
+            self._run_release_review_pipeline(output_dir)
+            queue = [
+                json.loads(line)
+                for line in (output_dir / "release_review_queue.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            artifacts_before = self._snapshot_output_artifacts(output_dir)
+            decisions = [
+                {
+                    "schema_version": "review_decision_v1",
+                    "review_item_id": item["review_item_id"],
+                    "outcome": "confirmed_issue",
+                    "reason_code": "insufficient_diversity",
+                    "review_minutes": 2,
+                    "reviewer_alias": "quality_reviewer_1",
+                    "decided_at": "1970-01-01T00:00:00Z",
+                }
+                for item in queue
+            ]
+            decisions_path = output_dir / "review_decisions.jsonl"
+            decisions_path.write_text(
+                "".join(
+                    json.dumps(decision, ensure_ascii=True, sort_keys=True) + "\n"
+                    for decision in decisions
+                ),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/write_review_resolution.py",
+                    "--output-dir",
+                    str(output_dir),
+                    "--decisions-path",
+                    str(decisions_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            report_path = output_dir / "review_resolution_report.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            validate_review_resolution_report_record(report)
+            self.assertEqual(report["decision"]["status"], "reviewed")
+            self.assertEqual(report["counts"]["queued"], len(queue))
+            self.assertEqual(report["counts"]["resolved"], len(queue))
+            self.assertEqual(report["counts"]["pending"], 0)
+            self.assertEqual(report["counts"]["confirmed_issue"], len(queue))
+            self.assertEqual(report["counts"]["review_minutes"], 2 * len(queue))
+            self.assertNotIn("quality_reviewer_1", report_path.read_text(encoding="utf-8"))
+            for artifact_name, content in artifacts_before.items():
+                self.assertEqual((output_dir / artifact_name).read_bytes(), content)
+
+    def test_three_domain_review_resolution_preserves_release_evidence(self) -> None:
+        from synthesis.contracts import (
+            validate_release_review_item_record,
+            validate_review_resolution_report_record,
+        )
+
+        profiles = {
+            "contacts": "tests/fixtures/run_profiles/foundation-release-candidate.json",
+            "mobile": "tests/fixtures/run_profiles/mobile-messages-release-candidate.json",
+            "workspace": "tests/fixtures/run_profiles/workspace-tasks-release-candidate.json",
+        }
+        outcome_evidence = (
+            ("accepted_risk", "sufficient_context"),
+            ("confirmed_issue", "insufficient_diversity"),
+            ("needs_follow_up", "requires_more_data"),
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for domain, profile_path in profiles.items():
+                with self.subTest(domain=domain):
+                    output_dir = Path(tmpdir) / domain
+                    self._run_release_review_pipeline(
+                        output_dir,
+                        profile_path=profile_path,
+                        write_release_pack=True,
+                    )
+                    audit = json.loads(
+                        (output_dir / "release_quality_audit.json").read_text(
+                            encoding="utf-8"
+                        )
+                    )
+                    self.assertEqual(audit["decision"]["status"], "watch")
+                    queue_path = output_dir / "release_review_queue.jsonl"
+                    queue_text = queue_path.read_text(encoding="utf-8")
+                    queue = [json.loads(line) for line in queue_text.splitlines()]
+                    self.assertGreater(len(queue), 0)
+                    for item in queue:
+                        validate_release_review_item_record(item)
+
+                    samples = [
+                        json.loads(line)
+                        for line in (output_dir / "samples.jsonl")
+                        .read_text(encoding="utf-8")
+                        .splitlines()
+                    ]
+                    self.assertGreater(len(samples), 0)
+                    for sample in samples:
+                        self.assertNotIn(sample["task"]["instruction"], queue_text)
+                    for sentinel in (
+                        profile_path,
+                        str(Path(profile_path).resolve()),
+                        "release-review-credential-sentinel",
+                    ):
+                        self.assertNotIn(sentinel, queue_text)
+
+                    artifacts_before = self._snapshot_output_artifacts(output_dir)
+                    release_report_before = json.loads(
+                        artifacts_before["dataset_release_report.json"]
+                    )
+                    profile_decisions_before = json.loads(
+                        artifacts_before["profile_decision_report.json"]
+                    )["decisions"]
+                    decisions_path = output_dir / "review_decisions.jsonl"
+                    decisions = []
+                    for index, item in enumerate(queue):
+                        outcome, reason_code = outcome_evidence[
+                            index % len(outcome_evidence)
+                        ]
+                        decisions.append(
+                            {
+                                "schema_version": "review_decision_v1",
+                                "review_item_id": item["review_item_id"],
+                                "outcome": outcome,
+                                "reason_code": reason_code,
+                                "review_minutes": index + 1,
+                                "reviewer_alias": "quality_reviewer_1",
+                                "decided_at": "1970-01-01T00:00:00Z",
+                            }
+                        )
+                    decisions_path.write_text(
+                        "".join(
+                            json.dumps(decision, ensure_ascii=True, sort_keys=True)
+                            + "\n"
+                            for decision in decisions
+                        ),
+                        encoding="utf-8",
+                    )
+
+                    resolution = subprocess.run(
+                        [
+                            sys.executable,
+                            "scripts/write_review_resolution.py",
+                            "--output-dir",
+                            str(output_dir),
+                            "--decisions-path",
+                            str(decisions_path),
+                        ],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(
+                        resolution.returncode,
+                        0,
+                        resolution.stdout + resolution.stderr,
+                    )
+                    report = json.loads(
+                        (output_dir / "review_resolution_report.json").read_text(
+                            encoding="utf-8"
+                        )
+                    )
+                    validate_review_resolution_report_record(report)
+                    self.assertEqual(report["decision"]["status"], "reviewed")
+                    self.assertEqual(report["counts"]["resolved"], len(queue))
+                    self.assertEqual(report["counts"]["pending"], 0)
+
+                    for artifact_name, content in artifacts_before.items():
+                        self.assertEqual(
+                            (output_dir / artifact_name).read_bytes(),
+                            content,
+                            artifact_name,
+                        )
+                    release_report_after = json.loads(
+                        (output_dir / "dataset_release_report.json").read_text(
+                            encoding="utf-8"
+                        )
+                    )
+                    self.assertEqual(release_report_after, release_report_before)
+                    self.assertEqual(
+                        release_report_after["decisions"]["dataset_release"]["status"],
+                        "passed",
+                    )
+                    profile_decisions_after = json.loads(
+                        (output_dir / "profile_decision_report.json").read_text(
+                            encoding="utf-8"
+                        )
+                    )["decisions"]
+                    for decision_name in (
+                        "semantic_duplicate_detection",
+                        "async_orchestration",
+                    ):
+                        self.assertEqual(
+                            profile_decisions_after[decision_name],
+                            profile_decisions_before[decision_name],
+                        )
+
+                    verification = subprocess.run(
+                        [
+                            sys.executable,
+                            "scripts/verify_dataset_release.py",
+                            "--output-dir",
+                            str(output_dir),
+                        ],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(
+                        verification.returncode,
+                        0,
+                        verification.stdout + verification.stderr,
+                    )
+                    self.assertEqual(
+                        json.loads(verification.stdout)["verification"]["status"],
+                        "passed",
+                    )
+
+    def test_offline_review_resolution_rejects_queue_from_another_release(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "mismatched-review-resolution"
+            self._run_release_review_pipeline(output_dir)
+            queue = [
+                json.loads(line)
+                for line in (output_dir / "release_review_queue.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            manifest_path = output_dir / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["dataset_version"] = "dataset_another_release"
+            manifest_path.write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            decisions_path = output_dir / "review_decisions.jsonl"
+            decisions_path.write_text(
+                "".join(
+                    json.dumps(
+                        {
+                            "schema_version": "review_decision_v1",
+                            "review_item_id": item["review_item_id"],
+                            "outcome": "accepted_risk",
+                            "reason_code": "sufficient_context",
+                            "review_minutes": 1,
+                            "reviewer_alias": "quality_reviewer_1",
+                            "decided_at": "1970-01-01T00:00:00Z",
+                        },
+                        ensure_ascii=True,
+                        sort_keys=True,
+                    )
+                    + "\n"
+                    for item in queue
+                ),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/write_review_resolution.py",
+                    "--output-dir",
+                    str(output_dir),
+                    "--decisions-path",
+                    str(decisions_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            report = json.loads(
+                (output_dir / "review_resolution_report.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(report["dataset_version"], "dataset_another_release")
+            self.assertEqual(report["decision"]["status"], "insufficient_evidence")
+            self.assertIn(
+                "queue_dataset_version_mismatch",
+                report["decision"]["reasons"],
+            )
+
+    def test_offline_review_resolution_requires_manifest_queue_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "missing-queue-artifact"
+            self._run_release_review_pipeline(output_dir)
+            queue = [
+                json.loads(line)
+                for line in (output_dir / "release_review_queue.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            decisions_path = output_dir / "review_decisions.jsonl"
+            decisions_path.write_text(
+                "".join(
+                    json.dumps(
+                        {
+                            "schema_version": "review_decision_v1",
+                            "review_item_id": item["review_item_id"],
+                            "outcome": "accepted_risk",
+                            "reason_code": "sufficient_context",
+                            "review_minutes": 1,
+                            "reviewer_alias": "quality_reviewer_1",
+                            "decided_at": "1970-01-01T00:00:00Z",
+                        },
+                        ensure_ascii=True,
+                        sort_keys=True,
+                    )
+                    + "\n"
+                    for item in queue
+                ),
+                encoding="utf-8",
+            )
+            manifest_path = output_dir / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            del manifest["artifacts"]["release_review_queue"]
+            manifest_path.write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            manifest_before = manifest_path.read_bytes()
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/write_review_resolution.py",
+                    "--output-dir",
+                    str(output_dir),
+                    "--decisions-path",
+                    str(decisions_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(
+                "manifest is missing release_review_queue artifact",
+                result.stderr,
+            )
+            self.assertNotIn(str(output_dir), result.stderr)
+            self.assertFalse((output_dir / "review_resolution_report.json").exists())
+            self.assertEqual(manifest_path.read_bytes(), manifest_before)
+
     def test_workspace_release_candidate_profile_can_write_release_artifact_set(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "workspace-release"
@@ -1626,6 +2289,27 @@ class FoundationCliTest(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertIn("--write-release-quality-audit", result.stderr)
             self.assertIn("--write-dataset-release-report", result.stderr)
+
+    def test_release_review_queue_requires_release_quality_audit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--write-release-review-queue",
+                    "--output-dir",
+                    str(Path(tmpdir) / "release-review"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn(
+                "--write-release-review-queue requires --write-release-quality-audit",
+                result.stderr,
+            )
 
     def test_dataset_release_card_requires_dataset_release_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

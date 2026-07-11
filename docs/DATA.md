@@ -177,7 +177,10 @@ Track metrics at sample, batch, and dataset levels:
 - Long-tail capture: explicit count of edge cases, failures, retries, and recovery paths.
 - Curriculum effectiveness: alignment between task difficulty progression and model learning or verifier pass-rate curves.
 - Transfer gain: downstream improvement on held-out Agent tasks after training or evaluating with a dataset version.
-- Cost: model calls, tokens, wall time, CPU/GPU time, and human review minutes.
+- Cost: model calls, tokens, wall time, CPU/GPU time, and aggregate
+  release-review minutes when an explicit resolution report exists. Recorded
+  minutes are workflow-cost evidence, not reviewer-effectiveness or model-gain
+  evidence.
 
 Metrics must be sliceable by domain, task type, difficulty level, tool
 combination, generator role, verifier type, role name, role output type,
@@ -219,6 +222,14 @@ and a quality report:
 - `release_quality_audit.json`: optional release quality evidence report
   written only when explicitly requested after a dataset release report is
   available.
+- `review_queue.jsonl`: optional candidate-time queue of reviewable rejected
+  candidates using `human_review_record_v1`.
+- `release_review_queue.jsonl`: separate optional release-audit queue using
+  `release_review_item_v1`, written only for opt-in `watch` evidence.
+- `review_decisions.jsonl`: explicit local reviewer-owned
+  `review_decision_v1` input. The pipeline does not create or attach it.
+- `review_resolution_report.json`: optional aggregate-only
+  `review_resolution_report_v1` written by the offline resolution consumer.
 - `dataset_release_pack.json`: optional hash-locked release pack written only
   when explicitly requested after a dataset release report passes.
 - `dataset_release_card.md`: optional human-readable release card written only
@@ -290,6 +301,13 @@ requested, the manifest references `release_quality_audit` and
 `dataset_release_card` respectively. Both artifacts are absent by default and
 do not change candidate admission, profile promotion, or dataset release
 admission.
+When release-review queue writing is explicitly requested and the audit status
+is `watch`, the manifest references `release_review_queue`. The offline
+resolution consumer may later reference `review_resolution_report`. It never
+attaches the local reviewer-owned `review_decisions.jsonl`. Both generated
+review artifacts are absent by default and cannot change candidate admission,
+quality/evaluation/profile reports, dataset release admission, semantic
+duplicate decisions, or async-orchestration decisions.
 When episode-quality reporting is explicitly requested, the manifest references
 `episodes` and `episode_quality_report`. These references are absent by default
 and do not change `samples.jsonl`, `rejections.jsonl`, release admission, or
@@ -822,6 +840,141 @@ utility. Like the audit, it must not persist raw sample contents, raw task
 instructions, local profile paths, source paths, source payloads, prompts,
 provider payloads, headers, API keys, credentials, or arbitrary profile JSON.
 
+### Release Review Queue, Decision, and Resolution Contracts
+
+Release review is a second workflow, not an extension of candidate rejection
+routing. Candidate-time `review_queue.jsonl` contains
+`human_review_record_v1` records for reviewable rejected candidates.
+Release-level `release_review_queue.jsonl` contains `release_review_item_v1`
+records derived only from an existing `release_quality_audit_v1` whose decision
+status is `watch`. Audit statuses `clear`, `blocked`, and
+`insufficient_evidence` create no release-review queue.
+
+Each `release_review_item_v1` has exactly these fields:
+
+```json
+{
+  "schema_version": "release_review_item_v1",
+  "review_item_id": "review_item:sha256:<64-lowercase-hex>",
+  "dataset_version": "dataset_mobile_messages_release_candidate",
+  "source": {
+    "artifact": "release_quality_audit.json",
+    "audit_status": "watch"
+  },
+  "risk": {
+    "kind": "small_release_size",
+    "level": "watch",
+    "reason": "accepted 5 is below small_release_watch_accepted_samples 8",
+    "sample_ids": []
+  },
+  "created_at": "1970-01-01T00:00:00Z"
+}
+```
+
+Allowed `risk.kind` values are `small_release_size`, `exact_duplicate_rate`,
+`task_type_concentration`, `tool_combination_concentration`, and
+`duplicate_family`; `risk.level` and `source.audit_status` are always `watch`,
+and `source.artifact` is always `release_quality_audit.json`. Direct-risk
+`reason` values are canonical observed-versus-threshold strings from the audit:
+
+- `accepted <integer> is below small_release_watch_accepted_samples <integer>`;
+- `exact_duplicate_rate <number> is above max_exact_duplicate_rate <number>`;
+- `largest_task_type_share <number> is above max_largest_task_type_share <number>`;
+- `largest_tool_combination_share <number> is above max_largest_tool_combination_share <number>`.
+
+A duplicate-family reason is exactly
+`<count> accepted samples share the same task type and tool combination`.
+`sample_ids` is empty for every direct risk and is a non-empty, unique,
+deterministically sorted list only for `duplicate_family` evidence already
+present in the sanitized audit. `dataset_version` and sample ids are ASCII-safe
+identifiers. `created_at` is the fixed deterministic timestamp shown above.
+
+`review_item_id` is deterministic. Its digest is SHA-256 over ASCII canonical
+JSON (`sort_keys=True`, compact separators) containing exactly
+`dataset_version`, `source_artifact`, `risk_kind`, `risk_level`, canonical
+`reason`, and sorted `sample_ids`; the stored id uses the
+`review_item:sha256:` prefix. Unknown triggers, non-canonical reasons, duplicate
+ids, or mismatched structured evidence are invalid rather than silently
+converted into review work.
+
+`review_decisions.jsonl` is an explicit local input created and owned by the
+reviewer. Each line has exactly these `review_decision_v1` fields:
+
+```json
+{
+  "schema_version": "review_decision_v1",
+  "review_item_id": "review_item:sha256:<64-lowercase-hex>",
+  "outcome": "confirmed_issue",
+  "reason_code": "insufficient_diversity",
+  "review_minutes": 4,
+  "reviewer_alias": "quality_reviewer_1",
+  "decided_at": "1970-01-01T00:00:00Z"
+}
+```
+
+Allowed `outcome` values are `accepted_risk`, `confirmed_issue`, and
+`needs_follow_up`. Allowed `reason_code` values are `sufficient_context`,
+`insufficient_diversity`, `near_duplicate_suspected`,
+`source_or_verifier_concern`, and `requires_more_data`. `review_minutes` is a
+non-negative integer capped at 480 per decision. `reviewer_alias` is a non-empty
+ASCII-safe opaque identifier of at most 128 characters matching
+`[A-Za-z0-9][A-Za-z0-9_.-]*`; it must not be a personal name, email address,
+path, token, or free-text note. `decided_at` is a UTC timestamp in
+`YYYY-MM-DDTHH:MM:SSZ` form. A file may contain at most one decision for each
+known queue item. Empty, malformed, duplicate, or unknown-item decisions are
+insufficient evidence. This input is never attached to `manifest.json`.
+
+`review_resolution_report.json` contains exactly these
+`review_resolution_report_v1` fields:
+
+```json
+{
+  "schema_version": "review_resolution_report_v1",
+  "dataset_version": "dataset_mobile_messages_release_candidate",
+  "inputs": {
+    "release_review_queue_path": "release_review_queue.jsonl",
+    "review_decisions_path": "review_decisions.jsonl"
+  },
+  "counts": {
+    "queued": 1,
+    "resolved": 1,
+    "pending": 0,
+    "accepted_risk": 0,
+    "confirmed_issue": 1,
+    "needs_follow_up": 0,
+    "review_minutes": 4
+  },
+  "decision": {
+    "status": "reviewed",
+    "reasons": ["all queued review items have decisions"],
+    "triggered_by": ["review_decisions"]
+  }
+}
+```
+
+`inputs` stores safe basenames only. All `counts` values are non-negative
+integers: `queued == resolved + pending`, `resolved` equals the three outcome
+counts, and aggregate `review_minutes` cannot exceed `resolved * 480`.
+`decision.reasons` and `decision.triggered_by` are non-empty sanitized
+machine-readable strings. Allowed `decision.status` values are:
+
+- `reviewed`: a non-empty queue is fully resolved. This means reviewed only;
+  it does not mean approved or releaseable, including when decisions contain
+  `confirmed_issue` or `needs_follow_up`.
+- `pending_review`: a non-empty valid subset of decisions resolved at least one
+  item and at least one item remains pending.
+- `insufficient_evidence`: queue or decision evidence is missing, empty,
+  unreadable, malformed, duplicated, cross-dataset, or references unknown item
+  ids. Resolved outcome counts and review minutes are zero.
+
+The resolution report contains aggregate counts only. It does not repeat
+individual decisions or aliases. Neither release-review artifact may contain
+raw task instructions, trajectory arguments, observations, final responses,
+source paths or payloads, provider payloads, profile contents or paths, host
+paths, or credentials. Review creation and resolution do not modify samples,
+rejections, quality reports, held-out evaluation, profile decisions, dataset
+release, semantic-duplicate or async decisions, or release-pack bytes.
+
 ### Dataset Release Pack Contract
 
 `dataset_release_pack.json` uses `schema_version:
@@ -854,6 +1007,15 @@ consistency for the local artifact directory. It does not prove downstream model
 quality, training gain, or benchmark improvement. The pack must not store raw
 sample contents, raw source payloads, local profile paths, provider prompts,
 provider payloads, headers, API keys, arbitrary profile JSON, or credentials.
+
+Offline review resolution is the sole controlled post-pack manifest append.
+Attaching `review_resolution_report` leaves `dataset_release_pack.json` bytes
+unchanged. Verification may pass only when the report is valid and belongs to
+the same dataset, and removing that one unique manifest reference reconstructs
+the original canonical manifest with exactly the SHA-256 and byte count recorded
+in the pack. Any additional manifest drift, missing or duplicate-equivalent
+reference, malformed or missing report, dataset mismatch, hash mismatch, or byte
+count mismatch fails verification.
 
 Capability-gap records use `schema_version: capability_gap_v1` and preserve
 candidate id, policy id, gap type, tool name, rejection cause, message, schema
@@ -932,12 +1094,14 @@ executable-rate delta, new and removed slice keys, and rejection-cause deltas.
 Run-profile slice dimensions participate in the existing `new_slice_keys` and
 `removed_slice_keys` maps without a separate comparison schema.
 
-### Human Review Queue Contract
+### Candidate Rejection Human Review Queue Contract
 
 When review routing is enabled for reviewable failures, the pipeline writes
 `review_queue.jsonl`. Each record uses `schema_version: human_review_record_v1` and
 contains `candidate_id`, `cause`, `task`, `uncertainty_reason`, `source_artifact`,
-and `created_at`. The default foundation run keeps review routing disabled.
+and `created_at`. This candidate-time queue is only for rejected candidates and
+is distinct from release-audit `release_review_queue.jsonl`. The default
+foundation run keeps both workflows disabled.
 
 ## Versioning Rules
 

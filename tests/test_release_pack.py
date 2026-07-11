@@ -52,6 +52,48 @@ class DatasetReleasePackTest(unittest.TestCase):
             )
             self.assertEqual(pack["release_id"], second_pack["release_id"])
 
+    def test_build_and_write_release_pack_reject_noncanonical_manifest_bytes(
+        self,
+    ) -> None:
+        from synthesis.release_pack import (
+            build_dataset_release_pack,
+            write_dataset_release_pack,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_dir = Path(tmpdir)
+            for operation in ("build", "write"):
+                with self.subTest(operation=operation):
+                    output_dir = base_dir / operation
+                    output_dir.mkdir()
+                    paths = _write_release_artifacts(output_dir)
+                    manifest = json.loads(
+                        paths["manifest"].read_text(encoding="utf-8")
+                    )
+                    paths["manifest"].write_text(
+                        json.dumps(manifest),
+                        encoding="utf-8",
+                    )
+
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "canonical dataset manifest serialization",
+                    ):
+                        if operation == "build":
+                            build_dataset_release_pack(
+                                manifest_path=paths["manifest"],
+                                dataset_release_report_path=paths[
+                                    "dataset_release_report"
+                                ],
+                            )
+                        else:
+                            write_dataset_release_pack(
+                                manifest_path=paths["manifest"],
+                                dataset_release_report_path=paths[
+                                    "dataset_release_report"
+                                ],
+                            )
+
     def test_release_pack_contract_rejects_malformed_records(self) -> None:
         from synthesis.contracts import (
             ContractValidationError,
@@ -104,6 +146,102 @@ class DatasetReleasePackTest(unittest.TestCase):
             failed = verify_dataset_release_pack(pack_path)
             self.assertEqual(failed["verification"]["status"], "failed")
             self.assertIn("hash mismatch", " ".join(failed["verification"]["reasons"]))
+
+    def test_verify_release_pack_allows_post_pack_review_resolution_attachment(
+        self,
+    ) -> None:
+        from synthesis.datasets import attach_review_resolution_report_to_manifest
+        from synthesis.release_pack import (
+            verify_dataset_release_pack,
+            write_dataset_release_pack,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir)
+            paths = _write_release_artifacts(output_dir)
+            pack_path = write_dataset_release_pack(
+                manifest_path=paths["manifest"],
+                dataset_release_report_path=paths["dataset_release_report"],
+            )
+            pack_bytes = pack_path.read_bytes()
+            report_path = output_dir / "review_resolution_report.json"
+            _write_json(report_path, _review_resolution_report())
+
+            attach_review_resolution_report_to_manifest(
+                manifest_path=paths["manifest"],
+                report_path=report_path,
+            )
+            result = verify_dataset_release_pack(pack_path)
+
+            self.assertEqual(result["verification"]["status"], "passed")
+            self.assertIn(
+                "controlled post-pack review resolution attachment",
+                " ".join(result["verification"]["reasons"]),
+            )
+            self.assertNotIn(
+                "all referenced artifacts match recorded hashes",
+                result["verification"]["reasons"],
+            )
+            self.assertEqual(pack_path.read_bytes(), pack_bytes)
+
+    def test_verify_release_pack_rejects_uncontrolled_manifest_drift_after_pack(
+        self,
+    ) -> None:
+        from synthesis.datasets import attach_review_resolution_report_to_manifest
+        from synthesis.release_pack import (
+            verify_dataset_release_pack,
+            write_dataset_release_pack,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_dir = Path(tmpdir)
+            cases = {
+                "missing": "invalid_review_report",
+                "malformed": "invalid_review_report",
+                "deeply_nested": "invalid_review_report",
+                "dataset_mismatch": "review_dataset_mismatch",
+                "other_drift": "uncontrolled_manifest_drift",
+            }
+            for case_name, expected_reason in cases.items():
+                with self.subTest(case_name=case_name):
+                    output_dir = base_dir / case_name
+                    output_dir.mkdir()
+                    paths = _write_release_artifacts(output_dir)
+                    pack_path = write_dataset_release_pack(
+                        manifest_path=paths["manifest"],
+                        dataset_release_report_path=paths["dataset_release_report"],
+                    )
+                    report_path = output_dir / "review_resolution_report.json"
+                    if case_name == "malformed":
+                        report_path.write_text("{bad json", encoding="utf-8")
+                    elif case_name == "deeply_nested":
+                        report_path.write_text(
+                            '{"nested":' * 2000 + "null" + "}" * 2000,
+                            encoding="utf-8",
+                        )
+                    elif case_name != "missing":
+                        report = _review_resolution_report()
+                        if case_name == "dataset_mismatch":
+                            report["dataset_version"] = "dataset_other_release"
+                        _write_json(report_path, report)
+                    attach_review_resolution_report_to_manifest(
+                        manifest_path=paths["manifest"],
+                        report_path=report_path,
+                    )
+                    if case_name == "other_drift":
+                        manifest = json.loads(
+                            paths["manifest"].read_text(encoding="utf-8")
+                        )
+                        manifest["accepted_count"] = 7
+                        _write_json(paths["manifest"], manifest)
+
+                    result = verify_dataset_release_pack(pack_path)
+
+                    self.assertEqual(result["verification"]["status"], "failed")
+                    self.assertIn(
+                        expected_reason,
+                        result["verification"]["reasons"],
+                    )
 
     def test_verify_release_pack_detects_dataset_version_mismatch(self) -> None:
         from synthesis.release_pack import (
@@ -359,6 +497,31 @@ def _dataset_release_report() -> dict[str, object]:
             "quality_report": "quality_report.json",
             "evaluation_report": "evaluation_report.json",
             "profile_decision_report": "profile_decision_report.json",
+        },
+    }
+
+
+def _review_resolution_report() -> dict[str, object]:
+    return {
+        "schema_version": "review_resolution_report_v1",
+        "dataset_version": "dataset_release",
+        "inputs": {
+            "release_review_queue_path": "release_review_queue.jsonl",
+            "review_decisions_path": "review_decisions.jsonl",
+        },
+        "counts": {
+            "queued": 1,
+            "resolved": 1,
+            "pending": 0,
+            "accepted_risk": 1,
+            "confirmed_issue": 0,
+            "needs_follow_up": 0,
+            "review_minutes": 2,
+        },
+        "decision": {
+            "status": "reviewed",
+            "reasons": ["all queued review items have decisions"],
+            "triggered_by": ["review_decisions"],
         },
     }
 

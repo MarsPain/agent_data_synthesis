@@ -16,6 +16,7 @@ from synthesis.datasets import (
     attach_evaluation_report_to_manifest,
     attach_profile_decision_report_to_manifest,
     attach_release_quality_audit_to_manifest,
+    attach_release_review_queue_to_manifest,
     attach_reward_label_report_to_manifest,
     attach_reward_labels_to_manifest,
 )
@@ -45,6 +46,10 @@ from synthesis.release_quality import (
     RELEASE_QUALITY_AUDIT_FILENAME,
     write_dataset_release_card,
     write_release_quality_audit,
+)
+from synthesis.release_review import (
+    RELEASE_REVIEW_QUEUE_FILENAME,
+    write_release_review_queue,
 )
 from synthesis.reward_labels import (
     REWARD_LABELS_FILENAME,
@@ -217,6 +222,11 @@ def parse_args() -> argparse.Namespace:
         help="Write release_quality_audit.json with release evidence risk signals.",
     )
     parser.add_argument(
+        "--write-release-review-queue",
+        action="store_true",
+        help="Write release_review_queue.jsonl for release-quality audit watch signals.",
+    )
+    parser.add_argument(
         "--write-dataset-release-card",
         action="store_true",
         help="Write dataset_release_card.md for human review of release evidence.",
@@ -226,6 +236,10 @@ def parse_args() -> argparse.Namespace:
         parser.error("--write-dataset-release-pack requires --write-dataset-release-report")
     if args.write_release_quality_audit and not args.write_dataset_release_report:
         parser.error("--write-release-quality-audit requires --write-dataset-release-report")
+    if args.write_release_review_queue and not args.write_release_quality_audit:
+        parser.error(
+            "--write-release-review-queue requires --write-release-quality-audit"
+        )
     if args.write_dataset_release_card and not args.write_dataset_release_report:
         parser.error("--write-dataset-release-card requires --write-dataset-release-report")
     if args.write_dataset_release_report:
@@ -511,6 +525,7 @@ def main() -> int:
         )
 
     release_quality_audit_path = None
+    release_review_queue_path = None
     if args.write_release_quality_audit:
         assert dataset_release_report_path is not None
         release_quality_audit_path = result.manifest_path.parent / RELEASE_QUALITY_AUDIT_FILENAME
@@ -522,6 +537,11 @@ def main() -> int:
             manifest_path=result.manifest_path,
             audit_path=release_quality_audit_path,
         )
+        if args.write_release_review_queue:
+            release_review_queue_path = _write_release_review_queue_for_audit(
+                manifest_path=result.manifest_path,
+                audit_path=release_quality_audit_path,
+            )
 
     dataset_release_pack_path = None
     if args.write_dataset_release_pack:
@@ -614,12 +634,36 @@ def main() -> int:
             else ""
         )
         + (
+            f" release_review_queue={release_review_queue_path}"
+            if release_review_queue_path is not None
+            else ""
+        )
+        + (
             f" dataset_release_card={dataset_release_card_path}"
             if dataset_release_card_path is not None
             else ""
         )
     )
     return 0
+
+
+def _write_release_review_queue_for_audit(
+    *,
+    manifest_path: Path,
+    audit_path: Path,
+) -> Path | None:
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    queue_path = write_release_review_queue(
+        audit,
+        output_path=manifest_path.parent / RELEASE_REVIEW_QUEUE_FILENAME,
+    )
+    if queue_path is None:
+        return None
+    attach_release_review_queue_to_manifest(
+        manifest_path=manifest_path,
+        queue_path=queue_path,
+    )
+    return queue_path
 
 
 def _load_profile_or_error(

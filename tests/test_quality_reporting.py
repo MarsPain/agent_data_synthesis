@@ -712,21 +712,30 @@ class QualityPipelineTest(unittest.TestCase):
             ]
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            disabled_dir = Path(tmpdir) / "disabled"
+            enabled_dir = Path(tmpdir) / "enabled"
             disabled = run_foundation_pipeline(
-                Path(tmpdir) / "disabled",
+                disabled_dir,
                 dataset_version="dataset_review_disabled",
                 candidate_generator=duplicates,
             )
             enabled = run_foundation_pipeline(
-                Path(tmpdir) / "enabled",
+                enabled_dir,
                 dataset_version="dataset_review_enabled",
                 candidate_generator=duplicates,
                 route_reviewable_failures=True,
             )
 
             self.assertIsNone(disabled.review_queue_path)
+            self.assertFalse((disabled_dir / "review_queue.jsonl").exists())
+            self.assertFalse((disabled_dir / "release_review_queue.jsonl").exists())
+            self.assertFalse((disabled_dir / "review_resolution_report.json").exists())
             self.assertIsNotNone(enabled.review_queue_path)
+            self.assertEqual(enabled.review_queue_path, enabled_dir / "review_queue.jsonl")
+            self.assertFalse((enabled_dir / "release_review_queue.jsonl").exists())
+            self.assertFalse((enabled_dir / "review_resolution_report.json").exists())
             record = json.loads(enabled.review_queue_path.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(record["schema_version"], "human_review_record_v1")
             self.assertEqual(record["cause"], "quality_duplicate")
 
     def test_optional_artifacts_are_removed_when_disabled_on_reused_output_dir(self) -> None:

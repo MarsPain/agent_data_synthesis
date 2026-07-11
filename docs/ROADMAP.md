@@ -21,7 +21,8 @@
 - Add difficulty scoring and curriculum policies.
 - Add logical validators and diversity metrics.
 - Add failure classification and retry loops.
-- Add human review queue format for uncertain samples.
+- Add distinct review queue formats for uncertain rejected candidates and
+  release-audit evidence. Completed locally through plans 0003 and 0041.
 - Add metric slicing by domain, difficulty, tool combination, generator role, and verifier type.
 - Add parent-version comparison reports for quality, coverage, cost, and held-out task performance.
 
@@ -93,6 +94,12 @@
   thresholds, mobile/workspace release-candidate profiles, deterministic sample
   floor coverage, and end-to-end release artifact smoke tests without
   activating async orchestration or semantic duplicate detection.
+- Add local release-review resolution over existing release-audit evidence.
+  Implemented in plan 0041 with a deterministic redacted release-review queue,
+  explicit reviewer-owned decisions, aggregate resolution evidence, and a
+  controlled post-pack manifest append. This workflow does not change sample or
+  release admission. Semantic duplicate detection and async orchestration remain
+  behind their existing volume/runtime activation triggers.
 - Add profile-attributed quality and comparison before async orchestration.
   Implemented in plan 0019 with sanitized per-record profile attribution,
   profile quality slices, and parent-comparison visibility over profile slice

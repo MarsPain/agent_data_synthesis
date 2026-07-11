@@ -108,6 +108,10 @@ The first backend should be a local Python pipeline with explicit modules and du
 - `synthesis.dataset_release`: opt-in dataset release admission reports built
   from manifest, quality, evaluation, and profile-decision artifacts. It
   separates concrete artifact-set release eligibility from profile promotion.
+- `synthesis.release_review`: opt-in release-audit review-item construction,
+  deterministic redacted item ids, local reviewer-decision validation, and
+  aggregate resolution reporting. It consumes existing release artifacts and
+  cannot admit or reject candidates or datasets.
 - `synthesis.candidate_processing`: single-candidate validation, policy
   execution, verification, logical gates, optional tool-expansion reruns,
   optional refinement reruns, provisional candidate outcomes, and deterministic
@@ -216,7 +220,9 @@ trajectories, exports, or logs.
    exact duplicate admission deterministically after execution so completion
    order cannot choose the accepted sample. Logical consistency remains a
    candidate-local gate before merge.
-19. Route failed samples by error class and optional review policy.
+19. Route failed samples by error class and optional candidate-review policy.
+   Candidate-time reviewable rejections use `review_queue.jsonl` with
+   `human_review_record_v1`; this is not the release-audit review queue.
 20. Export accepted samples, rejections, source-event audits when enabled,
    sandbox audits when enabled, tool proposal events, branch lineage,
    task-expansion lineage, quality reports, lineage, sanitized run-profile
@@ -270,6 +276,35 @@ must not add workspace-specific branches or tool allowlists.
    reference that report. Release admission distinguishes diagnostic probes from
    release candidates, rejects domain-mismatched evaluation evidence, and does
    not change candidate processing, evaluation, or profile promotion.
+27. When `--write-release-review-queue` is explicitly supplied, require
+   `--write-release-quality-audit`, which in turn requires dataset release,
+   held-out evaluation, and profile-decision reports. After writing the audit,
+   translate only `watch` signals into deterministic redacted
+   `release_review_item_v1` records in `release_review_queue.jsonl` and attach
+   the queue to the manifest. `clear`, `blocked`, and `insufficient_evidence`
+   audits create no queue. This queue is distinct from candidate-time
+   `review_queue.jsonl`.
+28. The offline `scripts/write_review_resolution.py` consumer reads an existing
+   local release-review queue and an explicit reviewer-owned
+   `review_decisions.jsonl`, writes aggregate-only
+   `review_resolution_report.json`, and attaches only that report to the
+   manifest. It does not attach the decisions file or rerun generation,
+   evaluation, profile decisions, release admission, release-pack creation, or
+   release-pack verification.
+
+Release-review outcomes are evidence only. They do not modify
+`samples.jsonl`, `rejections.jsonl`, quality/evaluation/profile reports,
+`dataset_release_report.json`, release-pack bytes, semantic-duplicate decisions,
+or async-orchestration decisions. A `reviewed` resolution means every queued
+item has a valid decision; it is not approval and does not make a dataset
+releaseable.
+
+Offline resolution may append `review_resolution_report` to a manifest after a
+release pack was created. This is the only controlled post-pack append: pack
+bytes remain unchanged, and verification passes only when removing that single
+same-dataset report reference reconstructs manifest bytes whose SHA-256 and byte
+count exactly match the manifest record locked in the pack. Missing, malformed,
+extra, dataset-mismatched, or otherwise drifting content fails verification.
 
 The run-profile boundary is declarative and synchronous. `--run-profile` supports
 the existing foundation fixture, remote LLM-backed generation when `--use-llm` is

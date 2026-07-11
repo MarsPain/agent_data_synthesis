@@ -46,6 +46,15 @@ class DatasetArtifacts:
     rejected_count: int
 
 
+def serialize_dataset_manifest(manifest: Mapping[str, object]) -> str:
+    return json.dumps(
+        manifest,
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+    ) + "\n"
+
+
 def attach_profile_decision_report_to_manifest(
     *,
     manifest_path: Path,
@@ -166,6 +175,30 @@ def attach_release_quality_audit_to_manifest(
     )
 
 
+def attach_release_review_queue_to_manifest(
+    *,
+    manifest_path: Path,
+    queue_path: Path,
+) -> None:
+    _attach_artifact_to_manifest(
+        manifest_path=manifest_path,
+        artifact_key="release_review_queue",
+        artifact_path=queue_path,
+    )
+
+
+def attach_review_resolution_report_to_manifest(
+    *,
+    manifest_path: Path,
+    report_path: Path,
+) -> None:
+    _attach_artifact_to_manifest(
+        manifest_path=manifest_path,
+        artifact_key="review_resolution_report",
+        artifact_path=report_path,
+    )
+
+
 def attach_dataset_release_card_to_manifest(
     *,
     manifest_path: Path,
@@ -190,7 +223,7 @@ def _attach_artifact_to_manifest(
     manifest["artifacts"] = artifacts
     validate_manifest_record(manifest)
     manifest_path.write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        serialize_dataset_manifest(manifest),
         encoding="utf-8",
     )
 
@@ -647,7 +680,7 @@ def write_dataset_artifacts(
         manifest["source_policy_hashes"] = source_policy_hashes
     validate_manifest_record(manifest)
     manifest_path.write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        serialize_dataset_manifest(manifest),
         encoding="utf-8",
     )
 

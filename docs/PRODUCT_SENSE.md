@@ -19,7 +19,9 @@ Accepted verified trajectories per dollar at a target quality floor.
 - Verified trajectory yield per seed.
 - Distribution coverage across target capabilities.
 - Failure diagnosis precision.
-- Human review minutes per accepted sample.
+- Aggregate release-review minutes recorded for explicit review resolutions.
+  This is workflow-cost evidence only, not a measure of reviewer effectiveness
+  or downstream model gain.
 - Downstream model improvement on held-out Agent tasks.
 
 ## Non-Goals

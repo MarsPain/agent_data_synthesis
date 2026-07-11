@@ -10,7 +10,8 @@
 
 ## Active
 
-No active implementation plan is currently selected.
+No active implementation plan is selected. New work should be activated only
+after its scope and trigger are documented here.
 
 ## Deferred
 
@@ -30,6 +31,7 @@ No active implementation plan is currently selected.
 
 ## Completed
 
+- [0041-release-review-resolution-and-evidence](exec-plans/completed/0041-release-review-resolution-and-evidence.md): added a separate deterministic redacted release-review queue, explicit local reviewer decisions, aggregate offline resolution evidence, and controlled post-pack manifest attachment without changing sample or release admission. Completed on 2026-07-11.
 - [0040-multi-domain-release-candidate-evidence-hardening](exec-plans/completed/0040-multi-domain-release-candidate-evidence-hardening.md): hardened release-candidate evidence across contacts, mobile messages, and workspace tasks with explicit domain-aware release completeness thresholds, mobile/workspace release profiles, deterministic sample-floor coverage, and end-to-end release artifact smoke tests. Completed on 2026-07-05.
 - [0001-foundation](exec-plans/completed/0001-foundation.md): established the local executable framework foundation. Completed on 2026-05-16.
 - [0002-data-contracts-and-quality-gates](exec-plans/completed/0002-data-contracts-and-quality-gates.md): enforced dataset contracts and quality gates over the local foundation runner. Completed on 2026-05-16.

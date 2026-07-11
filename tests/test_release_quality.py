@@ -9,15 +9,46 @@ from pathlib import Path
 class ReleaseQualityAuditTest(unittest.TestCase):
     def test_builds_watch_audit_from_release_artifacts(self) -> None:
         from synthesis.contracts import validate_release_quality_audit_record
+        from synthesis.quality import build_review_record
         from synthesis.release_quality import build_release_quality_audit
 
         with tempfile.TemporaryDirectory() as tmpdir:
             base_dir = Path(tmpdir)
             _write_release_artifacts(base_dir)
+            review_queue_path = base_dir / "review_queue.jsonl"
+            review_queue_path.write_text(
+                json.dumps(
+                    build_review_record(
+                        candidate_id="candidate_rejected",
+                        cause="quality_duplicate",
+                        task={"instruction": "Rejected candidate review item"},
+                        uncertainty_reason="Exact duplicate requires human policy review.",
+                        source_artifact="rejections.jsonl",
+                    ),
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            manifest_path = base_dir / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["artifacts"]["review_queue"] = review_queue_path.name
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            release_report_before = (base_dir / "dataset_release_report.json").read_bytes()
+            candidate_review_queue_before = review_queue_path.read_bytes()
 
             audit = build_release_quality_audit(
-                manifest_path=base_dir / "manifest.json",
+                manifest_path=manifest_path,
             )
+
+            self.assertEqual(
+                (base_dir / "dataset_release_report.json").read_bytes(),
+                release_report_before,
+            )
+            self.assertEqual(review_queue_path.read_bytes(), candidate_review_queue_before)
 
         validate_release_quality_audit_record(audit)
         self.assertEqual(audit["schema_version"], "release_quality_audit_v1")

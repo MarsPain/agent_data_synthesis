@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from datetime import datetime
+import hashlib
+import json
+import math
 import re
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
@@ -117,6 +121,8 @@ MANIFEST_ARTIFACT_KEYS = {
     "dataset_release_pack",
     "release_quality_audit",
     "dataset_release_card",
+    "release_review_queue",
+    "review_resolution_report",
 }
 EVALUATION_TASK_STATUSES = {"passed", "failed"}
 EVALUATION_DECISION_STATUSES = {"passed", "failed", "insufficient_evidence"}
@@ -141,6 +147,54 @@ RELEASE_QUALITY_AUDIT_STATUSES = {
     "watch",
     "insufficient_evidence",
     "blocked",
+}
+RELEASE_REVIEW_RISK_KINDS = {
+    "small_release_size",
+    "exact_duplicate_rate",
+    "task_type_concentration",
+    "tool_combination_concentration",
+    "duplicate_family",
+}
+REVIEW_DECISION_OUTCOMES = {
+    "accepted_risk",
+    "confirmed_issue",
+    "needs_follow_up",
+}
+REVIEW_DECISION_REASON_CODES = {
+    "sufficient_context",
+    "insufficient_diversity",
+    "near_duplicate_suspected",
+    "source_or_verifier_concern",
+    "requires_more_data",
+}
+REVIEW_RESOLUTION_STATUSES = {
+    "reviewed",
+    "pending_review",
+    "insufficient_evidence",
+}
+REVIEW_ITEM_ID_RE = re.compile(r"^review_item:sha256:[0-9a-f]{64}$")
+REVIEWER_ALIAS_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+SAFE_REVIEW_SAMPLE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
+SAFE_REVIEW_DATASET_VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
+SAFE_REVIEW_REPORT_TEXT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.:-]*$")
+UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+RELEASE_REVIEW_NUMBER_PATTERN = r"[0-9]+(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?"
+RELEASE_REVIEW_REASON_PATTERNS = {
+    "small_release_size": re.compile(
+        r"^accepted ([0-9]+) is below small_release_watch_accepted_samples ([0-9]+)$"
+    ),
+    "exact_duplicate_rate": re.compile(
+        rf"^exact_duplicate_rate ({RELEASE_REVIEW_NUMBER_PATTERN}) is above "
+        rf"max_exact_duplicate_rate ({RELEASE_REVIEW_NUMBER_PATTERN})$"
+    ),
+    "task_type_concentration": re.compile(
+        rf"^largest_task_type_share ({RELEASE_REVIEW_NUMBER_PATTERN}) is above "
+        rf"max_largest_task_type_share ({RELEASE_REVIEW_NUMBER_PATTERN})$"
+    ),
+    "tool_combination_concentration": re.compile(
+        rf"^largest_tool_combination_share ({RELEASE_REVIEW_NUMBER_PATTERN}) is above "
+        rf"max_largest_tool_combination_share ({RELEASE_REVIEW_NUMBER_PATTERN})$"
+    ),
 }
 DATASET_RELEASE_PACK_ARTIFACT_KEYS = {
     "manifest",
@@ -1355,10 +1409,14 @@ def validate_release_quality_audit_record(record: Mapping[str, Any]) -> None:
             risk.get("family_key"),
             f"duplicate_family_risks.{index}.family_key",
         )
-        _require_non_empty_string(
+        risk_kind = _require_non_empty_string(
             risk.get("risk_kind"),
             f"duplicate_family_risks.{index}.risk_kind",
         )
+        if risk_kind != "same_task_type_and_tool_combination":
+            raise ContractValidationError(
+                f"duplicate_family_risks.{index}.risk_kind is unsupported"
+            )
         risk_level = _require_non_empty_string(
             risk.get("risk_level"),
             f"duplicate_family_risks.{index}.risk_level",
@@ -1405,6 +1463,353 @@ def validate_release_quality_audit_record(record: Mapping[str, Any]) -> None:
     triggered_by = _require_sequence(decision.get("triggered_by"), "decision.triggered_by")
     for index, trigger in enumerate(triggered_by):
         _require_non_empty_string(trigger, f"decision.triggered_by.{index}")
+
+
+def validate_release_review_item_record(record: Mapping[str, Any]) -> None:
+    item = _require_mapping(record, "release_review_item")
+    if _contains_raw_secret(item):
+        raise ContractValidationError("release_review_item contains raw secret material")
+    _require_exact_keys(
+        item,
+        {
+            "schema_version",
+            "review_item_id",
+            "dataset_version",
+            "source",
+            "risk",
+            "created_at",
+        },
+        "release_review_item",
+    )
+    if item.get("schema_version") != "release_review_item_v1":
+        raise ContractValidationError("schema_version is unsupported")
+    dataset_version = _require_non_empty_string(
+        item.get("dataset_version"),
+        "dataset_version",
+    )
+    if not SAFE_REVIEW_DATASET_VERSION_RE.fullmatch(dataset_version):
+        raise ContractValidationError("dataset_version must be an ASCII-safe identifier")
+
+    source = _require_mapping(item.get("source"), "source")
+    _require_exact_keys(source, {"artifact", "audit_status"}, "source")
+    if source.get("artifact") != "release_quality_audit.json":
+        raise ContractValidationError("source.artifact is unsupported")
+    if source.get("audit_status") != "watch":
+        raise ContractValidationError("source.audit_status is unsupported")
+
+    risk = _require_mapping(item.get("risk"), "risk")
+    _require_exact_keys(risk, {"kind", "level", "reason", "sample_ids"}, "risk")
+    risk_kind = _require_non_empty_string(risk.get("kind"), "risk.kind")
+    if risk_kind not in RELEASE_REVIEW_RISK_KINDS:
+        raise ContractValidationError("risk.kind is unsupported")
+    if risk.get("level") != "watch":
+        raise ContractValidationError("risk.level is unsupported")
+    reason = _require_non_empty_string(risk.get("reason"), "risk.reason")
+    sample_ids = _require_sequence(risk.get("sample_ids"), "risk.sample_ids")
+    normalized_sample_ids: list[str] = []
+    for index, raw_sample_id in enumerate(sample_ids):
+        sample_id = _require_non_empty_string(
+            raw_sample_id,
+            f"risk.sample_ids.{index}",
+        )
+        if not SAFE_REVIEW_SAMPLE_ID_RE.fullmatch(sample_id):
+            raise ContractValidationError(
+                f"risk.sample_ids.{index} must be an ASCII-safe sample identifier"
+            )
+        normalized_sample_ids.append(sample_id)
+    if risk_kind != "duplicate_family" and normalized_sample_ids:
+        raise ContractValidationError(
+            "risk.sample_ids must be empty unless risk.kind is duplicate_family"
+        )
+    if risk_kind == "duplicate_family" and not normalized_sample_ids:
+        raise ContractValidationError(
+            "risk.sample_ids must not be empty when risk.kind is duplicate_family"
+        )
+    if len(set(normalized_sample_ids)) != len(normalized_sample_ids):
+        raise ContractValidationError("risk.sample_ids must not contain duplicates")
+    _validate_release_review_reason(
+        risk_kind=risk_kind,
+        reason=reason,
+        sample_id_count=len(normalized_sample_ids),
+    )
+
+    if item.get("created_at") != "1970-01-01T00:00:00Z":
+        raise ContractValidationError("created_at must use the fixed deterministic timestamp")
+    review_item_id = _require_non_empty_string(
+        item.get("review_item_id"),
+        "review_item_id",
+    )
+    if not REVIEW_ITEM_ID_RE.fullmatch(review_item_id):
+        raise ContractValidationError("review_item_id must be a review_item sha256 identifier")
+    canonical_payload = {
+        "dataset_version": dataset_version,
+        "source_artifact": source["artifact"],
+        "risk_kind": risk_kind,
+        "risk_level": risk["level"],
+        "reason": reason,
+        "sample_ids": sorted(normalized_sample_ids),
+    }
+    canonical = json.dumps(
+        canonical_payload,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    expected_id = "review_item:sha256:" + hashlib.sha256(
+        canonical.encode("utf-8")
+    ).hexdigest()
+    if review_item_id != expected_id:
+        raise ContractValidationError("review_item_id does not match canonical item evidence")
+
+
+def _validate_release_review_reason(
+    *,
+    risk_kind: str,
+    reason: str,
+    sample_id_count: int,
+) -> None:
+    if risk_kind == "duplicate_family":
+        expected = (
+            f"{sample_id_count} accepted samples share the same task type "
+            "and tool combination"
+        )
+        if reason != expected:
+            raise ContractValidationError(
+                "risk.reason must match canonical duplicate_family evidence"
+            )
+        return
+    pattern = RELEASE_REVIEW_REASON_PATTERNS[risk_kind]
+    matched = pattern.fullmatch(reason)
+    if matched is None:
+        raise ContractValidationError(
+            f"risk.reason must match canonical {risk_kind} evidence"
+        )
+    observed_token, threshold_token = matched.groups()
+    if risk_kind == "small_release_size":
+        if len(observed_token) > 20 or len(threshold_token) > 20:
+            raise ContractValidationError("risk.reason contains oversized integers")
+        observed_value = int(observed_token)
+        threshold_value = int(threshold_token)
+        semantically_valid = observed_value < threshold_value
+    else:
+        if len(observed_token) > 32 or len(threshold_token) > 32:
+            raise ContractValidationError("risk.reason contains oversized numbers")
+        observed_value = float(observed_token)
+        threshold_value = float(threshold_token)
+        semantically_valid = (
+            math.isfinite(observed_value)
+            and math.isfinite(threshold_value)
+            and 0.0 <= observed_value <= 1.0
+            and 0.0 <= threshold_value <= 1.0
+            and observed_value > threshold_value
+        )
+    expected = canonical_release_review_reason(
+        risk_kind,
+        observed_value,
+        threshold_value,
+    )
+    if not semantically_valid or reason != expected:
+        raise ContractValidationError(
+            f"risk.reason must match canonical {risk_kind} evidence"
+        )
+
+
+def canonical_release_review_reason(
+    risk_kind: str,
+    observed_value: int | float,
+    threshold_value: int | float,
+) -> str:
+    if risk_kind == "small_release_size":
+        return (
+            f"accepted {int(observed_value)} is below "
+            f"small_release_watch_accepted_samples {int(threshold_value)}"
+        )
+    if risk_kind == "exact_duplicate_rate":
+        return (
+            f"exact_duplicate_rate {float(observed_value)} is above "
+            f"max_exact_duplicate_rate {float(threshold_value)}"
+        )
+    if risk_kind == "task_type_concentration":
+        return (
+            f"largest_task_type_share {float(observed_value)} is above "
+            f"max_largest_task_type_share {float(threshold_value)}"
+        )
+    if risk_kind == "tool_combination_concentration":
+        return (
+            f"largest_tool_combination_share {float(observed_value)} is above "
+            f"max_largest_tool_combination_share {float(threshold_value)}"
+        )
+    raise ContractValidationError("risk.kind has no canonical direct reason")
+
+
+def validate_review_decision_record(record: Mapping[str, Any]) -> None:
+    decision = _require_mapping(record, "review_decision")
+    _require_exact_keys(
+        decision,
+        {
+            "schema_version",
+            "review_item_id",
+            "outcome",
+            "reason_code",
+            "review_minutes",
+            "reviewer_alias",
+            "decided_at",
+        },
+        "review_decision",
+    )
+    if decision.get("schema_version") != "review_decision_v1":
+        raise ContractValidationError("schema_version is unsupported")
+    review_item_id = _require_non_empty_string(
+        decision.get("review_item_id"),
+        "review_item_id",
+    )
+    if not REVIEW_ITEM_ID_RE.fullmatch(review_item_id):
+        raise ContractValidationError("review_item_id must be a review_item sha256 identifier")
+    outcome = _require_non_empty_string(decision.get("outcome"), "outcome")
+    if outcome not in REVIEW_DECISION_OUTCOMES:
+        raise ContractValidationError("outcome is unsupported")
+    reason_code = _require_non_empty_string(
+        decision.get("reason_code"),
+        "reason_code",
+    )
+    if reason_code not in REVIEW_DECISION_REASON_CODES:
+        raise ContractValidationError("reason_code is unsupported")
+    review_minutes = _require_int(
+        decision.get("review_minutes"),
+        "review_minutes",
+    )
+    if review_minutes > 480:
+        raise ContractValidationError("review_minutes must not exceed 480")
+    reviewer_alias = _require_non_empty_string(
+        decision.get("reviewer_alias"),
+        "reviewer_alias",
+    )
+    if len(reviewer_alias) > 128 or not REVIEWER_ALIAS_RE.fullmatch(reviewer_alias):
+        raise ContractValidationError(
+            "reviewer_alias must be an ASCII-safe opaque identifier"
+        )
+    if _contains_raw_secret(reviewer_alias):
+        raise ContractValidationError("reviewer_alias contains unsafe material")
+    _validate_utc_timestamp(decision.get("decided_at"), "decided_at")
+
+
+def validate_review_resolution_report_record(record: Mapping[str, Any]) -> None:
+    report = _require_mapping(record, "review_resolution_report")
+    if _contains_raw_secret(report):
+        raise ContractValidationError(
+            "review_resolution_report contains raw secret material"
+        )
+    _require_exact_keys(
+        report,
+        {"schema_version", "dataset_version", "inputs", "counts", "decision"},
+        "review_resolution_report",
+    )
+    if report.get("schema_version") != "review_resolution_report_v1":
+        raise ContractValidationError("schema_version is unsupported")
+    dataset_version = _require_non_empty_string(
+        report.get("dataset_version"),
+        "dataset_version",
+    )
+    if not SAFE_REVIEW_DATASET_VERSION_RE.fullmatch(dataset_version):
+        raise ContractValidationError("dataset_version must be an ASCII-safe identifier")
+
+    inputs = _require_mapping(report.get("inputs"), "inputs")
+    _require_exact_keys(
+        inputs,
+        {"release_review_queue_path", "review_decisions_path"},
+        "inputs",
+    )
+    for field in ("release_review_queue_path", "review_decisions_path"):
+        artifact_name = _require_non_empty_string(inputs.get(field), f"inputs.{field}")
+        _validate_artifact_filename(artifact_name, f"inputs.{field}")
+
+    counts = _require_mapping(report.get("counts"), "counts")
+    count_fields = {
+        "queued",
+        "resolved",
+        "pending",
+        "accepted_risk",
+        "confirmed_issue",
+        "needs_follow_up",
+        "review_minutes",
+    }
+    _require_exact_keys(counts, count_fields, "counts")
+    normalized_counts = {
+        field: _require_int(counts.get(field), f"counts.{field}")
+        for field in count_fields
+    }
+    resolved_outcomes = sum(
+        normalized_counts[outcome] for outcome in REVIEW_DECISION_OUTCOMES
+    )
+    if normalized_counts["resolved"] != resolved_outcomes:
+        raise ContractValidationError("counts.resolved must equal outcome counts")
+    if normalized_counts["review_minutes"] > normalized_counts["resolved"] * 480:
+        raise ContractValidationError(
+            "counts.review_minutes must not exceed resolved * 480"
+        )
+    if normalized_counts["queued"] != (
+        normalized_counts["resolved"] + normalized_counts["pending"]
+    ):
+        raise ContractValidationError("counts.queued must equal resolved + pending")
+
+    decision = _require_mapping(report.get("decision"), "decision")
+    _require_exact_keys(decision, {"status", "reasons", "triggered_by"}, "decision")
+    status = _require_non_empty_string(decision.get("status"), "decision.status")
+    if status not in REVIEW_RESOLUTION_STATUSES:
+        raise ContractValidationError("decision.status is unsupported")
+    _validate_sanitized_review_report_strings(
+        decision.get("reasons"),
+        "decision.reasons",
+    )
+    _validate_sanitized_review_report_strings(
+        decision.get("triggered_by"),
+        "decision.triggered_by",
+    )
+    _validate_review_resolution_status_counts(status, normalized_counts)
+
+
+def _validate_review_resolution_status_counts(
+    status: str,
+    counts: Mapping[str, int],
+) -> None:
+    if status == "reviewed":
+        if counts["queued"] < 1 or counts["pending"] != 0:
+            raise ContractValidationError(
+                "counts must have a non-empty fully resolved queue when reviewed"
+            )
+        return
+    if status == "pending_review":
+        if (
+            counts["queued"] < 1
+            or counts["resolved"] < 1
+            or counts["pending"] < 1
+        ):
+            raise ContractValidationError(
+                "counts must include resolved and pending items when pending_review"
+            )
+        return
+    if counts["resolved"] != 0 or counts["review_minutes"] != 0:
+        raise ContractValidationError(
+            "counts must not include resolved evidence when insufficient_evidence"
+        )
+
+
+def _validate_sanitized_review_report_strings(raw: object, path: str) -> None:
+    values = _require_non_empty_string_sequence(raw, path)
+    for index, raw_value in enumerate(values):
+        value = _require_non_empty_string(raw_value, f"{path}.{index}")
+        if len(value) > 160 or not SAFE_REVIEW_REPORT_TEXT_RE.fullmatch(value):
+            raise ContractValidationError(f"{path}.{index} must be sanitized text")
+
+
+def _validate_utc_timestamp(raw: object, path: str) -> None:
+    value = _require_non_empty_string(raw, path)
+    if not UTC_TIMESTAMP_RE.fullmatch(value):
+        raise ContractValidationError(f"{path} must be a UTC timestamp")
+    try:
+        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError as exc:
+        raise ContractValidationError(f"{path} must be a valid UTC timestamp") from exc
 
 
 def _validate_release_completeness(raw: object) -> dict[str, str]:
@@ -3124,8 +3529,30 @@ def _validate_evaluation_decision(raw: object) -> None:
 
 
 def _validate_artifact_filename(raw: str, path: str) -> None:
-    if "/" in raw or "\\" in raw:
+    if (
+        "/" in raw
+        or "\\" in raw
+        or raw in {".", ".."}
+        or raw.startswith("~")
+    ):
         raise ContractValidationError(f"{path} must be a relative artifact name")
+
+
+def _require_exact_keys(
+    value: Mapping[str, Any],
+    allowed_keys: set[str],
+    path: str,
+) -> None:
+    unexpected = sorted(str(key) for key in value if key not in allowed_keys)
+    if unexpected:
+        raise ContractValidationError(
+            f"{path} contains unsupported keys: {', '.join(unexpected)}"
+        )
+    missing = sorted(key for key in allowed_keys if key not in value)
+    if missing:
+        raise ContractValidationError(
+            f"{path} is missing required keys: {', '.join(missing)}"
+        )
 
 
 def _require_mapping(raw: object, path: str) -> Mapping[str, Any]:
@@ -3174,7 +3601,12 @@ def _require_number(raw: object, path: str) -> float:
 
 
 def _validate_rate(raw: float, path: str) -> None:
-    if raw < 0.0 or raw > 1.0:
+    if (
+        not math.isfinite(raw)
+        or raw < 0.0
+        or raw > 1.0
+        or (raw == 0.0 and math.copysign(1.0, raw) < 0.0)
+    ):
         raise ContractValidationError(f"{path} must be between 0.0 and 1.0")
 
 

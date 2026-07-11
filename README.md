@@ -30,8 +30,8 @@ admission artifacts. Canonical design detail lives in [docs/](docs/).
   final answers and expected state, classifies rejections, and merges outcomes
   deterministically.
 - Opt-in reports can add held-out evaluation, profile decisions, dataset release
-  admission, release packs, release quality audits, episode quality, executable
-  replay, and deterministic reward labels.
+  admission, release packs, release quality audits, release-review evidence,
+  episode quality, executable replay, and deterministic reward labels.
 - Remote LLM generation is supported through an OpenAI-compatible API, but local
   LLM serving, distributed workers, external MCP servers, Agentic RL rollout
   collection, and separate `awm_runtime` publishing are intentionally deferred.
@@ -67,11 +67,14 @@ uv run python main.py --enable-network-source --source-url https://allowed.examp
 
 # Release-candidate evidence packs
 uv run python main.py --run-profile tests/fixtures/run_profiles/foundation-release-candidate.json --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --write-dataset-release-pack --write-release-quality-audit --write-dataset-release-card --output-dir artifacts/foundation-release-candidate
-uv run python main.py --run-profile tests/fixtures/run_profiles/mobile-messages-release-candidate.json --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --write-dataset-release-pack --write-release-quality-audit --write-dataset-release-card --output-dir artifacts/mobile-release-candidate
+uv run python main.py --run-profile tests/fixtures/run_profiles/mobile-messages-release-candidate.json --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --write-dataset-release-pack --write-release-quality-audit --write-release-review-queue --write-dataset-release-card --output-dir artifacts/mobile-release-candidate
 uv run python main.py --run-profile tests/fixtures/run_profiles/workspace-tasks-release-candidate.json --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --write-dataset-release-pack --write-release-quality-audit --write-dataset-release-card --output-dir artifacts/workspace-release-candidate
 uv run python scripts/verify_dataset_release.py --output-dir artifacts/foundation-release-candidate
 uv run python scripts/verify_dataset_release.py --output-dir artifacts/mobile-release-candidate
 uv run python scripts/verify_dataset_release.py --output-dir artifacts/workspace-release-candidate
+
+# After a reviewer creates the local, reviewer-owned decisions file
+uv run python scripts/write_review_resolution.py --output-dir artifacts/mobile-release-candidate --decisions-path artifacts/mobile-release-candidate/review_decisions.jsonl
 ```
 
 ## Optional LLM Configuration
@@ -99,14 +102,20 @@ paths, and host paths must not be written to public artifacts.
 - Evaluation and release artifacts: `evaluation_report.json`,
   `profile_decision_report.json`, `dataset_release_report.json`,
   `dataset_release_pack.json`, `release_quality_audit.json`,
-  `dataset_release_card.md`.
+  `dataset_release_card.md`, opt-in `release_review_queue.jsonl`, and offline
+  `review_resolution_report.json`.
+- Review artifacts are separate: candidate rejection routing uses
+  `review_queue.jsonl`; release-audit watch signals use
+  `release_review_queue.jsonl`. The local reviewer-owned
+  `review_decisions.jsonl` input is never attached to the manifest.
 - Runtime evidence artifacts: `episodes.jsonl`,
   `episode_quality_report.json`, `episode_replay_report.json`,
   `reward_labels.jsonl`, `reward_label_report.json`.
 
-All non-default artifact families are explicit opt-ins. They are evidence for
-local quality, replay, release, or future training workflows; they are not proof
-of downstream model improvement.
+All non-default artifact families are explicit opt-ins. Release-review artifacts
+are absent by default, and review outcomes are evidence only: `reviewed` does
+not mean approved or releaseable and changes no sample or release decision.
+These artifacts are not proof of downstream model improvement.
 
 ## Documentation Map
 
