@@ -17,6 +17,7 @@
 - [design-docs/agent-data-synthesis-framework.md](design-docs/agent-data-synthesis-framework.md): full framework architecture.
 - [design-docs/algorithm-flow-and-architecture.md](design-docs/algorithm-flow-and-architecture.md): explanatory walkthrough of the current algorithm flow, architecture layers, gates, and dataset artifacts.
 - [design-docs/architecture-explainers.md](design-docs/architecture-explainers.md): detailed explanations of architecture and algorithm concepts such as the AWM environment model.
+- [design-docs/representative-scale-and-downstream-evidence.md](design-docs/representative-scale-and-downstream-evidence.md): approved evidence boundary for representative three-domain runs and external downstream benchmark result exchange.
 
 ## Product Specs
 
