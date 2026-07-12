@@ -497,7 +497,10 @@ def _release_completeness_decision(
         triggered_by.append("rejection_rate")
 
     missing_task_types = sorted(set(thresholds.required_task_types).difference(task_types))
-    if missing_task_types:
+    if not thresholds.required_task_types:
+        reasons.append("required task type thresholds are empty")
+        triggered_by.append("task_type_coverage")
+    elif missing_task_types:
         reasons.append(f"required task types are missing: {', '.join(missing_task_types)}")
         triggered_by.append("task_type_coverage")
     else:
@@ -506,7 +509,10 @@ def _release_completeness_decision(
     missing_tool_combinations = sorted(
         set(thresholds.required_tool_combinations).difference(tool_combinations)
     )
-    if missing_tool_combinations:
+    if not thresholds.required_tool_combinations:
+        reasons.append("required tool combination thresholds are empty")
+        triggered_by.append("tool_combination_coverage")
+    elif missing_tool_combinations:
         reasons.append(
             "required tool combinations are missing: "
             + ", ".join(missing_tool_combinations)

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import PurePath
 from typing import Mapping
 
+from synthesis.contracts import LLM_RESPONSE_SCHEMA_REASONS
 from synthesis.llm import LLMProviderError
 from synthesis.roles import TASK_GENERATION_ROLE, RoleRegistry, default_role_registry
 from synthesis.seeds import DomainSeed
@@ -21,12 +22,12 @@ from synthesis.task_contracts import (
     validate_task_contract,
 )
 from synthesis.tasks import CandidateTask, order_candidates_by_curriculum
-from synthesis.tools import validate_arguments_against_tool_definition
+from synthesis.tools import ToolSchemaError, validate_arguments_against_tool_definition
 
 
 DOMAIN_GENERATION_SPEC_VERSION = "domain_generation_spec_v1"
 SYNTHETIC_CONTEXT_POLICY = "synthetic_fixture"
-MAX_CANDIDATES_PER_CALL = 20
+MAX_CANDIDATES_PER_CALL = 5
 GENERATION_INELIGIBILITY_REASON_CODES = (
     "profile_contract_not_representative",
     "generation_spec_missing_or_mismatched",
@@ -83,6 +84,14 @@ _PROVIDER_RECORD_KEYS = {
 }
 
 
+class DomainGenerationValidationError(ValueError):
+    def __init__(self, reason: str) -> None:
+        if reason not in LLM_RESPONSE_SCHEMA_REASONS:
+            raise ValueError("unsupported domain generation schema reason")
+        super().__init__(reason)
+        self.reason = reason
+
+
 def validate_domain_generation_spec(spec: DomainGenerationSpec) -> None:
     if spec.schema_version != DOMAIN_GENERATION_SPEC_VERSION:
         raise ValueError("generation_spec_missing_or_mismatched")
@@ -91,7 +100,7 @@ def validate_domain_generation_spec(spec: DomainGenerationSpec) -> None:
     if spec.context_policy != SYNTHETIC_CONTEXT_POLICY:
         raise ValueError("context_policy_not_allowed")
     if not 1 <= spec.max_candidates_per_call <= MAX_CANDIDATES_PER_CALL:
-        raise ValueError("max_candidates_per_call must be between 1 and 20")
+        raise ValueError("max_candidates_per_call must be between 1 and 5")
     if not spec.tools:
         raise ValueError("tools must not be empty")
     tool_names: set[str] = set()
@@ -172,8 +181,15 @@ def build_domain_generation_prompt(
         "instructions": (
             "Generate exactly the requested number of executable task contracts. "
             "Return one JSON object with only task_contracts; each item must use exactly "
-            "the declared output keys. Do not return lineage, source, domain, provider, "
-            "branch-plan, path, credential, prompt, or compatibility fields."
+            "the declared output keys. For each record, copy task_type, required_tools, "
+            "and primary_tool exactly from one task_type_contract; primary_tool is always "
+            "required_tools[0], including tasks that mutate state through a later tool. "
+            "Copy final_answer_contains from an exact scalar grounding value that the "
+            "primary tool observation will return; do not invent completion or status text. "
+            "Copy primary_arguments exactly from one grounding_context entry; do not "
+            "invent alternate search terms, filters, names, or identifiers. "
+            "Do not return lineage, source, domain, provider, branch-plan, path, "
+            "credential, prompt, or compatibility fields."
         ),
         "domain_id": spec.domain_id,
         "requested_candidate_count": requested_candidate_count,
@@ -187,9 +203,143 @@ def build_domain_generation_prompt(
         ],
         "tools": list(spec.tools),
         "grounding_context": spec.grounding_context,
-        "output_item_keys": sorted(_PROVIDER_RECORD_KEYS),
+        "output_contract": _provider_output_contract(
+            spec,
+            requested_candidate_count=requested_candidate_count,
+        ),
     }
     return _canonical_json(payload)
+
+
+def _provider_output_contract(
+    spec: DomainGenerationSpec,
+    *,
+    requested_candidate_count: int,
+) -> dict[str, object]:
+    return {
+        "json_only": True,
+        "markdown_allowed": False,
+        "commentary_allowed": False,
+        "response": {
+            "type": "object",
+            "exact_keys": ["task_contracts"],
+            "task_contracts": {
+                "type": "array",
+                "exact_count": requested_candidate_count,
+                "unique_by": "candidate_id",
+                "items": _provider_record_contract(),
+            },
+        },
+        "task_type_contracts": [
+            {
+                "task_type": item.task_type,
+                "required_tools": list(item.required_tools),
+                "primary_tool": item.required_tools[0],
+                "exact_record_values": {
+                    "task_type": item.task_type,
+                    "required_tools": list(item.required_tools),
+                    "primary_tool": item.required_tools[0],
+                },
+                "expected_state": _expected_state_output_contract(item, spec.tools),
+            }
+            for item in spec.task_types
+        ],
+        "critical_rules": {
+            "primary_tool": {
+                "must_equal": "required_tools[0]",
+                "must_equal_selected_task_type_contract": True,
+                "alternatives_allowed": False,
+            },
+            "primary_arguments": {
+                "must_match_curated_tool_schema_for": "primary_tool",
+                "must_copy_exact_from": "grounding_context.*.primary_arguments",
+                "invented_arguments_allowed": False,
+            },
+            "final_answer_contains": {
+                "must_be_exact_scalar_from": "grounding_context",
+                "must_be_supported_by": "primary_tool_observation",
+                "invented_status_text_allowed": False,
+            },
+        },
+        "forbidden_fields": sorted(
+            _UNSAFE_KEYS
+            | {
+                "branch_plan",
+                "compatibility",
+                "domain",
+                "domain_id",
+                "lineage",
+                "provider",
+                "source",
+            }
+        ),
+    }
+
+
+def _expected_state_output_contract(
+    task_type: DomainTaskTypeSpec,
+    tools: tuple[Mapping[str, object], ...],
+) -> dict[str, object]:
+    if not task_type.allowed_expected_state_checks:
+        return {"mode": "empty"}
+    mutating_tools = [
+        tool
+        for tool in tools
+        if tool.get("name") in task_type.required_tools
+        and tool.get("side_effects") == "state_mutating"
+    ]
+    if len(mutating_tools) != 1:
+        raise ValueError("state-mutating task type must declare exactly one mutating tool")
+    mutating_tool = mutating_tools[0]
+    return {
+        "mode": "required",
+        "exact_count": len(task_type.allowed_expected_state_checks),
+        "allowed_check_types": list(task_type.allowed_expected_state_checks),
+        "exact_items": [
+            {
+                "check_type": check_type,
+                "expected_must_match_tool_schema": mutating_tool["name"],
+                "expected_schema": mutating_tool["schema"],
+            }
+            for check_type in task_type.allowed_expected_state_checks
+        ],
+    }
+
+
+def _provider_record_contract() -> dict[str, object]:
+    non_empty_string = {"type": "string", "non_empty": True}
+    non_empty_unique_strings = {
+        "type": "array",
+        "non_empty": True,
+        "unique_items": True,
+        "items": non_empty_string,
+    }
+    return {
+        "type": "object",
+        "exact_keys": sorted(_PROVIDER_RECORD_KEYS),
+        "fields": {
+            "candidate_id": {**non_empty_string, "unique": True},
+            "instruction": non_empty_string,
+            "task_type": non_empty_string,
+            "difficulty": {"type": "object"},
+            "required_capabilities": non_empty_unique_strings,
+            "required_tools": non_empty_unique_strings,
+            "primary_tool": non_empty_string,
+            "primary_arguments": {"type": "object"},
+            "final_answer_contains": non_empty_string,
+            "expected_state": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "exact_keys": ["check_type", "expected"],
+                    "fields": {
+                        "check_type": non_empty_string,
+                        "expected": {"type": "object", "non_empty": True},
+                    },
+                },
+            },
+        },
+    }
 
 
 def build_generation_contract_evidence(
@@ -262,91 +412,171 @@ def task_contract_from_provider_record(
     generation_lineage: Mapping[str, object],
 ) -> TaskContract:
     validate_domain_generation_spec(spec)
-    if not isinstance(raw, Mapping) or set(raw) != _PROVIDER_RECORD_KEYS:
-        raise ValueError("provider task contract must contain exact supported keys")
-    _validate_safe_value(raw, path="provider_task_contract")
-    task_type = _required_text(raw.get("task_type"), "task_type")
+    _validate_provider_record_shape(raw)
+    try:
+        _validate_safe_value(raw, path="provider_task_contract")
+    except (TypeError, ValueError, KeyError) as exc:
+        raise DomainGenerationValidationError("unsafe_provider_value") from exc
+    task_type = _provider_text(raw.get("task_type"), "invalid_task_type")
     task_specs = {item.task_type: item for item in spec.task_types}
     if task_type not in task_specs:
-        raise ValueError("provider task type is not declared by the domain")
+        raise DomainGenerationValidationError("invalid_task_type")
     task_spec = task_specs[task_type]
-    required_tools = _string_tuple(raw.get("required_tools"), "required_tools")
     registered_tools = {str(tool["name"]): tool for tool in spec.tools}
-    if required_tools != task_spec.required_tools:
-        raise ValueError("provider required_tools must exactly match the domain task type")
-    if not set(required_tools) <= set(registered_tools):
-        raise ValueError("provider task references an unregistered tool")
-    primary_tool = _required_text(raw.get("primary_tool"), "primary_tool")
-    if primary_tool != task_spec.required_tools[0]:
-        raise ValueError("primary_tool must match the domain task type's first tool")
-    primary_arguments = raw.get("primary_arguments")
-    if not isinstance(primary_arguments, dict):
-        raise ValueError("primary_arguments must be an object")
-    validate_arguments_against_tool_definition(
-        registered_tools[primary_tool],
-        primary_arguments,
+    required_tools = _provider_required_tools(
+        raw.get("required_tools"),
+        expected=task_spec.required_tools,
+        registered=set(registered_tools),
     )
-    difficulty = raw.get("difficulty")
-    if not isinstance(difficulty, Mapping):
-        raise ValueError("difficulty must be an object")
-    expected_state_raw = raw.get("expected_state")
-    if not isinstance(expected_state_raw, list):
-        raise ValueError("expected_state must be a list")
-    expected_state: list[ExpectedStateCheck] = []
+    primary_tool = _provider_primary_tool(
+        raw.get("primary_tool"),
+        expected=task_spec.required_tools[0],
+    )
+    primary_arguments = _provider_tool_arguments(
+        raw.get("primary_arguments"),
+        tool=registered_tools[primary_tool],
+    )
+    difficulty = _provider_difficulty(raw.get("difficulty"))
+    expected_state = _provider_expected_state(
+        raw.get("expected_state"),
+        task_spec=task_spec,
+        registered_tools=registered_tools,
+    )
+    capabilities = _provider_capabilities(raw.get("required_capabilities"))
+    try:
+        contract = TaskContract(
+            intent=TaskIntent(
+                candidate_id=_required_text(raw.get("candidate_id"), "candidate_id"),
+                instruction=_required_text(raw.get("instruction"), "instruction"),
+                domain_id=spec.domain_id,
+                task_type=task_type,
+                difficulty=difficulty,
+                required_capabilities=capabilities,
+                seed_ids=(seed.seed_id,),
+                lineage={"generation": dict(generation_lineage)},
+            ),
+            policy_hint=PolicyHint(
+                required_tools=required_tools,
+                primary_tool=primary_tool,
+                primary_arguments=primary_arguments,
+            ),
+            expected_outcome=ExpectedOutcome(
+                _required_text(raw.get("final_answer_contains"), "final_answer_contains")
+            ),
+            expected_state=expected_state,
+            compatibility={
+                "constraints": {
+                    "domain": spec.domain_id,
+                    "task_type": task_type,
+                    "required_capabilities": list(capabilities),
+                    "required_tools": list(required_tools),
+                },
+                "generation_lineage": dict(generation_lineage),
+            },
+        )
+        return validate_task_contract(contract)
+    except (TypeError, ValueError, KeyError) as exc:
+        raise DomainGenerationValidationError("unsafe_provider_value") from exc
+
+
+def _validate_provider_record_shape(raw: object) -> None:
+    if not isinstance(raw, Mapping) or set(raw) != _PROVIDER_RECORD_KEYS:
+        raise DomainGenerationValidationError("provider_record_keys_mismatch")
+
+
+def _provider_text(value: object, reason: str) -> str:
+    try:
+        return _required_text(value, "provider_field")
+    except (TypeError, ValueError) as exc:
+        raise DomainGenerationValidationError(reason) from exc
+
+
+def _provider_required_tools(
+    value: object,
+    *,
+    expected: tuple[str, ...],
+    registered: set[str],
+) -> tuple[str, ...]:
+    try:
+        required_tools = _string_tuple(value, "required_tools")
+    except (TypeError, ValueError) as exc:
+        raise DomainGenerationValidationError("invalid_required_tools") from exc
+    if required_tools != expected or not set(required_tools) <= registered:
+        raise DomainGenerationValidationError("invalid_required_tools")
+    return required_tools
+
+
+def _provider_primary_tool(value: object, *, expected: str) -> str:
+    primary_tool = _provider_text(value, "invalid_primary_tool")
+    if primary_tool != expected:
+        raise DomainGenerationValidationError("invalid_primary_tool")
+    return primary_tool
+
+
+def _provider_tool_arguments(
+    value: object,
+    *,
+    tool: Mapping[str, object],
+) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise DomainGenerationValidationError("invalid_tool_arguments")
+    try:
+        validate_arguments_against_tool_definition(tool, value)
+    except (ToolSchemaError, TypeError, ValueError, KeyError) as exc:
+        raise DomainGenerationValidationError("invalid_tool_arguments") from exc
+    return dict(value)
+
+
+def _provider_difficulty(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise DomainGenerationValidationError("invalid_difficulty")
+    return dict(value)
+
+
+def _provider_expected_state(
+    value: object,
+    *,
+    task_spec: DomainTaskTypeSpec,
+    registered_tools: Mapping[str, Mapping[str, object]],
+) -> tuple[ExpectedStateCheck, ...]:
+    if not isinstance(value, list):
+        raise DomainGenerationValidationError("invalid_expected_state")
     mutating_tools = [
         registered_tools[name]
         for name in task_spec.required_tools
         if registered_tools[name].get("side_effects") == "state_mutating"
     ]
     if task_spec.allowed_expected_state_checks and len(mutating_tools) != 1:
-        raise ValueError("state-mutating task type must declare exactly one mutating tool")
+        raise DomainGenerationValidationError("invalid_expected_state")
+    expected_state: list[ExpectedStateCheck] = []
     seen_checks: set[str] = set()
-    for index, state in enumerate(expected_state_raw):
+    for state in value:
         if not isinstance(state, Mapping) or set(state) != {"check_type", "expected"}:
-            raise ValueError(f"expected_state.{index} must contain exact keys")
-        check_type = _required_text(state.get("check_type"), f"expected_state.{index}.check_type")
+            raise DomainGenerationValidationError("invalid_expected_state")
+        check_type = _provider_text(state.get("check_type"), "invalid_expected_state")
         if check_type not in task_spec.allowed_expected_state_checks or check_type in seen_checks:
-            raise ValueError("provider expected-state check is unsupported or duplicated")
+            raise DomainGenerationValidationError("invalid_expected_state")
         expected = state.get("expected")
         if not isinstance(expected, Mapping) or not expected:
-            raise ValueError("expected-state expected value must be a non-empty object")
-        validate_arguments_against_tool_definition(mutating_tools[0], dict(expected))
+            raise DomainGenerationValidationError("invalid_expected_state")
+        try:
+            validate_arguments_against_tool_definition(mutating_tools[0], dict(expected))
+        except (ToolSchemaError, TypeError, ValueError, KeyError) as exc:
+            raise DomainGenerationValidationError("invalid_tool_arguments") from exc
         seen_checks.add(check_type)
         expected_state.append(ExpectedStateCheck(check_type, dict(expected)))
     if task_spec.allowed_expected_state_checks and not expected_state:
-        raise ValueError("state-mutating task type requires expected-state evidence")
-    capabilities = _string_tuple(raw.get("required_capabilities"), "required_capabilities")
-    contract = TaskContract(
-        intent=TaskIntent(
-            candidate_id=_required_text(raw.get("candidate_id"), "candidate_id"),
-            instruction=_required_text(raw.get("instruction"), "instruction"),
-            domain_id=spec.domain_id,
-            task_type=task_type,
-            difficulty=dict(difficulty),
-            required_capabilities=capabilities,
-            seed_ids=(seed.seed_id,),
-            lineage={"generation": dict(generation_lineage)},
-        ),
-        policy_hint=PolicyHint(
-            required_tools=required_tools,
-            primary_tool=primary_tool,
-            primary_arguments=dict(primary_arguments),
-        ),
-        expected_outcome=ExpectedOutcome(
-            _required_text(raw.get("final_answer_contains"), "final_answer_contains")
-        ),
-        expected_state=tuple(expected_state),
-        compatibility={
-            "constraints": {
-                "domain": spec.domain_id,
-                "task_type": task_type,
-                "required_capabilities": list(capabilities),
-                "required_tools": list(required_tools),
-            },
-            "generation_lineage": dict(generation_lineage),
-        },
-    )
-    return validate_task_contract(contract)
+        raise DomainGenerationValidationError("invalid_expected_state")
+    if not task_spec.allowed_expected_state_checks and expected_state:
+        raise DomainGenerationValidationError("invalid_expected_state")
+    return tuple(expected_state)
+
+
+def _provider_capabilities(value: object) -> tuple[str, ...]:
+    try:
+        return _string_tuple(value, "required_capabilities")
+    except (TypeError, ValueError) as exc:
+        raise DomainGenerationValidationError("invalid_required_capabilities") from exc
 
 
 def parse_domain_task_contracts(
@@ -357,10 +587,10 @@ def parse_domain_task_contracts(
     generation_lineage: Mapping[str, object],
 ) -> list[TaskContract]:
     if not isinstance(content, Mapping) or set(content) != {"task_contracts"}:
-        raise ValueError("provider response must contain only task_contracts")
+        raise DomainGenerationValidationError("response_shape_mismatch")
     records = content.get("task_contracts")
     if not isinstance(records, list):
-        raise ValueError("task_contracts must be a list")
+        raise DomainGenerationValidationError("response_shape_mismatch")
     contracts = [
         task_contract_from_provider_record(
             record,
@@ -372,7 +602,7 @@ def parse_domain_task_contracts(
     ]
     ids = [contract.intent.candidate_id for contract in contracts]
     if len(ids) != len(set(ids)):
-        raise ValueError("provider response contains duplicate candidate ids")
+        raise DomainGenerationValidationError("duplicate_candidate_id")
     return contracts
 
 
@@ -411,17 +641,18 @@ def generate_domain_llm_candidates(
                 generation_lineage=result.lineage,
             )
             if len(contracts) != requested:
-                raise ValueError("provider batch did not exactly fulfill requested count")
+                raise DomainGenerationValidationError("batch_count_mismatch")
             batch_ids = {contract.intent.candidate_id for contract in contracts}
             if candidate_ids & batch_ids:
-                raise ValueError("provider batches contain duplicate candidate ids")
-        except (TypeError, ValueError, KeyError) as exc:
+                raise DomainGenerationValidationError("duplicate_candidate_id")
+        except DomainGenerationValidationError as exc:
             raise LLMProviderError(
                 cause="llm_response_schema_error",
-                error_class=type(exc).__name__,
+                error_class="DomainGenerationValidationError",
                 retryable=False,
                 retry_count=_retry_count(result.lineage),
                 lineage=result.lineage,
+                schema_reason=exc.reason,
             ) from exc
         candidate_ids.update(batch_ids)
         candidates.extend(candidate_from_task_contract(contract) for contract in contracts)

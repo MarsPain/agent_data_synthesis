@@ -4,6 +4,7 @@ Completed implementation plans will be moved here with completion dates and vali
 
 ## Completed
 
+- [0044-representative-provider-schema-hardening](0044-representative-provider-schema-hardening.md): fixed sanitized provider schema diagnostics, replayable grounding arguments, explicit expected-state schemas, truthful zero-accepted reporting, and successful two-candidate contacts/mobile/workspace probes. Completed on 2026-07-12; full representative retries were not started.
 - [0043-domain-aware-representative-generation-and-campaign-readiness](0043-domain-aware-representative-generation-and-campaign-readiness.md): bounded domain-aware LLM task contracts, v3 representative profiles, exact-target batching, and sanitized campaign eligibility evidence. Completed on 2026-07-11; no real-provider campaign was run.
 - [0042-representative-scale-and-downstream-evidence](0042-representative-scale-and-downstream-evidence.md): diagnostic-versus-representative three-domain aggregation and a hash-locked, sanitized external benchmark evidence exchange without release-admission changes. Completed on 2026-07-11.
 - [0041-release-review-resolution-and-evidence](0041-release-review-resolution-and-evidence.md): separate deterministic redacted release-review queue, explicit local reviewer decisions, aggregate offline resolution evidence, and controlled post-pack manifest attachment without changing sample or release admission. Completed on 2026-07-11.

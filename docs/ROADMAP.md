@@ -115,6 +115,14 @@
   is campaign-ready, but no real provider campaign was run. Async
   orchestration and semantic duplicate detection remain deferred until the
   resulting real campaign activates their existing gates.
+- Harden the representative provider boundary after the first real calls failed
+  strict task-contract parsing. Implemented in plan 0044 with fail-closed fixed
+  schema reasons, five-candidate batches, replayable grounding arguments,
+  explicit expected-state schemas, grounded final-answer evidence, and truthful
+  zero-accepted release reporting. Contacts, mobile, and workspace each passed
+  an independent two-candidate paid probe. Full 100-candidate retries remain a
+  separately authorized campaign whose quality must be established by post-run
+  evidence rather than successful execution alone.
 - Add profile-attributed quality and comparison before async orchestration.
   Implemented in plan 0019 with sanitized per-record profile attribution,
   profile quality slices, and parent-comparison visibility over profile slice

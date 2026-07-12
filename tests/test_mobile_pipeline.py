@@ -25,6 +25,89 @@ def mobile_seed() -> DomainSeed:
 
 
 class MobilePipelineTest(unittest.TestCase):
+    def test_generated_mutating_tasks_preserve_primary_search_evidence(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from synthesis.pipeline import run_foundation_pipeline
+        from synthesis.seeds import DomainSeed
+        from synthesis.tasks import CandidateTask
+
+        seed = DomainSeed(
+            "seed_mobile_provider_regression",
+            "mobile_messages_fixture",
+            "Provider regression fixture.",
+            ("mobile_draft_reply", "mobile_reminder_creation"),
+        )
+
+        def generated_candidates(_seed: DomainSeed) -> list[CandidateTask]:
+            return [
+                CandidateTask(
+                    candidate_id="cand_alex_reply",
+                    instruction="Search for Alex's late message and draft a reply.",
+                    constraints={
+                        "domain": "mobile_messages_fixture",
+                        "task_type": "mobile_draft_reply",
+                        "required_capabilities": ["message_search", "draft_reply"],
+                        "required_tools": [
+                            "search_phone_messages",
+                            "draft_message_reply",
+                        ],
+                    },
+                    difficulty={},
+                    tool_name="search_phone_messages",
+                    arguments={"query": "five minutes late", "participant": "Alex"},
+                    expected_answer="Please reply that I will be five minutes late.",
+                    seed_ids=(_seed.seed_id,),
+                    expected_state={
+                        "mobile_draft_reply": {
+                            "thread_id": "thread_alex",
+                            "body": "I will be five minutes late.",
+                        }
+                    },
+                ),
+                CandidateTask(
+                    candidate_id="cand_maya_reminder",
+                    instruction="Search Maya's project update and create a reminder.",
+                    constraints={
+                        "domain": "mobile_messages_fixture",
+                        "task_type": "mobile_reminder_creation",
+                        "required_capabilities": [
+                            "message_search",
+                            "reminder_creation",
+                        ],
+                        "required_tools": [
+                            "search_phone_messages",
+                            "create_phone_reminder",
+                        ],
+                    },
+                    difficulty={},
+                    tool_name="search_phone_messages",
+                    arguments={"query": "project update", "participant": "Maya"},
+                    expected_answer=(
+                        "Can you remind me to send the project update tomorrow at 9 AM?"
+                    ),
+                    seed_ids=(_seed.seed_id,),
+                    expected_state={
+                        "mobile_reminder": {
+                            "title": "Send the project update",
+                            "due_at": "tomorrow 9 AM",
+                        }
+                    },
+                ),
+            ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_foundation_pipeline(
+                Path(tmpdir),
+                dataset_version="dataset_mobile_provider_regression",
+                seed_override=seed,
+                candidate_generator=generated_candidates,
+            )
+
+        self.assertEqual(result.accepted_count, 2)
+        self.assertEqual(result.rejected_count, 0)
+
     def test_mobile_fixture_candidates_cover_expected_task_shapes(self) -> None:
         from synthesis.mobile_tasks import generate_mobile_fixture_candidates
 

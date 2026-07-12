@@ -35,6 +35,21 @@ REJECTION_CAUSES = {
     "unsafe_generated_code",
 }
 
+LLM_RESPONSE_SCHEMA_REASONS = {
+    "response_shape_mismatch",
+    "provider_record_keys_mismatch",
+    "invalid_task_type",
+    "invalid_required_tools",
+    "invalid_primary_tool",
+    "invalid_tool_arguments",
+    "invalid_difficulty",
+    "invalid_expected_state",
+    "invalid_required_capabilities",
+    "unsafe_provider_value",
+    "duplicate_candidate_id",
+    "batch_count_mismatch",
+}
+
 REFINEMENT_DECISIONS = {
     "not_repairable",
     "repair_candidate",
@@ -385,6 +400,22 @@ def validate_rejection_record(record: Mapping[str, Any]) -> None:
         raise ContractValidationError(f"cause must be one of {sorted(REJECTION_CAUSES)}")
     _validate_task(record.get("task"))
     details = _require_mapping(record.get("details"), "details")
+    schema_reason = details.get("schema_reason")
+    is_generation_schema_rejection = (
+        record.get("candidate_id") == "generation_stage"
+        and cause == "llm_response_schema_error"
+    )
+    if is_generation_schema_rejection:
+        _require_non_empty_string(schema_reason, "details.schema_reason")
+        if schema_reason not in LLM_RESPONSE_SCHEMA_REASONS:
+            raise ContractValidationError(
+                "details.schema_reason must be an approved LLM response schema reason"
+            )
+    elif schema_reason is not None:
+        raise ContractValidationError(
+            "details.schema_reason is only allowed for generation-stage "
+            "llm_response_schema_error rejections"
+        )
     if "run_profile" in details:
         _validate_run_profile_attribution(
             details.get("run_profile"),
@@ -2162,14 +2193,11 @@ def _validate_release_completeness(raw: object) -> dict[str, str]:
         ),
         "release_completeness.observed.rejection_rate",
     )
-    _require_non_empty_string_sequence(
-        observed.get("task_types"),
-        "release_completeness.observed.task_types",
-    )
-    _require_non_empty_string_sequence(
-        observed.get("tool_combinations"),
-        "release_completeness.observed.tool_combinations",
-    )
+    for field in ("task_types", "tool_combinations"):
+        path = f"release_completeness.observed.{field}"
+        values = _require_sequence(observed.get(field), path)
+        for index, value in enumerate(values):
+            _require_non_empty_string(value, f"{path}.{index}")
 
     decision = _require_mapping(
         release_completeness.get("decision"),

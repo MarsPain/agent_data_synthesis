@@ -257,6 +257,42 @@ class DatasetContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ContractValidationError, "cause"):
             validate_rejection_record(rejection)
 
+    def test_generation_stage_schema_rejection_accepts_allowlisted_reasons(self) -> None:
+        from synthesis.contracts import (
+            LLM_RESPONSE_SCHEMA_REASONS,
+            validate_rejection_record,
+        )
+
+        for reason in LLM_RESPONSE_SCHEMA_REASONS:
+            with self.subTest(reason=reason):
+                validate_rejection_record(_generation_stage_schema_rejection(reason=reason))
+
+    def test_generation_stage_schema_rejection_rejects_unknown_reason(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_rejection_record
+
+        with self.assertRaisesRegex(ContractValidationError, "schema_reason"):
+            validate_rejection_record(
+                _generation_stage_schema_rejection(reason="provider_said_bad_email")
+            )
+
+    def test_provider_rejection_forbids_schema_reason(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_rejection_record
+
+        rejection = _generation_stage_schema_rejection(reason="invalid_tool_arguments")
+        rejection["cause"] = "llm_provider_error"
+
+        with self.assertRaisesRegex(ContractValidationError, "schema_reason"):
+            validate_rejection_record(rejection)
+
+    def test_generation_stage_schema_rejection_requires_schema_reason(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_rejection_record
+
+        rejection = _generation_stage_schema_rejection(reason="invalid_tool_arguments")
+        rejection["details"].pop("schema_reason")
+
+        with self.assertRaisesRegex(ContractValidationError, "schema_reason"):
+            validate_rejection_record(rejection)
+
     def test_sample_contract_accepts_run_profile_attribution(self) -> None:
         from synthesis.contracts import validate_sample_record
 
@@ -904,6 +940,37 @@ class DatasetContractTest(unittest.TestCase):
                 with self.assertRaisesRegex(ContractValidationError, expected_error):
                     validate_dataset_release_report_record(report)
 
+    def test_dataset_release_report_contract_accepts_empty_observed_coverage(self) -> None:
+        from synthesis.contracts import validate_dataset_release_report_record
+
+        report = _valid_dataset_release_report()
+        report["profile"]["profile_purpose"] = "benchmark"
+        report["release_completeness"]["observed"]["task_types"] = []
+        report["release_completeness"]["observed"]["tool_combinations"] = []
+        report["release_completeness"]["decision"] = {
+            "status": "insufficient_evidence",
+            "reasons": ["required coverage is missing"],
+            "triggered_by": ["task_type_coverage", "tool_combination_coverage"],
+        }
+        report["decisions"]["dataset_release"] = {
+            "status": "ineligible",
+            "reasons": ["benchmark profiles are not release candidates"],
+            "triggered_by": ["profile_purpose"],
+        }
+
+        validate_dataset_release_report_record(report)
+
+    def test_dataset_release_report_contract_rejects_empty_required_coverage(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_dataset_release_report_record
+
+        for field in ("required_task_types", "required_tool_combinations"):
+            with self.subTest(field=field):
+                report = _valid_dataset_release_report()
+                report["release_completeness"]["thresholds"][field] = []
+
+                with self.assertRaisesRegex(ContractValidationError, field):
+                    validate_dataset_release_report_record(report)
+
     def test_manifest_contract_accepts_evaluation_report_artifact(self) -> None:
         from synthesis.contracts import validate_manifest_record
 
@@ -1420,6 +1487,25 @@ def _valid_rejection() -> dict[str, object]:
         },
         "details": {
             "check": "final_response_contains_expected_answer",
+            "retry_eligible": False,
+        },
+    }
+
+
+def _generation_stage_schema_rejection(*, reason: str) -> dict[str, object]:
+    return {
+        "candidate_id": "generation_stage",
+        "cause": "llm_response_schema_error",
+        "task": {
+            "candidate_id": "generation_stage",
+            "instruction": "Remote LLM candidate generation failed before execution.",
+            "constraints": {},
+            "difficulty": {},
+        },
+        "details": {
+            "error_class": "DomainGenerationValidationError",
+            "schema_reason": reason,
+            "retry_count": 0,
             "retry_eligible": False,
         },
     }

@@ -84,6 +84,15 @@ host paths are not persisted; artifacts retain hashes and fixed eligibility
 metadata only. Representative evidence does not automatically activate async
 infrastructure, semantic duplicate detection, release admission, or training.
 
+Strict representative response validation remains fail-closed. A schema failure
+may persist only the public `llm_response_schema_error` cause and one fixed
+allowlisted `schema_reason`; raw responses, response excerpts, provider field
+values, and provider-derived exception messages remain forbidden. Provider
+batches are capped at five candidates. After local verification, contacts,
+mobile, and workspace must each pass an independent two-candidate paid probe
+before any 100-candidate representative retry is allowed; the first failed probe
+stops the gate.
+
 Logs may include provider alias, base URL host, model id, prompt or config hash, token counts, cost metadata, retry count, and error class. Logs must not include API keys, authorization headers, or raw secrets.
 
 ## Generated Code Controls

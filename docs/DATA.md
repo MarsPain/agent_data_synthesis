@@ -351,8 +351,13 @@ task/comment content.
 `run_profile_v3` is the representative remote-generation contract. Its manifest
 adds `generation_contract`: spec version, `synthetic_fixture` policy,
 target/generated counts, fulfillment, computed eligibility, fixed reason codes,
-and a grounding-context hash. Prompts, grounding rows, tool arguments, provider
-payloads, source payloads, credentials, and host paths are never persisted.
+and a grounding-context hash. Provider calls contain at most five candidates and
+receive a complete machine-readable output contract derived from the selected
+domain specification. Domain grounding pairs curated primary arguments with the
+observation those arguments reproduce; mutating task types also receive exact
+expected-state items and their curated tool schema. These prompt-only values are
+never exported. Prompts, grounding rows, tool arguments, provider payloads,
+source payloads, credentials, and host paths are never persisted.
 Evaluation, profile-decision, release, and release-pack artifacts preserve the
 same validated mapping so campaign evidence can reject metadata drift.
 
@@ -765,6 +770,13 @@ and `workspace_branch_fallback`. Required tool-combination coverage is
 domain-specific; dataset release reports store the exact threshold list used in
 `release_completeness.thresholds`.
 
+Required task-type and tool-combination threshold lists remain non-empty.
+Observed coverage lists may be empty when no candidate is accepted; each present
+entry must still be a non-empty string. Empty observation is truthful missing
+evidence, triggers both applicable coverage checks, and can never produce a
+`passed` completeness decision. Benchmark profiles remain `ineligible` even
+when the rest of their reporting chain validates.
+
 The report records:
 
 - `release_completeness.thresholds.min_accepted_samples`: minimum accepted
@@ -1089,9 +1101,15 @@ successes and failures are reported separately.
 Remote LLM generation-stage failures are rejected before candidate execution.
 Transient provider, timeout, HTTP 429, and HTTP 5xx failures use
 `llm_provider_error`; malformed provider JSON or malformed candidate arrays use
-`llm_response_schema_error`. Generation-stage rejection details include sanitized
-`error_class`, `retry_count`, and `retry_eligible` values, and must not include raw
-provider payloads, prompts, headers, or credentials.
+`llm_response_schema_error`. Generation-stage schema rejection details include
+sanitized `error_class`, `retry_count`, `retry_eligible`, and exactly one fixed
+`schema_reason`: `response_shape_mismatch`, `provider_record_keys_mismatch`,
+`invalid_task_type`, `invalid_required_tools`, `invalid_primary_tool`,
+`invalid_tool_arguments`, `invalid_difficulty`, `invalid_expected_state`,
+`invalid_required_capabilities`, `unsafe_provider_value`,
+`duplicate_candidate_id`, or `batch_count_mismatch`. They must not include raw
+provider payloads, field values, prompts, grounding context, response excerpts,
+provider-derived exception messages, headers, or credentials.
 
 ### Parent Comparison Contract
 

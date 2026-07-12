@@ -461,6 +461,8 @@ def assemble_generation_stage_rejection(*, error: LLMProviderError) -> dict[str,
     }
     if error.lineage:
         details["lineage"] = dict(error.lineage)
+    if error.schema_reason is not None:
+        details["schema_reason"] = error.schema_reason
     return {
         "candidate_id": "generation_stage",
         "cause": error.cause,

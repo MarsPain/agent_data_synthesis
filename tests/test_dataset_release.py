@@ -4,6 +4,38 @@ import unittest
 
 
 class DatasetReleaseTest(unittest.TestCase):
+    def test_zero_accepted_benchmark_reports_missing_coverage_truthfully(self) -> None:
+        from synthesis.dataset_release import build_dataset_release_report
+
+        report = build_dataset_release_report(
+            manifest=_manifest(
+                profile_purpose="benchmark",
+                accepted_count=0,
+                rejected_count=1,
+            ),
+            quality_report=_quality_report(
+                accepted=0,
+                rejected=1,
+                task_types=(),
+                tool_combinations=(),
+            ),
+            evaluation_report=_evaluation_report(status="insufficient_evidence"),
+            profile_decision_report=_profile_decision_report(
+                profile_promotion_status="insufficient_evidence"
+            ),
+        )
+
+        completeness = report["release_completeness"]
+        self.assertEqual(completeness["observed"]["task_types"], [])
+        self.assertEqual(completeness["observed"]["tool_combinations"], [])
+        self.assertEqual(completeness["decision"]["status"], "insufficient_evidence")
+        self.assertIn("task_type_coverage", completeness["decision"]["triggered_by"])
+        self.assertIn(
+            "tool_combination_coverage",
+            completeness["decision"]["triggered_by"],
+        )
+        self.assertEqual(report["decisions"]["dataset_release"]["status"], "ineligible")
+
     def test_release_candidate_with_small_undercovered_evidence_is_insufficient(self) -> None:
         from synthesis.dataset_release import build_dataset_release_report
 

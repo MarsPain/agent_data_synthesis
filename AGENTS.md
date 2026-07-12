@@ -47,4 +47,4 @@ uv run python -m unittest
 - The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
 - No implementation plan is currently active; lifecycle state is tracked in
   [docs/PLANS.md](docs/PLANS.md).
-- Latest completed work is documented in [docs/exec-plans/completed/0043-domain-aware-representative-generation-and-campaign-readiness.md](docs/exec-plans/completed/0043-domain-aware-representative-generation-and-campaign-readiness.md).
+- Latest completed work is documented in [docs/exec-plans/completed/0044-representative-provider-schema-hardening.md](docs/exec-plans/completed/0044-representative-provider-schema-hardening.md).

@@ -2413,6 +2413,137 @@ class FoundationCliTest(unittest.TestCase):
             )
             self.assertNotIn("Authorization", result.stderr)
 
+    def test_llm_schema_failure_completes_sanitized_reporting_chain(self) -> None:
+        from main import main
+        from synthesis.llm import LLMGenerationResult
+
+        raw_response_marker = "RAW_PROVIDER_RESPONSE_MARKER"
+        api_key_marker = "provider-probe-api-key-marker"
+
+        def invalid_generation(self, prompt: str, *, role: str) -> LLMGenerationResult:
+            return LLMGenerationResult(
+                content={
+                    "task_contracts": [
+                        {"provider_payload": raw_response_marker}
+                    ]
+                },
+                lineage={
+                    "role": role,
+                    "provider_host": "llm.example.test",
+                    "retry_count": 0,
+                },
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            output_dir = root / "schema-failure"
+            profile_path = root / "profile.json"
+            profile_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "run_profile_v3",
+                        "profile_id": "contacts_schema_failure_test",
+                        "dataset_version": "dataset_contacts_schema_failure_test",
+                        "profile_purpose": "benchmark",
+                        "seed": {
+                            "seed_id": "seed_contacts_schema_failure_test",
+                            "domain": "contacts_fixture",
+                            "description": "Generate grounded executable contacts tasks.",
+                            "task_taxonomy": ["contact_lookup", "contact_followup"],
+                        },
+                        "generation": {
+                            "mode": "llm",
+                            "target_candidate_count": 2,
+                            "context_policy": "synthetic_fixture",
+                        },
+                        "features": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            argv = [
+                "main.py",
+                "--run-profile",
+                str(profile_path),
+                "--use-llm",
+                "--write-evaluation-report",
+                "--write-profile-decision-report",
+                "--write-dataset-release-report",
+                "--write-release-quality-audit",
+                "--output-dir",
+                str(output_dir),
+            ]
+            env = {
+                "AGENT_DATA_LLM_BASE_URL": "https://llm.example.test/v1",
+                "AGENT_DATA_API_KEY": api_key_marker,
+                "AGENT_DATA_LLM_MODEL": "test-generator",
+            }
+            with (
+                patch.dict(os.environ, env, clear=False),
+                patch.object(sys, "argv", argv),
+                patch(
+                    "synthesis.llm.OpenAICompatibleClient.generate_json",
+                    new=invalid_generation,
+                ),
+            ):
+                exit_code = main()
+
+            self.assertEqual(exit_code, 0)
+            artifact_names = (
+                "samples.jsonl",
+                "rejections.jsonl",
+                "manifest.json",
+                "quality_report.json",
+                "evaluation_report.json",
+                "profile_decision_report.json",
+                "dataset_release_report.json",
+                "release_quality_audit.json",
+            )
+            for artifact_name in artifact_names:
+                self.assertTrue((output_dir / artifact_name).exists(), artifact_name)
+
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["accepted_count"], 0)
+            self.assertEqual(manifest["rejected_count"], 1)
+            rejection = json.loads(
+                (output_dir / "rejections.jsonl").read_text(encoding="utf-8")
+            )
+            self.assertEqual(rejection["cause"], "llm_response_schema_error")
+            self.assertEqual(
+                rejection["details"]["schema_reason"],
+                "provider_record_keys_mismatch",
+            )
+            release_report = json.loads(
+                (output_dir / "dataset_release_report.json").read_text(encoding="utf-8")
+            )
+            self.assertNotEqual(
+                release_report["release_completeness"]["decision"]["status"],
+                "passed",
+            )
+            self.assertEqual(
+                release_report["decisions"]["dataset_release"]["status"],
+                "ineligible",
+            )
+
+            persisted = "\n".join(
+                (output_dir / artifact_name).read_text(encoding="utf-8")
+                for artifact_name in artifact_names
+            )
+            forbidden_values = (
+                raw_response_marker,
+                "Generate exactly the requested number of executable task contracts",
+                "Alice Zhang",
+                "alice.zhang@example.test",
+                "Authorization",
+                "Bearer ",
+                api_key_marker,
+                str(Path.cwd()),
+                "provider task contract must contain exact supported keys",
+            )
+            for value in forbidden_values:
+                with self.subTest(forbidden=value):
+                    self.assertNotIn(value, persisted)
+
 
 if __name__ == "__main__":
     unittest.main()

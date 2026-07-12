@@ -19,10 +19,17 @@ def build_workspace_generation_spec(environment: object, registry: object):
 
     if getattr(environment, "source_input", None) is not None:
         raise ValueError("source_backed_remote_context_not_allowed")
+    item_arguments = [
+        {"query": "Alpha Launch", "kind": "project"},
+        {"query": "launch plan", "kind": "task"},
+        {"query": "metrics dashboard", "kind": "task"},
+    ]
     items = [
-        environment.search_workspace_items(query="Alpha Launch", kind="project"),
-        environment.search_workspace_items(query="launch plan", kind="task"),
-        environment.search_workspace_items(query="metrics dashboard", kind="task"),
+        {
+            "primary_arguments": arguments,
+            "observation": environment.search_workspace_items(**arguments),
+        }
+        for arguments in item_arguments
     ]
     spec = DomainGenerationSpec(
         schema_version=DOMAIN_GENERATION_SPEC_VERSION,

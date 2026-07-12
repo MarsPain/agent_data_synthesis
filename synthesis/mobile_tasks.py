@@ -19,10 +19,17 @@ def build_mobile_generation_spec(environment: object, registry: object):
 
     if getattr(environment, "source_input", None) is not None:
         raise ValueError("source_backed_remote_context_not_allowed")
+    message_arguments = [
+        {"query": "project update", "participant": "Maya"},
+        {"query": "five minutes late", "participant": "Alex"},
+        {"query": "pickup code", "participant": "Delivery"},
+    ]
     messages = [
-        environment.search_messages(query="project update", participant="Maya"),
-        environment.search_messages(query="five minutes late", participant="Alex"),
-        environment.search_messages(query="pickup code", participant="Delivery"),
+        {
+            "primary_arguments": arguments,
+            "observation": environment.search_messages(**arguments),
+        }
+        for arguments in message_arguments
     ]
     spec = DomainGenerationSpec(
         schema_version=DOMAIN_GENERATION_SPEC_VERSION,
@@ -225,7 +232,9 @@ def scripted_mobile_solution_policy_from_contract(contract: "TaskContract") -> S
                     arguments=reminder_arguments,
                 ),
             ),
-            final_response_template="Reminder created from {source_message_id}.",
+            final_response_template=(
+                "Reminder created from message {message_id}. Source: {snippet}"
+            ),
             lineage=_mobile_policy_lineage(),
         )
 
@@ -247,7 +256,7 @@ def scripted_mobile_solution_policy_from_contract(contract: "TaskContract") -> S
                     },
                 ),
             ),
-            final_response_template="Draft reply ready: {body}",
+            final_response_template="Draft reply ready: {body} Source: {snippet}",
             lineage=_mobile_policy_lineage(),
         )
 

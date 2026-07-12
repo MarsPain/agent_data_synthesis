@@ -125,7 +125,13 @@ def build_contacts_generation_spec(environment: object, registry: object):
     if getattr(environment, "source_input", None) is not None:
         raise ValueError("source_backed_remote_context_not_allowed")
     names = str(environment.list_contact_names()["contacts"]).split(", ")
-    contacts = [environment.lookup_email(name) for name in names]
+    contacts = [
+        {
+            "primary_arguments": {"name": name},
+            "observation": environment.lookup_email(name),
+        }
+        for name in names
+    ]
     spec = DomainGenerationSpec(
         schema_version=DOMAIN_GENERATION_SPEC_VERSION,
         domain_id="contacts_fixture",

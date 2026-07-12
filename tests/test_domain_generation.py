@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from dataclasses import replace
@@ -34,7 +35,7 @@ class DomainGenerationSpecTest(unittest.TestCase):
             ),
             grounding_context={"contacts": [{"name": "Alice Zhang"}]},
             context_policy="synthetic_fixture",
-            max_candidates_per_call=20,
+            max_candidates_per_call=5,
         )
 
     def test_validates_and_exports_only_sanitized_spec_metadata(self) -> None:
@@ -73,13 +74,14 @@ class DomainGenerationSpecTest(unittest.TestCase):
             replace(valid, grounding_context={"path": "/Users/example/private.json"}),
             replace(valid, grounding_context={"value": "Authorization: Bearer secret"}),
             replace(valid, max_candidates_per_call=0),
-            replace(valid, max_candidates_per_call=21),
+            replace(valid, max_candidates_per_call=6),
         )
         for spec in invalid:
             with self.subTest(spec=spec), self.assertRaises(ValueError):
                 validate_domain_generation_spec(spec)
 
     def test_every_domain_bundle_owns_a_matching_generation_spec(self) -> None:
+        from synthesis.domain_generation import build_domain_generation_prompt
         from synthesis.domain_pipeline import build_domain_pipeline_bundle
         from synthesis.seeds import DomainSeed, foundation_seed
 
@@ -104,6 +106,65 @@ class DomainGenerationSpecTest(unittest.TestCase):
                         {tool["name"] for tool in spec.tools},
                         set(bundle.registry.tool_names()),
                     )
+                    self.assertEqual(spec.max_candidates_per_call, 5)
+                    grounding_entries = next(iter(spec.grounding_context.values()))
+                    self.assertTrue(grounding_entries)
+                    primary_tool = spec.task_types[0].required_tools[0]
+                    for entry in grounding_entries:
+                        self.assertEqual(
+                            set(entry),
+                            {"primary_arguments", "observation"},
+                        )
+                        self.assertEqual(
+                            bundle.registry.execute(
+                                primary_tool,
+                                dict(entry["primary_arguments"]),
+                            ),
+                            entry["observation"],
+                        )
+                    prompt = json.loads(
+                        build_domain_generation_prompt(
+                            spec,
+                            requested_candidate_count=1,
+                        )
+                    )
+                    prompt_task_types = {
+                        item["task_type"]: item
+                        for item in prompt["output_contract"]["task_type_contracts"]
+                    }
+                    tools_by_name = {tool["name"]: tool for tool in spec.tools}
+                    for task_type_spec in spec.task_types:
+                        expected_state = prompt_task_types[
+                            task_type_spec.task_type
+                        ]["expected_state"]
+                        if not task_type_spec.allowed_expected_state_checks:
+                            self.assertEqual(expected_state, {"mode": "empty"})
+                            continue
+                        mutating_tools = [
+                            tool_name
+                            for tool_name in task_type_spec.required_tools
+                            if tools_by_name[tool_name]["side_effects"]
+                            == "state_mutating"
+                        ]
+                        self.assertEqual(len(mutating_tools), 1)
+                        self.assertEqual(expected_state["mode"], "required")
+                        self.assertEqual(
+                            expected_state["exact_count"],
+                            len(task_type_spec.allowed_expected_state_checks),
+                        )
+                        self.assertEqual(
+                            expected_state["exact_items"],
+                            [
+                                {
+                                    "check_type": check_type,
+                                    "expected_must_match_tool_schema": mutating_tools[0],
+                                    "expected_schema": tools_by_name[mutating_tools[0]][
+                                        "schema"
+                                    ],
+                                }
+                                for check_type in task_type_spec.allowed_expected_state_checks
+                            ],
+                        )
 
     def _provider_record(self, candidate_id: str = "candidate_contacts_generated"):
         return {
@@ -143,6 +204,86 @@ class DomainGenerationSpecTest(unittest.TestCase):
         self.assertIn('"requested_candidate_count":1', first)
         self.assertNotIn("AGENT_DATA", first)
         self.assertNotIn("Authorization", first)
+        output_contract = json.loads(first)["output_contract"]
+        response_contract = output_contract["response"]
+        record_contract = response_contract["task_contracts"]["items"]
+        self.assertTrue(output_contract["json_only"])
+        self.assertFalse(output_contract["markdown_allowed"])
+        self.assertFalse(output_contract["commentary_allowed"])
+        self.assertEqual(response_contract["type"], "object")
+        self.assertEqual(response_contract["exact_keys"], ["task_contracts"])
+        self.assertEqual(response_contract["task_contracts"]["type"], "array")
+        self.assertEqual(response_contract["task_contracts"]["exact_count"], 1)
+        self.assertEqual(response_contract["task_contracts"]["unique_by"], "candidate_id")
+        self.assertEqual(record_contract["type"], "object")
+        self.assertEqual(set(record_contract["exact_keys"]), set(self._provider_record()))
+        self.assertEqual(record_contract["fields"]["candidate_id"]["type"], "string")
+        self.assertTrue(record_contract["fields"]["candidate_id"]["non_empty"])
+        self.assertEqual(record_contract["fields"]["difficulty"]["type"], "object")
+        self.assertEqual(
+            record_contract["fields"]["required_capabilities"]["type"],
+            "array",
+        )
+        self.assertTrue(
+            record_contract["fields"]["required_capabilities"]["non_empty"]
+        )
+        self.assertTrue(
+            record_contract["fields"]["required_capabilities"]["unique_items"]
+        )
+        self.assertEqual(record_contract["fields"]["primary_arguments"]["type"], "object")
+        self.assertEqual(record_contract["fields"]["expected_state"]["type"], "array")
+        task_type_contract = output_contract["task_type_contracts"][0]
+        self.assertEqual(task_type_contract["task_type"], "contact_lookup")
+        self.assertEqual(task_type_contract["required_tools"], ["lookup_contact_email"])
+        self.assertEqual(task_type_contract["primary_tool"], "lookup_contact_email")
+        self.assertEqual(
+            task_type_contract["exact_record_values"],
+            {
+                "task_type": "contact_lookup",
+                "required_tools": ["lookup_contact_email"],
+                "primary_tool": "lookup_contact_email",
+            },
+        )
+        self.assertEqual(task_type_contract["expected_state"], {"mode": "empty"})
+        self.assertEqual(
+            output_contract["critical_rules"]["primary_tool"],
+            {
+                "must_equal": "required_tools[0]",
+                "must_equal_selected_task_type_contract": True,
+                "alternatives_allowed": False,
+            },
+        )
+        self.assertEqual(
+            output_contract["critical_rules"]["primary_arguments"],
+            {
+                "must_match_curated_tool_schema_for": "primary_tool",
+                "must_copy_exact_from": "grounding_context.*.primary_arguments",
+                "invented_arguments_allowed": False,
+            },
+        )
+        self.assertEqual(
+            output_contract["critical_rules"]["final_answer_contains"],
+            {
+                "must_be_exact_scalar_from": "grounding_context",
+                "must_be_supported_by": "primary_tool_observation",
+                "invented_status_text_allowed": False,
+            },
+        )
+        self.assertIn(
+            "copy task_type, required_tools, and primary_tool exactly",
+            json.loads(first)["instructions"],
+        )
+        self.assertIn(
+            "copy final_answer_contains from an exact scalar grounding value",
+            json.loads(first)["instructions"].lower(),
+        )
+        self.assertIn(
+            "copy primary_arguments exactly from one grounding_context entry",
+            json.loads(first)["instructions"].lower(),
+        )
+        self.assertIn("lineage", output_contract["forbidden_fields"])
+        self.assertIn("provider_payload", output_contract["forbidden_fields"])
+        self.assertNotIn("output_item_keys", json.loads(first))
 
         contracts = parse_domain_task_contracts(
             {"task_contracts": [self._provider_record()]},
@@ -178,7 +319,6 @@ class DomainGenerationSpecTest(unittest.TestCase):
                 )
 
     def test_bounded_generation_fulfills_exact_targets(self) -> None:
-        import json
         from synthesis.domain_generation import generate_domain_llm_candidates
         from synthesis.llm import LLMGenerationResult
         from synthesis.seeds import foundation_seed
@@ -203,7 +343,7 @@ class DomainGenerationSpecTest(unittest.TestCase):
                 )
 
         self_record = self._provider_record
-        for target, expected_calls in ((1, [1]), (20, [20]), (21, [20, 1]), (45, [20, 20, 5])):
+        for target, expected_calls in ((1, [1]), (5, [5]), (12, [5, 5, 2])):
             with self.subTest(target=target):
                 client = FakeClient()
                 result = generate_domain_llm_candidates(
@@ -220,6 +360,138 @@ class DomainGenerationSpecTest(unittest.TestCase):
                 foundation_seed(), FakeClient(), spec=self._valid_spec(),
                 target_candidate_count=True,
             )
+
+    def test_generation_classifies_every_strict_schema_failure(self) -> None:
+        from synthesis.contracts import LLM_RESPONSE_SCHEMA_REASONS
+        from synthesis.datasets import assemble_generation_stage_rejection
+        from synthesis.domain_generation import generate_domain_llm_candidates
+        from synthesis.llm import LLMGenerationResult, LLMProviderError
+        from synthesis.seeds import foundation_seed
+
+        valid = self._provider_record()
+        cases = {
+            "response_shape_mismatch": ({"unexpected": []}, 1),
+            "provider_record_keys_mismatch": (
+                {"task_contracts": [{**valid, "provider_payload": "RAW_PROVIDER_MARKER"}]},
+                1,
+            ),
+            "invalid_task_type": (
+                {"task_contracts": [{**valid, "task_type": "unknown_task_type"}]},
+                1,
+            ),
+            "invalid_required_tools": (
+                {"task_contracts": [{**valid, "required_tools": ["unknown_tool"]}]},
+                1,
+            ),
+            "invalid_primary_tool": (
+                {"task_contracts": [{**valid, "primary_tool": "unknown_tool"}]},
+                1,
+            ),
+            "invalid_tool_arguments": (
+                {"task_contracts": [{**valid, "primary_arguments": {}}]},
+                1,
+            ),
+            "invalid_difficulty": (
+                {"task_contracts": [{**valid, "difficulty": "easy"}]},
+                1,
+            ),
+            "invalid_expected_state": (
+                {
+                    "task_contracts": [
+                        {
+                            **valid,
+                            "expected_state": [
+                                {
+                                    "check_type": "contact_followup",
+                                    "expected": {"name": "Alice Zhang"},
+                                }
+                            ],
+                        }
+                    ]
+                },
+                1,
+            ),
+            "invalid_required_capabilities": (
+                {"task_contracts": [{**valid, "required_capabilities": []}]},
+                1,
+            ),
+            "unsafe_provider_value": (
+                {
+                    "task_contracts": [
+                        {
+                            **valid,
+                            "instruction": "Authorization: Bearer RAW_PROVIDER_MARKER",
+                        }
+                    ]
+                },
+                1,
+            ),
+            "duplicate_candidate_id": (
+                {"task_contracts": [dict(valid), dict(valid)]},
+                2,
+            ),
+            "batch_count_mismatch": ({"task_contracts": [dict(valid)]}, 2),
+        }
+        self.assertEqual(set(cases), LLM_RESPONSE_SCHEMA_REASONS)
+
+        class FakeClient:
+            def __init__(self, content: dict[str, object]) -> None:
+                self.content = content
+
+            def generate_json(self, prompt: str, *, role: str) -> LLMGenerationResult:
+                return LLMGenerationResult(
+                    content=self.content,
+                    lineage={
+                        "role": role,
+                        "provider_host": "llm.example.test",
+                        "retry_count": 0,
+                    },
+                )
+
+        for expected_reason, (content, target) in cases.items():
+            with self.subTest(reason=expected_reason):
+                with self.assertRaises(LLMProviderError) as raised:
+                    generate_domain_llm_candidates(
+                        foundation_seed(),
+                        FakeClient(content),
+                        spec=self._valid_spec(),
+                        target_candidate_count=target,
+                    )
+                error = raised.exception
+                self.assertEqual(error.cause, "llm_response_schema_error")
+                self.assertEqual(error.error_class, "DomainGenerationValidationError")
+                self.assertEqual(error.schema_reason, expected_reason)
+                persisted = json.dumps(
+                    assemble_generation_stage_rejection(error=error),
+                    sort_keys=True,
+                )
+                self.assertNotIn("RAW_PROVIDER_MARKER", persisted)
+                self.assertNotIn("Alice Zhang", persisted)
+                self.assertNotIn("candidate_contacts_generated", persisted)
+
+    def test_generation_classifies_cross_batch_candidate_id_collision(self) -> None:
+        from synthesis.domain_generation import generate_domain_llm_candidates
+        from synthesis.llm import LLMGenerationResult, LLMProviderError
+        from synthesis.seeds import foundation_seed
+
+        class FakeClient:
+            def generate_json(self, prompt: str, *, role: str) -> LLMGenerationResult:
+                return LLMGenerationResult(
+                    content={"task_contracts": [self_record()]},
+                    lineage={"role": role, "retry_count": 0},
+                )
+
+        self_record = self._provider_record
+        spec = replace(self._valid_spec(), max_candidates_per_call=1)
+        with self.assertRaises(LLMProviderError) as raised:
+            generate_domain_llm_candidates(
+                foundation_seed(),
+                FakeClient(),
+                spec=spec,
+                target_candidate_count=2,
+            )
+
+        self.assertEqual(raised.exception.schema_reason, "duplicate_candidate_id")
 
     def test_pipeline_resolves_candidate_generator_factory_after_bundle(self) -> None:
         from synthesis.pipeline import run_foundation_pipeline
