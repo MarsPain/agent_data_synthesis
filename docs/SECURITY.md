@@ -77,6 +77,13 @@ reintroduced.
 
 The synthesis pipeline may call a remote OpenAI-compatible LLM API configured by `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`. The project should not deploy local LLM clusters or expose provider credentials to generated code, tools, environments, fixtures, manifests, trajectory exports, or rejected-candidate diagnostics.
 
+Representative generation v1 permits only curated `synthetic_fixture` context.
+`run_profile_v3` rejects profile-local sources before provider construction.
+Source rows, prompts, grounding rows, headers, credentials, tool arguments, and
+host paths are not persisted; artifacts retain hashes and fixed eligibility
+metadata only. Representative evidence does not automatically activate async
+infrastructure, semantic duplicate detection, release admission, or training.
+
 Logs may include provider alias, base URL host, model id, prompt or config hash, token counts, cost metadata, retry count, and error class. Logs must not include API keys, authorization headers, or raw secrets.
 
 ## Generated Code Controls

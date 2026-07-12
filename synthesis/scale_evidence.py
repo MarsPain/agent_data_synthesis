@@ -10,6 +10,7 @@ from typing import Any
 from synthesis.contracts import (
     ContractValidationError,
     validate_dataset_release_report_record,
+    validate_generation_contract_record,
     validate_evaluation_report_record,
     validate_manifest_record,
     validate_profile_decision_report_record,
@@ -82,6 +83,23 @@ def classify_run(artifacts: Mapping[str, Any]) -> str:
     if generation_mode in DIAGNOSTIC_GENERATION_MODES:
         return "diagnostic_only"
     if generation_mode in REPRESENTATIVE_GENERATION_MODES:
+        if artifacts.get("schema_version") != "run_profile_v3":
+            return "insufficient_evidence"
+        if artifacts.get("profile_purpose") != "benchmark":
+            return "insufficient_evidence"
+        generation_contract = artifacts.get("generation_contract")
+        try:
+            validate_generation_contract_record(generation_contract)
+        except (ContractValidationError, TypeError, ValueError):
+            return "insufficient_evidence"
+        if generation_contract.get("target_fulfilled") is not True:
+            return "insufficient_evidence"
+        if generation_contract.get("representative_eligible") is not True:
+            return "insufficient_evidence"
+        if generation_contract.get("reason_codes") != []:
+            return "insufficient_evidence"
+        if artifacts.get("target_candidate_count") != generation_contract.get("target_candidate_count"):
+            return "insufficient_evidence"
         return "representative"
     return "insufficient_evidence"
 
@@ -182,8 +200,11 @@ def _build_domain_summary(run: CampaignRunInput) -> dict[str, Any]:
         audit = records["release_quality_audit"]
         evaluation = records["evaluation_report"]
         profile = _mapping(profile_report["profile"])
+        manifest_profile = _mapping(manifest["run_profile"])
+        generation_contract = manifest_profile.get("generation_contract")
         generation_mode = str(profile["generation_mode"])
         _validate_cross_artifact_identity(run.domain_id, records)
+        _validate_generation_contract_identity(records, generation_contract)
         review = records.get("review_resolution_report")
         review_counts = _review_counts(review)
         async_status = _decision_status(profile_report, "async_orchestration")
@@ -199,7 +220,14 @@ def _build_domain_summary(run: CampaignRunInput) -> dict[str, Any]:
             "dataset_version": str(manifest["dataset_version"]),
             "profile_id": str(profile["profile_id"]),
             "generation_mode": generation_mode,
-            "classification": classify_run({"valid": True, "generation_mode": generation_mode}),
+            "classification": classify_run({
+                "valid": True,
+                "generation_mode": generation_mode,
+                "generation_contract": generation_contract,
+                "schema_version": manifest_profile.get("schema_version"),
+                "profile_purpose": manifest_profile.get("profile_purpose"),
+                "target_candidate_count": manifest_profile.get("target_candidate_count"),
+            }),
             "artifacts": artifact_records,
             "observed": {
                 "total_candidates": int(observed_profile["total_candidates"]),
@@ -224,6 +252,22 @@ def _build_domain_summary(run: CampaignRunInput) -> dict[str, Any]:
         return summary
     except (OSError, json.JSONDecodeError, ContractValidationError, KeyError, TypeError, ValueError):
         return _insufficient_domain_summary(run.domain_id, artifact_records)
+
+
+def _validate_generation_contract_identity(
+    records: Mapping[str, Mapping[str, Any]],
+    expected: object,
+) -> None:
+    if expected is None:
+        return
+    profiles = (
+        records["evaluation_report"].get("profile"),
+        records["profile_decision_report"].get("profile"),
+        records["dataset_release_report"].get("profile"),
+    )
+    for profile in profiles:
+        if not isinstance(profile, Mapping) or profile.get("generation_contract") != expected:
+            raise ValueError("generation contract metadata mismatch across artifacts")
 
 
 def _load_and_validate_artifacts(run: CampaignRunInput) -> dict[str, Mapping[str, Any]]:

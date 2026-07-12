@@ -107,6 +107,14 @@
   import. No real representative campaign was supplied during implementation,
   so plan 0014 and TD-0002 remain deferred; domain-representative generation and
   evidence is the next candidate direction.
+- Add domain-aware representative generation before running a real three-domain
+  evidence campaign. Implemented in plan 0043, replacing the contacts-only remote task
+  prompt with domain-owned generation specifications, bounded shared
+  task-contract generation, explicit remote-context policy, exact target
+  fulfillment, and evidence-backed representative eligibility. The repository
+  is campaign-ready, but no real provider campaign was run. Async
+  orchestration and semantic duplicate detection remain deferred until the
+  resulting real campaign activates their existing gates.
 - Add profile-attributed quality and comparison before async orchestration.
   Implemented in plan 0019 with sanitized per-record profile attribution,
   profile quality slices, and parent-comparison visibility over profile slice

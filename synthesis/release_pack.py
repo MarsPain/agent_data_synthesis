@@ -41,7 +41,9 @@ PROFILE_FIELDS = (
     "profile_id",
     "generation_mode",
     "profile_purpose",
+    "target_candidate_count",
     "config_hash",
+    "generation_contract",
 )
 
 
@@ -440,6 +442,10 @@ def _metadata_mismatch_reasons(
             reasons.append(f"{key} profile metadata is missing")
             continue
         profile = _profile_core(raw_profile)
+        if "generation_contract" in pack_profile and "generation_contract" not in profile:
+            reasons.append(f"{key} profile generation_contract is missing")
+        if "generation_contract" in profile and "generation_contract" not in pack_profile:
+            reasons.append("pack profile generation_contract is missing")
         for field, value in pack_profile.items():
             if field in profile and profile[field] != value:
                 reasons.append(f"{key} profile {field} mismatch")

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Callable
 
 from awm_runtime.runtime import EnvironmentRuntime, RuntimeSession
+from synthesis.domain_generation import DomainGenerationSpec
 from synthesis.environments import ContactEnvironment, ContactsEnvironmentInput
 from synthesis.execution import SolutionPolicy, scripted_solution_policy
 from synthesis.mcp import LocalRuntimeAdapterShim
@@ -13,17 +14,19 @@ from synthesis.mobile_environment import (
     MobileMessagesEnvironmentInput,
 )
 from synthesis.mobile_tasks import (
+    build_mobile_generation_spec,
     generate_mobile_fixture_candidates,
     scripted_mobile_solution_policy,
 )
 from synthesis.mobile_tools import build_mobile_tool_registry
 from synthesis.runtime_registry import runtime_descriptor
 from synthesis.seeds import DomainSeed
-from synthesis.tasks import CandidateTask, generate_foundation_candidates
+from synthesis.tasks import CandidateTask, build_contacts_generation_spec, generate_foundation_candidates
 from synthesis.tools import ToolRegistry, build_contact_tool_registry
 from synthesis.verification import ExactAnswerVerifier
 from synthesis.workspace_environment import WorkspaceEnvironmentInput, WorkspaceTasksEnvironment
 from synthesis.workspace_tasks import (
+    build_workspace_generation_spec,
     generate_workspace_fixture_candidates,
     scripted_workspace_solution_policy,
 )
@@ -44,6 +47,7 @@ class DomainPipelineBundle:
     candidate_generator: CandidateGenerator
     policy_generator: PolicyGenerator
     registry_builder: RegistryBuilder
+    generation_spec: DomainGenerationSpec | None
     adapter_shim: LocalRuntimeAdapterShim | None = None
 
     def runtime_session(self) -> RuntimeSession:
@@ -127,6 +131,7 @@ def rebuild_domain_pipeline_bundle(
         candidate_generator=base_bundle.candidate_generator,
         policy_generator=base_bundle.policy_generator,
         registry_builder=base_bundle.registry_builder,
+        generation_spec=base_bundle.generation_spec,
         adapter_shim=adapter_shim,
     )
 
@@ -180,6 +185,11 @@ def _build_contacts_bundle(
         candidate_generator=candidate_generator,
         policy_generator=scripted_solution_policy,
         registry_builder=build_contact_tool_registry,
+        generation_spec=(
+            build_contacts_generation_spec(environment, registry)
+            if domain_environment_input is None
+            else None
+        ),
         adapter_shim=adapter_shim,
     )
 
@@ -219,6 +229,11 @@ def _build_mobile_bundle(
         candidate_generator=generate_mobile_fixture_candidates,
         policy_generator=scripted_mobile_solution_policy,
         registry_builder=build_mobile_tool_registry,
+        generation_spec=(
+            build_mobile_generation_spec(environment, registry)
+            if mobile_environment_input is None
+            else None
+        ),
         adapter_shim=adapter_shim,
     )
 
@@ -258,6 +273,11 @@ def _build_workspace_bundle(
         candidate_generator=generate_workspace_fixture_candidates,
         policy_generator=scripted_workspace_solution_policy,
         registry_builder=build_workspace_tool_registry,
+        generation_spec=(
+            build_workspace_generation_spec(environment, registry)
+            if workspace_environment_input is None
+            else None
+        ),
         adapter_shim=adapter_shim,
     )
 

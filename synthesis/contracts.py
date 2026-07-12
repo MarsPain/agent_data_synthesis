@@ -3495,6 +3495,7 @@ def _validate_run_profile_metadata(raw: object) -> None:
         "enabled_features",
         "seed",
         "source",
+        "generation_contract",
     }
     unexpected = sorted(str(key) for key in profile if key not in allowed_keys)
     if unexpected:
@@ -3505,7 +3506,7 @@ def _validate_run_profile_metadata(raw: object) -> None:
         profile.get("schema_version"),
         "run_profile.schema_version",
     )
-    if schema_version not in {"run_profile_v1", "run_profile_v2"}:
+    if schema_version not in {"run_profile_v1", "run_profile_v2", "run_profile_v3"}:
         raise ContractValidationError("run_profile.schema_version is unsupported")
     _require_non_empty_string(profile.get("profile_id"), "run_profile.profile_id")
     mode = _require_non_empty_string(
@@ -3550,6 +3551,71 @@ def _validate_run_profile_metadata(raw: object) -> None:
         if schema_version != "run_profile_v2":
             raise ContractValidationError("run_profile.source requires run_profile_v2")
         _validate_run_profile_source_metadata(profile.get("source"))
+    if "generation_contract" in profile:
+        validate_generation_contract_record(profile.get("generation_contract"))
+        contract = _require_mapping(profile.get("generation_contract"), "run_profile.generation_contract")
+        if schema_version != "run_profile_v3" or mode != "llm":
+            raise ContractValidationError("run_profile.generation_contract requires run_profile_v3 llm")
+        if profile.get("profile_purpose") != "benchmark":
+            raise ContractValidationError("run_profile.generation_contract requires benchmark purpose")
+        if target_count != contract.get("target_candidate_count"):
+            raise ContractValidationError("run_profile target and generation contract target mismatch")
+
+
+def validate_generation_contract_record(raw: object) -> None:
+    contract = _require_mapping(raw, "generation_contract")
+    keys = {
+        "spec_version", "context_policy", "target_candidate_count",
+        "generated_candidate_count", "target_fulfilled",
+        "representative_eligible", "reason_codes", "grounding_context_hash",
+    }
+    unexpected = sorted(str(key) for key in contract if key not in keys)
+    missing = sorted(key for key in keys if key not in contract)
+    if unexpected or missing:
+        raise ContractValidationError("generation_contract must contain exact supported keys")
+    if contract.get("spec_version") != "domain_generation_spec_v1":
+        raise ContractValidationError("generation_contract.spec_version is unsupported")
+    if contract.get("context_policy") != "synthetic_fixture":
+        raise ContractValidationError("generation_contract.context_policy is unsupported")
+    target = _require_positive_int(
+        contract.get("target_candidate_count"),
+        "generation_contract.target_candidate_count",
+    )
+    generated = _require_int(
+        contract.get("generated_candidate_count"),
+        "generation_contract.generated_candidate_count",
+    )
+    if generated < 0 or generated > target:
+        raise ContractValidationError("generation_contract.generated_candidate_count is invalid")
+    fulfilled = contract.get("target_fulfilled")
+    if not isinstance(fulfilled, bool):
+        raise ContractValidationError("generation_contract.target_fulfilled must be a bool")
+    if fulfilled != (generated == target):
+        raise ContractValidationError("generation_contract.target_fulfilled is inconsistent")
+    eligible = contract.get("representative_eligible")
+    if not isinstance(eligible, bool):
+        raise ContractValidationError("generation_contract.representative_eligible must be a bool")
+    allowed_reasons = (
+        "profile_contract_not_representative",
+        "generation_spec_missing_or_mismatched",
+        "context_policy_not_allowed",
+        "source_backed_remote_context_not_allowed",
+        "target_candidate_count_unfulfilled",
+        "generation_evidence_missing",
+    )
+    reasons = _require_sequence(contract.get("reason_codes"), "generation_contract.reason_codes")
+    normalized = [
+        _require_non_empty_string(reason, f"generation_contract.reason_codes.{index}")
+        for index, reason in enumerate(reasons)
+    ]
+    if normalized != [reason for reason in allowed_reasons if reason in normalized]:
+        raise ContractValidationError("generation_contract.reason_codes are unsupported or unordered")
+    if eligible != (fulfilled and not normalized):
+        raise ContractValidationError("generation_contract.representative_eligible is inconsistent")
+    _validate_content_hash(
+        contract.get("grounding_context_hash"),
+        "generation_contract.grounding_context_hash",
+    )
 
 
 def _validate_run_profile_source_metadata(raw: object) -> None:
@@ -3611,7 +3677,7 @@ def _validate_run_profile_attribution(raw: object, path: str) -> None:
         attribution.get("profile_schema_version"),
         f"{path}.profile_schema_version",
     )
-    if profile_schema_version not in {"run_profile_v1", "run_profile_v2"}:
+    if profile_schema_version not in {"run_profile_v1", "run_profile_v2", "run_profile_v3"}:
         raise ContractValidationError(f"{path}.profile_schema_version is unsupported")
     _require_non_empty_string(attribution.get("profile_id"), f"{path}.profile_id")
     mode = _require_non_empty_string(
@@ -3707,6 +3773,7 @@ def _validate_profile_decision_profile(raw: object) -> None:
         "profile_purpose",
         "target_candidate_count",
         "config_hash",
+        "generation_contract",
     }
     unexpected = sorted(str(key) for key in profile if key not in allowed_keys)
     if unexpected:
@@ -3714,7 +3781,7 @@ def _validate_profile_decision_profile(raw: object) -> None:
             f"profile contains unsupported keys: {', '.join(unexpected)}"
         )
     schema_version = _require_non_empty_string(profile.get("schema_version"), "profile.schema_version")
-    if schema_version not in {"run_profile_v1", "run_profile_v2"}:
+    if schema_version not in {"run_profile_v1", "run_profile_v2", "run_profile_v3"}:
         raise ContractValidationError("profile.schema_version is unsupported")
     _require_non_empty_string(profile.get("profile_id"), "profile.profile_id")
     mode = _require_non_empty_string(profile.get("generation_mode"), "profile.generation_mode")
@@ -3729,6 +3796,15 @@ def _validate_profile_decision_profile(raw: object) -> None:
     if target_count is not None:
         _require_positive_int(target_count, "profile.target_candidate_count")
     _validate_content_hash(profile.get("config_hash"), "profile.config_hash")
+    if "generation_contract" in profile:
+        validate_generation_contract_record(profile.get("generation_contract"))
+        contract = _require_mapping(profile.get("generation_contract"), "profile.generation_contract")
+        if schema_version != "run_profile_v3" or mode != "llm":
+            raise ContractValidationError("profile.generation_contract requires run_profile_v3 llm")
+        if profile.get("profile_purpose") != "benchmark":
+            raise ContractValidationError("profile.generation_contract requires benchmark purpose")
+        if target_count != contract.get("target_candidate_count"):
+            raise ContractValidationError("profile target and generation contract target mismatch")
 
 
 def _validate_profile_decision_evaluation(raw: object) -> None:

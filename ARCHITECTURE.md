@@ -40,6 +40,7 @@ The framework should be developed as a pipeline for executable Agent training da
 - [docs/design-docs/agent-data-synthesis-framework.md](docs/design-docs/agent-data-synthesis-framework.md): detailed technical design.
 - [docs/design-docs/algorithm-flow-and-architecture.md](docs/design-docs/algorithm-flow-and-architecture.md): explanatory walkthrough of the current algorithm flow and architecture layers.
 - [docs/design-docs/architecture-explainers.md](docs/design-docs/architecture-explainers.md): detailed explanations of architecture and algorithm concepts.
+- [docs/design-docs/domain-aware-representative-generation.md](docs/design-docs/domain-aware-representative-generation.md): domain-owned remote generation and representative eligibility boundary.
 
 ## Architectural Position
 

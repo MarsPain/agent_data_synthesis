@@ -922,7 +922,7 @@ class FoundationCliTest(unittest.TestCase):
     def test_main_rejects_invalid_profile_content(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             profile_path = Path(tmpdir) / "bad-profile.json"
-            profile_path.write_text('{"schema_version": "run_profile_v3"}', encoding="utf-8")
+            profile_path.write_text('{"schema_version": "run_profile_v4"}', encoding="utf-8")
 
             result = subprocess.run(
                 [

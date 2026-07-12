@@ -56,6 +56,12 @@ pipeline derives internal task contracts from it before execution: task intent,
 policy hints, expected final-answer evidence, and expected state checks are
 separate internal records.
 
+Representative remote generation is domain-aware. Each domain bundle owns a
+validated generation specification for task types, curated tools,
+expected-state vocabulary, synthetic grounding context, and batch limits. The
+shared generator emits `TaskContract` values before crossing the existing
+`CandidateTask` compatibility boundary.
+
 ### Trajectory Execution
 
 Owns policy execution, tool call recording, observation capture, retries, and error classification.

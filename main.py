@@ -35,6 +35,7 @@ from synthesis.episode_replay import (
 from synthesis.evaluation import write_evaluation_report
 from synthesis.llm import LLMConfigurationError, LLMProviderError
 from synthesis.pipeline import (
+    build_domain_llm_candidate_generator_factory,
     build_llm_candidate_generator,
     build_llm_task_expansion_generator,
     run_foundation_pipeline,
@@ -88,7 +89,7 @@ def parse_args() -> argparse.Namespace:
         "--run-profile",
         type=Path,
         default=None,
-        help="Validated run_profile_v1 or run_profile_v2 JSON file for configuring a local run.",
+        help="Validated run_profile_v1, run_profile_v2, or run_profile_v3 JSON file.",
     )
     parser.add_argument(
         "--dataset-version",
@@ -271,7 +272,10 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     profile: RunProfile | None = args.loaded_run_profile
-    candidate_generator = _profile_candidate_generator(profile, use_llm=args.use_llm)
+    candidate_generator, candidate_generator_factory = _profile_candidate_generators(
+        profile,
+        use_llm=args.use_llm,
+    )
     task_expansion_generator = (
         build_llm_task_expansion_generator()
         if args.use_llm and _feature_enabled(args, profile, "enable_task_expansion")
@@ -345,6 +349,7 @@ def main() -> int:
             args.output_dir,
             dataset_version=args.dataset_version,
             candidate_generator=candidate_generator,
+            candidate_generator_factory=candidate_generator_factory,
             parent_artifact_path=args.parent_artifact,
             refiner=refiner,
             enable_branching=_feature_enabled(args, profile, "enable_branching"),
@@ -366,6 +371,7 @@ def main() -> int:
                 if profile is not None
                 else None
             ),
+            run_profile=profile,
             write_episode_logs=(
                 args.write_episode_quality_report
                 or args.write_episode_replay_report
@@ -703,22 +709,33 @@ def _validate_profile_cli_combinations(
                 "profile source conflicts with enable_source_governance_fixture"
             )
 
-def _profile_candidate_generator(
+def _profile_candidate_generators(
     profile: RunProfile | None,
     *,
     use_llm: bool,
 ):
     if profile is None:
-        return build_llm_candidate_generator() if use_llm else None
+        return (build_llm_candidate_generator() if use_llm else None, None)
     if profile.generation.mode == "llm":
-        return build_llm_candidate_generator()
+        if profile.schema_version == "run_profile_v3":
+            assert profile.generation.target_candidate_count is not None
+            return (
+                None,
+                build_domain_llm_candidate_generator_factory(
+                    profile.generation.target_candidate_count
+                ),
+            )
+        return build_llm_candidate_generator(), None
     if profile.generation.mode == "deterministic_scale_probe":
         assert profile.generation.target_candidate_count is not None
-        return lambda seed: generate_scale_probe_candidates(
-            seed,
-            profile.generation.target_candidate_count,
+        return (
+            lambda seed: generate_scale_probe_candidates(
+                seed,
+                profile.generation.target_candidate_count,
+            ),
+            None,
         )
-    return None
+    return None, None
 
 
 def _feature_enabled(

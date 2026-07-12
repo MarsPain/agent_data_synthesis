@@ -30,6 +30,11 @@ from synthesis.domain_pipeline import (
     build_domain_pipeline_bundle,
     rebuild_domain_pipeline_bundle,
 )
+from synthesis.domain_generation import (
+    DomainGenerationResult,
+    build_generation_contract_evidence,
+    generate_domain_llm_candidates,
+)
 from synthesis.llm import LLMConfig, LLMProviderError, OpenAICompatibleClient
 from synthesis.refinement import Refiner, RefinementAttempt, RefinementContext
 from synthesis.refinement import generate_llm_backed_refinement
@@ -74,7 +79,8 @@ class PipelineResult:
     rejected_count: int
 
 
-CandidateGenerator = Callable[[DomainSeed], list[CandidateTask]]
+CandidateGenerator = Callable[[DomainSeed], list[CandidateTask] | DomainGenerationResult]
+CandidateGeneratorFactory = Callable[[DomainPipelineBundle], CandidateGenerator]
 TaskExpansionGenerator = Callable[[DomainSeed], TaskExpansionResult]
 
 
@@ -90,6 +96,29 @@ def build_llm_candidate_generator(
     client = OpenAICompatibleClient(LLMConfig.from_env(), http_client=http_client)
     registry = role_registry or default_role_registry()
     return lambda seed: generate_llm_backed_candidates(seed, client, role_registry=registry)
+
+
+def build_domain_llm_candidate_generator_factory(
+    target_candidate_count: int,
+    http_client: httpx.Client | None = None,
+    *,
+    role_registry: RoleRegistry | None = None,
+) -> CandidateGeneratorFactory:
+    client = OpenAICompatibleClient(LLMConfig.from_env(), http_client=http_client)
+    registry = role_registry or default_role_registry()
+
+    def factory(bundle: DomainPipelineBundle) -> CandidateGenerator:
+        if bundle.generation_spec is None:
+            raise ValueError("source_backed_remote_context_not_allowed")
+        return lambda seed: generate_domain_llm_candidates(
+            seed,
+            client,
+            spec=bundle.generation_spec,
+            target_candidate_count=target_candidate_count,
+            role_registry=registry,
+        )
+
+    return factory
 
 
 def build_llm_refiner(
@@ -163,6 +192,7 @@ def run_foundation_pipeline(
     *,
     dataset_version: str = "dataset_foundation_v1",
     candidate_generator: CandidateGenerator | None = None,
+    candidate_generator_factory: CandidateGeneratorFactory | None = None,
     policy_generator: PolicyGenerator | None = None,
     parent_artifact_path: Path | None = None,
     route_reviewable_failures: bool = False,
@@ -179,8 +209,11 @@ def run_foundation_pipeline(
     enable_sandbox_fixture: bool = False,
     seed_override: DomainSeed | None = None,
     run_profile_metadata: dict[str, object] | None = None,
+    run_profile: object | None = None,
     write_episode_logs: bool = False,
 ) -> PipelineResult:
+    if candidate_generator is not None and candidate_generator_factory is not None:
+        raise ValueError("candidate_generator and candidate_generator_factory are mutually exclusive")
     seed = seed_override or foundation_seed()
     source_event_records: list[dict[str, object]] = list(source_events or [])
     selected_source_bundle = source_bundle or build_fixture_source_bundle()
@@ -301,7 +334,9 @@ def run_foundation_pipeline(
     registry = domain_bundle.registry
     verifier = domain_bundle.verifier
     llm_config = LLMConfig.from_env()
-    if candidate_generator is None:
+    if candidate_generator_factory is not None:
+        generate_candidates = candidate_generator_factory(domain_bundle)
+    elif candidate_generator is None:
         generate_candidates = domain_bundle.candidate_generator
     else:
         generate_candidates = candidate_generator
@@ -360,7 +395,18 @@ def run_foundation_pipeline(
         )
 
     try:
-        raw_tasks = generate_candidates(seed)
+        generated = generate_candidates(seed)
+        if isinstance(generated, DomainGenerationResult):
+            raw_tasks = list(generated.candidates)
+            run_profile_metadata = dict(run_profile_metadata or {})
+            run_profile_metadata["generation_contract"] = build_generation_contract_evidence(
+                profile=run_profile,
+                spec_metadata=generated.spec_metadata,
+                target_candidate_count=generated.target_candidate_count,
+                generated_candidate_count=generated.generated_candidate_count,
+            )
+        else:
+            raw_tasks = generated
     except LLMProviderError as exc:
         rejections.append(assemble_generation_stage_rejection(error=exc))
         _attach_source_governance_to_rejections(rejections, source_provenance)

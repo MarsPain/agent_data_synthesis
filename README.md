@@ -23,6 +23,8 @@ admission artifacts. Canonical design detail lives in [docs/](docs/).
   contacts/mobile/workspace descriptor registry.
 - `run_profile_v1` and `run_profile_v2` fixtures configure deterministic local
   runs, scale probes, release candidates, and profile-local governed sources.
+- `run_profile_v3` benchmark profiles configure bounded domain-aware remote
+  generation with an exact target and `synthetic_fixture` context policy.
 - Profile-local JSON sources are admitted through shared source governance, then
   parsed by domain-owned importers for contacts, mobile messages, or workspace
   tasks.
@@ -80,6 +82,11 @@ uv run python scripts/write_review_resolution.py --output-dir artifacts/mobile-r
 uv run python scripts/write_representative_scale_evidence.py --campaign artifacts/evidence-campaign/campaign.json --output artifacts/evidence-campaign/representative_scale_evidence.json
 uv run python scripts/write_downstream_benchmark_bundle.py --release-pack artifacts/contacts-release/dataset_release_pack.json --benchmark-suite-id external_agent_tasks_v1 --benchmark-suite-version external_agent_tasks_v1 --output artifacts/downstream/downstream_benchmark_bundle.json
 uv run python scripts/import_downstream_benchmark_result.py --bundle artifacts/downstream/downstream_benchmark_bundle.json --observation artifacts/downstream/external_observation.json --output artifacts/downstream/downstream_benchmark_result.json
+
+# Opt-in representative campaigns (remote provider cost; synchronous batches)
+uv run python main.py --run-profile tests/fixtures/run_profiles/contacts-representative-llm-100.json --use-llm --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --write-release-quality-audit --output-dir artifacts/representative-contacts
+uv run python main.py --run-profile tests/fixtures/run_profiles/mobile-messages-representative-llm-100.json --use-llm --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --write-release-quality-audit --output-dir artifacts/representative-mobile
+uv run python main.py --run-profile tests/fixtures/run_profiles/workspace-tasks-representative-llm-100.json --use-llm --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --write-release-quality-audit --output-dir artifacts/representative-workspace
 ```
 
 ## Optional LLM Configuration

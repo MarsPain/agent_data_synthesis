@@ -1,0 +1,18 @@
+{
+  "schema_version": "run_profile_v3",
+  "profile_id": "mobile_messages_representative_llm_100",
+  "dataset_version": "dataset_mobile_messages_representative_llm_100_v1",
+  "profile_purpose": "benchmark",
+  "seed": {
+    "seed_id": "seed_mobile_messages_representative_llm_100",
+    "domain": "mobile_messages_fixture",
+    "description": "Generate grounded executable mobile message tasks.",
+    "task_taxonomy": ["mobile_message_search", "mobile_reminder_creation", "mobile_draft_reply"]
+  },
+  "generation": {
+    "mode": "llm",
+    "target_candidate_count": 100,
+    "context_policy": "synthetic_fixture"
+  },
+  "features": {}
+}

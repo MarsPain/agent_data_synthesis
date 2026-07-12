@@ -558,6 +558,7 @@ def _profile_summary(manifest: Mapping[str, Any]) -> dict[str, object]:
         "profile_purpose",
         "target_candidate_count",
         "config_hash",
+        "generation_contract",
     )
     return {key: profile[key] for key in allowed_keys if key in profile}
 

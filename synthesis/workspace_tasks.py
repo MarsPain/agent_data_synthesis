@@ -7,6 +7,48 @@ from synthesis.seeds import DomainSeed
 from synthesis.tasks import CandidateTask, local_task_generation_lineage, order_candidates_by_curriculum
 
 
+def build_workspace_generation_spec(environment: object, registry: object):
+    from synthesis.domain_generation import (
+        DOMAIN_GENERATION_SPEC_VERSION,
+        MAX_CANDIDATES_PER_CALL,
+        SYNTHETIC_CONTEXT_POLICY,
+        DomainGenerationSpec,
+        DomainTaskTypeSpec,
+        validate_domain_generation_spec,
+    )
+
+    if getattr(environment, "source_input", None) is not None:
+        raise ValueError("source_backed_remote_context_not_allowed")
+    items = [
+        environment.search_workspace_items(query="Alpha Launch", kind="project"),
+        environment.search_workspace_items(query="launch plan", kind="task"),
+        environment.search_workspace_items(query="metrics dashboard", kind="task"),
+    ]
+    spec = DomainGenerationSpec(
+        schema_version=DOMAIN_GENERATION_SPEC_VERSION,
+        domain_id="workspace_tasks_fixture",
+        task_types=(
+            DomainTaskTypeSpec("workspace_item_search", ("search_workspace_items",)),
+            DomainTaskTypeSpec(
+                "workspace_task_creation",
+                ("search_workspace_items", "create_workspace_task"),
+                ("workspace_task",),
+            ),
+            DomainTaskTypeSpec(
+                "workspace_comment_update",
+                ("search_workspace_items", "add_workspace_comment"),
+                ("workspace_comment",),
+            ),
+        ),
+        tools=tuple(registry.export()),
+        grounding_context={"workspace_items": items},
+        context_policy=SYNTHETIC_CONTEXT_POLICY,
+        max_candidates_per_call=MAX_CANDIDATES_PER_CALL,
+    )
+    validate_domain_generation_spec(spec)
+    return spec
+
+
 def generate_workspace_fixture_candidates(seed: DomainSeed) -> list[CandidateTask]:
     candidates = [
         CandidateTask(

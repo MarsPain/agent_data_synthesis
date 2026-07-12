@@ -11,7 +11,8 @@ from synthesis.seeds import DomainSeed
 
 
 RUN_PROFILE_SCHEMA_VERSION = "run_profile_v1"
-RUN_PROFILE_SCHEMA_VERSIONS = {"run_profile_v1", "run_profile_v2"}
+RUN_PROFILE_SCHEMA_VERSIONS = {"run_profile_v1", "run_profile_v2", "run_profile_v3"}
+GENERATION_CONTEXT_POLICIES = {"synthetic_fixture"}
 GENERATION_MODES = {
     "foundation_fixture",
     "deterministic_scale_probe",
@@ -45,12 +46,16 @@ class RunProfileValidationError(ValueError):
 class RunProfileGeneration:
     mode: str
     target_candidate_count: int | None = None
+    context_policy: str | None = None
 
     def canonical(self) -> dict[str, object]:
-        return {
+        canonical = {
             "mode": self.mode,
             "target_candidate_count": self.target_candidate_count,
         }
+        if self.context_policy is not None:
+            canonical["context_policy"] = self.context_policy
+        return canonical
 
 
 @dataclass(frozen=True)
@@ -151,13 +156,19 @@ def load_run_profile(path: Path) -> RunProfile:
     profile_id = _require_string(raw.get("profile_id"), "profile_id")
     dataset_version = _require_string(raw.get("dataset_version"), "dataset_version")
     seed = _load_seed(raw.get("seed"))
-    generation = _load_generation(raw.get("generation"))
+    generation = _load_generation(raw.get("generation"), schema_version=schema_version)
     profile_purpose = _load_profile_purpose(
         raw.get("profile_purpose"),
         generation_mode=generation.mode,
     )
     features = _load_features(raw.get("features", {}))
     source = _load_source(raw.get("source"), schema_version=schema_version, profile_path=path)
+    _validate_generation_compatibility(
+        schema_version=schema_version,
+        profile_purpose=profile_purpose,
+        generation=generation,
+        source=source,
+    )
     _validate_source_domain_compatibility(seed, source)
     canonical = _canonical_profile_mapping(
         schema_version=schema_version,
@@ -201,8 +212,22 @@ def _load_seed(raw_seed: object) -> DomainSeed:
     )
 
 
-def _load_generation(raw_generation: object) -> RunProfileGeneration:
+def _load_generation(
+    raw_generation: object,
+    *,
+    schema_version: str,
+) -> RunProfileGeneration:
     generation = _require_mapping(raw_generation, "generation")
+    if schema_version == "run_profile_v3":
+        unknown_keys = sorted(
+            str(key)
+            for key in generation
+            if key not in {"mode", "target_candidate_count", "context_policy"}
+        )
+        if unknown_keys:
+            raise RunProfileValidationError(
+                f"unsupported generation keys: {', '.join(unknown_keys)}"
+            )
     mode = _require_string(generation.get("mode"), "generation.mode")
     if mode not in GENERATION_MODES:
         raise RunProfileValidationError(
@@ -217,10 +242,47 @@ def _load_generation(raw_generation: object) -> RunProfileGeneration:
         raise RunProfileValidationError(
             "generation.target_candidate_count is required for deterministic_scale_probe"
         )
+    context_policy = generation.get("context_policy") if schema_version == "run_profile_v3" else None
+    if context_policy is not None:
+        context_policy = _require_string(context_policy, "generation.context_policy")
     return RunProfileGeneration(
         mode=mode,
         target_candidate_count=target_candidate_count,
+        context_policy=context_policy,
     )
+
+
+def _validate_generation_compatibility(
+    *,
+    schema_version: str,
+    profile_purpose: str,
+    generation: RunProfileGeneration,
+    source: RunProfileSource | None,
+) -> None:
+    if schema_version != "run_profile_v3":
+        return
+    if generation.mode != "llm":
+        if generation.context_policy is not None:
+            raise RunProfileValidationError(
+                "generation.context_policy is only supported for run_profile_v3 llm generation"
+            )
+        return
+    if generation.target_candidate_count is None:
+        raise RunProfileValidationError(
+            "generation.target_candidate_count is required for run_profile_v3 llm generation"
+        )
+    if generation.context_policy not in GENERATION_CONTEXT_POLICIES:
+        raise RunProfileValidationError(
+            "generation.context_policy must be synthetic_fixture for run_profile_v3 llm generation"
+        )
+    if profile_purpose != "benchmark":
+        raise RunProfileValidationError(
+            "profile_purpose must be benchmark for run_profile_v3 llm generation"
+        )
+    if source is not None:
+        raise RunProfileValidationError(
+            "source is not supported for run_profile_v3 llm generation"
+        )
 
 
 def _load_features(raw_features: object) -> RunProfileFeatures:
@@ -266,7 +328,7 @@ def _load_source(
     schema_version: str,
     profile_path: Path,
 ) -> RunProfileSource | None:
-    if schema_version == RUN_PROFILE_SCHEMA_VERSION:
+    if schema_version != "run_profile_v2":
         if raw_source is not None:
             raise RunProfileValidationError("source is only supported for run_profile_v2")
         return None

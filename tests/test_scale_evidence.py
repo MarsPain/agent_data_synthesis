@@ -49,6 +49,16 @@ def write_domain_artifacts(
     if result.returncode:
         raise AssertionError(result.stdout + result.stderr)
 
+    generation_contract = {
+        "spec_version": "domain_generation_spec_v1",
+        "context_policy": "synthetic_fixture",
+        "target_candidate_count": total_candidates,
+        "generated_candidate_count": total_candidates,
+        "target_fulfilled": True,
+        "representative_eligible": True,
+        "reason_codes": [],
+        "grounding_context_hash": "sha256:" + "0" * 64,
+    }
     for name in (
         "manifest.json",
         "evaluation_report.json",
@@ -61,6 +71,11 @@ def write_domain_artifacts(
         profile_key = "run_profile" if name == "manifest.json" else "profile"
         if record.get(profile_key) is not None:
             record[profile_key]["generation_mode"] = generation_mode
+            if generation_mode == "llm":
+                record[profile_key]["schema_version"] = "run_profile_v3"
+                record[profile_key]["profile_purpose"] = "benchmark"
+                record[profile_key]["target_candidate_count"] = total_candidates
+                record[profile_key]["generation_contract"] = generation_contract
         if name == "manifest.json":
             record["accepted_count"] = total_candidates
             record["rejected_count"] = 0
@@ -72,6 +87,8 @@ def write_domain_artifacts(
             )
             record["decisions"]["async_orchestration"]["status"] = async_status
             record["decisions"]["semantic_duplicate_detection"]["status"] = semantic_status
+        if name == "dataset_release_report.json" and generation_mode == "llm":
+            record["decisions"]["dataset_release"]["status"] = "insufficient_evidence"
         if name in {"dataset_release_report.json", "release_quality_audit.json"}:
             record["observed"].update(accepted=total_candidates, rejected=0)
         path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -130,7 +147,39 @@ class ScaleEvidenceTest(unittest.TestCase):
         for mode in DIAGNOSTIC_GENERATION_MODES:
             with self.subTest(mode=mode):
                 self.assertEqual(classify_run({"valid": True, "generation_mode": mode}), "diagnostic_only")
-        self.assertEqual(classify_run({"valid": True, "generation_mode": "llm"}), "representative")
+        self.assertEqual(classify_run({"valid": True, "generation_mode": "llm"}), "insufficient_evidence")
+        generation_contract = {
+            "spec_version": "domain_generation_spec_v1",
+            "context_policy": "synthetic_fixture",
+            "target_candidate_count": 100,
+            "generated_candidate_count": 100,
+            "target_fulfilled": True,
+            "representative_eligible": True,
+            "reason_codes": [],
+            "grounding_context_hash": "sha256:" + "0" * 64,
+        }
+        self.assertEqual(
+            classify_run({
+                "valid": True,
+                "generation_mode": "llm",
+                "generation_contract": generation_contract,
+                "schema_version": "run_profile_v3",
+                "profile_purpose": "benchmark",
+                "target_candidate_count": 100,
+            }),
+            "representative",
+        )
+        for key in ("target_fulfilled", "representative_eligible"):
+            invalid = dict(generation_contract)
+            invalid[key] = False
+            self.assertEqual(
+                classify_run({"valid": True, "generation_mode": "llm", "generation_contract": invalid, "schema_version": "run_profile_v3", "profile_purpose": "benchmark", "target_candidate_count": 100}),
+                "insufficient_evidence",
+            )
+        self.assertEqual(
+            classify_run({"valid": True, "generation_mode": "llm", "generation_contract": generation_contract, "schema_version": "run_profile_v1", "profile_purpose": "benchmark", "target_candidate_count": 100}),
+            "insufficient_evidence",
+        )
         self.assertEqual(classify_run({"valid": False, "generation_mode": "llm"}), "insufficient_evidence")
 
     def test_builds_stable_diagnostic_report_without_persisting_input_paths(self) -> None:

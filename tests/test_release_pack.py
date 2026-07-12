@@ -7,6 +7,55 @@ from pathlib import Path
 
 
 class DatasetReleasePackTest(unittest.TestCase):
+    def test_generation_contract_must_exist_in_every_referenced_profile(self) -> None:
+        from synthesis.release_pack import REQUIRED_MANIFEST_ARTIFACTS, _metadata_mismatch_reasons
+
+        generation_contract = {
+            "spec_version": "domain_generation_spec_v1",
+            "context_policy": "synthetic_fixture",
+            "target_candidate_count": 2,
+            "generated_candidate_count": 2,
+            "target_fulfilled": True,
+            "representative_eligible": True,
+            "reason_codes": [],
+            "grounding_context_hash": "sha256:" + "0" * 64,
+        }
+        profile = {
+            "schema_version": "run_profile_v3",
+            "profile_id": "representative",
+            "generation_mode": "llm",
+            "profile_purpose": "benchmark",
+            "target_candidate_count": 2,
+            "config_hash": "sha256:" + "1" * 64,
+            "generation_contract": generation_contract,
+        }
+        referenced = {
+            "manifest": {
+                "dataset_version": "dataset",
+                "run_profile": profile,
+                "artifacts": {key: f"{key}.json" for key in REQUIRED_MANIFEST_ARTIFACTS},
+            },
+            "quality_report": {"dataset_version": "dataset"},
+            "evaluation_report": {"dataset_version": "dataset", "profile": {key: value for key, value in profile.items() if key != "generation_contract"}},
+            "profile_decision_report": {"dataset_version": "dataset", "profile": profile},
+            "dataset_release_report": {"dataset_version": "dataset", "profile": profile},
+        }
+        reasons = _metadata_mismatch_reasons(
+            {"dataset_version": "dataset", "profile": profile},
+            referenced,
+        )
+        self.assertIn("evaluation_report profile generation_contract is missing", reasons)
+        complete_referenced = {
+            **referenced,
+            "evaluation_report": {"dataset_version": "dataset", "profile": profile},
+        }
+        stripped_pack_profile = {key: value for key, value in profile.items() if key != "generation_contract"}
+        reasons = _metadata_mismatch_reasons(
+            {"dataset_version": "dataset", "profile": stripped_pack_profile},
+            complete_referenced,
+        )
+        self.assertIn("pack profile generation_contract is missing", reasons)
+
     def test_build_release_pack_records_hashes_and_release_evidence(self) -> None:
         from synthesis.release_pack import build_dataset_release_pack
 

@@ -152,6 +152,11 @@ class ToolRegistry:
         _validate_arguments(tool.definition, arguments)
         return tool.handler(arguments)
 
+    def validate_arguments(self, name: str, arguments: dict[str, object]) -> None:
+        if name not in self._tools:
+            raise ToolMissingError(name, available_tools=sorted(self._tools))
+        _validate_arguments(self._tools[name].definition, arguments)
+
     def export(self) -> list[dict[str, object]]:
         return [tool.definition.export() for tool in self._tools.values()]
 
@@ -167,6 +172,21 @@ class ToolRegistry:
         if checkpoint is None or self._restore_state is None:
             return
         self._restore_state(checkpoint)
+
+
+def validate_arguments_against_tool_definition(
+    definition: Mapping[str, object],
+    arguments: dict[str, object],
+) -> None:
+    _validate_arguments(
+        ToolDefinition(
+            name=str(definition.get("name", "")),
+            version=str(definition.get("version", "")),
+            schema=dict(definition.get("schema", {})),
+            side_effects=str(definition.get("side_effects", "")),
+        ),
+        arguments,
+    )
 
 
 def build_contact_tool_registry(environment: ContactEnvironment) -> ToolRegistry:

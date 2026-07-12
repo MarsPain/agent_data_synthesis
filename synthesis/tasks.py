@@ -112,6 +112,40 @@ class CandidateTask:
         return task_contract_from_candidate(self)
 
 
+def build_contacts_generation_spec(environment: object, registry: object):
+    from synthesis.domain_generation import (
+        DOMAIN_GENERATION_SPEC_VERSION,
+        MAX_CANDIDATES_PER_CALL,
+        SYNTHETIC_CONTEXT_POLICY,
+        DomainGenerationSpec,
+        DomainTaskTypeSpec,
+        validate_domain_generation_spec,
+    )
+
+    if getattr(environment, "source_input", None) is not None:
+        raise ValueError("source_backed_remote_context_not_allowed")
+    names = str(environment.list_contact_names()["contacts"]).split(", ")
+    contacts = [environment.lookup_email(name) for name in names]
+    spec = DomainGenerationSpec(
+        schema_version=DOMAIN_GENERATION_SPEC_VERSION,
+        domain_id="contacts_fixture",
+        task_types=(
+            DomainTaskTypeSpec("contact_lookup", ("lookup_contact_email",)),
+            DomainTaskTypeSpec(
+                "contact_followup",
+                ("lookup_contact_email", "record_contact_followup"),
+                ("contact_followup",),
+            ),
+        ),
+        tools=tuple(registry.export()),
+        grounding_context={"contacts": contacts},
+        context_policy=SYNTHETIC_CONTEXT_POLICY,
+        max_candidates_per_call=MAX_CANDIDATES_PER_CALL,
+    )
+    validate_domain_generation_spec(spec)
+    return spec
+
+
 def generate_foundation_candidates(
     seed: DomainSeed,
     *,

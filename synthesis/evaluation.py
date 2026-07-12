@@ -844,6 +844,7 @@ def _profile_summary(manifest: Mapping[str, Any]) -> dict[str, object] | None:
             "generation_mode",
             "target_candidate_count",
             "config_hash",
+            "generation_contract",
         )
         if key in raw_profile
     }

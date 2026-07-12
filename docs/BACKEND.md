@@ -8,10 +8,13 @@ The first backend should be a local Python pipeline with explicit modules and du
 
 - `synthesis.seeds`: source registration, normalized seed records, seed
   transformation records, and deterministic taxonomy-expansion requests.
-- `synthesis.run_profiles`: `run_profile_v1` and `run_profile_v2` parsing,
+- `synthesis.run_profiles`: `run_profile_v1`, `run_profile_v2`, and representative `run_profile_v3` parsing,
   validation, defaulted feature flags, optional profile-local domain source
   declarations, sanitized metadata export, and stable config hashing for local
   synchronous runs.
+- `synthesis.domain_generation`: immutable domain generation specifications,
+  safe prompts, strict task-contract parsing, exact-target synchronous batches,
+  and sanitized representative eligibility evidence.
 - `synthesis.sources`: source governance records, license decisions, default-deny
   network policy, sandbox policy, source-bundle validation, source-policy hashes,
   deterministic no-network external-source fixtures, controlled HTTPS fetch
@@ -154,7 +157,7 @@ trajectories, exports, or logs.
 ## Job Lifecycle
 
 1. Register seeds and target domain. For configurable local runs, load a
-   validated `run_profile_v1` or `run_profile_v2` file and translate its seed,
+   validated `run_profile_v1`, `run_profile_v2`, or `run_profile_v3` file and translate its seed,
    generation mode, dataset version, feature flags, and optional governed local
    domain source into the existing synchronous pipeline arguments.
 2. Validate the source bundle before environment construction. External-source
@@ -175,7 +178,9 @@ trajectories, exports, or logs.
    hash metadata, and environment-source admission status.
 5. Build or load a tool registry version.
 6. Resolve the role registry and generate candidate tasks by curriculum policy
-   through the `task_generation` role when remote generation is enabled.
+   through the `task_generation` role when remote generation is enabled. V3
+   resolves the selected domain bundle first and requests at most 20 contracts
+   per call until the declared target is exactly fulfilled.
 7. If remote generation fails after configuration, write a classified generation
    rejection plus manifest and quality report artifacts.
 8. Optionally expand seeds through deterministic or remote seed transformation,

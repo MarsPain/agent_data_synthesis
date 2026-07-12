@@ -18,6 +18,7 @@
 - [design-docs/algorithm-flow-and-architecture.md](design-docs/algorithm-flow-and-architecture.md): explanatory walkthrough of the current algorithm flow, architecture layers, gates, and dataset artifacts.
 - [design-docs/architecture-explainers.md](design-docs/architecture-explainers.md): detailed explanations of architecture and algorithm concepts such as the AWM environment model.
 - [design-docs/representative-scale-and-downstream-evidence.md](design-docs/representative-scale-and-downstream-evidence.md): approved evidence boundary for representative three-domain runs and external downstream benchmark result exchange.
+- [design-docs/domain-aware-representative-generation.md](design-docs/domain-aware-representative-generation.md): approved domain-owned generation-spec and representative-eligibility boundary for Plan 0043.
 
 ## Product Specs
 
@@ -37,7 +38,7 @@
 - [PLANS.md](PLANS.md): canonical execution-plan lifecycle and current state.
 - [exec-plans/active/README.md](exec-plans/active/README.md): active plan bucket.
 - [exec-plans/completed/README.md](exec-plans/completed/README.md): complete accepted-plan history.
-- [exec-plans/completed/0042-representative-scale-and-downstream-evidence.md](exec-plans/completed/0042-representative-scale-and-downstream-evidence.md): latest completed plan for three-domain scale evidence and downstream benchmark exchange.
+- [exec-plans/completed/0043-domain-aware-representative-generation-and-campaign-readiness.md](exec-plans/completed/0043-domain-aware-representative-generation-and-campaign-readiness.md): latest completed plan for bounded three-domain LLM task-contract generation and representative campaign readiness.
 - [exec-plans/deferred/README.md](exec-plans/deferred/README.md): deferred plans and activation triggers.
 - [exec-plans/indexes/README.md](exec-plans/indexes/README.md): historical plan indexes and decision records.
 - [exec-plans/tech-debt/README.md](exec-plans/tech-debt/README.md): technical debt bucket.

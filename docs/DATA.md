@@ -348,6 +348,14 @@ metadata must not persist raw local paths, raw contacts payloads, raw mobile
 message payloads, mobile message bodies, raw workspace document bodies, or raw
 task/comment content.
 
+`run_profile_v3` is the representative remote-generation contract. Its manifest
+adds `generation_contract`: spec version, `synthetic_fixture` policy,
+target/generated counts, fulfillment, computed eligibility, fixed reason codes,
+and a grounding-context hash. Prompts, grounding rows, tool arguments, provider
+payloads, source payloads, credentials, and host paths are never persisted.
+Evaluation, profile-decision, release, and release-pack artifacts preserve the
+same validated mapping so campaign evidence can reject metadata drift.
+
 Profile-configured runs also attach a narrow per-record attribution record under
 `lineage.run_profile` for accepted samples and `details.run_profile` for
 rejected candidates. This record uses `schema_version:
@@ -1167,7 +1175,8 @@ profile-decision signals, aggregate review counts, and one conservative
 recommendation. `foundation_fixture`, `deterministic_scale_probe`,
 `mobile_fixture`, and `workspace_fixture` are always `diagnostic_only`;
 malformed or identity-mismatched evidence is `insufficient_evidence`. Only a
-consistent approved non-fixture mode can be `representative` and support an
+consistent v3 LLM run with fulfilled, cross-artifact-identical generation
+contract evidence can be `representative` and support an
 activation recommendation.
 
 `downstream_benchmark_bundle_v1` can be built only from a standalone-verified

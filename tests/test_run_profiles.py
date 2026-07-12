@@ -9,6 +9,14 @@ from unittest.mock import patch
 
 
 class RunProfileTest(unittest.TestCase):
+    def _load_mapping(self, mapping: dict[str, object]):
+        from synthesis.run_profiles import load_run_profile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "profile.json"
+            path.write_text(json.dumps(mapping), encoding="utf-8")
+            return load_run_profile(path)
+
     def _write_profile(
         self,
         tmpdir: Path,
@@ -214,10 +222,89 @@ class RunProfileTest(unittest.TestCase):
         from synthesis.run_profiles import RunProfileValidationError, load_run_profile
 
         with tempfile.TemporaryDirectory() as tmp:
-            path = self._write_profile(Path(tmp), overrides={"schema_version": "run_profile_v3"})
+            path = self._write_profile(Path(tmp), overrides={"schema_version": "run_profile_v4"})
 
             with self.assertRaisesRegex(RunProfileValidationError, "schema_version"):
                 load_run_profile(path)
+
+    def test_checked_in_v1_v2_profile_hashes_remain_stable(self) -> None:
+        from synthesis.run_profiles import load_run_profile
+
+        expected = {
+            "foundation-fixture.json": "sha256:58469be5b1e3a1818a490fe075d432e5f6771a69cddab1fa3af08c59e5c7e530",
+            "foundation-release-candidate.json": "sha256:7ae3c60d24adb0cf0753a5e45596f74f8dfb5a3e4269a132e633f6c18f1813cd",
+            "foundation-scale-probe-25.json": "sha256:12c21033834f204c57a469d70cc32b73323a9cd31c0b37bd2ffc347ca1a3d827",
+            "mobile-agent-fixture.json": "sha256:2d052aa7594b11243220c5a6d59b90d2b4267e833e5487d5bc4fc658e6e4651b",
+            "mobile-messages-release-candidate.json": "sha256:4f2b7db1294e3de73a929361ef292648d2e488978d9bf35240ff5b28a65e0629",
+            "profile-local-contacts.json": "sha256:44aa516aaa8d3a1c1c4c72fbd56b021b3dab13556915c98cf7762c8b7cfb38ac",
+            "profile-local-mobile-messages.json": "sha256:c77961280280a0966b272e24e99de4727341808b7164fa179b73ff173bd90851",
+            "profile-local-workspace-tasks.json": "sha256:9b77b3426fc56e2acde4c6cd2470903e5e2a6d6715e786f563e03f9eb246752c",
+            "workspace-tasks-fixture.json": "sha256:47b41a9b32f5c9e9be74d7d9e56ab4b5c2573ab8a6ef028b05283ec5a4c9c9fc",
+            "workspace-tasks-release-candidate.json": "sha256:d484f1c6068a7290a0cdb64b244ba3799b6bc512f16eaec6d257b68e93eeb2b8",
+        }
+        root = Path("tests/fixtures/run_profiles")
+        for name, config_hash in expected.items():
+            with self.subTest(profile=name):
+                self.assertEqual(load_run_profile(root / name).config_hash, config_hash)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = json.loads((root / "foundation-fixture.json").read_text(encoding="utf-8"))
+            base["generation"]["context_policy"] = "synthetic_fixture"
+            path = Path(tmp) / "legacy-extra-context.json"
+            path.write_text(json.dumps(base), encoding="utf-8")
+            self.assertEqual(
+                load_run_profile(path).config_hash,
+                expected["foundation-fixture.json"],
+            )
+
+    def test_v3_llm_requires_target_and_synthetic_context_policy(self) -> None:
+        base = {
+            "schema_version": "run_profile_v3",
+            "profile_id": "mobile_representative_test",
+            "dataset_version": "dataset_mobile_representative_test",
+            "profile_purpose": "benchmark",
+            "seed": {
+                "seed_id": "seed_mobile_representative_test",
+                "domain": "mobile_messages_fixture",
+                "description": "Generate grounded executable mobile tasks.",
+                "task_taxonomy": ["mobile_message_search", "mobile_reminder_creation"],
+            },
+            "generation": {
+                "mode": "llm",
+                "target_candidate_count": 2,
+                "context_policy": "synthetic_fixture",
+            },
+            "features": {},
+        }
+
+        profile = self._load_mapping(base)
+        self.assertEqual(profile.generation.target_candidate_count, 2)
+        self.assertEqual(profile.generation.context_policy, "synthetic_fixture")
+
+        invalid_generations = (
+            {"mode": "llm", "context_policy": "synthetic_fixture"},
+            {"mode": "llm", "target_candidate_count": 0, "context_policy": "synthetic_fixture"},
+            {"mode": "llm", "target_candidate_count": 2},
+            {"mode": "llm", "target_candidate_count": 2, "context_policy": "governed_source_opt_in"},
+            {"mode": "llm", "target_candidate_count": 2, "context_policy": "synthetic_fixture", "extra": True},
+            {"mode": "mobile_fixture", "context_policy": "synthetic_fixture"},
+        )
+        for generation in invalid_generations:
+            with self.subTest(generation=generation), self.assertRaises(Exception):
+                self._load_mapping({**base, "generation": generation})
+
+        with self.assertRaises(Exception):
+            self._load_mapping({**base, "profile_purpose": "release_candidate"})
+        with self.assertRaises(Exception):
+            self._load_mapping({
+                **base,
+                "source": {
+                    "kind": "local_mobile_messages_json",
+                    "source_id": "source_mobile",
+                    "path": "messages.json",
+                    "license_label": "cc-by-4.0",
+                },
+            })
 
     def test_existing_fixture_profiles_remain_v1_without_source_metadata(self) -> None:
         from synthesis.run_profiles import load_run_profile
@@ -232,6 +319,22 @@ class RunProfileTest(unittest.TestCase):
                 self.assertEqual(profile.schema_version, "run_profile_v1")
                 self.assertIsNone(profile.source)
                 self.assertNotIn("source", profile.sanitized_metadata())
+
+    def test_checked_in_representative_profiles_use_v3_contract(self) -> None:
+        from synthesis.run_profiles import load_run_profile
+
+        for name in (
+            "contacts-representative-llm-100.json",
+            "mobile-messages-representative-llm-100.json",
+            "workspace-tasks-representative-llm-100.json",
+        ):
+            with self.subTest(profile=name):
+                profile = load_run_profile(Path("tests/fixtures/run_profiles") / name)
+                self.assertEqual(profile.schema_version, "run_profile_v3")
+                self.assertEqual(profile.profile_purpose, "benchmark")
+                self.assertEqual(profile.generation.target_candidate_count, 100)
+                self.assertEqual(profile.generation.context_policy, "synthetic_fixture")
+                self.assertIsNone(profile.source)
 
     def test_v2_profile_loads_local_contacts_source_with_sanitized_metadata(self) -> None:
         from synthesis.run_profiles import load_run_profile
