@@ -31,6 +31,22 @@ class OpenAICompatibleProviderTest(unittest.TestCase):
             "invalid_tool_arguments",
         )
 
+    def test_generation_stage_rejection_preserves_sanitized_schema_detail(self) -> None:
+        from synthesis.datasets import assemble_generation_stage_rejection
+        from synthesis.llm import LLMProviderError
+
+        error = LLMProviderError(
+            cause="llm_response_schema_error",
+            error_class="DomainGenerationValidationError",
+            schema_reason="invalid_expected_state",
+            schema_detail="expected_state_missing",
+        )
+
+        rejection = assemble_generation_stage_rejection(error=error)
+
+        self.assertEqual(rejection["details"]["schema_reason"], "invalid_expected_state")
+        self.assertEqual(rejection["details"]["schema_detail"], "expected_state_missing")
+
     def test_config_reads_only_agent_data_prefixed_environment_variables(self) -> None:
         from synthesis.llm import LLMConfig
 

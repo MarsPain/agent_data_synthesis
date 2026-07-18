@@ -7,11 +7,14 @@ from typing import Protocol
 from synthesis.environments import ContactsEnvironmentInput
 from synthesis.mobile_sources import MobileMessagesSourceImporter
 from synthesis.sources import (
+    CONTACTS_FIXTURE_SOURCE_IDENTITY,
     ControlledSourceFetchError,
+    FixtureSourceIdentity,
     SourceBundle,
     admit_profile_local_json_source,
     contacts_environment_input_from_payload,
     source_environment_admission_event,
+    build_fixture_source_bundle,
 )
 from synthesis.workspace_sources import WorkspaceTasksSourceImporter
 
@@ -66,6 +69,29 @@ class ContactsSourceImporter:
             source_bundle_id=source_bundle_id,
             source_policy_hash=source_policy_hash,
         )
+
+
+def build_domain_fixture_source_bundle(domain_id: str) -> SourceBundle:
+    normalized_domain = "contacts_fixture" if domain_id == "contacts" else domain_id
+    identities = {
+        "contacts_fixture": CONTACTS_FIXTURE_SOURCE_IDENTITY,
+        "mobile_messages_fixture": FixtureSourceIdentity(
+            source_id="source_fixture_mobile_messages",
+            bundle_id="bundle_mobile_messages_fixture",
+            origin_reference="fixture://mobile_messages",
+            content_identity="mobile messages fixture v1",
+        ),
+        "workspace_tasks_fixture": FixtureSourceIdentity(
+            source_id="source_fixture_workspace_tasks",
+            bundle_id="bundle_workspace_tasks_fixture",
+            origin_reference="fixture://workspace_tasks",
+            content_identity="workspace tasks fixture v1",
+        ),
+    }
+    identity = identities.get(normalized_domain)
+    if identity is None:
+        raise ValueError("unsupported fixture source domain")
+    return build_fixture_source_bundle(identity)
 
 
 def resolve_domain_source_importer(

@@ -209,7 +209,10 @@ def _build_mobile_bundle(
             source_provenance=source_provenance,
         )
     else:
-        environment = MobileMessagesEnvironment.create_fixture(output_dir)
+        environment = MobileMessagesEnvironment.create_fixture(
+            output_dir,
+            source_provenance=source_provenance,
+        )
     registry = build_mobile_tool_registry(environment)
     session = RuntimeSession(
         environment=environment,
@@ -253,7 +256,10 @@ def _build_workspace_bundle(
             source_provenance=source_provenance,
         )
     else:
-        environment = WorkspaceTasksEnvironment.create_fixture(output_dir)
+        environment = WorkspaceTasksEnvironment.create_fixture(
+            output_dir,
+            source_provenance=source_provenance,
+        )
     registry = build_workspace_tool_registry(environment)
     session = RuntimeSession(
         environment=environment,

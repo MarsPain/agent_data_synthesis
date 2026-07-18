@@ -267,6 +267,40 @@ class DatasetContractTest(unittest.TestCase):
             with self.subTest(reason=reason):
                 validate_rejection_record(_generation_stage_schema_rejection(reason=reason))
 
+    def test_generation_stage_schema_rejection_accepts_allowlisted_details(self) -> None:
+        from synthesis.contracts import (
+            LLM_RESPONSE_SCHEMA_DETAILS,
+            validate_rejection_record,
+        )
+
+        for reason, details in LLM_RESPONSE_SCHEMA_DETAILS.items():
+            for detail in details:
+                with self.subTest(reason=reason, detail=detail):
+                    validate_rejection_record(
+                        _generation_stage_schema_rejection(
+                            reason=reason,
+                            detail=detail,
+                        )
+                    )
+
+    def test_generation_stage_schema_rejection_rejects_mismatched_details(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_rejection_record
+
+        invalid_pairs = (
+            ("invalid_expected_state", "across_batch"),
+            ("duplicate_candidate_id", "expected_state_missing"),
+            ("invalid_candidate_id", "within_batch"),
+            ("invalid_expected_state", "provider_returned_bad_state"),
+            ("invalid_required_capabilities", "expected_state_missing"),
+            ("invalid_required_capabilities", "provider_capability_invalid"),
+        )
+        for reason, detail in invalid_pairs:
+            with self.subTest(reason=reason, detail=detail):
+                with self.assertRaisesRegex(ContractValidationError, "schema_detail"):
+                    validate_rejection_record(
+                        _generation_stage_schema_rejection(reason=reason, detail=detail)
+                    )
+
     def test_generation_stage_schema_rejection_rejects_unknown_reason(self) -> None:
         from synthesis.contracts import ContractValidationError, validate_rejection_record
 
@@ -282,6 +316,19 @@ class DatasetContractTest(unittest.TestCase):
         rejection["cause"] = "llm_provider_error"
 
         with self.assertRaisesRegex(ContractValidationError, "schema_reason"):
+            validate_rejection_record(rejection)
+
+    def test_provider_rejection_forbids_schema_detail(self) -> None:
+        from synthesis.contracts import ContractValidationError, validate_rejection_record
+
+        rejection = _generation_stage_schema_rejection(
+            reason="invalid_expected_state",
+            detail="expected_state_missing",
+        )
+        rejection["cause"] = "llm_provider_error"
+        rejection["details"].pop("schema_reason")
+
+        with self.assertRaisesRegex(ContractValidationError, "schema_detail"):
             validate_rejection_record(rejection)
 
     def test_generation_stage_schema_rejection_requires_schema_reason(self) -> None:
@@ -1492,8 +1539,12 @@ def _valid_rejection() -> dict[str, object]:
     }
 
 
-def _generation_stage_schema_rejection(*, reason: str) -> dict[str, object]:
-    return {
+def _generation_stage_schema_rejection(
+    *,
+    reason: str,
+    detail: str | None = None,
+) -> dict[str, object]:
+    rejection = {
         "candidate_id": "generation_stage",
         "cause": "llm_response_schema_error",
         "task": {
@@ -1509,6 +1560,9 @@ def _generation_stage_schema_rejection(*, reason: str) -> dict[str, object]:
             "retry_eligible": False,
         },
     }
+    if detail is not None:
+        rejection["details"]["schema_detail"] = detail
+    return rejection
 
 
 def _valid_run_profile_attribution(

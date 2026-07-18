@@ -2421,12 +2421,39 @@ class FoundationCliTest(unittest.TestCase):
         api_key_marker = "provider-probe-api-key-marker"
 
         def invalid_generation(self, prompt: str, *, role: str) -> LLMGenerationResult:
+            payload = json.loads(prompt)
+            prefix = payload["batch_context"]["candidate_id_prefix"]
+            count = payload["requested_candidate_count"]
+            records = [
+                {
+                    "candidate_id": f"{prefix}task_{index:02d}",
+                    "instruction": "Find Alice Zhang's email address.",
+                    "task_type": "contact_lookup",
+                    "difficulty": {
+                        "level": "easy",
+                        "tool_count": 1,
+                        "constraint_count": 1,
+                        "state_changes": 0,
+                        "ambiguity": "none",
+                        "recovery_paths": 0,
+                    },
+                    "required_capabilities": ["contact_lookup"],
+                    "required_tools": ["lookup_contact_email"],
+                    "primary_tool": "lookup_contact_email",
+                    "primary_arguments": {"name": "Alice Zhang"},
+                    "final_answer_contains": "alice.zhang@example.test",
+                    "expected_state": [],
+                }
+                for index in range(count)
+            ]
+            records[0]["expected_state"] = [
+                {
+                    "check_type": raw_response_marker,
+                    "expected": {"provider_value": raw_response_marker},
+                }
+            ]
             return LLMGenerationResult(
-                content={
-                    "task_contracts": [
-                        {"provider_payload": raw_response_marker}
-                    ]
-                },
+                content={"task_contracts": records},
                 lineage={
                     "role": role,
                     "provider_host": "llm.example.test",
@@ -2511,7 +2538,16 @@ class FoundationCliTest(unittest.TestCase):
             self.assertEqual(rejection["cause"], "llm_response_schema_error")
             self.assertEqual(
                 rejection["details"]["schema_reason"],
-                "provider_record_keys_mismatch",
+                "invalid_expected_state",
+            )
+            self.assertEqual(
+                rejection["details"]["schema_detail"],
+                "expected_state_check_type_invalid",
+            )
+            self.assertEqual(rejection["details"]["lineage"]["batch_index"], 1)
+            self.assertEqual(
+                rejection["details"]["lineage"]["requested_candidate_count"],
+                2,
             )
             release_report = json.loads(
                 (output_dir / "dataset_release_report.json").read_text(encoding="utf-8")

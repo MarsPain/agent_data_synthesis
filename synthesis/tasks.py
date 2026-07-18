@@ -136,11 +136,19 @@ def build_contacts_generation_spec(environment: object, registry: object):
         schema_version=DOMAIN_GENERATION_SPEC_VERSION,
         domain_id="contacts_fixture",
         task_types=(
-            DomainTaskTypeSpec("contact_lookup", ("lookup_contact_email",)),
+            DomainTaskTypeSpec(
+                "contact_lookup",
+                ("lookup_contact_email",),
+                required_capabilities=("contact_lookup",),
+                final_answer_fields=("email",),
+            ),
             DomainTaskTypeSpec(
                 "contact_followup",
                 ("lookup_contact_email", "record_contact_followup"),
                 ("contact_followup",),
+                required_capabilities=("contact_lookup", "contact_followup"),
+                expected_state_tool="record_contact_followup",
+                final_answer_fields=("email",),
             ),
         ),
         tools=tuple(registry.export()),

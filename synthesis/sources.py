@@ -556,18 +556,36 @@ def admit_profile_local_json_source(
     )
 
 
-def build_fixture_source_bundle() -> SourceBundle:
+@dataclass(frozen=True)
+class FixtureSourceIdentity:
+    source_id: str
+    bundle_id: str
+    origin_reference: str
+    content_identity: str
+
+
+CONTACTS_FIXTURE_SOURCE_IDENTITY = FixtureSourceIdentity(
+    source_id="source_fixture_contacts",
+    bundle_id="bundle_contacts_fixture",
+    origin_reference="fixture://contacts",
+    content_identity="contacts fixture v2",
+)
+
+
+def build_fixture_source_bundle(
+    identity: FixtureSourceIdentity = CONTACTS_FIXTURE_SOURCE_IDENTITY,
+) -> SourceBundle:
     source = SourceRecord(
-        source_id="source_fixture_contacts",
+        source_id=identity.source_id,
         source_kind="fixture",
-        origin_reference="fixture://contacts",
-        content_hash=_content_hash("contacts fixture v2"),
+        origin_reference=identity.origin_reference,
+        content_hash=_content_hash(identity.content_identity),
         license_label="fixture_internal",
         retention_eligible=True,
         export_eligible=True,
     )
     return SourceBundle(
-        bundle_id="bundle_contacts_fixture",
+        bundle_id=identity.bundle_id,
         sources=(source,),
         license_decisions=(
             LicensePolicyDecision(

@@ -10,7 +10,6 @@ from synthesis.tasks import CandidateTask, local_task_generation_lineage, order_
 def build_mobile_generation_spec(environment: object, registry: object):
     from synthesis.domain_generation import (
         DOMAIN_GENERATION_SPEC_VERSION,
-        MAX_CANDIDATES_PER_CALL,
         SYNTHETIC_CONTEXT_POLICY,
         DomainGenerationSpec,
         DomainTaskTypeSpec,
@@ -35,22 +34,33 @@ def build_mobile_generation_spec(environment: object, registry: object):
         schema_version=DOMAIN_GENERATION_SPEC_VERSION,
         domain_id="mobile_messages_fixture",
         task_types=(
-            DomainTaskTypeSpec("mobile_message_search", ("search_phone_messages",)),
+            DomainTaskTypeSpec(
+                "mobile_message_search",
+                ("search_phone_messages",),
+                required_capabilities=("message_search",),
+                final_answer_fields=("message_id", "snippet"),
+            ),
             DomainTaskTypeSpec(
                 "mobile_reminder_creation",
                 ("search_phone_messages", "create_phone_reminder"),
                 ("mobile_reminder",),
+                required_capabilities=("message_search", "reminder_creation"),
+                expected_state_tool="create_phone_reminder",
+                final_answer_fields=("message_id", "snippet"),
             ),
             DomainTaskTypeSpec(
                 "mobile_draft_reply",
                 ("search_phone_messages", "draft_message_reply"),
                 ("mobile_draft_reply",),
+                required_capabilities=("message_search", "draft_reply"),
+                expected_state_tool="draft_message_reply",
+                final_answer_fields=("snippet",),
             ),
         ),
         tools=tuple(registry.export()),
         grounding_context={"messages": messages},
         context_policy=SYNTHETIC_CONTEXT_POLICY,
-        max_candidates_per_call=MAX_CANDIDATES_PER_CALL,
+        max_candidates_per_call=2,
     )
     validate_domain_generation_spec(spec)
     return spec

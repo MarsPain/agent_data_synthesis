@@ -25,6 +25,58 @@ def mobile_seed() -> DomainSeed:
 
 
 class MobilePipelineTest(unittest.TestCase):
+    def test_draft_reply_declares_only_primary_evidence_rendered_by_policy(self) -> None:
+        from string import Formatter
+
+        from synthesis.domain_pipeline import build_domain_pipeline_bundle
+        from synthesis.mobile_tasks import scripted_mobile_solution_policy
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bundle = build_domain_pipeline_bundle(mobile_seed(), Path(tmpdir))
+            task_type = next(
+                item
+                for item in bundle.generation_spec.task_types
+                if item.task_type == "mobile_draft_reply"
+            )
+            observation = bundle.registry.execute(
+                "search_phone_messages",
+                {"query": "five minutes late", "participant": "Alex"},
+            )
+
+        candidate = CandidateTask(
+            candidate_id="mobile_messages_b001_draft_evidence",
+            instruction="Find Alex's late message and draft a reply.",
+            constraints={
+                "domain": "mobile_messages_fixture",
+                "task_type": "mobile_draft_reply",
+                "required_capabilities": ["message_search", "draft_reply"],
+                "required_tools": ["search_phone_messages", "draft_message_reply"],
+            },
+            difficulty={},
+            tool_name="search_phone_messages",
+            arguments={"query": "five minutes late", "participant": "Alex"},
+            expected_answer=str(observation["snippet"]),
+            seed_ids=(mobile_seed().seed_id,),
+            expected_state={
+                "mobile_draft_reply": {
+                    "thread_id": "thread_alex",
+                    "body": "I will be five minutes late.",
+                }
+            },
+        )
+        policy = scripted_mobile_solution_policy(candidate)
+        rendered_fields = {
+            field_name
+            for _, field_name, _, _ in Formatter().parse(policy.final_response_template)
+            if field_name is not None
+        }
+
+        self.assertEqual(task_type.final_answer_source, "primary_observation")
+        self.assertEqual(task_type.final_answer_fields, ("snippet",))
+        for field in task_type.final_answer_fields:
+            self.assertIn(field, observation)
+            self.assertIn(field, rendered_fields)
+
     def test_generated_mutating_tasks_preserve_primary_search_evidence(self) -> None:
         import tempfile
         from pathlib import Path

@@ -123,6 +123,20 @@
   an independent two-candidate paid probe. Full 100-candidate retries remain a
   separately authorized campaign whose quality must be established by post-run
   evidence rather than successful execution alone.
+- Make repeated representative batches identity-safe and domain-parameterized
+  after the first 30-candidate campaign separated contacts quality duplicates,
+  mobile expected-state schema failure, and workspace candidate-ID collision.
+  Plan 0045 now implements deterministic per-batch namespaces, fixed subordinate
+  diagnostics, explicit final-answer/state-tool ownership, and complex-domain
+  batch limits locally. Its first serial paid gate exposed capability ownership,
+  mobile evidence, and cross-domain fixture-provenance defects; local remediation
+  completed. The authorized `_30_v3` retry then exposed provenance loss while
+  rebuilding isolated mobile/workspace fixture environments; that local repair
+  completed. The fresh serial `_30_v4` gate generated 30/30 in all three domains
+  with domain-correct accepted/rejected provenance and produced validated
+  representative scale evidence. Plan 0045 is complete; its evidence recommends
+  follow-up generation/verification quality remediation rather than claiming
+  dataset-quality success.
 - Add profile-attributed quality and comparison before async orchestration.
   Implemented in plan 0019 with sanitized per-record profile attribution,
   profile quality slices, and parent-comparison visibility over profile slice

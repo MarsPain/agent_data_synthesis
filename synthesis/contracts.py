@@ -44,10 +44,36 @@ LLM_RESPONSE_SCHEMA_REASONS = {
     "invalid_tool_arguments",
     "invalid_difficulty",
     "invalid_expected_state",
+    "invalid_candidate_id",
     "invalid_required_capabilities",
     "unsafe_provider_value",
     "duplicate_candidate_id",
     "batch_count_mismatch",
+}
+
+LLM_RESPONSE_SCHEMA_DETAILS = {
+    "invalid_expected_state": {
+        "expected_state_not_list",
+        "expected_state_item_keys_mismatch",
+        "expected_state_check_type_invalid",
+        "expected_state_check_duplicate",
+        "expected_state_expected_not_object",
+        "expected_state_missing",
+        "expected_state_arguments_invalid",
+    },
+    "duplicate_candidate_id": {
+        "within_batch",
+        "across_batch",
+    },
+    "invalid_candidate_id": {
+        "batch_prefix_mismatch",
+    },
+    "invalid_required_capabilities": {
+        "required_capabilities_not_list",
+        "required_capabilities_empty",
+        "required_capabilities_duplicate",
+        "required_capabilities_contract_mismatch",
+    },
 }
 
 REFINEMENT_DECISIONS = {
@@ -401,6 +427,7 @@ def validate_rejection_record(record: Mapping[str, Any]) -> None:
     _validate_task(record.get("task"))
     details = _require_mapping(record.get("details"), "details")
     schema_reason = details.get("schema_reason")
+    schema_detail = details.get("schema_detail")
     is_generation_schema_rejection = (
         record.get("candidate_id") == "generation_stage"
         and cause == "llm_response_schema_error"
@@ -411,9 +438,20 @@ def validate_rejection_record(record: Mapping[str, Any]) -> None:
             raise ContractValidationError(
                 "details.schema_reason must be an approved LLM response schema reason"
             )
+        if schema_detail is not None:
+            _require_non_empty_string(schema_detail, "details.schema_detail")
+            if schema_detail not in LLM_RESPONSE_SCHEMA_DETAILS.get(schema_reason, set()):
+                raise ContractValidationError(
+                    "details.schema_detail must match the approved LLM response schema reason"
+                )
     elif schema_reason is not None:
         raise ContractValidationError(
             "details.schema_reason is only allowed for generation-stage "
+            "llm_response_schema_error rejections"
+        )
+    elif schema_detail is not None:
+        raise ContractValidationError(
+            "details.schema_detail is only allowed for generation-stage "
             "llm_response_schema_error rejections"
         )
     if "run_profile" in details:

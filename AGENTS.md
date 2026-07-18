@@ -45,6 +45,6 @@ uv run python -m unittest
 
 - `main.py` runs the local foundation pipeline and writes runtime outputs to `artifacts/foundation/` by default.
 - The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
-- No implementation plan is currently active; lifecycle state is tracked in
-  [docs/PLANS.md](docs/PLANS.md).
-- Latest completed work is documented in [docs/exec-plans/completed/0044-representative-provider-schema-hardening.md](docs/exec-plans/completed/0044-representative-provider-schema-hardening.md).
+- No implementation plan is currently active; see [docs/PLANS.md](docs/PLANS.md)
+  for lifecycle state.
+- Latest completed work is documented in [docs/exec-plans/completed/0045-domain-parameterized-multi-batch-generation-reliability.md](docs/exec-plans/completed/0045-domain-parameterized-multi-batch-generation-reliability.md).

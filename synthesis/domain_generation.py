@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import PurePath
 from typing import Mapping
 
-from synthesis.contracts import LLM_RESPONSE_SCHEMA_REASONS
+from synthesis.contracts import LLM_RESPONSE_SCHEMA_DETAILS, LLM_RESPONSE_SCHEMA_REASONS
 from synthesis.llm import LLMProviderError
 from synthesis.roles import TASK_GENERATION_ROLE, RoleRegistry, default_role_registry
 from synthesis.seeds import DomainSeed
@@ -28,6 +28,10 @@ from synthesis.tools import ToolSchemaError, validate_arguments_against_tool_def
 DOMAIN_GENERATION_SPEC_VERSION = "domain_generation_spec_v1"
 SYNTHETIC_CONTEXT_POLICY = "synthetic_fixture"
 MAX_CANDIDATES_PER_CALL = 5
+FINAL_ANSWER_SOURCES = {
+    "primary_observation",
+    "state_tool_observation",
+}
 GENERATION_INELIGIBILITY_REASON_CODES = (
     "profile_contract_not_representative",
     "generation_spec_missing_or_mismatched",
@@ -55,6 +59,10 @@ class DomainTaskTypeSpec:
     task_type: str
     required_tools: tuple[str, ...]
     allowed_expected_state_checks: tuple[str, ...] = ()
+    required_capabilities: tuple[str, ...] = ()
+    expected_state_tool: str | None = None
+    final_answer_source: str = "primary_observation"
+    final_answer_fields: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -77,6 +85,12 @@ class DomainGenerationResult:
     spec_metadata: Mapping[str, object]
 
 
+@dataclass(frozen=True)
+class DomainGenerationBatchContext:
+    batch_index: int
+    candidate_id_prefix: str
+
+
 _PROVIDER_RECORD_KEYS = {
     "candidate_id", "instruction", "task_type", "difficulty",
     "required_capabilities", "required_tools", "primary_tool",
@@ -85,11 +99,33 @@ _PROVIDER_RECORD_KEYS = {
 
 
 class DomainGenerationValidationError(ValueError):
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, *, detail: str | None = None) -> None:
         if reason not in LLM_RESPONSE_SCHEMA_REASONS:
             raise ValueError("unsupported domain generation schema reason")
+        if detail is not None and detail not in LLM_RESPONSE_SCHEMA_DETAILS.get(reason, set()):
+            raise ValueError("unsupported domain generation schema detail")
         super().__init__(reason)
         self.reason = reason
+        self.detail = detail
+
+
+def build_generation_batch_context(
+    spec: DomainGenerationSpec,
+    *,
+    batch_index: int,
+) -> DomainGenerationBatchContext:
+    validate_domain_generation_spec(spec)
+    if (
+        not isinstance(batch_index, int)
+        or isinstance(batch_index, bool)
+        or batch_index <= 0
+    ):
+        raise ValueError("batch_index must be a positive integer")
+    safe_domain = spec.domain_id.removesuffix("_fixture")
+    return DomainGenerationBatchContext(
+        batch_index=batch_index,
+        candidate_id_prefix=f"{safe_domain}_b{batch_index:03d}_",
+    )
 
 
 def validate_domain_generation_spec(spec: DomainGenerationSpec) -> None:
@@ -138,6 +174,60 @@ def validate_domain_generation_spec(spec: DomainGenerationSpec) -> None:
             item.allowed_expected_state_checks,
             path=f"task_types.{task_type}.allowed_expected_state_checks",
         )
+        if (
+            not item.required_capabilities
+            or len(item.required_capabilities) != len(set(item.required_capabilities))
+        ):
+            raise ValueError("required capabilities must contain unique strings")
+        for capability in item.required_capabilities:
+            _required_text(capability, "required_capabilities")
+        _validate_safe_value(
+            item.required_capabilities,
+            path=f"task_types.{task_type}.required_capabilities",
+        )
+        mutating_tools = tuple(
+            tool_name
+            for tool_name in item.required_tools
+            if next(tool for tool in spec.tools if tool["name"] == tool_name)[
+                "side_effects"
+            ] == "state_mutating"
+        )
+        if mutating_tools:
+            if len(mutating_tools) != 1:
+                raise ValueError(
+                    f"task type {task_type} must declare exactly one state-mutating tool"
+                )
+            if item.expected_state_tool != mutating_tools[0]:
+                raise ValueError(
+                    f"task type {task_type} must own its state-mutating tool"
+                )
+            if not item.allowed_expected_state_checks:
+                raise ValueError(
+                    f"task type {task_type} must declare expected-state checks"
+                )
+        elif item.expected_state_tool is not None:
+            raise ValueError(
+                f"read-only task type {task_type} must not declare an expected-state tool"
+            )
+        if item.final_answer_source not in FINAL_ANSWER_SOURCES:
+            raise ValueError("unsupported final-answer source")
+        if (
+            item.final_answer_source == "state_tool_observation"
+            and item.expected_state_tool is None
+        ):
+            raise ValueError("state-tool final answers require an expected-state tool")
+        if (
+            not item.final_answer_fields
+            or len(item.final_answer_fields) != len(set(item.final_answer_fields))
+        ):
+            raise ValueError("final-answer fields must contain unique safe identifiers")
+        for field in item.final_answer_fields:
+            if not isinstance(field, str) or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", field) is None:
+                raise ValueError("final-answer fields must contain unique safe identifiers")
+        _validate_safe_value(
+            item.final_answer_fields,
+            path=f"task_types.{task_type}.final_answer_fields",
+        )
     if not spec.grounding_context:
         raise ValueError("grounding_context must not be empty")
     _validate_safe_value(spec.grounding_context, path="grounding_context")
@@ -173,6 +263,7 @@ def build_domain_generation_prompt(
     spec: DomainGenerationSpec,
     *,
     requested_candidate_count: int,
+    batch_context: DomainGenerationBatchContext,
 ) -> str:
     validate_domain_generation_spec(spec)
     if not 1 <= requested_candidate_count <= spec.max_candidates_per_call:
@@ -184,8 +275,8 @@ def build_domain_generation_prompt(
             "the declared output keys. For each record, copy task_type, required_tools, "
             "and primary_tool exactly from one task_type_contract; primary_tool is always "
             "required_tools[0], including tasks that mutate state through a later tool. "
-            "Copy final_answer_contains from an exact scalar grounding value that the "
-            "primary tool observation will return; do not invent completion or status text. "
+            "Copy final_answer_contains from an allowed field in the selected task type's "
+            "declared observation source; do not invent completion or status text. "
             "Copy primary_arguments exactly from one grounding_context entry; do not "
             "invent alternate search terms, filters, names, or identifiers. "
             "Do not return lineage, source, domain, provider, branch-plan, path, "
@@ -193,11 +284,22 @@ def build_domain_generation_prompt(
         ),
         "domain_id": spec.domain_id,
         "requested_candidate_count": requested_candidate_count,
+        "batch_context": {
+            "batch_index": batch_context.batch_index,
+            "candidate_id_prefix": batch_context.candidate_id_prefix,
+        },
         "task_types": [
             {
                 "task_type": item.task_type,
                 "required_tools": list(item.required_tools),
+                "required_capabilities": list(item.required_capabilities),
                 "allowed_expected_state_checks": list(item.allowed_expected_state_checks),
+                "expected_state_tool": item.expected_state_tool,
+                "final_answer": {
+                    "source": item.final_answer_source,
+                    "allowed_fields": list(item.final_answer_fields),
+                    "invented_text_allowed": False,
+                },
             }
             for item in spec.task_types
         ],
@@ -206,6 +308,7 @@ def build_domain_generation_prompt(
         "output_contract": _provider_output_contract(
             spec,
             requested_candidate_count=requested_candidate_count,
+            batch_context=batch_context,
         ),
     }
     return _canonical_json(payload)
@@ -215,6 +318,7 @@ def _provider_output_contract(
     spec: DomainGenerationSpec,
     *,
     requested_candidate_count: int,
+    batch_context: DomainGenerationBatchContext,
 ) -> dict[str, object]:
     return {
         "json_only": True,
@@ -227,7 +331,7 @@ def _provider_output_contract(
                 "type": "array",
                 "exact_count": requested_candidate_count,
                 "unique_by": "candidate_id",
-                "items": _provider_record_contract(),
+                "items": _provider_record_contract(batch_context=batch_context),
             },
         },
         "task_type_contracts": [
@@ -237,14 +341,25 @@ def _provider_output_contract(
                 "primary_tool": item.required_tools[0],
                 "exact_record_values": {
                     "task_type": item.task_type,
+                    "required_capabilities": list(item.required_capabilities),
                     "required_tools": list(item.required_tools),
                     "primary_tool": item.required_tools[0],
                 },
                 "expected_state": _expected_state_output_contract(item, spec.tools),
+                "expected_state_tool": item.expected_state_tool,
+                "final_answer": {
+                    "source": item.final_answer_source,
+                    "allowed_fields": list(item.final_answer_fields),
+                    "invented_text_allowed": False,
+                },
             }
             for item in spec.task_types
         ],
         "critical_rules": {
+            "candidate_id": {
+                "must_start_with": batch_context.candidate_id_prefix,
+                "alternative_prefixes_allowed": False,
+            },
             "primary_tool": {
                 "must_equal": "required_tools[0]",
                 "must_equal_selected_task_type_contract": True,
@@ -254,11 +369,6 @@ def _provider_output_contract(
                 "must_match_curated_tool_schema_for": "primary_tool",
                 "must_copy_exact_from": "grounding_context.*.primary_arguments",
                 "invented_arguments_allowed": False,
-            },
-            "final_answer_contains": {
-                "must_be_exact_scalar_from": "grounding_context",
-                "must_be_supported_by": "primary_tool_observation",
-                "invented_status_text_allowed": False,
             },
         },
         "forbidden_fields": sorted(
@@ -282,15 +392,9 @@ def _expected_state_output_contract(
 ) -> dict[str, object]:
     if not task_type.allowed_expected_state_checks:
         return {"mode": "empty"}
-    mutating_tools = [
-        tool
-        for tool in tools
-        if tool.get("name") in task_type.required_tools
-        and tool.get("side_effects") == "state_mutating"
-    ]
-    if len(mutating_tools) != 1:
-        raise ValueError("state-mutating task type must declare exactly one mutating tool")
-    mutating_tool = mutating_tools[0]
+    mutating_tool = next(
+        tool for tool in tools if tool.get("name") == task_type.expected_state_tool
+    )
     return {
         "mode": "required",
         "exact_count": len(task_type.allowed_expected_state_checks),
@@ -306,7 +410,10 @@ def _expected_state_output_contract(
     }
 
 
-def _provider_record_contract() -> dict[str, object]:
+def _provider_record_contract(
+    *,
+    batch_context: DomainGenerationBatchContext,
+) -> dict[str, object]:
     non_empty_string = {"type": "string", "non_empty": True}
     non_empty_unique_strings = {
         "type": "array",
@@ -318,7 +425,11 @@ def _provider_record_contract() -> dict[str, object]:
         "type": "object",
         "exact_keys": sorted(_PROVIDER_RECORD_KEYS),
         "fields": {
-            "candidate_id": {**non_empty_string, "unique": True},
+            "candidate_id": {
+                **non_empty_string,
+                "unique": True,
+                "starts_with": batch_context.candidate_id_prefix,
+            },
             "instruction": non_empty_string,
             "task_type": non_empty_string,
             "difficulty": {"type": "object"},
@@ -409,6 +520,7 @@ def task_contract_from_provider_record(
     *,
     seed: DomainSeed,
     spec: DomainGenerationSpec,
+    candidate_id_prefix: str,
     generation_lineage: Mapping[str, object],
 ) -> TaskContract:
     validate_domain_generation_spec(spec)
@@ -422,6 +534,12 @@ def task_contract_from_provider_record(
     if task_type not in task_specs:
         raise DomainGenerationValidationError("invalid_task_type")
     task_spec = task_specs[task_type]
+    candidate_id = _required_text(raw.get("candidate_id"), "candidate_id")
+    if not candidate_id.startswith(candidate_id_prefix):
+        raise DomainGenerationValidationError(
+            "invalid_candidate_id",
+            detail="batch_prefix_mismatch",
+        )
     registered_tools = {str(tool["name"]): tool for tool in spec.tools}
     required_tools = _provider_required_tools(
         raw.get("required_tools"),
@@ -442,11 +560,14 @@ def task_contract_from_provider_record(
         task_spec=task_spec,
         registered_tools=registered_tools,
     )
-    capabilities = _provider_capabilities(raw.get("required_capabilities"))
+    capabilities = _provider_capabilities(
+        raw.get("required_capabilities"),
+        expected=task_spec.required_capabilities,
+    )
     try:
         contract = TaskContract(
             intent=TaskIntent(
-                candidate_id=_required_text(raw.get("candidate_id"), "candidate_id"),
+                candidate_id=candidate_id,
                 instruction=_required_text(raw.get("instruction"), "instruction"),
                 domain_id=spec.domain_id,
                 task_type=task_type,
@@ -540,43 +661,107 @@ def _provider_expected_state(
     registered_tools: Mapping[str, Mapping[str, object]],
 ) -> tuple[ExpectedStateCheck, ...]:
     if not isinstance(value, list):
-        raise DomainGenerationValidationError("invalid_expected_state")
-    mutating_tools = [
-        registered_tools[name]
-        for name in task_spec.required_tools
-        if registered_tools[name].get("side_effects") == "state_mutating"
-    ]
-    if task_spec.allowed_expected_state_checks and len(mutating_tools) != 1:
-        raise DomainGenerationValidationError("invalid_expected_state")
+        raise DomainGenerationValidationError(
+            "invalid_expected_state",
+            detail="expected_state_not_list",
+        )
+    mutating_tool = (
+        registered_tools.get(task_spec.expected_state_tool)
+        if task_spec.expected_state_tool is not None
+        else None
+    )
+    if task_spec.allowed_expected_state_checks and mutating_tool is None:
+        raise DomainGenerationValidationError(
+            "invalid_expected_state",
+            detail="expected_state_missing",
+        )
     expected_state: list[ExpectedStateCheck] = []
     seen_checks: set[str] = set()
     for state in value:
         if not isinstance(state, Mapping) or set(state) != {"check_type", "expected"}:
-            raise DomainGenerationValidationError("invalid_expected_state")
-        check_type = _provider_text(state.get("check_type"), "invalid_expected_state")
-        if check_type not in task_spec.allowed_expected_state_checks or check_type in seen_checks:
-            raise DomainGenerationValidationError("invalid_expected_state")
+            raise DomainGenerationValidationError(
+                "invalid_expected_state",
+                detail="expected_state_item_keys_mismatch",
+            )
+        check_type = state.get("check_type")
+        if (
+            not isinstance(check_type, str)
+            or not check_type.strip()
+            or check_type not in task_spec.allowed_expected_state_checks
+        ):
+            raise DomainGenerationValidationError(
+                "invalid_expected_state",
+                detail="expected_state_check_type_invalid",
+            )
+        if check_type in seen_checks:
+            raise DomainGenerationValidationError(
+                "invalid_expected_state",
+                detail="expected_state_check_duplicate",
+            )
         expected = state.get("expected")
         if not isinstance(expected, Mapping) or not expected:
-            raise DomainGenerationValidationError("invalid_expected_state")
+            raise DomainGenerationValidationError(
+                "invalid_expected_state",
+                detail="expected_state_expected_not_object",
+            )
         try:
-            validate_arguments_against_tool_definition(mutating_tools[0], dict(expected))
+            validate_arguments_against_tool_definition(mutating_tool, dict(expected))
         except (ToolSchemaError, TypeError, ValueError, KeyError) as exc:
-            raise DomainGenerationValidationError("invalid_tool_arguments") from exc
+            raise DomainGenerationValidationError(
+                "invalid_expected_state",
+                detail="expected_state_arguments_invalid",
+            ) from exc
         seen_checks.add(check_type)
         expected_state.append(ExpectedStateCheck(check_type, dict(expected)))
     if task_spec.allowed_expected_state_checks and not expected_state:
-        raise DomainGenerationValidationError("invalid_expected_state")
+        raise DomainGenerationValidationError(
+            "invalid_expected_state",
+            detail="expected_state_missing",
+        )
     if not task_spec.allowed_expected_state_checks and expected_state:
-        raise DomainGenerationValidationError("invalid_expected_state")
+        raise DomainGenerationValidationError(
+            "invalid_expected_state",
+            detail="expected_state_check_type_invalid",
+        )
     return tuple(expected_state)
 
 
-def _provider_capabilities(value: object) -> tuple[str, ...]:
+def _provider_capabilities(
+    value: object,
+    *,
+    expected: tuple[str, ...],
+) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        raise DomainGenerationValidationError(
+            "invalid_required_capabilities",
+            detail="required_capabilities_not_list",
+        )
+    if not value:
+        raise DomainGenerationValidationError(
+            "invalid_required_capabilities",
+            detail="required_capabilities_empty",
+        )
     try:
-        return _string_tuple(value, "required_capabilities")
+        capabilities = tuple(
+            _required_text(item, f"required_capabilities.{index}")
+            for index, item in enumerate(value)
+        )
     except (TypeError, ValueError) as exc:
-        raise DomainGenerationValidationError("invalid_required_capabilities") from exc
+        raise DomainGenerationValidationError(
+            "invalid_required_capabilities",
+            detail="required_capabilities_contract_mismatch",
+        ) from exc
+    if len(capabilities) != len(set(capabilities)):
+        raise DomainGenerationValidationError(
+            "invalid_required_capabilities",
+            detail="required_capabilities_duplicate",
+        )
+    if capabilities != expected:
+        raise DomainGenerationValidationError(
+            "invalid_required_capabilities",
+            detail="required_capabilities_contract_mismatch",
+        )
+    return capabilities
 
 
 def parse_domain_task_contracts(
@@ -584,6 +769,7 @@ def parse_domain_task_contracts(
     *,
     seed: DomainSeed,
     spec: DomainGenerationSpec,
+    batch_context: DomainGenerationBatchContext,
     generation_lineage: Mapping[str, object],
 ) -> list[TaskContract]:
     if not isinstance(content, Mapping) or set(content) != {"task_contracts"}:
@@ -596,13 +782,17 @@ def parse_domain_task_contracts(
             record,
             seed=seed,
             spec=spec,
+            candidate_id_prefix=batch_context.candidate_id_prefix,
             generation_lineage=generation_lineage,
         )
         for record in records
     ]
     ids = [contract.intent.candidate_id for contract in contracts]
     if len(ids) != len(set(ids)):
-        raise DomainGenerationValidationError("duplicate_candidate_id")
+        raise DomainGenerationValidationError(
+            "duplicate_candidate_id",
+            detail="within_batch",
+        )
     return contracts
 
 
@@ -627,32 +817,76 @@ def generate_domain_llm_candidates(
     provider_call_count = 0
     while len(candidates) < target_candidate_count:
         requested = min(spec.max_candidates_per_call, target_candidate_count - len(candidates))
-        result = registry.invoke_json(
-            TASK_GENERATION_ROLE,
-            client,
-            build_domain_generation_prompt(spec, requested_candidate_count=requested),
+        batch_context = build_generation_batch_context(
+            spec,
+            batch_index=provider_call_count + 1,
         )
+        try:
+            result = registry.invoke_json(
+                TASK_GENERATION_ROLE,
+                client,
+                build_domain_generation_prompt(
+                    spec,
+                    requested_candidate_count=requested,
+                    batch_context=batch_context,
+                ),
+            )
+        except LLMProviderError as exc:
+            raise LLMProviderError(
+                cause=exc.cause,
+                error_class=exc.error_class,
+                retryable=exc.retryable,
+                retry_count=exc.retry_count,
+                lineage={
+                    **exc.lineage,
+                    "batch_index": batch_context.batch_index,
+                    "requested_candidate_count": requested,
+                },
+                schema_reason=exc.schema_reason,
+                schema_detail=exc.schema_detail,
+            ) from exc
         provider_call_count += 1
         try:
+            raw_records = (
+                result.content.get("task_contracts")
+                if isinstance(result.content, Mapping)
+                else None
+            )
+            if isinstance(raw_records, list):
+                raw_ids = {
+                    record.get("candidate_id")
+                    for record in raw_records
+                    if isinstance(record, Mapping)
+                    and isinstance(record.get("candidate_id"), str)
+                }
+                if candidate_ids & raw_ids:
+                    raise DomainGenerationValidationError(
+                        "duplicate_candidate_id",
+                        detail="across_batch",
+                    )
             contracts = parse_domain_task_contracts(
                 result.content,
                 seed=seed,
                 spec=spec,
+                batch_context=batch_context,
                 generation_lineage=result.lineage,
             )
             if len(contracts) != requested:
                 raise DomainGenerationValidationError("batch_count_mismatch")
             batch_ids = {contract.intent.candidate_id for contract in contracts}
-            if candidate_ids & batch_ids:
-                raise DomainGenerationValidationError("duplicate_candidate_id")
         except DomainGenerationValidationError as exc:
             raise LLMProviderError(
                 cause="llm_response_schema_error",
                 error_class="DomainGenerationValidationError",
                 retryable=False,
                 retry_count=_retry_count(result.lineage),
-                lineage=result.lineage,
+                lineage={
+                    **result.lineage,
+                    "batch_index": batch_context.batch_index,
+                    "requested_candidate_count": requested,
+                },
                 schema_reason=exc.reason,
+                schema_detail=exc.detail,
             ) from exc
         candidate_ids.update(batch_ids)
         candidates.extend(candidate_from_task_contract(contract) for contract in contracts)

@@ -13,6 +13,120 @@ from synthesis.tasks import CandidateTask, EditedTask, TaskExpansionResult
 
 
 class FoundationPipelineTest(unittest.TestCase):
+    def test_default_fixture_source_provenance_matches_seed_domain(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+        from synthesis.seeds import DomainSeed, foundation_seed
+        from synthesis.domain_sources import build_domain_fixture_source_bundle
+
+        cases = (
+            (
+                foundation_seed(),
+                "bundle_contacts_fixture",
+                "source_fixture_contacts",
+                "fixture://contacts",
+            ),
+            (
+                DomainSeed("seed_mobile", "mobile_messages_fixture", "Mobile.", ("search",)),
+                "bundle_mobile_messages_fixture",
+                "source_fixture_mobile_messages",
+                "fixture://mobile_messages",
+            ),
+            (
+                DomainSeed("seed_workspace", "workspace_tasks_fixture", "Workspace.", ("search",)),
+                "bundle_workspace_tasks_fixture",
+                "source_fixture_workspace_tasks",
+                "fixture://workspace_tasks",
+            ),
+        )
+        for seed, bundle_id, source_id, origin_reference in cases:
+            with self.subTest(domain=seed.domain):
+                bundle = build_domain_fixture_source_bundle(seed.domain)
+                self.assertEqual(bundle.bundle_id, bundle_id)
+                self.assertEqual(bundle.sources[0].source_id, source_id)
+                self.assertEqual(bundle.sources[0].origin_reference, origin_reference)
+
+        observed_domains: list[str] = []
+
+        def capture_bundle(domain_id: str):
+            observed_domains.append(domain_id)
+            return build_domain_fixture_source_bundle(domain_id)
+
+        def generation_failure(_seed):
+            from synthesis.llm import LLMProviderError
+
+            raise LLMProviderError(
+                cause="llm_response_schema_error",
+                error_class="DomainGenerationValidationError",
+                schema_reason="response_shape_mismatch",
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "synthesis.pipeline.build_domain_fixture_source_bundle",
+            side_effect=capture_bundle,
+        ):
+            for seed, bundle_id, source_id, _ in cases:
+                result = run_foundation_pipeline(
+                    Path(tmpdir) / seed.domain,
+                    seed_override=seed,
+                    candidate_generator=generation_failure,
+                )
+                rejection = self._read_jsonl(result.rejections_path)[0]
+                provenance = rejection["details"]["source_governance"]
+                self.assertEqual(provenance["source_bundle_id"], bundle_id)
+                self.assertEqual(provenance["source_ids"], [source_id])
+
+        self.assertEqual(
+            observed_domains,
+            [seed.domain for seed, _, _, _ in cases],
+        )
+
+    def test_default_fixture_source_provenance_reaches_isolated_samples(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+        from synthesis.seeds import DomainSeed, foundation_seed
+
+        cases = (
+            (foundation_seed(), "bundle_contacts_fixture"),
+            (
+                DomainSeed(
+                    "seed_mobile_provenance",
+                    "mobile_messages_fixture",
+                    "Mobile provenance.",
+                    ("mobile_message_search",),
+                ),
+                "bundle_mobile_messages_fixture",
+            ),
+            (
+                DomainSeed(
+                    "seed_workspace_provenance",
+                    "workspace_tasks_fixture",
+                    "Workspace provenance.",
+                    ("workspace_item_search",),
+                ),
+                "bundle_workspace_tasks_fixture",
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for seed, bundle_id in cases:
+                with self.subTest(domain=seed.domain):
+                    result = run_foundation_pipeline(
+                        Path(tmpdir) / seed.domain,
+                        dataset_version=f"dataset_{seed.domain}_provenance",
+                        seed_override=seed,
+                    )
+                    samples = self._read_jsonl(result.samples_path)
+
+                    self.assertGreater(len(samples), 0)
+                    for sample in samples:
+                        self.assertEqual(
+                            sample["environment"]["source_provenance"]["source_bundle_id"],
+                            bundle_id,
+                        )
+                        self.assertEqual(
+                            sample["lineage"]["source_provenance"]["source_bundle_id"],
+                            bundle_id,
+                        )
+
     def _normalized_artifacts(self, result) -> dict[str, object]:
         artifacts: dict[str, object] = {
             "samples": self._read_jsonl(result.samples_path),

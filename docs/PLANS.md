@@ -10,7 +10,7 @@
 
 ## Active
 
-No implementation plan is currently active.
+- No implementation plan is currently active.
 
 ## Deferred
 
@@ -30,6 +30,7 @@ No implementation plan is currently active.
 
 ## Completed
 
+- [0045-domain-parameterized-multi-batch-generation-reliability](exec-plans/completed/0045-domain-parameterized-multi-batch-generation-reliability.md): added deterministic multi-batch identity, fixed sanitized diagnostics, domain-owned generation semantics and batch policies, exact capability contracts, and domain-correct isolated-environment provenance. Completed on 2026-07-18 after a fresh serial three-domain gate generated 30/30 in every domain and built representative scale evidence; the evidence recommends generation/verification quality remediation rather than claiming dataset-quality success.
 - [0044-representative-provider-schema-hardening](exec-plans/completed/0044-representative-provider-schema-hardening.md): hardened strict provider output with fixed sanitized reasons, replayable grounding arguments, explicit expected-state schemas, five-candidate batches, truthful zero-accepted reporting, and successful two-candidate contacts/mobile/workspace probes. Completed on 2026-07-12; 100-candidate retries require separate cost authorization and post-run evidence validation.
 - [0043-domain-aware-representative-generation-and-campaign-readiness](exec-plans/completed/0043-domain-aware-representative-generation-and-campaign-readiness.md): added bounded domain-owned LLM task-contract generation, v3 representative profiles, exact-target batching, sanitized generation evidence, and evidence-backed three-domain classification. Completed on 2026-07-11; no real-provider campaign was run.
 - [0042-representative-scale-and-downstream-evidence](exec-plans/completed/0042-representative-scale-and-downstream-evidence.md): added diagnostic-versus-representative three-domain aggregation and a hash-locked, sanitized external benchmark evidence exchange without changing generation or release admission. Completed on 2026-07-11.

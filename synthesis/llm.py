@@ -87,6 +87,7 @@ class LLMProviderError(RuntimeError):
         retry_count: int = 0,
         lineage: dict[str, object] | None = None,
         schema_reason: str | None = None,
+        schema_detail: str | None = None,
     ) -> None:
         super().__init__(f"Remote LLM generation failed: {error_class}")
         self.cause = cause
@@ -95,6 +96,7 @@ class LLMProviderError(RuntimeError):
         self.retry_count = retry_count
         self.lineage = dict(lineage) if lineage else {}
         self.schema_reason = schema_reason
+        self.schema_detail = schema_detail
 
 
 class OpenAICompatibleClient:

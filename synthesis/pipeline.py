@@ -30,6 +30,7 @@ from synthesis.domain_pipeline import (
     build_domain_pipeline_bundle,
     rebuild_domain_pipeline_bundle,
 )
+from synthesis.domain_sources import build_domain_fixture_source_bundle
 from synthesis.domain_generation import (
     DomainGenerationResult,
     build_generation_contract_evidence,
@@ -46,7 +47,6 @@ from synthesis.seeds import deterministic_seed_transformations
 from synthesis.sources import (
     SourceBundle,
     SourcePolicyError,
-    build_fixture_source_bundle,
     source_environment_admission_event,
     validate_source_bundle,
 )
@@ -216,7 +216,7 @@ def run_foundation_pipeline(
         raise ValueError("candidate_generator and candidate_generator_factory are mutually exclusive")
     seed = seed_override or foundation_seed()
     source_event_records: list[dict[str, object]] = list(source_events or [])
-    selected_source_bundle = source_bundle or build_fixture_source_bundle()
+    selected_source_bundle = source_bundle or build_domain_fixture_source_bundle(seed.domain)
     try:
         source_result = validate_source_bundle(selected_source_bundle)
     except SourcePolicyError as exc:

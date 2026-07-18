@@ -15,6 +15,10 @@ The framework should be developed as a pipeline for executable Agent training da
 
 4. **Task and Curriculum Generation**
    Generates tasks from simple to complex, with explicit difficulty dimensions such as tool count, constraints, ambiguity, state changes, and recovery paths.
+   The shared remote-generation kernel consumes domain-owned task semantics and
+   batch policy as validated data: final-answer evidence ownership,
+   expected-state tool ownership, and deterministic per-batch candidate identity
+   remain explicit without adding domain-name branches to the kernel.
 
 5. **Trajectory Execution**
    Runs solution policies or generator agents against environments and records thought/action/observation/final-response traces.

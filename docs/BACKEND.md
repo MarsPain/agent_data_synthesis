@@ -15,17 +15,19 @@ The first backend should be a local Python pipeline with explicit modules and du
 - `synthesis.domain_generation`: immutable domain generation specifications,
   complete machine-readable provider output contracts, strict task-contract
   parsing, replayable grounding arguments paired with observations, explicit
-  expected-state tool schemas, fixed sanitized schema-failure reasons,
-  exact-target synchronous batches of at most five candidates, and sanitized
-  representative eligibility evidence.
+  required-capability, final-answer evidence, and expected-state tool ownership, fixed sanitized
+  schema-failure reasons/details, deterministic batch candidate namespaces,
+  domain-owned exact-target synchronous batch sizes under a shared ceiling of
+  five, and sanitized representative eligibility evidence.
 - `synthesis.sources`: source governance records, license decisions, default-deny
   network policy, sandbox policy, source-bundle validation, source-policy hashes,
   deterministic no-network external-source fixtures, controlled HTTPS fetch
   contracts, bounded request admission, profile-local file admission, and
   sanitized source-event records.
 - `synthesis.domain_sources`: profile-local domain source importer protocol,
-  importer resolution, generic import records, and governed local source
-  admission into domain-owned typed environment input.
+  importer resolution, generic import records, governed local source admission,
+  and default fixture source identity registration. The shared source-governance
+  builder consumes a domain-neutral identity record.
 - `synthesis.environments`: environment builders, typed contacts environment
   input records, reset/checkpoint operations, and state adapters.
 - `synthesis.mobile_sources`: mobile messages JSON importer that converts
@@ -178,20 +180,23 @@ trajectories, exports, or logs.
    remains contacts-only. The default pipeline does not fetch external network
    sources or ingest arbitrary local files.
 4. Build or load an environment version with source provenance, source-policy
-   hash metadata, and environment-source admission status.
+   hash metadata, and environment-source admission status. Preserve that
+   provenance when rebuilding isolated per-candidate environments.
 5. Build or load a tool registry version.
 6. Resolve the role registry and generate candidate tasks by curriculum policy
    through the `task_generation` role when remote generation is enabled. V3
    resolves the selected domain bundle first and requests at most five contracts
-   per call until the declared target is exactly fulfilled. Each request declares
+   per call until the declared target is exactly fulfilled. Contacts requests
+   five; mobile and workspace request two. Each request has a one-based batch
+   index and deterministic domain/batch candidate-ID prefix, and declares
    the exact response shape and count, field JSON types and non-empty rules,
    task-type/tool coupling, expected-state behavior, forbidden fields, and
    JSON-only output from the domain-owned generation specification.
 7. If remote generation fails after configuration, write a classified generation
    rejection plus manifest and quality report artifacts. Strict response failures
    retain the public `llm_response_schema_error` cause and exactly one approved
-   fixed `schema_reason`; they never retain provider records or provider-derived
-   exception messages.
+   fixed `schema_reason` plus an optional matching fixed `schema_detail`; they
+   never retain provider records or provider-derived exception messages.
 8. Optionally expand seeds through deterministic or remote seed transformation,
    task suggestion, and task editing. Edited candidates are admitted only after
    normal candidate-contract validation, and rejected suggestions remain

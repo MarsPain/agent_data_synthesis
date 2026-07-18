@@ -86,12 +86,16 @@ infrastructure, semantic duplicate detection, release admission, or training.
 
 Strict representative response validation remains fail-closed. A schema failure
 may persist only the public `llm_response_schema_error` cause and one fixed
-allowlisted `schema_reason`; raw responses, response excerpts, provider field
-values, and provider-derived exception messages remain forbidden. Provider
-batches are capped at five candidates. After local verification, contacts,
-mobile, and workspace must each pass an independent two-candidate paid probe
-before any 100-candidate representative retry is allowed; the first failed probe
-stops the gate.
+allowlisted `schema_reason` plus an optional matching fixed `schema_detail`.
+Batch index and requested count are allowed diagnostics; raw responses, response
+excerpts, provider field values, prior candidate IDs, prompts, grounding rows,
+and provider-derived exception messages remain forbidden. Provider batches are
+capped at five candidates; contacts uses five and the more complex mobile and
+workspace domains use two. Candidate IDs must match the deterministic per-batch
+prefix, required capabilities must exactly match the selected task-type
+contract, and any invalid record rejects the complete batch. Capability failures
+persist only a fixed shape, empty, duplicate, or mismatch detail, never provider
+capability values.
 
 Logs may include provider alias, base URL host, model id, prompt or config hash, token counts, cost metadata, retry count, and error class. Logs must not include API keys, authorization headers, or raw secrets.
 

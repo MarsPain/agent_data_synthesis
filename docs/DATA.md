@@ -351,13 +351,18 @@ task/comment content.
 `run_profile_v3` is the representative remote-generation contract. Its manifest
 adds `generation_contract`: spec version, `synthetic_fixture` policy,
 target/generated counts, fulfillment, computed eligibility, fixed reason codes,
-and a grounding-context hash. Provider calls contain at most five candidates and
-receive a complete machine-readable output contract derived from the selected
-domain specification. Domain grounding pairs curated primary arguments with the
-observation those arguments reproduce; mutating task types also receive exact
-expected-state items and their curated tool schema. These prompt-only values are
-never exported. Prompts, grounding rows, tool arguments, provider payloads,
-source payloads, credentials, and host paths are never persisted.
+and a grounding-context hash. Provider calls remain capped at five candidates;
+contacts uses five while mobile and workspace use two. Every call receives a
+deterministic one-based batch index and candidate-ID prefix. The complete
+machine-readable output contract is derived from the selected domain
+specification. Each task type declares the observation source and fields that
+may support its final answer plus the exact required-capability list; provider
+records must copy those capabilities exactly. Mutating task types also own one registered
+state-mutating tool and exact expected-state items. Domain grounding pairs
+curated primary arguments with the observation those arguments reproduce. These
+prompt-only values are never exported. Prompts, grounding rows, tool arguments,
+candidate IDs from prior batches, provider payloads, source payloads,
+credentials, and host paths are never persisted.
 Evaluation, profile-decision, release, and release-pack artifacts preserve the
 same validated mapping so campaign evidence can reject metadata drift.
 
@@ -1107,9 +1112,20 @@ sanitized `error_class`, `retry_count`, `retry_eligible`, and exactly one fixed
 `invalid_task_type`, `invalid_required_tools`, `invalid_primary_tool`,
 `invalid_tool_arguments`, `invalid_difficulty`, `invalid_expected_state`,
 `invalid_required_capabilities`, `unsafe_provider_value`,
-`duplicate_candidate_id`, or `batch_count_mismatch`. They must not include raw
-provider payloads, field values, prompts, grounding context, response excerpts,
+`duplicate_candidate_id`, `invalid_candidate_id`, or `batch_count_mismatch`.
+Expected-state, duplicate-ID, and invalid-ID failures may also include one fixed
+detail drawn from the reason-specific allowlist. Required-capability failures
+likewise distinguish shape, empty, duplicate, and task-contract mismatch using
+fixed details without retaining provider values. Batch index and requested count
+are allowed sanitized lineage fields. They must not include raw provider
+payloads, field values, prompts, grounding context, response excerpts,
 provider-derived exception messages, headers, or credentials.
+
+Default fixture provenance is domain-specific. Contacts, mobile messages, and
+workspace tasks use separate source IDs, bundle IDs, origins, and content hashes;
+explicit profile or network sources continue to override these defaults. The
+same admitted provenance must survive every isolated per-candidate environment
+rebuild and appear in both accepted-sample environment metadata and lineage.
 
 ### Parent Comparison Contract
 

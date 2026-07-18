@@ -104,13 +104,18 @@ class WorkspaceTasksEnvironment:
     version = "env_workspace_tasks_v1"
 
     @classmethod
-    def create_fixture(cls, output_dir: Path) -> "WorkspaceTasksEnvironment":
+    def create_fixture(
+        cls,
+        output_dir: Path,
+        *,
+        source_provenance: dict[str, object] | None = None,
+    ) -> "WorkspaceTasksEnvironment":
         output_dir.mkdir(parents=True, exist_ok=True)
         database_path = output_dir / "workspace_tasks.sqlite3"
         if database_path.exists():
             database_path.unlink()
 
-        environment = cls(database_path)
+        environment = cls(database_path, source_provenance=source_provenance)
         with closing(environment.connect()) as connection:
             with connection:
                 _create_schema(connection)
@@ -168,7 +173,10 @@ class WorkspaceTasksEnvironment:
                 self.source_input,
                 source_provenance=self.source_provenance,
             )
-        return type(self).create_fixture(output_dir)
+        return type(self).create_fixture(
+            output_dir,
+            source_provenance=self.source_provenance,
+        )
 
     def search_workspace_items(
         self,

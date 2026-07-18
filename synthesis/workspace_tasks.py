@@ -10,7 +10,6 @@ from synthesis.tasks import CandidateTask, local_task_generation_lineage, order_
 def build_workspace_generation_spec(environment: object, registry: object):
     from synthesis.domain_generation import (
         DOMAIN_GENERATION_SPEC_VERSION,
-        MAX_CANDIDATES_PER_CALL,
         SYNTHETIC_CONTEXT_POLICY,
         DomainGenerationSpec,
         DomainTaskTypeSpec,
@@ -35,22 +34,35 @@ def build_workspace_generation_spec(environment: object, registry: object):
         schema_version=DOMAIN_GENERATION_SPEC_VERSION,
         domain_id="workspace_tasks_fixture",
         task_types=(
-            DomainTaskTypeSpec("workspace_item_search", ("search_workspace_items",)),
+            DomainTaskTypeSpec(
+                "workspace_item_search",
+                ("search_workspace_items",),
+                required_capabilities=("workspace_search",),
+                final_answer_fields=("item_id", "summary"),
+            ),
             DomainTaskTypeSpec(
                 "workspace_task_creation",
                 ("search_workspace_items", "create_workspace_task"),
                 ("workspace_task",),
+                required_capabilities=("workspace_search", "workspace_task_creation"),
+                expected_state_tool="create_workspace_task",
+                final_answer_source="state_tool_observation",
+                final_answer_fields=("task_id",),
             ),
             DomainTaskTypeSpec(
                 "workspace_comment_update",
                 ("search_workspace_items", "add_workspace_comment"),
                 ("workspace_comment",),
+                required_capabilities=("workspace_search", "workspace_comment_update"),
+                expected_state_tool="add_workspace_comment",
+                final_answer_source="state_tool_observation",
+                final_answer_fields=("comment_id",),
             ),
         ),
         tools=tuple(registry.export()),
         grounding_context={"workspace_items": items},
         context_policy=SYNTHETIC_CONTEXT_POLICY,
-        max_candidates_per_call=MAX_CANDIDATES_PER_CALL,
+        max_candidates_per_call=2,
     )
     validate_domain_generation_spec(spec)
     return spec

@@ -97,13 +97,18 @@ class MobileMessagesEnvironment:
     version = "env_mobile_messages_v1"
 
     @classmethod
-    def create_fixture(cls, output_dir: Path) -> "MobileMessagesEnvironment":
+    def create_fixture(
+        cls,
+        output_dir: Path,
+        *,
+        source_provenance: dict[str, object] | None = None,
+    ) -> "MobileMessagesEnvironment":
         output_dir.mkdir(parents=True, exist_ok=True)
         database_path = output_dir / "mobile_messages.sqlite3"
         if database_path.exists():
             database_path.unlink()
 
-        environment = cls(database_path)
+        environment = cls(database_path, source_provenance=source_provenance)
         with closing(environment.connect()) as connection:
             with connection:
                 _create_schema(connection)
@@ -161,7 +166,10 @@ class MobileMessagesEnvironment:
                 self.source_input,
                 source_provenance=self.source_provenance,
             )
-        return type(self).create_fixture(output_dir)
+        return type(self).create_fixture(
+            output_dir,
+            source_provenance=self.source_provenance,
+        )
 
     def search_messages(
         self,
