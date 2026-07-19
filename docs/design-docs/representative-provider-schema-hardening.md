@@ -296,8 +296,8 @@ Use red-green-refactor cycles for each behavior change.
   - add red-green regression coverage for both production failures;
 - Update `docs/BACKEND.md`, `docs/DATA.md`, `docs/SECURITY.md`, and
   `docs/ROADMAP.md` during implementation;
-- Add a versioned execution plan under `docs/exec-plans/active/` only after this
-  design is reviewed.
+- Preserve delivery evidence in the historical
+  [completed record](../exec-plans/completed/0044-representative-provider-schema-hardening.md).
 
 ## Acceptance Criteria
 

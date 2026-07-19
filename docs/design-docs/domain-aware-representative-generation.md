@@ -191,10 +191,10 @@ has already occurred.
 - Automatic plan activation or release admission changes based on scale
   evidence.
 
-## Documentation Impact
+## Documentation Synchronization
 
-Implementation must update `docs/BACKEND.md`, `docs/DATA.md`,
-`docs/SECURITY.md`, `docs/ROADMAP.md`, and `docs/PLANS.md`. Root maps change only
-where the active-plan pointer or operator commands change. Plan 0014 and TD-0002
-remain deferred until a completed representative campaign activates their
-existing evidence gates.
+The implementation synchronized `docs/BACKEND.md`, `docs/DATA.md`,
+`docs/SECURITY.md`, and `docs/ROADMAP.md`. Remaining async-orchestration and
+semantic-duplicate work is specified separately and its current disposition is
+owned only by [ISSUE-0001](../../.scratch/ISSUE-0001-async-local-orchestration.md)
+and [ISSUE-0002](../../.scratch/ISSUE-0002-semantic-duplicate-detection.md).

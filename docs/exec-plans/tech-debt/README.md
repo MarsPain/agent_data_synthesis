@@ -1,6 +1,7 @@
-# Technical Debt
+# Archived Technical-Debt Records
 
-Known debt should be recorded here with impact, owner if known, and target resolution stage.
+This file preserves historical records and inbound links. Current technical-debt
+state is owned only by the [Local Markdown issue tracker](../../../.scratch/README.md).
 
 ## Resolved Items
 
@@ -23,6 +24,11 @@ Known debt should be recorded here with impact, owner if known, and target resol
 ## Current Items
 
 ### TD-0002: Semantic duplicate detection is not yet implemented
+
+Canonical desired behavior is in the
+[semantic duplicate detection spec](../../product-specs/semantic-duplicate-detection.md),
+and current disposition is in
+[ISSUE-0002](../../../.scratch/ISSUE-0002-semantic-duplicate-detection.md).
 - **Impact:** Medium. Current `quality_duplicate` gate only catches exact task
   instruction + tool-sequence matches. Semantic equivalence (paraphrased intent,
   reordering of commutative actions) inflates dataset size and skews curriculum

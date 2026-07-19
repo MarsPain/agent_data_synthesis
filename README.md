@@ -136,6 +136,7 @@ These artifacts are not proof of downstream model improvement.
 
 - [AGENTS.md](AGENTS.md): compact working map for coding agents.
 - [ARCHITECTURE.md](ARCHITECTURE.md): top-level architecture map.
+- [CONTEXT.md](CONTEXT.md): canonical domain glossary.
 - [docs/README.md](docs/README.md): canonical documentation index.
 - [docs/DESIGN.md](docs/DESIGN.md): bounded contexts and core contracts.
 - [docs/BACKEND.md](docs/BACKEND.md): current backend modules and execution flow.
@@ -143,8 +144,12 @@ These artifacts are not proof of downstream model improvement.
 - [docs/SECURITY.md](docs/SECURITY.md): source, sandbox, adapter, and secret
   handling rules.
 - [docs/ROADMAP.md](docs/ROADMAP.md): staged development direction.
-- [docs/PLANS.md](docs/PLANS.md): active, deferred, completed, and tech-debt
-  implementation plans.
+- [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md): work-tracker
+  configuration and source-of-truth boundaries.
+- [.scratch/README.md](.scratch/README.md): current local issues, state,
+  dependencies, and technical debt.
+- [docs/PLANS.md](docs/PLANS.md): compatibility entrypoint for historical
+  execution-plan records.
 - [docs/design-docs/agent-data-synthesis-framework.md](docs/design-docs/agent-data-synthesis-framework.md):
   deep framework design.
 - [docs/references/agent-data-synthesis-pdf-analysis.md](docs/references/agent-data-synthesis-pdf-analysis.md):
@@ -153,8 +158,8 @@ These artifacts are not proof of downstream model improvement.
 ## Repository Rules
 
 - Keep root files concise and use them as navigation entrypoints.
-- Treat `docs/` as the source of truth for architecture, data contracts,
-  security rules, and implementation plans.
+- Keep each artifact in its canonical home: `CONTEXT.md` for terminology,
+  `docs/` for design/specification detail, and `.scratch/` for work state.
 - Keep runtime pipeline outputs under `artifacts/`.
 - Update affected docs and implementation together when workflows, schemas,
   commands, or architecture boundaries change.

@@ -1,12 +1,9 @@
-# Active Plans
+# Legacy Active-Plan Bucket
 
-Active implementation plans live here while they are being executed. When a plan
-is accepted as complete, move it to `../completed/` and update `../../PLANS.md`.
+This empty directory is retained only for compatibility with historical links.
+The repository no longer creates or moves plans through an execution-plan
+lifecycle.
 
-## Currently Executing
-
-No implementation plan is currently active.
-
-Completed-plan history lives in the [completed bucket](../completed/README.md).
-See the [plan index](../../PLANS.md) for canonical lifecycle state across active,
-completed, deferred, indexed, and technical-debt plans.
+Current work state lives only in the [Local Markdown issue tracker](../../../.scratch/README.md).
+Completed-plan history remains in the [completed archive](../completed/README.md),
+and [docs/PLANS.md](../../PLANS.md) is a compatibility index.

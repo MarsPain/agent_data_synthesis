@@ -1,6 +1,8 @@
 # Architecture
 
 The framework should be developed as a pipeline for executable Agent training data, not as a flat prompt-response generator.
+Canonical terminology is defined in [CONTEXT.md](CONTEXT.md); this file owns
+only the top-level system and package map.
 
 ## Top-Level Domains
 

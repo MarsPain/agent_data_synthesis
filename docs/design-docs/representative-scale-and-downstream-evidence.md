@@ -123,7 +123,7 @@ If more than one activation condition is met, the report records all triggered
 signals but selects one primary recommendation using a documented stable
 priority: evidence remediation first, generation/verification quality next,
 semantic duplicate detection next, async orchestration next, and no change
-last. The report does not edit plan lifecycle state automatically.
+last. The report does not edit issue-tracker state automatically.
 
 ## Downstream Benchmark Bundle Contract
 
@@ -245,12 +245,12 @@ An end-to-end fixture proves this offline sequence:
    artifacts.
 
 The full unit suite and documentation validator remain required before the
-implementation plan can be completed.
+implementation can be accepted.
 
-## Delivery Stages
+## Historical Delivery Stages
 
-The implementation plan should preserve one coherent Plan 0042 while using
-reviewable stages:
+The completed implementation used one coherent change with these reviewable
+stages:
 
 1. lock existing default and release behavior;
 2. add scale-evidence contracts and aggregation;
@@ -260,7 +260,7 @@ reviewable stages:
 6. add standalone CLI workflows and three-domain evidence;
 7. synchronize canonical docs and record the resulting next-step decision.
 
-The plan is complete when the evidence exchange works and its boundaries are
+Delivery is complete when the evidence exchange works and its boundaries are
 verified. Actual external training results may remain an operational input; the
 repository must provide a deterministic example result for tests without
 claiming downstream model improvement.
@@ -279,10 +279,11 @@ claiming downstream model improvement.
   blocking based on downstream results.
 - A fourth domain, browser review UI, or real-user data ingestion.
 
-## Documentation Impact
+## Documentation Synchronization
 
-The implementation plan must update `docs/DATA.md` for the new contracts,
+The implementation synchronized `docs/DATA.md` for the new contracts,
 `docs/BACKEND.md` for offline consumer boundaries, `docs/PRODUCT_SENSE.md` for
-the downstream evidence interpretation, `docs/ROADMAP.md` and `docs/PLANS.md`
-for lifecycle state, and root entrypoints only when their navigation or common
-commands change. This design remains the canonical rationale for those edits.
+the downstream evidence interpretation, and `docs/ROADMAP.md` for direction.
+The historical [completed record](../exec-plans/completed/0042-representative-scale-and-downstream-evidence.md)
+preserves delivery evidence; this design remains canonical for the subsystem
+boundary.

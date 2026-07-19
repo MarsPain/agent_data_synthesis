@@ -727,7 +727,7 @@ when candidate count or runtime meets the configured threshold; otherwise it is
 exact-duplicate-rate thresholds are met. Low volume keeps it deferred even when
 the exact duplicate rate is high, but the decision records an `exact_duplicate_rate`
 watch trigger and rationale so the pressure remains visible without activating
-`TD-0002`.
+[ISSUE-0002](../.scratch/ISSUE-0002-semantic-duplicate-detection.md).
 
 The MVP quality floor is `passed` when success and executable rates meet
 minimums, infrastructure/source-policy rejection rates stay within caps, and any

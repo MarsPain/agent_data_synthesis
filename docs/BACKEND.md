@@ -431,9 +431,12 @@ passed profile promotion, passed held-out evaluation, deferred async and
 semantic-duplicate decisions, zero source-policy rejection rate, and complete
 release artifact references.
 
-Remaining async work is still deferred to plan 0014: durable queues, workers,
-cancellation, resumption, external process isolation, and per-role async cost
-tracking are not active runtime behavior.
+Durable queues, workers, cancellation, resumption, external process isolation,
+and per-role async cost tracking are not active runtime behavior. Desired
+behavior is defined by the
+[async local orchestration spec](product-specs/async-local-orchestration.md),
+while current disposition lives only in
+[ISSUE-0001](../.scratch/ISSUE-0001-async-local-orchestration.md).
 
 Plan 0042 adds two offline consumers above the artifact boundary.
 `synthesis.scale_evidence` validates and aggregates exactly one contacts,

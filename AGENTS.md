@@ -6,17 +6,20 @@ This repository is an early-stage Agent data synthesis framework. Root files are
 
 - Human onboarding: [README.md](README.md)
 - Architecture map: [ARCHITECTURE.md](ARCHITECTURE.md)
+- Domain glossary: [CONTEXT.md](CONTEXT.md)
 - Docs index: [docs/README.md](docs/README.md)
 - Core design: [docs/DESIGN.md](docs/DESIGN.md)
 - Deep framework design: [docs/design-docs/agent-data-synthesis-framework.md](docs/design-docs/agent-data-synthesis-framework.md)
 - Architecture explainers: [docs/design-docs/architecture-explainers.md](docs/design-docs/architecture-explainers.md)
 - PDF source analysis: [docs/references/agent-data-synthesis-pdf-analysis.md](docs/references/agent-data-synthesis-pdf-analysis.md)
-- Plan index: [docs/PLANS.md](docs/PLANS.md)
+- Issue-tracker configuration: [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md)
+- Current work: [.scratch/README.md](.scratch/README.md)
+- Historical plan archive: [docs/PLANS.md](docs/PLANS.md)
 
 ## Working Rules
 
 - Do not put long specifications in this file.
-- Treat `docs/` as the source of truth for architecture, data contracts, security rules, and implementation plans.
+- Keep terminology in `CONTEXT.md`, canonical designs/specs under `docs/`, and work state, dependencies, assignment, and technical debt only in `.scratch/`.
 - Keep runtime pipeline outputs under `artifacts/`.
 - Keep generated documentation assets, schemas, diagrams, reports, or source analyses under `docs/generated/` or `docs/references/`.
 - Preserve links when moving documents.
@@ -45,6 +48,5 @@ uv run python -m unittest
 
 - `main.py` runs the local foundation pipeline and writes runtime outputs to `artifacts/foundation/` by default.
 - The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
-- No implementation plan is currently active; see [docs/PLANS.md](docs/PLANS.md)
-  for lifecycle state.
+- Current work state is owned by the [local issue tracker](.scratch/README.md).
 - Latest completed work is documented in [docs/exec-plans/completed/0046-final-answer-grounding-and-generation-diversity.md](docs/exec-plans/completed/0046-final-answer-grounding-and-generation-diversity.md).

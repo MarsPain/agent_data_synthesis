@@ -1,5 +1,11 @@
 # Plan 0014: Async Local Orchestration with Durable Queues and Manifest-Based Resumption
 
+> **Legacy record.** This document preserves historical design and delivery
+> analysis. Canonical desired behavior is in the
+> [async local orchestration spec](../../product-specs/async-local-orchestration.md);
+> current status and activation triggers live only in
+> [ISSUE-0001](../../../.scratch/ISSUE-0001-async-local-orchestration.md).
+
 ## Status
 
 Planned on 2026-05-23. **Deferred** — see the "补充思考" section for the

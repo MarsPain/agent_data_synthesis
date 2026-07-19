@@ -1,93 +1,22 @@
-# Plans
+# Historical Execution Plan Archive
 
-## Lifecycle States
+This path is retained for compatibility with existing links. Execution plans
+predate the repository's unified context protocol and are now historical
+delivery records, not a parallel work tracker.
 
-- `active`: work currently intended for implementation.
-- `completed`: accepted plans with completion date.
-- `tech-debt`: known unresolved debt with impact and target stage.
-- `deferred`: planned but postponed until a concrete trigger condition is met.
-- `indexes`: historical navigation and decision records, not executable plans.
+Current status, dependencies, assignment, activation triggers, and technical
+debt are canonical only in the [Local Markdown issue tracker](../.scratch/README.md),
+configured by [docs/agents/issue-tracker.md](agents/issue-tracker.md). Desired
+behavior and acceptance belong in [product specs](product-specs/).
 
-## Active
+## Archive Navigation
 
-No implementation plan is currently active.
+- [Completed records](exec-plans/completed/README.md)
+- [Historical indexes](exec-plans/indexes/README.md)
+- [Archived deferred records](exec-plans/deferred/README.md)
+- [Archived technical-debt records](exec-plans/tech-debt/README.md)
+- [Historical empty active bucket](exec-plans/active/README.md)
 
-## Deferred
-
-- [0014-async-local-orchestration-with-durable-queues](exec-plans/deferred/0014-async-local-orchestration-with-durable-queues.md):
-  async job lifecycle, durable file-backed queues, manifest-based resumption,
-  concurrency limits, cancellation, and per-role cost tracking; **deferred**
-  until single runs exceed ~10 minutes or 100+ candidates. See the plan's
-  "补充思考" section for the full deferral rationale.
-
-## Phase Indexes
-
-- [0025-awm-runtime-phase-index](exec-plans/indexes/0025-awm-runtime-phase-index.md):
-  umbrella decision record for the staged AWM runtime-kernel work. This is not
-  a directly executable implementation plan. Historical links to
-  [0025-awm-runtime-boundary-and-shared-environment-kernel](exec-plans/indexes/0025-awm-runtime-boundary-and-shared-environment-kernel.md)
-  are preserved by a redirect stub.
-
-## Completed
-
-- [0046-final-answer-grounding-and-generation-diversity](exec-plans/completed/0046-final-answer-grounding-and-generation-diversity.md): added deterministic state-tool final-answer derivation, primary-observation and expected-state reference grounding gates, per-batch diversity axes, a bounded temperature knob, and an enlarged contacts fixture. Completed on 2026-07-19 after all three serial paid `_30_v5` runs generated 30/30; contacts/mobile/workspace accepted 27/28/30, and representative scale evidence recommends `no_change_recommended` without claiming release readiness.
-- [0045-domain-parameterized-multi-batch-generation-reliability](exec-plans/completed/0045-domain-parameterized-multi-batch-generation-reliability.md): added deterministic multi-batch identity, fixed sanitized diagnostics, domain-owned generation semantics and batch policies, exact capability contracts, and domain-correct isolated-environment provenance. Completed on 2026-07-18 after a fresh serial three-domain gate generated 30/30 in every domain and built representative scale evidence; the evidence recommends generation/verification quality remediation rather than claiming dataset-quality success.
-- [0044-representative-provider-schema-hardening](exec-plans/completed/0044-representative-provider-schema-hardening.md): hardened strict provider output with fixed sanitized reasons, replayable grounding arguments, explicit expected-state schemas, five-candidate batches, truthful zero-accepted reporting, and successful two-candidate contacts/mobile/workspace probes. Completed on 2026-07-12; 100-candidate retries require separate cost authorization and post-run evidence validation.
-- [0043-domain-aware-representative-generation-and-campaign-readiness](exec-plans/completed/0043-domain-aware-representative-generation-and-campaign-readiness.md): added bounded domain-owned LLM task-contract generation, v3 representative profiles, exact-target batching, sanitized generation evidence, and evidence-backed three-domain classification. Completed on 2026-07-11; no real-provider campaign was run.
-- [0042-representative-scale-and-downstream-evidence](exec-plans/completed/0042-representative-scale-and-downstream-evidence.md): added diagnostic-versus-representative three-domain aggregation and a hash-locked, sanitized external benchmark evidence exchange without changing generation or release admission. Completed on 2026-07-11.
-- [0041-release-review-resolution-and-evidence](exec-plans/completed/0041-release-review-resolution-and-evidence.md): added a separate deterministic redacted release-review queue, explicit local reviewer decisions, aggregate offline resolution evidence, and controlled post-pack manifest attachment without changing sample or release admission. Completed on 2026-07-11.
-- [0040-multi-domain-release-candidate-evidence-hardening](exec-plans/completed/0040-multi-domain-release-candidate-evidence-hardening.md): hardened release-candidate evidence across contacts, mobile messages, and workspace tasks with explicit domain-aware release completeness thresholds, mobile/workspace release profiles, deterministic sample-floor coverage, and end-to-end release artifact smoke tests. Completed on 2026-07-05.
-- [0001-foundation](exec-plans/completed/0001-foundation.md): established the local executable framework foundation. Completed on 2026-05-16.
-- [0002-data-contracts-and-quality-gates](exec-plans/completed/0002-data-contracts-and-quality-gates.md): enforced dataset contracts and quality gates over the local foundation runner. Completed on 2026-05-16.
-- [0003-quality-reporting-and-curriculum-foundation](exec-plans/completed/0003-quality-reporting-and-curriculum-foundation.md): added quality reports, metric slicing, duplicate gates, logical gates, parent comparison, and first-pass curriculum metadata. Completed on 2026-05-16.
-- [0004-remote-llm-generation-lineage-and-retry-loop](exec-plans/completed/0004-remote-llm-generation-lineage-and-retry-loop.md): propagated remote LLM lineage, added bounded provider retries, classified generation-stage failures, and preserved inspectable artifacts. Completed on 2026-05-16.
-- [0005-solution-policy-and-multi-step-stateful-trajectories](exec-plans/completed/0005-solution-policy-and-multi-step-stateful-trajectories.md): separated task generation from solution-policy execution and added a multi-step stateful trajectory foundation. Completed on 2026-05-16.
-- [0006-critic-refinement-and-regeneration-loop](exec-plans/completed/0006-critic-refinement-and-regeneration-loop.md): added a bounded critic/refinement loop with one repaired rerun, refinement lineage, and refined outcome metrics. Completed on 2026-05-16.
-- [0007-role-contracts-and-generator-orchestration](exec-plans/completed/0007-role-contracts-and-generator-orchestration.md): formalized role contracts, registry-backed LLM routing, role lineage, disabled future-role guardrails, and role-level quality visibility. Completed on 2026-05-16.
-- [0008-failure-driven-tool-expansion-and-capability-gap-routing](exec-plans/completed/0008-failure-driven-tool-expansion-and-capability-gap-routing.md): added capability-gap diagnostics, bounded tool proposals, curated local tool admission, proposal artifacts, and tool-expansion quality reporting. Completed on 2026-05-17.
-- [0009-multi-path-branching-trajectory-foundation](exec-plans/completed/0009-multi-path-branching-trajectory-foundation.md): added bounded branch plans, checkpointed local branch execution, selected-branch lineage, and branch-level quality reporting. Completed on 2026-05-17.
-- [0010-agentinstruct-seed-transformation-and-editor-loop](exec-plans/completed/0010-agentinstruct-seed-transformation-and-editor-loop.md): added seed transformation, taxonomy-driven task expansion, enabled task suggester/editor roles, expansion lineage, and reporting slices. Completed on 2026-05-17.
-- [0011-provenance-licensing-and-sandbox-gates](exec-plans/completed/0011-provenance-licensing-and-sandbox-gates.md): added source provenance, license eligibility, default-deny network policy, sandbox policy, source-event audit artifacts, and source-governance quality slices. Completed on 2026-05-17.
-- [0012-controlled-network-backed-environment-synthesis](exec-plans/completed/0012-controlled-network-backed-environment-synthesis.md): added controlled opt-in HTTPS source ingestion, allowlisted host enforcement, request budgets, payload limits, contacts environment-source admission, and sanitized fetch/admission audit events. Completed on 2026-05-17.
-- [0013-mcp-compatible-environment-tool-adapters](exec-plans/completed/0013-mcp-compatible-environment-tool-adapters.md): added local MCP-compatible adapter manifest, tool-call request/result envelopes, adapter lineage, quality slices, and in-process contacts shim. Completed on 2026-05-18.
-- [0015-generated-code-sandboxing-and-executable-admission-controls](exec-plans/completed/0015-generated-code-sandboxing-and-executable-admission-controls.md): added generated-code sandbox contracts, static scans, admission records, restricted local fixture execution, redacted sandbox audit artifacts, and reporting slices. Completed on 2026-05-27.
-- [0016-candidate-execution-boundary-and-orchestration-readiness](exec-plans/completed/0016-candidate-execution-boundary-and-orchestration-readiness.md): extracted and tested a structured candidate-processing boundary before deferred async orchestration work. Completed on 2026-05-29.
-- [0017-configurable-run-profiles-and-scale-probe](exec-plans/completed/0017-configurable-run-profiles-and-scale-probe.md): added declarative run profiles, deterministic scale-probe generation, sanitized manifest metadata, and synchronous scale evidence before async orchestration or semantic duplicate detection. Completed on 2026-05-29.
-- [0018-profile-driven-source-admission-and-contacts-environment-overrides](exec-plans/completed/0018-profile-driven-source-admission-and-contacts-environment-overrides.md): added `run_profile_v2`, profile-local contacts JSON source admission, environment overrides, sanitized manifest source metadata, and source-governed synchronous runs. Completed on 2026-05-30.
-- [0019-profile-attributed-quality-and-comparison](exec-plans/completed/0019-profile-attributed-quality-and-comparison.md): added sanitized per-record run-profile attribution for samples and rejections, profile quality slices, and parent-comparison visibility while preserving synchronous profile execution. Completed on 2026-05-30.
-- [0020-profile-decision-gates-and-benchmark-reporting](exec-plans/completed/0020-profile-decision-gates-and-benchmark-reporting.md): added opt-in sanitized profile decision reports with async orchestration, semantic duplicate detection, and MVP quality-floor decisions over synchronous profile artifacts. Completed on 2026-05-30.
-- [0021-candidate-isolation-and-deterministic-merge](exec-plans/completed/0021-candidate-isolation-and-deterministic-merge.md): added per-candidate environment/registry/adapter isolation and deterministic merge admission for provisional candidate outcomes. Completed on 2026-05-31.
-- [0022-held-out-evaluation-and-profile-benchmarking](exec-plans/completed/0022-held-out-evaluation-and-profile-benchmarking.md): added opt-in held-out evaluation reports, deterministic contacts benchmark tasks, capability slices, optional parent evaluation comparison, and profile-decision evidence before async orchestration or semantic duplicate detection. Completed on 2026-05-31.
-- [0023-evaluation-quality-ratchet-and-profile-promotion](exec-plans/completed/0023-evaluation-quality-ratchet-and-profile-promotion.md): tightened held-out evaluation semantics, added capability-level thresholds, introduced profile promotion decisions, and kept async orchestration plus semantic duplicate detection deferred until explicit triggers are met. Completed on 2026-05-31.
-- [0024-profile-purpose-and-dataset-release-admission](exec-plans/completed/0024-profile-purpose-and-dataset-release-admission.md): added profile-purpose classification and an opt-in dataset release admission report so diagnostic profiles cannot be mistaken for releaseable dataset versions. Completed on 2026-06-09.
-- [0025-phase-a-internal-runtime-kernel-hardening](exec-plans/completed/0025-phase-a-internal-runtime-kernel-hardening.md): added immutable runtime capability descriptors, deterministic registry lookup, descriptor-backed replay/reward support, and fake runtime pressure tests. Completed on 2026-06-19.
-- [0025-phase-b-consumer-inversion](exec-plans/completed/0025-phase-b-consumer-inversion.md): completed runtime descriptor-driven consumer inversion by removing episode-quality contacts/mobile allowlists, aligning consumer capability status semantics, and preserving replay/reward descriptor behavior. Completed on 2026-06-19.
-- [0025-phase-c-rollout-ready-runtime-api](exec-plans/completed/0025-phase-c-rollout-ready-runtime-api.md): added runtime sessions, action request/result envelopes, and diagnostic rollout collection that emits replayable, reward-label-compatible episodes without RL training or default CLI changes. Completed on 2026-06-19.
-- [0025-phase-d-adapter-surface-generalization](exec-plans/completed/0025-phase-d-adapter-surface-generalization.md): generalized the opt-in local MCP-compatible adapter surface onto runtime descriptors, runtime sessions, and action envelopes while preserving contacts compatibility and adding mobile local adapter support without external MCP servers. Completed on 2026-06-20.
-- [0025-phase-e-extraction-readiness-review](exec-plans/completed/0025-phase-e-extraction-readiness-review.md): completed an evidence-backed extraction decision with status `continue_hardening`, keeping Phase F deferred and pointing the next hardening work at reward-label runtime contracts. Completed on 2026-06-20.
-- [0025-phase-e1-reward-label-runtime-contract-hardening](exec-plans/completed/0025-phase-e1-reward-label-runtime-contract-hardening.md): removed reward-label runtime contract allowlists and moved reward preference grouping to runtime descriptor declarations before the next extraction-readiness review. Completed on 2026-06-20.
-- [0025-phase-e2-runtime-session-replay-boundary-hardening](exec-plans/completed/0025-phase-e2-runtime-session-replay-boundary-hardening.md): hardened executable replay so supported contacts and mobile episodes execute through `RuntimeSession` action envelopes instead of direct registry execution. Completed on 2026-06-29.
-- [0025-phase-f-awm-runtime-package-extraction](exec-plans/completed/0025-phase-f-awm-runtime-package-extraction.md): activated by explicit human direction and implemented an in-repository `awm_runtime` package boundary for runtime and episode primitives while preserving compatibility shims. Completed on 2026-07-04.
-- [0025-phase-g-runtime-extraction-soak-and-compatibility-hardening](exec-plans/completed/0025-phase-g-runtime-extraction-soak-and-compatibility-hardening.md): added fresh-interpreter import-leak checks, compatibility re-export tests, source import guardrails, docs for the one-cycle shim window, and contacts/mobile replay plus reward-label soak evidence. Completed on 2026-07-04.
-- [0026-dataset-release-coverage-and-admission-ratchet](exec-plans/completed/0026-dataset-release-coverage-and-admission-ratchet.md): tightened dataset release admission with release completeness thresholds, coverage observations, insufficient-evidence outcomes, and a deterministic release-candidate fixture. Completed on 2026-06-09.
-- [0027-dataset-release-pack-and-reproducibility-verification](exec-plans/completed/0027-dataset-release-pack-and-reproducibility-verification.md): added opt-in hash-locked release packs and standalone verification so passed release-candidate artifacts can be audited without rerunning generation. Completed on 2026-06-12.
-- [0028-release-quality-evidence-audit-and-card](exec-plans/completed/0028-release-quality-evidence-audit-and-card.md): added opt-in release quality evidence audits and human-readable dataset release cards for release-candidate artifact sets without implementing full semantic duplicate detection or changing default release admission. Completed on 2026-06-12.
-- [0029-mobile-agent-second-domain-pipeline-probe](exec-plans/completed/0029-mobile-agent-second-domain-pipeline-probe.md): added a deterministic phone-like messages/reminders/draft-reply domain, mobile tools, mobile state verification, and a minimal synchronous domain pipeline boundary while keeping full AWM runtime extraction deferred. Completed on 2026-06-12.
-- [0030-runtime-contract-and-episode-evidence](exec-plans/completed/0030-runtime-contract-and-episode-evidence.md): added shared runtime metadata, contacts/mobile runtime protocol coverage, sanitized in-memory episode evidence, and a diagnostic episode summary reader while keeping full AWM runtime extraction deferred. Completed on 2026-06-13.
-- [0031-episode-replay-and-data-quality-scoring-consumer](exec-plans/completed/0031-episode-replay-and-data-quality-scoring-consumer.md): added opt-in episode JSONL export and deterministic episode quality scoring as the first repo-local runtime/episode consumer after plan 0030. Completed on 2026-06-13.
-- [0032-executable-episode-replay-consistency-probe](exec-plans/completed/0032-executable-episode-replay-consistency-probe.md): added opt-in executable replay over `episode_log_v1` against fresh contacts/mobile runtimes and `episode_replay_report_v1` package-boundary evidence while keeping runtime package extraction deferred. Completed on 2026-06-13.
-- [0033-task-intent-policy-verifier-contract-split](exec-plans/completed/0033-task-intent-policy-verifier-contract-split.md): split `CandidateTask` responsibilities into internal task-intent, policy-hint, expected-outcome, and expected-state contracts while preserving current public artifact schemas and keeping plan 0025 deferred. Completed on 2026-06-14.
-- [0034-reward-label-export-and-runtime-scoring-consumer](exec-plans/completed/0034-reward-label-export-and-runtime-scoring-consumer.md): added opt-in deterministic reward-label export and runtime scoring over sanitized episode evidence without reward-model training, RL rollout collection, release admission changes, or AWM runtime package extraction. Completed on 2026-06-14.
-- [0035-domain-source-admission-interface](exec-plans/completed/0035-domain-source-admission-interface.md): promoted profile-local source ingestion into a domain source importer protocol, preserved contacts compatibility, added mobile messages source-backed runs, and replaced contacts-specific pipeline source plumbing with generic `domain_environment_input` while keeping controlled network source ingestion contacts-only. Completed on 2026-06-14.
-- [0036-domain-aware-held-out-evaluation-and-release-semantics](exec-plans/completed/0036-domain-aware-held-out-evaluation-and-release-semantics.md): made held-out evaluation, profile promotion, and dataset release admission domain-aware across contacts and mobile messages so mismatched evaluation evidence is insufficient rather than releaseable. Completed on 2026-06-19.
-- [0037-domain-pack-contract-and-third-domain-probe](exec-plans/completed/0037-domain-pack-contract-and-third-domain-probe.md): added the deterministic workspace tasks domain pack, runtime descriptor, run profile, held-out suite, replay/reward/rollout/adapter/evaluation evidence, and no-core-allowlist regression coverage. Completed on 2026-07-05.
-- [0038-runtime-compatibility-shim-retirement-and-context-sync](exec-plans/completed/0038-runtime-compatibility-shim-retirement-and-context-sync.md): removed the one-cycle `synthesis.runtime` and `synthesis.episodes` compatibility shims, migrated tests to direct `awm_runtime` and `synthesis.runtime_registry` imports, and synced root/canonical docs around the current three-domain runtime boundary. Completed on 2026-07-05.
-- [0039-workspace-profile-local-source-admission](exec-plans/completed/0039-workspace-profile-local-source-admission.md): added profile-local JSON source admission for `workspace_tasks_fixture`, workspace-owned source parsing, `workspace_tasks_environment_input_v1`, source-backed workspace CLI/replay/reward/evaluation coverage, and sanitized provenance without external workspace integrations. Completed on 2026-07-05.
-
-## Technical Debt
-
-- Current debt bucket: [exec-plans/tech-debt/README.md](exec-plans/tech-debt/README.md).
-- `TD-0001` generated-code sandboxing is resolved by completed plan
-  [0015-generated-code-sandboxing-and-executable-admission-controls](exec-plans/completed/0015-generated-code-sandboxing-and-executable-admission-controls.md).
-- `TD-0002` semantic duplicate detection remains unresolved until dataset
-  volume or curriculum-benchmark signals justify implementation.
+The latest completed record is
+[0046-final-answer-grounding-and-generation-diversity](exec-plans/completed/0046-final-answer-grounding-and-generation-diversity.md).
+No new execution-plan lifecycle artifacts should be created.
