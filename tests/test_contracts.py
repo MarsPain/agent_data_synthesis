@@ -309,6 +309,47 @@ class DatasetContractTest(unittest.TestCase):
                 _generation_stage_schema_rejection(reason="provider_said_bad_email")
             )
 
+    def test_generation_stage_schema_rejection_accepts_final_answer_and_reference_details(
+        self,
+    ) -> None:
+        from synthesis.contracts import validate_rejection_record
+
+        accepted_pairs = (
+            ("invalid_final_answer", "final_answer_field_name_literal"),
+            ("invalid_final_answer", "final_answer_not_grounded"),
+            ("invalid_final_answer", "final_answer_sentinel_mismatch"),
+            ("invalid_final_answer", "final_answer_derivation_failed"),
+            ("invalid_expected_state", "expected_state_reference_not_grounded"),
+        )
+        for reason, detail in accepted_pairs:
+            with self.subTest(reason=reason, detail=detail):
+                rejection = _generation_stage_schema_rejection(reason=reason, detail=detail)
+                validate_rejection_record(rejection)
+                self.assertEqual(rejection["details"]["schema_reason"], reason)
+                self.assertEqual(rejection["details"]["schema_detail"], detail)
+
+    def test_generation_stage_schema_rejection_rejects_cross_wired_grounding_details(
+        self,
+    ) -> None:
+        from synthesis.contracts import ContractValidationError, validate_rejection_record
+
+        invalid_pairs = (
+            ("invalid_final_answer", "within_batch"),
+            ("invalid_final_answer", "expected_state_missing"),
+            ("invalid_final_answer", "provider_returned_bad_answer"),
+            ("invalid_expected_state", "final_answer_not_grounded"),
+            ("invalid_expected_state", "final_answer_sentinel_mismatch"),
+            ("duplicate_candidate_id", "final_answer_sentinel_mismatch"),
+            ("invalid_candidate_id", "final_answer_derivation_failed"),
+            ("invalid_required_capabilities", "expected_state_reference_not_grounded"),
+        )
+        for reason, detail in invalid_pairs:
+            with self.subTest(reason=reason, detail=detail):
+                with self.assertRaisesRegex(ContractValidationError, "schema_detail"):
+                    validate_rejection_record(
+                        _generation_stage_schema_rejection(reason=reason, detail=detail)
+                    )
+
     def test_provider_rejection_forbids_schema_reason(self) -> None:
         from synthesis.contracts import ContractValidationError, validate_rejection_record
 

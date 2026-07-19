@@ -18,7 +18,14 @@ The first backend should be a local Python pipeline with explicit modules and du
   required-capability, final-answer evidence, and expected-state tool ownership, fixed sanitized
   schema-failure reasons/details, deterministic batch candidate namespaces,
   domain-owned exact-target synchronous batch sizes under a shared ceiling of
-  five, and sanitized representative eligibility evidence.
+  five, sentinel-based final-answer derivation from validated expected state,
+  primary-observation and expected-state-reference grounding gates, per-batch
+  task-type focus rotation, sliding grounding windows, bounded prior-instruction
+  exclusion lists with count-only persisted lineage, and sanitized
+  representative eligibility evidence.
+- `synthesis.stable_ids`: shared slugify primitive used by environment ID
+  minting and generation-time final-answer derivation so their outputs cannot
+  drift apart.
 - `synthesis.sources`: source governance records, license decisions, default-deny
   network policy, sandbox policy, source-bundle validation, source-policy hashes,
   deterministic no-network external-source fixtures, controlled HTTPS fetch
@@ -192,6 +199,13 @@ trajectories, exports, or logs.
    the exact response shape and count, field JSON types and non-empty rules,
    task-type/tool coupling, expected-state behavior, forbidden fields, and
    JSON-only output from the domain-owned generation specification.
+   Each batch focuses a single task type by rotation, renders each grounding
+   list as a sliding window, and carries a bounded exclusion list of recent
+   prior instructions; when the focused task type declares state-tool answer
+   derivation, the provider record must carry the fixed sentinel and the real
+   final answer is derived deterministically from validated expected state.
+   Persisted candidate lineage keeps only the exclusion count, never
+   instruction text.
 7. If remote generation fails after configuration, write a classified generation
    rejection plus manifest and quality report artifacts. Strict response failures
    retain the public `llm_response_schema_error` cause and exactly one approved

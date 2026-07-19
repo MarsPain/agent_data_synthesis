@@ -122,7 +122,13 @@
   zero-accepted release reporting. Contacts, mobile, and workspace each passed
   an independent two-candidate paid probe. Full 100-candidate retries remain a
   separately authorized campaign whose quality must be established by post-run
-  evidence rather than successful execution alone.
+  evidence rather than successful execution alone. Plan 0046 now extends this
+  boundary with sentinel-based state-tool final-answer derivation, observation
+  and expected-state-reference grounding gates behind a fixed
+  `invalid_final_answer` reason, per-batch task-type focus rotation, sliding
+  grounding windows, bounded prior-instruction exclusion lists with count-only
+  persisted lineage, a bounded `AGENT_DATA_LLM_TEMPERATURE` knob, and an
+  additively enlarged six-row contacts fixture.
 - Make repeated representative batches identity-safe and domain-parameterized
   after the first 30-candidate campaign separated contacts quality duplicates,
   mobile expected-state schema failure, and workspace candidate-ID collision.

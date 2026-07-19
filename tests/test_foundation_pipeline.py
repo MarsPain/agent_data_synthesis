@@ -1751,3 +1751,27 @@ class FoundationPipelineTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ContactsFixtureEnlargementTest(unittest.TestCase):
+    def test_default_fixture_has_six_contacts_and_preserves_original_rows(self) -> None:
+        from synthesis.environments import ContactEnvironment
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            environment = ContactEnvironment.create_fixture(Path(tmpdir))
+            names = environment.list_contact_names()["contacts"]
+            alice = environment.lookup_email("Alice Zhang")
+            ben = environment.lookup_email("Ben Carter")
+
+        self.assertEqual(
+            names,
+            "Alice Zhang, Ben Carter, Carla Diaz, David Kim, Elena Petrova, Frank Osei",
+        )
+        self.assertEqual(
+            alice,
+            {"name": "Alice Zhang", "email": "alice.zhang@example.test"},
+        )
+        self.assertEqual(
+            ben,
+            {"name": "Ben Carter", "email": "ben.carter@example.test"},
+        )

@@ -39,7 +39,8 @@
 - [PLANS.md](PLANS.md): canonical execution-plan lifecycle and current state.
 - [exec-plans/active/README.md](exec-plans/active/README.md): active plan bucket.
 - [exec-plans/completed/README.md](exec-plans/completed/README.md): complete accepted-plan history.
-- [exec-plans/completed/0045-domain-parameterized-multi-batch-generation-reliability.md](exec-plans/completed/0045-domain-parameterized-multi-batch-generation-reliability.md): latest completed plan for reliable domain-parameterized multi-batch generation and validated three-domain representative evidence.
+- [exec-plans/completed/0046-final-answer-grounding-and-generation-diversity.md](exec-plans/completed/0046-final-answer-grounding-and-generation-diversity.md): latest completed plan for grounded final answers, expected-state reference grounding, and deterministic generation diversity validated by the `_30_v5` representative gate.
+- [exec-plans/completed/0045-domain-parameterized-multi-batch-generation-reliability.md](exec-plans/completed/0045-domain-parameterized-multi-batch-generation-reliability.md): completed plan for reliable domain-parameterized multi-batch generation and validated three-domain representative evidence.
 - [exec-plans/completed/0044-representative-provider-schema-hardening.md](exec-plans/completed/0044-representative-provider-schema-hardening.md): completed plan for strict provider schema diagnostics, replayable prompt grounding, truthful zero-accepted reports, and successful three-domain probes.
 - [exec-plans/completed/0043-domain-aware-representative-generation-and-campaign-readiness.md](exec-plans/completed/0043-domain-aware-representative-generation-and-campaign-readiness.md): latest completed plan for bounded three-domain LLM task-contract generation and representative campaign readiness.
 - [exec-plans/deferred/README.md](exec-plans/deferred/README.md): deferred plans and activation triggers.

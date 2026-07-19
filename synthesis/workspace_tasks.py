@@ -48,6 +48,7 @@ def build_workspace_generation_spec(environment: object, registry: object):
                 expected_state_tool="create_workspace_task",
                 final_answer_source="state_tool_observation",
                 final_answer_fields=("task_id",),
+                final_answer_derivation="task_{title|stable_id}",
             ),
             DomainTaskTypeSpec(
                 "workspace_comment_update",
@@ -57,12 +58,15 @@ def build_workspace_generation_spec(environment: object, registry: object):
                 expected_state_tool="add_workspace_comment",
                 final_answer_source="state_tool_observation",
                 final_answer_fields=("comment_id",),
+                final_answer_derivation="comment_{task_id}_{comment|stable_id}",
+                expected_state_reference_fields=(("task_id", "item_id"),),
             ),
         ),
         tools=tuple(registry.export()),
         grounding_context={"workspace_items": items},
         context_policy=SYNTHETIC_CONTEXT_POLICY,
         max_candidates_per_call=2,
+        grounding_window_size=2,
     )
     validate_domain_generation_spec(spec)
     return spec

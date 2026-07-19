@@ -194,6 +194,79 @@ class WorkspacePipelineTest(unittest.TestCase):
             "workspace_task_creation",
         )
 
+    def test_workspace_expected_state_reference_grounding_gate(self) -> None:
+        from synthesis.domain_generation import (
+            DERIVED_FINAL_ANSWER_SENTINEL,
+            DomainGenerationValidationError,
+            build_generation_batch_context,
+            parse_domain_task_contracts,
+        )
+        from synthesis.domain_pipeline import build_domain_pipeline_bundle
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bundle = build_domain_pipeline_bundle(workspace_seed(), Path(tmpdir))
+        spec = bundle.generation_spec
+        context = build_generation_batch_context(spec, batch_index=1)
+        record = {
+            "candidate_id": "workspace_tasks_b001_comment",
+            "instruction": "Find the launch plan task and add a comment.",
+            "task_type": "workspace_comment_update",
+            "difficulty": {"level": "medium", "tool_count": 2},
+            "required_capabilities": ["workspace_search", "workspace_comment_update"],
+            "required_tools": ["search_workspace_items", "add_workspace_comment"],
+            "primary_tool": "search_workspace_items",
+            "primary_arguments": {"query": "launch plan", "kind": "task"},
+            "final_answer_contains": DERIVED_FINAL_ANSWER_SENTINEL,
+            "expected_state": [
+                {
+                    "check_type": "workspace_comment",
+                    "expected": {
+                        "task_id": "task_invented_reference",
+                        "comment": "Assign the checklist owner.",
+                    },
+                }
+            ],
+        }
+        with self.assertRaises(DomainGenerationValidationError) as raised:
+            parse_domain_task_contracts(
+                {"task_contracts": [record]},
+                seed=workspace_seed(),
+                spec=spec,
+                batch_context=context,
+                generation_lineage={},
+            )
+        self.assertEqual(raised.exception.reason, "invalid_expected_state")
+        self.assertEqual(
+            raised.exception.detail,
+            "expected_state_reference_not_grounded",
+        )
+
+    def test_workspace_minting_uses_shared_stable_id_primitive(self) -> None:
+        from synthesis.stable_ids import stable_id
+        from synthesis.workspace_environment import WorkspaceTasksEnvironment
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            environment = WorkspaceTasksEnvironment.create_fixture(Path(tmpdir))
+            created = environment.create_workspace_task(
+                project_id="project_alpha",
+                title="Prepare Launch Checklist!",
+                priority="high",
+                due_label="this_week",
+            )
+            comment = environment.add_workspace_comment(
+                task_id="task_launch_plan",
+                comment="Assign Owner: QA Team",
+            )
+
+        self.assertEqual(
+            created["task_id"],
+            f"task_{stable_id('Prepare Launch Checklist!')}",
+        )
+        self.assertEqual(
+            comment["comment_id"],
+            f"comment_task_launch_plan_{stable_id('Assign Owner: QA Team')}",
+        )
+
     def test_workspace_expected_state_verification_checks_created_task(self) -> None:
         from synthesis.verification import ExactAnswerVerifier
         from synthesis.workspace_environment import WorkspaceTasksEnvironment

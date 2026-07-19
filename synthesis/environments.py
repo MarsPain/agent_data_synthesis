@@ -91,6 +91,10 @@ class ContactEnvironment:
                     [
                         ("Alice Zhang", "alice.zhang@example.test"),
                         ("Ben Carter", "ben.carter@example.test"),
+                        ("Carla Diaz", "carla.diaz@example.test"),
+                        ("David Kim", "david.kim@example.test"),
+                        ("Elena Petrova", "elena.petrova@example.test"),
+                        ("Frank Osei", "frank.osei@example.test"),
                     ],
                 )
                 connection.execute(

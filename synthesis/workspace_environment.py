@@ -8,6 +8,7 @@ from pathlib import Path
 from awm_runtime.runtime import RuntimeMetadata, runtime_metadata_from_environment
 from synthesis.contracts import validate_workspace_tasks_environment_input_record
 from synthesis.environments import EnvironmentMetadata
+from synthesis.stable_ids import stable_id as _stable_id
 
 
 @dataclass(frozen=True)
@@ -639,7 +640,3 @@ def _required_text(value: object, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string")
     return value.strip()
-
-
-def _stable_id(value: str) -> str:
-    return "".join(character.lower() if character.isalnum() else "_" for character in value).strip("_")

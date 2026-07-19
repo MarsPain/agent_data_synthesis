@@ -10,7 +10,7 @@
 
 ## Active
 
-- No implementation plan is currently active.
+No implementation plan is currently active.
 
 ## Deferred
 
@@ -30,6 +30,7 @@
 
 ## Completed
 
+- [0046-final-answer-grounding-and-generation-diversity](exec-plans/completed/0046-final-answer-grounding-and-generation-diversity.md): added deterministic state-tool final-answer derivation, primary-observation and expected-state reference grounding gates, per-batch diversity axes, a bounded temperature knob, and an enlarged contacts fixture. Completed on 2026-07-19 after all three serial paid `_30_v5` runs generated 30/30; contacts/mobile/workspace accepted 27/28/30, and representative scale evidence recommends `no_change_recommended` without claiming release readiness.
 - [0045-domain-parameterized-multi-batch-generation-reliability](exec-plans/completed/0045-domain-parameterized-multi-batch-generation-reliability.md): added deterministic multi-batch identity, fixed sanitized diagnostics, domain-owned generation semantics and batch policies, exact capability contracts, and domain-correct isolated-environment provenance. Completed on 2026-07-18 after a fresh serial three-domain gate generated 30/30 in every domain and built representative scale evidence; the evidence recommends generation/verification quality remediation rather than claiming dataset-quality success.
 - [0044-representative-provider-schema-hardening](exec-plans/completed/0044-representative-provider-schema-hardening.md): hardened strict provider output with fixed sanitized reasons, replayable grounding arguments, explicit expected-state schemas, five-candidate batches, truthful zero-accepted reporting, and successful two-candidate contacts/mobile/workspace probes. Completed on 2026-07-12; 100-candidate retries require separate cost authorization and post-run evidence validation.
 - [0043-domain-aware-representative-generation-and-campaign-readiness](exec-plans/completed/0043-domain-aware-representative-generation-and-campaign-readiness.md): added bounded domain-owned LLM task-contract generation, v3 representative profiles, exact-target batching, sanitized generation evidence, and evidence-backed three-domain classification. Completed on 2026-07-11; no real-provider campaign was run.

@@ -830,3 +830,112 @@ class OpenAICompatibleProviderTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LLMTemperatureKnobTest(unittest.TestCase):
+    def _env(self, **overrides: str) -> dict[str, str]:
+        env = {
+            "AGENT_DATA_LLM_BASE_URL": "https://llm.example.test/v1",
+            "AGENT_DATA_API_KEY": "secret-test-key",
+            "AGENT_DATA_LLM_MODEL": "test-generator",
+        }
+        env.update(overrides)
+        return env
+
+    def _capture_client(self, config) -> tuple[object, dict[str, object]]:
+        from synthesis.llm import OpenAICompatibleClient
+
+        captured: dict[str, object] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["payload"] = json.loads(request.content.decode("utf-8"))
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [{"message": {"content": json.dumps({"ok": True})}}],
+                    "usage": {},
+                },
+            )
+
+        client = OpenAICompatibleClient(
+            config,
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+        return client, captured
+
+    def test_unset_env_keeps_temperature_zero(self) -> None:
+        from synthesis.llm import LLMConfig
+
+        with patch.dict(os.environ, self._env(), clear=True):
+            config = LLMConfig.from_env()
+
+        self.assertIsNone(config.temperature)
+        client, captured = self._capture_client(config)
+        result = client.generate_json("Generate.", role="task_generation")
+        self.assertEqual(captured["payload"]["temperature"], 0)
+        self.assertEqual(result.lineage["temperature"], 0)
+
+    def test_valid_env_value_plumbs_through_to_request_and_lineage(self) -> None:
+        from synthesis.llm import LLMConfig
+
+        with patch.dict(
+            os.environ,
+            self._env(AGENT_DATA_LLM_TEMPERATURE="0.3"),
+            clear=True,
+        ):
+            config = LLMConfig.from_env()
+
+        self.assertEqual(config.temperature, 0.3)
+        client, captured = self._capture_client(config)
+        result = client.generate_json("Generate.", role="task_generation")
+        self.assertEqual(captured["payload"]["temperature"], 0.3)
+        self.assertEqual(result.lineage["temperature"], 0.3)
+
+    def test_boundary_values_are_accepted(self) -> None:
+        from synthesis.llm import LLMConfig
+
+        for raw in ("0.0", "1.0", "0", "1"):
+            with self.subTest(raw=raw):
+                with patch.dict(
+                    os.environ,
+                    self._env(AGENT_DATA_LLM_TEMPERATURE=raw),
+                    clear=True,
+                ):
+                    config = LLMConfig.from_env()
+                self.assertEqual(config.temperature, float(raw))
+
+    def test_invalid_env_values_raise_configuration_error(self) -> None:
+        from synthesis.llm import LLMConfig, LLMConfigurationError
+
+        for raw in ("abc", "nan", "inf", "-inf", "-0.1", "1.1", "2"):
+            with self.subTest(raw=raw):
+                with patch.dict(
+                    os.environ,
+                    self._env(AGENT_DATA_LLM_TEMPERATURE=raw),
+                    clear=True,
+                ):
+                    with self.assertRaises(LLMConfigurationError):
+                        LLMConfig.from_env()
+
+    def test_config_fingerprint_and_hash_ignore_temperature(self) -> None:
+        from synthesis.llm import LLMConfig
+
+        base = LLMConfig(
+            base_url="https://llm.example.test/v1",
+            api_key="secret-test-key",
+            model="test-generator",
+        )
+        tuned = LLMConfig(
+            base_url="https://llm.example.test/v1",
+            api_key="secret-test-key",
+            model="test-generator",
+            temperature=0.7,
+        )
+        self.assertEqual(
+            base.lineage("task_generation")["config_hash"],
+            tuned.lineage("task_generation")["config_hash"],
+        )
+        lineage = tuned.lineage("task_generation")
+        self.assertEqual(lineage["temperature"], 0.7)
+        self.assertNotIn("0.7", lineage["config_hash"])
+        self.assertNotIn("secret-test-key", json.dumps(lineage))

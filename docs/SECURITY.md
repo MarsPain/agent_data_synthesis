@@ -77,11 +77,20 @@ reintroduced.
 
 The synthesis pipeline may call a remote OpenAI-compatible LLM API configured by `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`. The project should not deploy local LLM clusters or expose provider credentials to generated code, tools, environments, fixtures, manifests, trajectory exports, or rejected-candidate diagnostics.
 
+`AGENT_DATA_LLM_TEMPERATURE` is optional non-secret generation config, not a
+credential: a float bounded to `[0.0, 1.0]` whose invalid values fail
+configuration and whose default effective value is 0.0. The effective value is
+excluded from the provider config fingerprint so checked-in profile config
+hashes stay stable.
+
 Representative generation v1 permits only curated `synthetic_fixture` context.
 `run_profile_v3` rejects profile-local sources before provider construction.
 Source rows, prompts, grounding rows, headers, credentials, tool arguments, and
 host paths are not persisted; artifacts retain hashes and fixed eligibility
-metadata only. Representative evidence does not automatically activate async
+metadata only. The bounded prior-instruction exclusion list is likewise
+prompt-only: persisted candidate lineage carries only the integer
+`excluded_instruction_count`, never instruction text. Representative evidence
+does not automatically activate async
 infrastructure, semantic duplicate detection, release admission, or training.
 
 Strict representative response validation remains fail-closed. A schema failure

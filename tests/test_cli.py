@@ -2580,6 +2580,173 @@ class FoundationCliTest(unittest.TestCase):
                 with self.subTest(forbidden=value):
                     self.assertNotIn(value, persisted)
 
+    def test_llm_success_path_uses_focused_grounded_prompt_contract(self) -> None:
+        from main import main
+        from synthesis.llm import LLMGenerationResult
+
+        api_key_marker = "provider-success-api-key-marker"
+        prompts: list[str] = []
+
+        def grounded_generation(self, prompt: str, *, role: str) -> LLMGenerationResult:
+            prompts.append(prompt)
+            payload = json.loads(prompt)
+            prefix = payload["batch_context"]["candidate_id_prefix"]
+            count = payload["requested_candidate_count"]
+            task_type = payload["task_types"][0]
+            entries = payload["grounding_context"]["contacts"]
+            records = []
+            for index in range(count):
+                entry = entries[index % len(entries)]
+                records.append(
+                    {
+                        "candidate_id": f"{prefix}task_{index:02d}",
+                        "instruction": (
+                            "Find the email address for "
+                            f"{entry['primary_arguments']['name']}."
+                        ),
+                        "task_type": task_type["task_type"],
+                        "difficulty": {
+                            "level": "easy",
+                            "tool_count": 1,
+                            "constraint_count": 1,
+                            "state_changes": 0,
+                            "ambiguity": "none",
+                            "recovery_paths": 0,
+                        },
+                        "required_capabilities": task_type["required_capabilities"],
+                        "required_tools": task_type["required_tools"],
+                        "primary_tool": task_type["required_tools"][0],
+                        "primary_arguments": dict(entry["primary_arguments"]),
+                        "final_answer_contains": entry["observation"]["email"],
+                        "expected_state": [],
+                    }
+                )
+            return LLMGenerationResult(
+                content={"task_contracts": records},
+                lineage={
+                    "role": role,
+                    "provider_host": "llm.example.test",
+                    "model": "test-generator",
+                    "config_hash": "test-config-hash",
+                    "retry_count": 0,
+                },
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            output_dir = root / "llm-success"
+            profile_path = root / "profile.json"
+            profile_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "run_profile_v3",
+                        "profile_id": "contacts_llm_success_test",
+                        "dataset_version": "dataset_contacts_llm_success_test",
+                        "profile_purpose": "benchmark",
+                        "seed": {
+                            "seed_id": "seed_contacts_llm_success_test",
+                            "domain": "contacts_fixture",
+                            "description": "Generate grounded executable contacts tasks.",
+                            "task_taxonomy": ["contact_lookup", "contact_followup"],
+                        },
+                        "generation": {
+                            "mode": "llm",
+                            "target_candidate_count": 2,
+                            "context_policy": "synthetic_fixture",
+                        },
+                        "features": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            argv = [
+                "main.py",
+                "--run-profile",
+                str(profile_path),
+                "--use-llm",
+                "--write-evaluation-report",
+                "--write-profile-decision-report",
+                "--write-dataset-release-report",
+                "--write-release-quality-audit",
+                "--output-dir",
+                str(output_dir),
+            ]
+            env = {
+                "AGENT_DATA_LLM_BASE_URL": "https://llm.example.test/v1",
+                "AGENT_DATA_API_KEY": api_key_marker,
+                "AGENT_DATA_LLM_MODEL": "test-generator",
+            }
+            with (
+                patch.dict(os.environ, env, clear=False),
+                patch.object(sys, "argv", argv),
+                patch(
+                    "synthesis.llm.OpenAICompatibleClient.generate_json",
+                    new=grounded_generation,
+                ),
+            ):
+                exit_code = main()
+
+            self.assertEqual(exit_code, 0)
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["accepted_count"], 2)
+            self.assertEqual(manifest["rejected_count"], 0)
+
+            self.assertEqual(len(prompts), 1)
+            payload = json.loads(prompts[0])
+            self.assertEqual(
+                [item["task_type"] for item in payload["task_types"]],
+                ["contact_lookup"],
+            )
+            self.assertEqual(
+                [
+                    item["task_type"]
+                    for item in payload["output_contract"]["task_type_contracts"]
+                ],
+                ["contact_lookup"],
+            )
+            self.assertEqual(len(payload["grounding_context"]["contacts"]), 2)
+            diversity = payload["diversity_contract"]
+            self.assertEqual(diversity["excluded_instructions"], [])
+            self.assertIn("do not repeat or paraphrase", diversity["rule"])
+
+            samples = [
+                json.loads(line)
+                for line in (output_dir / "samples.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            self.assertEqual(len(samples), 2)
+            for sample in samples:
+                self.assertTrue(
+                    sample["sample_id"].startswith("sample_contacts_b001_"),
+                    sample["sample_id"],
+                )
+                generator_lineage = sample["lineage"]["generator"]
+                self.assertEqual(generator_lineage["excluded_instruction_count"], 0)
+                self.assertNotIn("excluded_instructions", generator_lineage)
+
+            persisted = "\n".join(
+                (output_dir / artifact_name).read_text(encoding="utf-8")
+                for artifact_name in (
+                    "samples.jsonl",
+                    "rejections.jsonl",
+                    "manifest.json",
+                    "quality_report.json",
+                    "evaluation_report.json",
+                    "profile_decision_report.json",
+                    "dataset_release_report.json",
+                    "release_quality_audit.json",
+                )
+            )
+            for forbidden in (
+                api_key_marker,
+                "Bearer ",
+                "Authorization",
+                "Generate exactly the requested number",
+            ):
+                with self.subTest(forbidden=forbidden):
+                    self.assertNotIn(forbidden, persisted)
+
 
 if __name__ == "__main__":
     unittest.main()

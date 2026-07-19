@@ -155,6 +155,7 @@ def build_contacts_generation_spec(environment: object, registry: object):
         grounding_context={"contacts": contacts},
         context_policy=SYNTHETIC_CONTEXT_POLICY,
         max_candidates_per_call=MAX_CANDIDATES_PER_CALL,
+        grounding_window_size=2,
     )
     validate_domain_generation_spec(spec)
     return spec

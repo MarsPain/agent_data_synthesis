@@ -11,6 +11,7 @@ from synthesis.contracts import LLM_RESPONSE_SCHEMA_DETAILS, LLM_RESPONSE_SCHEMA
 from synthesis.llm import LLMProviderError
 from synthesis.roles import TASK_GENERATION_ROLE, RoleRegistry, default_role_registry
 from synthesis.seeds import DomainSeed
+from synthesis.stable_ids import stable_id
 from synthesis.task_contracts import (
     SUPPORTED_EXPECTED_STATE_CHECKS,
     ExpectedOutcome,
@@ -28,10 +29,12 @@ from synthesis.tools import ToolSchemaError, validate_arguments_against_tool_def
 DOMAIN_GENERATION_SPEC_VERSION = "domain_generation_spec_v1"
 SYNTHETIC_CONTEXT_POLICY = "synthetic_fixture"
 MAX_CANDIDATES_PER_CALL = 5
+MAX_EXCLUDED_INSTRUCTIONS = 20
 FINAL_ANSWER_SOURCES = {
     "primary_observation",
     "state_tool_observation",
 }
+DERIVED_FINAL_ANSWER_SENTINEL = "$derived_from_expected_state$"
 GENERATION_INELIGIBILITY_REASON_CODES = (
     "profile_contract_not_representative",
     "generation_spec_missing_or_mismatched",
@@ -63,6 +66,8 @@ class DomainTaskTypeSpec:
     expected_state_tool: str | None = None
     final_answer_source: str = "primary_observation"
     final_answer_fields: tuple[str, ...] = ()
+    final_answer_derivation: str | None = None
+    expected_state_reference_fields: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -74,6 +79,7 @@ class DomainGenerationSpec:
     grounding_context: Mapping[str, object]
     context_policy: str
     max_candidates_per_call: int
+    grounding_window_size: int | None = None
 
 
 @dataclass(frozen=True)
@@ -96,6 +102,10 @@ _PROVIDER_RECORD_KEYS = {
     "required_capabilities", "required_tools", "primary_tool",
     "primary_arguments", "final_answer_contains", "expected_state",
 }
+
+_DERIVATION_PLACEHOLDER_RE = re.compile(
+    r"\{([A-Za-z_][A-Za-z0-9_]*)(?:\|(stable_id))?\}"
+)
 
 
 class DomainGenerationValidationError(ValueError):
@@ -216,6 +226,72 @@ def validate_domain_generation_spec(spec: DomainGenerationSpec) -> None:
             and item.expected_state_tool is None
         ):
             raise ValueError("state-tool final answers require an expected-state tool")
+        if item.final_answer_derivation is not None:
+            if item.final_answer_source != "state_tool_observation":
+                raise ValueError(
+                    "final-answer derivation requires state-tool observation answers"
+                )
+            derivation = _required_text(
+                item.final_answer_derivation,
+                "final_answer_derivation",
+            )
+            _validate_safe_value(
+                derivation,
+                path=f"task_types.{task_type}.final_answer_derivation",
+            )
+            mutating_tool = next(
+                tool for tool in spec.tools if tool["name"] == item.expected_state_tool
+            )
+            schema = mutating_tool["schema"]
+            properties = (
+                schema.get("properties", {}) if isinstance(schema, Mapping) else {}
+            )
+            for field_name, _transform in _parse_derivation_template(derivation):
+                if field_name not in properties:
+                    raise ValueError(
+                        "final-answer derivation placeholders must reference "
+                        "mutating-tool schema fields"
+                    )
+        if item.expected_state_reference_fields:
+            if item.expected_state_tool is None:
+                raise ValueError(
+                    "expected-state reference fields require an expected-state tool"
+                )
+            reference_pairs: set[tuple[str, str]] = set()
+            mutating_tool = next(
+                tool for tool in spec.tools if tool["name"] == item.expected_state_tool
+            )
+            schema = mutating_tool["schema"]
+            properties = (
+                schema.get("properties", {}) if isinstance(schema, Mapping) else {}
+            )
+            for pair in item.expected_state_reference_fields:
+                if (
+                    not isinstance(pair, tuple)
+                    or len(pair) != 2
+                    or any(
+                        not isinstance(name, str)
+                        or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is None
+                        for name in pair
+                    )
+                ):
+                    raise ValueError(
+                        "expected-state reference fields must be safe identifier pairs"
+                    )
+                if pair in reference_pairs:
+                    raise ValueError(
+                        "expected-state reference fields must not repeat pairs"
+                    )
+                reference_pairs.add(pair)
+                if pair[0] not in properties:
+                    raise ValueError(
+                        "expected-state reference fields must reference "
+                        "mutating-tool schema fields"
+                    )
+            _validate_safe_value(
+                [list(pair) for pair in item.expected_state_reference_fields],
+                path=f"task_types.{task_type}.expected_state_reference_fields",
+            )
         if (
             not item.final_answer_fields
             or len(item.final_answer_fields) != len(set(item.final_answer_fields))
@@ -231,6 +307,17 @@ def validate_domain_generation_spec(spec: DomainGenerationSpec) -> None:
     if not spec.grounding_context:
         raise ValueError("grounding_context must not be empty")
     _validate_safe_value(spec.grounding_context, path="grounding_context")
+    if spec.grounding_window_size is not None:
+        if (
+            not isinstance(spec.grounding_window_size, int)
+            or isinstance(spec.grounding_window_size, bool)
+            or spec.grounding_window_size < 1
+        ):
+            raise ValueError("grounding_window_size must be a positive integer")
+        if len(spec.grounding_context) == 1:
+            only_value = next(iter(spec.grounding_context.values()))
+            if isinstance(only_value, list) and spec.grounding_window_size > len(only_value):
+                raise ValueError("grounding_window_size exceeds the grounding entry count")
 
 
 def grounding_context_hash(spec: DomainGenerationSpec) -> str:
@@ -264,10 +351,16 @@ def build_domain_generation_prompt(
     *,
     requested_candidate_count: int,
     batch_context: DomainGenerationBatchContext,
+    excluded_instructions: tuple[str, ...] = (),
 ) -> str:
     validate_domain_generation_spec(spec)
     if not 1 <= requested_candidate_count <= spec.max_candidates_per_call:
         raise ValueError("requested_candidate_count exceeds the domain batch limit")
+    exclusions = _bounded_exclusions(excluded_instructions)
+    focused_task_type = spec.task_types[
+        (batch_context.batch_index - 1) % len(spec.task_types)
+    ]
+    rendered_grounding = _rendered_grounding_context(spec, batch_context.batch_index)
     payload = {
         "instructions": (
             "Generate exactly the requested number of executable task contracts. "
@@ -275,10 +368,17 @@ def build_domain_generation_prompt(
             "the declared output keys. For each record, copy task_type, required_tools, "
             "and primary_tool exactly from one task_type_contract; primary_tool is always "
             "required_tools[0], including tasks that mutate state through a later tool. "
-            "Copy final_answer_contains from an allowed field in the selected task type's "
-            "declared observation source; do not invent completion or status text. "
+            "For primary-observation task types, final_answer_contains must be a "
+            "substring copied from the observation value of one grounding_context "
+            "entry using one of the declared allowed_fields; copying the field name "
+            "itself is forbidden. For state-tool-observation task types, "
+            "final_answer_contains must equal the sentinel in the task type's "
+            "final_answer block; do not predict the minted identifier. "
             "Copy primary_arguments exactly from one grounding_context entry; do not "
             "invent alternate search terms, filters, names, or identifiers. "
+            "For expected_state entries, each declared reference field value must be "
+            "copied from the referenced grounding_context observation field; invented "
+            "references are forbidden. "
             "Do not return lineage, source, domain, provider, branch-plan, path, "
             "credential, prompt, or compatibility fields."
         ),
@@ -290,28 +390,64 @@ def build_domain_generation_prompt(
         },
         "task_types": [
             {
-                "task_type": item.task_type,
-                "required_tools": list(item.required_tools),
-                "required_capabilities": list(item.required_capabilities),
-                "allowed_expected_state_checks": list(item.allowed_expected_state_checks),
-                "expected_state_tool": item.expected_state_tool,
-                "final_answer": {
-                    "source": item.final_answer_source,
-                    "allowed_fields": list(item.final_answer_fields),
-                    "invented_text_allowed": False,
-                },
+                "task_type": focused_task_type.task_type,
+                "required_tools": list(focused_task_type.required_tools),
+                "required_capabilities": list(focused_task_type.required_capabilities),
+                "allowed_expected_state_checks": list(
+                    focused_task_type.allowed_expected_state_checks
+                ),
+                "expected_state_tool": focused_task_type.expected_state_tool,
+                "final_answer": _final_answer_prompt_contract(
+                    focused_task_type,
+                    rendered_grounding,
+                ),
             }
-            for item in spec.task_types
         ],
         "tools": list(spec.tools),
-        "grounding_context": spec.grounding_context,
+        "grounding_context": rendered_grounding,
+        "diversity_contract": {
+            "excluded_instructions": list(exclusions),
+            "rule": "do not repeat or paraphrase these instructions",
+        },
         "output_contract": _provider_output_contract(
             spec,
             requested_candidate_count=requested_candidate_count,
             batch_context=batch_context,
+            focused_task_type=focused_task_type,
+            rendered_grounding=rendered_grounding,
         ),
     }
     return _canonical_json(payload)
+
+
+def _bounded_exclusions(excluded_instructions: tuple[str, ...]) -> tuple[str, ...]:
+    if not isinstance(excluded_instructions, tuple) or any(
+        not isinstance(item, str) or not item.strip()
+        for item in excluded_instructions
+    ):
+        raise ValueError("excluded_instructions must be a tuple of non-empty strings")
+    return excluded_instructions[-MAX_EXCLUDED_INSTRUCTIONS:]
+
+
+def _rendered_grounding_context(
+    spec: DomainGenerationSpec,
+    batch_index: int,
+) -> Mapping[str, object]:
+    if spec.grounding_window_size is None or len(spec.grounding_context) != 1:
+        return spec.grounding_context
+    key = next(iter(spec.grounding_context))
+    entries = spec.grounding_context[key]
+    if not isinstance(entries, list) or not entries:
+        return spec.grounding_context
+    entry_count = len(entries)
+    window_size = min(spec.grounding_window_size, entry_count)
+    start = ((batch_index - 1) * spec.grounding_window_size) % entry_count
+    return {
+        key: [
+            entries[(start + offset) % entry_count]
+            for offset in range(window_size)
+        ]
+    }
 
 
 def _provider_output_contract(
@@ -319,6 +455,8 @@ def _provider_output_contract(
     *,
     requested_candidate_count: int,
     batch_context: DomainGenerationBatchContext,
+    focused_task_type: DomainTaskTypeSpec,
+    rendered_grounding: Mapping[str, object],
 ) -> dict[str, object]:
     return {
         "json_only": True,
@@ -336,24 +474,25 @@ def _provider_output_contract(
         },
         "task_type_contracts": [
             {
-                "task_type": item.task_type,
-                "required_tools": list(item.required_tools),
-                "primary_tool": item.required_tools[0],
+                "task_type": focused_task_type.task_type,
+                "required_tools": list(focused_task_type.required_tools),
+                "primary_tool": focused_task_type.required_tools[0],
                 "exact_record_values": {
-                    "task_type": item.task_type,
-                    "required_capabilities": list(item.required_capabilities),
-                    "required_tools": list(item.required_tools),
-                    "primary_tool": item.required_tools[0],
+                    "task_type": focused_task_type.task_type,
+                    "required_capabilities": list(focused_task_type.required_capabilities),
+                    "required_tools": list(focused_task_type.required_tools),
+                    "primary_tool": focused_task_type.required_tools[0],
                 },
-                "expected_state": _expected_state_output_contract(item, spec.tools),
-                "expected_state_tool": item.expected_state_tool,
-                "final_answer": {
-                    "source": item.final_answer_source,
-                    "allowed_fields": list(item.final_answer_fields),
-                    "invented_text_allowed": False,
-                },
+                "expected_state": _expected_state_output_contract(
+                    focused_task_type,
+                    spec.tools,
+                ),
+                "expected_state_tool": focused_task_type.expected_state_tool,
+                "final_answer": _final_answer_prompt_contract(
+                    focused_task_type,
+                    rendered_grounding,
+                ),
             }
-            for item in spec.task_types
         ],
         "critical_rules": {
             "candidate_id": {
@@ -386,6 +525,45 @@ def _provider_output_contract(
     }
 
 
+def _final_answer_prompt_contract(
+    task_type: DomainTaskTypeSpec,
+    grounding_context: Mapping[str, object],
+) -> dict[str, object]:
+    contract: dict[str, object] = {
+        "source": task_type.final_answer_source,
+        "allowed_fields": list(task_type.final_answer_fields),
+        "invented_text_allowed": False,
+    }
+    if task_type.final_answer_derivation is not None:
+        contract["value_contract"] = "sentinel"
+        contract["sentinel"] = DERIVED_FINAL_ANSWER_SENTINEL
+        return contract
+    example = _final_answer_example(task_type, grounding_context)
+    if example is not None:
+        contract["example"] = example
+    return contract
+
+
+def _final_answer_example(
+    task_type: DomainTaskTypeSpec,
+    grounding_context: Mapping[str, object],
+) -> dict[str, str] | None:
+    for top_level in grounding_context.values():
+        if not isinstance(top_level, list):
+            continue
+        for entry in top_level:
+            if not isinstance(entry, Mapping):
+                continue
+            observation = entry.get("observation")
+            if not isinstance(observation, Mapping):
+                continue
+            for field in task_type.final_answer_fields:
+                value = observation.get(field)
+                if isinstance(value, str) and value:
+                    return {"field": field, "value": value}
+    return None
+
+
 def _expected_state_output_contract(
     task_type: DomainTaskTypeSpec,
     tools: tuple[Mapping[str, object], ...],
@@ -395,7 +573,7 @@ def _expected_state_output_contract(
     mutating_tool = next(
         tool for tool in tools if tool.get("name") == task_type.expected_state_tool
     )
-    return {
+    contract: dict[str, object] = {
         "mode": "required",
         "exact_count": len(task_type.allowed_expected_state_checks),
         "allowed_check_types": list(task_type.allowed_expected_state_checks),
@@ -408,6 +586,12 @@ def _expected_state_output_contract(
             for check_type in task_type.allowed_expected_state_checks
         ],
     }
+    if task_type.expected_state_reference_fields:
+        contract["reference_fields"] = {
+            state_field: observation_field
+            for state_field, observation_field in task_type.expected_state_reference_fields
+        }
+    return contract
 
 
 def _provider_record_contract(
@@ -559,10 +743,17 @@ def task_contract_from_provider_record(
         raw.get("expected_state"),
         task_spec=task_spec,
         registered_tools=registered_tools,
+        grounding_context=spec.grounding_context,
     )
     capabilities = _provider_capabilities(
         raw.get("required_capabilities"),
         expected=task_spec.required_capabilities,
+    )
+    final_answer = _provider_final_answer(
+        raw.get("final_answer_contains"),
+        task_spec=task_spec,
+        expected_state=expected_state,
+        grounding_context=spec.grounding_context,
     )
     try:
         contract = TaskContract(
@@ -581,9 +772,7 @@ def task_contract_from_provider_record(
                 primary_tool=primary_tool,
                 primary_arguments=primary_arguments,
             ),
-            expected_outcome=ExpectedOutcome(
-                _required_text(raw.get("final_answer_contains"), "final_answer_contains")
-            ),
+            expected_outcome=ExpectedOutcome(final_answer),
             expected_state=expected_state,
             compatibility={
                 "constraints": {
@@ -659,6 +848,7 @@ def _provider_expected_state(
     *,
     task_spec: DomainTaskTypeSpec,
     registered_tools: Mapping[str, Mapping[str, object]],
+    grounding_context: Mapping[str, object],
 ) -> tuple[ExpectedStateCheck, ...]:
     if not isinstance(value, list):
         raise DomainGenerationValidationError(
@@ -711,6 +901,19 @@ def _provider_expected_state(
                 "invalid_expected_state",
                 detail="expected_state_arguments_invalid",
             ) from exc
+        for state_field, observation_field in task_spec.expected_state_reference_fields:
+            if state_field not in expected:
+                continue
+            reference = expected[state_field]
+            grounded_references = _grounding_observation_values(
+                grounding_context,
+                (observation_field,),
+            )
+            if not isinstance(reference, str) or reference not in grounded_references:
+                raise DomainGenerationValidationError(
+                    "invalid_expected_state",
+                    detail="expected_state_reference_not_grounded",
+                )
         seen_checks.add(check_type)
         expected_state.append(ExpectedStateCheck(check_type, dict(expected)))
     if task_spec.allowed_expected_state_checks and not expected_state:
@@ -724,6 +927,106 @@ def _provider_expected_state(
             detail="expected_state_check_type_invalid",
         )
     return tuple(expected_state)
+
+
+def _provider_final_answer(
+    value: object,
+    *,
+    task_spec: DomainTaskTypeSpec,
+    expected_state: tuple[ExpectedStateCheck, ...],
+    grounding_context: Mapping[str, object],
+) -> str:
+    answer = _provider_text(value, "invalid_final_answer")
+    if task_spec.final_answer_derivation is not None:
+        if answer != DERIVED_FINAL_ANSWER_SENTINEL:
+            raise DomainGenerationValidationError(
+                "invalid_final_answer",
+                detail="final_answer_sentinel_mismatch",
+            )
+        return _derive_final_answer(task_spec.final_answer_derivation, expected_state)
+    if answer in task_spec.final_answer_fields:
+        raise DomainGenerationValidationError(
+            "invalid_final_answer",
+            detail="final_answer_field_name_literal",
+        )
+    grounded_values = _grounding_observation_values(
+        grounding_context,
+        task_spec.final_answer_fields,
+    )
+    if not any(answer in grounded for grounded in grounded_values):
+        raise DomainGenerationValidationError(
+            "invalid_final_answer",
+            detail="final_answer_not_grounded",
+        )
+    return answer
+
+
+def _grounding_observation_values(
+    grounding_context: Mapping[str, object],
+    fields: tuple[str, ...],
+) -> list[str]:
+    values: list[str] = []
+    for top_level in grounding_context.values():
+        if not isinstance(top_level, list):
+            continue
+        for entry in top_level:
+            if not isinstance(entry, Mapping):
+                continue
+            observation = entry.get("observation")
+            if not isinstance(observation, Mapping):
+                continue
+            for field in fields:
+                field_value = observation.get(field)
+                if isinstance(field_value, str):
+                    values.append(field_value)
+    return values
+
+
+def _parse_derivation_template(template: str) -> list[tuple[str, str | None]]:
+    placeholders: list[tuple[str, str | None]] = []
+    position = 0
+    for match in _DERIVATION_PLACEHOLDER_RE.finditer(template):
+        literal = template[position:match.start()]
+        if "{" in literal or "}" in literal:
+            raise ValueError("malformed final-answer derivation template")
+        placeholders.append((match.group(1), match.group(2)))
+        position = match.end()
+    if "{" in template[position:] or "}" in template[position:]:
+        raise ValueError("malformed final-answer derivation template")
+    if not placeholders:
+        raise ValueError("final-answer derivation template must contain a placeholder")
+    return placeholders
+
+
+def _derive_final_answer(
+    template: str,
+    expected_state: tuple[ExpectedStateCheck, ...],
+) -> str:
+    parts: list[str] = []
+    position = 0
+    for match in _DERIVATION_PLACEHOLDER_RE.finditer(template):
+        parts.append(template[position:match.start()])
+        field_name = match.group(1)
+        value: object = None
+        for state_check in expected_state:
+            if field_name in state_check.expected:
+                value = state_check.expected[field_name]
+                break
+        if not isinstance(value, str) or not value.strip():
+            raise DomainGenerationValidationError(
+                "invalid_final_answer",
+                detail="final_answer_derivation_failed",
+            )
+        parts.append(stable_id(value) if match.group(2) == "stable_id" else value)
+        position = match.end()
+    parts.append(template[position:])
+    derived = "".join(parts)
+    if not derived.strip():
+        raise DomainGenerationValidationError(
+            "invalid_final_answer",
+            detail="final_answer_derivation_failed",
+        )
+    return derived
 
 
 def _provider_capabilities(
@@ -821,6 +1124,10 @@ def generate_domain_llm_candidates(
             spec,
             batch_index=provider_call_count + 1,
         )
+        excluded_instructions = tuple(
+            candidate.instruction
+            for candidate in candidates[-MAX_EXCLUDED_INSTRUCTIONS:]
+        )
         try:
             result = registry.invoke_json(
                 TASK_GENERATION_ROLE,
@@ -829,6 +1136,7 @@ def generate_domain_llm_candidates(
                     spec,
                     requested_candidate_count=requested,
                     batch_context=batch_context,
+                    excluded_instructions=excluded_instructions,
                 ),
             )
         except LLMProviderError as exc:
@@ -869,7 +1177,10 @@ def generate_domain_llm_candidates(
                 seed=seed,
                 spec=spec,
                 batch_context=batch_context,
-                generation_lineage=result.lineage,
+                generation_lineage={
+                    **result.lineage,
+                    "excluded_instruction_count": len(excluded_instructions),
+                },
             )
             if len(contracts) != requested:
                 raise DomainGenerationValidationError("batch_count_mismatch")

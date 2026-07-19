@@ -47,4 +47,4 @@ uv run python -m unittest
 - The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
 - No implementation plan is currently active; see [docs/PLANS.md](docs/PLANS.md)
   for lifecycle state.
-- Latest completed work is documented in [docs/exec-plans/completed/0045-domain-parameterized-multi-batch-generation-reliability.md](docs/exec-plans/completed/0045-domain-parameterized-multi-batch-generation-reliability.md).
+- Latest completed work is documented in [docs/exec-plans/completed/0046-final-answer-grounding-and-generation-diversity.md](docs/exec-plans/completed/0046-final-answer-grounding-and-generation-diversity.md).

@@ -95,7 +95,7 @@ class ToolExpansionContractsTest(unittest.TestCase):
 
             self.assertTrue(admission.accepted)
             self.assertEqual(admission.tool_name, "list_contact_names")
-            self.assertEqual(registry.execute("list_contact_names", {}), {"contacts": "Alice Zhang, Ben Carter"})
+            self.assertEqual(registry.execute("list_contact_names", {}), {"contacts": "Alice Zhang, Ben Carter, Carla Diaz, David Kim, Elena Petrova, Frank Osei"})
 
 
 if __name__ == "__main__":

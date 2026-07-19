@@ -47,6 +47,7 @@ def build_mobile_generation_spec(environment: object, registry: object):
                 required_capabilities=("message_search", "reminder_creation"),
                 expected_state_tool="create_phone_reminder",
                 final_answer_fields=("message_id", "snippet"),
+                expected_state_reference_fields=(("source_message_id", "message_id"),),
             ),
             DomainTaskTypeSpec(
                 "mobile_draft_reply",
@@ -55,12 +56,14 @@ def build_mobile_generation_spec(environment: object, registry: object):
                 required_capabilities=("message_search", "draft_reply"),
                 expected_state_tool="draft_message_reply",
                 final_answer_fields=("snippet",),
+                expected_state_reference_fields=(("thread_id", "thread_id"),),
             ),
         ),
         tools=tuple(registry.export()),
         grounding_context={"messages": messages},
         context_policy=SYNTHETIC_CONTEXT_POLICY,
         max_candidates_per_call=2,
+        grounding_window_size=2,
     )
     validate_domain_generation_spec(spec)
     return spec

@@ -46,6 +46,7 @@ LLM_RESPONSE_SCHEMA_REASONS = {
     "invalid_expected_state",
     "invalid_candidate_id",
     "invalid_required_capabilities",
+    "invalid_final_answer",
     "unsafe_provider_value",
     "duplicate_candidate_id",
     "batch_count_mismatch",
@@ -60,6 +61,13 @@ LLM_RESPONSE_SCHEMA_DETAILS = {
         "expected_state_expected_not_object",
         "expected_state_missing",
         "expected_state_arguments_invalid",
+        "expected_state_reference_not_grounded",
+    },
+    "invalid_final_answer": {
+        "final_answer_field_name_literal",
+        "final_answer_not_grounded",
+        "final_answer_sentinel_mismatch",
+        "final_answer_derivation_failed",
     },
     "duplicate_candidate_id": {
         "within_batch",

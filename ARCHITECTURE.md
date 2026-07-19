@@ -19,6 +19,14 @@ The framework should be developed as a pipeline for executable Agent training da
    batch policy as validated data: final-answer evidence ownership,
    expected-state tool ownership, and deterministic per-batch candidate identity
    remain explicit without adding domain-name branches to the kernel.
+   Grounding and diversity semantics are likewise domain-owned declarations on
+   the generation specification: observation-sourced final answers must be
+   grounded in declared observation values, state-tool-derived answers replace a
+   fixed provider sentinel with a deterministic value derived from validated
+   expected state, declared expected-state references must exactly match
+   grounding observations, and per-batch task-type focus rotation, sliding
+   grounding windows, and bounded prior-instruction exclusion lists diversify
+   repeated batches without persisting instruction text.
 
 5. **Trajectory Execution**
    Runs solution policies or generator agents against environments and records thought/action/observation/final-response traces.

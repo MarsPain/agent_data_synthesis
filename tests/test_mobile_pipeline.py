@@ -77,6 +77,105 @@ class MobilePipelineTest(unittest.TestCase):
             self.assertIn(field, observation)
             self.assertIn(field, rendered_fields)
 
+    def test_mobile_final_answer_grounding_gate(self) -> None:
+        from synthesis.domain_generation import (
+            DomainGenerationValidationError,
+            build_generation_batch_context,
+            parse_domain_task_contracts,
+        )
+        from synthesis.domain_pipeline import build_domain_pipeline_bundle
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bundle = build_domain_pipeline_bundle(mobile_seed(), Path(tmpdir))
+        spec = bundle.generation_spec
+        context = build_generation_batch_context(spec, batch_index=1)
+        record = {
+            "candidate_id": "mobile_messages_b001_lookup",
+            "instruction": "Find Maya's project update message.",
+            "task_type": "mobile_message_search",
+            "difficulty": {"level": "easy", "tool_count": 1},
+            "required_capabilities": ["message_search"],
+            "required_tools": ["search_phone_messages"],
+            "primary_tool": "search_phone_messages",
+            "primary_arguments": {"query": "project update", "participant": "Maya"},
+            "final_answer_contains": "msg_maya_project_update",
+            "expected_state": [],
+        }
+        contracts = parse_domain_task_contracts(
+            {"task_contracts": [record]},
+            seed=mobile_seed(),
+            spec=spec,
+            batch_context=context,
+            generation_lineage={},
+        )
+        self.assertEqual(
+            contracts[0].expected_outcome.final_answer_contains,
+            "msg_maya_project_update",
+        )
+
+        for bad_value, detail in (
+            ("snippet", "final_answer_field_name_literal"),
+            ("msg_invented_message", "final_answer_not_grounded"),
+        ):
+            with self.subTest(detail=detail):
+                with self.assertRaises(DomainGenerationValidationError) as raised:
+                    parse_domain_task_contracts(
+                        {"task_contracts": [{**record, "final_answer_contains": bad_value}]},
+                        seed=mobile_seed(),
+                        spec=spec,
+                        batch_context=context,
+                        generation_lineage={},
+                    )
+                self.assertEqual(raised.exception.reason, "invalid_final_answer")
+                self.assertEqual(raised.exception.detail, detail)
+
+    def test_mobile_expected_state_reference_grounding_gate(self) -> None:
+        from synthesis.domain_generation import (
+            DomainGenerationValidationError,
+            build_generation_batch_context,
+            parse_domain_task_contracts,
+        )
+        from synthesis.domain_pipeline import build_domain_pipeline_bundle
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bundle = build_domain_pipeline_bundle(mobile_seed(), Path(tmpdir))
+        spec = bundle.generation_spec
+        context = build_generation_batch_context(spec, batch_index=1)
+        record = {
+            "candidate_id": "mobile_messages_b001_reminder",
+            "instruction": "Find Maya's project update and create a reminder.",
+            "task_type": "mobile_reminder_creation",
+            "difficulty": {"level": "medium", "tool_count": 2},
+            "required_capabilities": ["message_search", "reminder_creation"],
+            "required_tools": ["search_phone_messages", "create_phone_reminder"],
+            "primary_tool": "search_phone_messages",
+            "primary_arguments": {"query": "project update", "participant": "Maya"},
+            "final_answer_contains": "msg_maya_project_update",
+            "expected_state": [
+                {
+                    "check_type": "mobile_reminder",
+                    "expected": {
+                        "title": "Send the project update",
+                        "due_at": "tomorrow 9 AM",
+                        "source_message_id": "msg_invented_reference",
+                    },
+                }
+            ],
+        }
+        with self.assertRaises(DomainGenerationValidationError) as raised:
+            parse_domain_task_contracts(
+                {"task_contracts": [record]},
+                seed=mobile_seed(),
+                spec=spec,
+                batch_context=context,
+                generation_lineage={},
+            )
+        self.assertEqual(raised.exception.reason, "invalid_expected_state")
+        self.assertEqual(
+            raised.exception.detail,
+            "expected_state_reference_not_grounded",
+        )
+
     def test_generated_mutating_tasks_preserve_primary_search_evidence(self) -> None:
         import tempfile
         from pathlib import Path

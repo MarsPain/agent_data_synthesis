@@ -31,7 +31,9 @@
   outcome.
 - **Contacts Environment Input:** typed contacts rows and optional follow-up rows
   derived from an admitted source bundle, plus source bundle id, source policy
-  hash, and validation errors.
+  hash, and validation errors. The deterministic default fixture carries six
+  rows: the original two rows are verbatim-preserved and four rows were added
+  additively, all under the `example.test` domain.
 - **Mobile Messages Environment:** deterministic synthetic phone-like fixture
   with message threads, messages, reminders, and draft replies. It uses
   `environment.id: mobile_messages_fixture` and supports checkpoint/restore and
@@ -351,18 +353,33 @@ task/comment content.
 `run_profile_v3` is the representative remote-generation contract. Its manifest
 adds `generation_contract`: spec version, `synthetic_fixture` policy,
 target/generated counts, fulfillment, computed eligibility, fixed reason codes,
-and a grounding-context hash. Provider calls remain capped at five candidates;
+and a grounding-context hash computed over the full spec grounding context, not
+a per-batch window. Provider calls remain capped at five candidates;
 contacts uses five while mobile and workspace use two. Every call receives a
-deterministic one-based batch index and candidate-ID prefix. The complete
+deterministic one-based batch index and candidate-ID prefix. Each batch focuses
+a single task type by rotation, renders each grounding list as a sliding
+window of the domain-declared `grounding_window_size`, and carries a bounded
+exclusion list of up to twenty recent prior instructions. The complete
 machine-readable output contract is derived from the selected domain
 specification. Each task type declares the observation source and fields that
 may support its final answer plus the exact required-capability list; provider
 records must copy those capabilities exactly. Mutating task types also own one registered
-state-mutating tool and exact expected-state items. Domain grounding pairs
+state-mutating tool and exact expected-state items. A mutating task type may
+instead declare `final_answer_source: state_tool_observation` with a
+`final_answer_derivation` template; the provider record must then carry the
+fixed sentinel `$derived_from_expected_state$` as its final-answer value, and
+the real answer is derived deterministically from the validated expected-state
+arguments, with `{field}` inserting the raw value and `{field|stable_id}` the
+slugified value from the shared stable-ID primitive. Observation-sourced final
+answers must be substrings of declared-field observation values collected
+across the full grounding context, and declared expected-state reference fields
+must exactly equal some grounding observation value. Domain grounding pairs
 curated primary arguments with the observation those arguments reproduce. These
 prompt-only values are never exported. Prompts, grounding rows, tool arguments,
-candidate IDs from prior batches, provider payloads, source payloads,
-credentials, and host paths are never persisted.
+candidate IDs from prior batches, exclusion-list instruction text, provider
+payloads, source payloads, credentials, and host paths are never persisted;
+persisted candidate lineage carries only the integer
+`excluded_instruction_count` for the exclusion list.
 Evaluation, profile-decision, release, and release-pack artifacts preserve the
 same validated mapping so campaign evidence can reject metadata drift.
 
@@ -1112,9 +1129,14 @@ sanitized `error_class`, `retry_count`, `retry_eligible`, and exactly one fixed
 `invalid_task_type`, `invalid_required_tools`, `invalid_primary_tool`,
 `invalid_tool_arguments`, `invalid_difficulty`, `invalid_expected_state`,
 `invalid_required_capabilities`, `unsafe_provider_value`,
-`duplicate_candidate_id`, `invalid_candidate_id`, or `batch_count_mismatch`.
-Expected-state, duplicate-ID, and invalid-ID failures may also include one fixed
-detail drawn from the reason-specific allowlist. Required-capability failures
+`duplicate_candidate_id`, `invalid_candidate_id`, `invalid_final_answer`, or
+`batch_count_mismatch`.
+Expected-state, duplicate-ID, invalid-ID, and final-answer failures may also
+include one fixed detail drawn from the reason-specific allowlist.
+`invalid_final_answer` admits exactly `final_answer_field_name_literal`,
+`final_answer_not_grounded`, `final_answer_sentinel_mismatch`, or
+`final_answer_derivation_failed`; `invalid_expected_state` additionally admits
+`expected_state_reference_not_grounded`. Required-capability failures
 likewise distinguish shape, empty, duplicate, and task-contract mismatch using
 fixed details without retaining provider values. Batch index and requested count
 are allowed sanitized lineage fields. They must not include raw provider

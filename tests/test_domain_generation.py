@@ -7,6 +7,113 @@ from dataclasses import replace
 from pathlib import Path
 
 
+def _first_grounding_example(entries, task_type_spec):
+    for entry in entries:
+        observation = entry.get("observation") if isinstance(entry, dict) else None
+        if not isinstance(observation, dict):
+            continue
+        for field in task_type_spec.final_answer_fields:
+            value = observation.get(field)
+            if isinstance(value, str) and value:
+                return {"field": field, "value": value}
+    return None
+
+
+def _windowed_entries(spec, batch_index: int):
+    entries = next(iter(spec.grounding_context.values()))
+    window = spec.grounding_window_size
+    if window is None:
+        return list(entries)
+    count = len(entries)
+    start = ((batch_index - 1) * window) % count
+    return [entries[(start + offset) % count] for offset in range(window)]
+
+
+class AxisAwareBatchClient:
+    """Deterministic fake provider for batch-axis tests.
+
+    Reads the focused task type, grounding window, and diversity contract from
+    each rendered prompt and emits distinct, fully compliant records: grounded
+    final answers for primary-observation types, the sentinel for derived
+    types, and schema-conformant expected-state arguments with grounded
+    reference values. An optional ``mutate`` hook receives
+    ``(batch_index, records)`` and may replace the records to inject failures.
+    """
+
+    def __init__(self, mutate=None) -> None:
+        self.payloads: list[dict[str, object]] = []
+        self.prompts: list[str] = []
+        self._mutate = mutate
+
+    def generate_json(self, prompt: str, *, role: str):
+        from synthesis.domain_generation import DERIVED_FINAL_ANSWER_SENTINEL
+        from synthesis.llm import LLMGenerationResult
+
+        payload = json.loads(prompt)
+        self.prompts.append(prompt)
+        self.payloads.append(payload)
+        count = payload["requested_candidate_count"]
+        batch_index = payload["batch_context"]["batch_index"]
+        prefix = payload["batch_context"]["candidate_id_prefix"]
+        task_type = payload["task_types"][0]
+        final_answer_contract = task_type["final_answer"]
+        expected_state_contract = payload["output_contract"]["task_type_contracts"][0][
+            "expected_state"
+        ]
+        entries = next(iter(payload["grounding_context"].values()))
+        records = []
+        for index in range(count):
+            candidate_id = f"{prefix}task_{index:02d}"
+            entry = entries[index % len(entries)]
+            if final_answer_contract.get("value_contract") == "sentinel":
+                final_answer = DERIVED_FINAL_ANSWER_SENTINEL
+            else:
+                field = final_answer_contract["allowed_fields"][0]
+                final_answer = entry["observation"][field]
+            expected_state = []
+            if expected_state_contract["mode"] == "required":
+                reference_fields = expected_state_contract.get("reference_fields", {})
+                for item in expected_state_contract["exact_items"]:
+                    expected = {}
+                    for prop in item["expected_schema"]["properties"]:
+                        if prop in reference_fields:
+                            expected[prop] = entry["observation"][
+                                reference_fields[prop]
+                            ]
+                        else:
+                            expected[prop] = f"{prop}_{candidate_id}"
+                    expected_state.append(
+                        {"check_type": item["check_type"], "expected": expected}
+                    )
+            records.append(
+                {
+                    "candidate_id": candidate_id,
+                    "instruction": f"Execute grounded task {candidate_id}.",
+                    "task_type": task_type["task_type"],
+                    "difficulty": {
+                        "level": "easy",
+                        "tool_count": 1,
+                        "constraint_count": 1,
+                        "state_changes": 0,
+                        "ambiguity": "none",
+                        "recovery_paths": 0,
+                    },
+                    "required_capabilities": task_type["required_capabilities"],
+                    "required_tools": task_type["required_tools"],
+                    "primary_tool": task_type["required_tools"][0],
+                    "primary_arguments": dict(entry["primary_arguments"]),
+                    "final_answer_contains": final_answer,
+                    "expected_state": expected_state,
+                }
+            )
+        if self._mutate is not None:
+            records = self._mutate(batch_index, records)
+        return LLMGenerationResult(
+            content={"task_contracts": records},
+            lineage={"role": role, "retry_count": 0},
+        )
+
+
 class DomainGenerationSpecTest(unittest.TestCase):
     def _valid_spec(self):
         from synthesis.domain_generation import DomainGenerationSpec, DomainTaskTypeSpec
@@ -35,7 +142,17 @@ class DomainGenerationSpecTest(unittest.TestCase):
                     "side_effects": "read_only",
                 },
             ),
-            grounding_context={"contacts": [{"name": "Alice Zhang"}]},
+            grounding_context={
+                "contacts": [
+                    {
+                        "primary_arguments": {"name": "Alice Zhang"},
+                        "observation": {
+                            "name": "Alice Zhang",
+                            "email": "alice.zhang@example.test",
+                        },
+                    }
+                ]
+            },
             context_policy="synthetic_fixture",
             max_candidates_per_call=5,
         )
@@ -84,6 +201,7 @@ class DomainGenerationSpecTest(unittest.TestCase):
 
     def test_every_domain_bundle_owns_a_matching_generation_spec(self) -> None:
         from synthesis.domain_generation import (
+            DERIVED_FINAL_ANSWER_SENTINEL,
             build_domain_generation_prompt,
             build_generation_batch_context,
         )
@@ -134,34 +252,55 @@ class DomainGenerationSpecTest(unittest.TestCase):
                             ),
                             entry["observation"],
                         )
-                    prompt = json.loads(
-                        build_domain_generation_prompt(
-                            spec,
-                            requested_candidate_count=1,
-                            batch_context=build_generation_batch_context(
-                                spec,
-                                batch_index=1,
-                            ),
-                        )
-                    )
-                    prompt_task_types = {
-                        item["task_type"]: item
-                        for item in prompt["output_contract"]["task_type_contracts"]
-                    }
                     tools_by_name = {tool["name"]: tool for tool in spec.tools}
-                    for task_type_spec in spec.task_types:
+                    for type_index, task_type_spec in enumerate(spec.task_types):
+                        prompt = json.loads(
+                            build_domain_generation_prompt(
+                                spec,
+                                requested_candidate_count=1,
+                                batch_context=build_generation_batch_context(
+                                    spec,
+                                    batch_index=type_index + 1,
+                                ),
+                            )
+                        )
+                        self.assertEqual(
+                            [item["task_type"] for item in prompt["task_types"]],
+                            [task_type_spec.task_type],
+                        )
+                        prompt_task_types = {
+                            item["task_type"]: item
+                            for item in prompt["output_contract"]["task_type_contracts"]
+                        }
+                        self.assertEqual(
+                            sorted(prompt_task_types),
+                            [task_type_spec.task_type],
+                        )
                         self.assertTrue(task_type_spec.required_capabilities)
                         self.assertTrue(task_type_spec.final_answer_fields)
                         expected_state = prompt_task_types[
                             task_type_spec.task_type
                         ]["expected_state"]
+                        expected_final_answer: dict[str, object] = {
+                            "source": task_type_spec.final_answer_source,
+                            "allowed_fields": list(task_type_spec.final_answer_fields),
+                            "invented_text_allowed": False,
+                        }
+                        if task_type_spec.final_answer_derivation is not None:
+                            expected_final_answer["value_contract"] = "sentinel"
+                            expected_final_answer["sentinel"] = (
+                                DERIVED_FINAL_ANSWER_SENTINEL
+                            )
+                        else:
+                            example = _first_grounding_example(
+                                _windowed_entries(spec, type_index + 1),
+                                task_type_spec,
+                            )
+                            if example is not None:
+                                expected_final_answer["example"] = example
                         self.assertEqual(
                             prompt_task_types[task_type_spec.task_type]["final_answer"],
-                            {
-                                "source": task_type_spec.final_answer_source,
-                                "allowed_fields": list(task_type_spec.final_answer_fields),
-                                "invented_text_allowed": False,
-                            },
+                            expected_final_answer,
                         )
                         self.assertEqual(
                             prompt_task_types[task_type_spec.task_type][
@@ -449,6 +588,7 @@ class DomainGenerationSpecTest(unittest.TestCase):
                 "source": "primary_observation",
                 "allowed_fields": ["email"],
                 "invented_text_allowed": False,
+                "example": {"field": "email", "value": "alice.zhang@example.test"},
             },
         )
         self.assertIsNone(task_type_contract["expected_state_tool"])
@@ -457,7 +597,11 @@ class DomainGenerationSpecTest(unittest.TestCase):
             json.loads(first)["instructions"],
         )
         self.assertIn(
-            "copy final_answer_contains from an allowed field",
+            "substring copied from the observation value",
+            json.loads(first)["instructions"].lower(),
+        )
+        self.assertIn(
+            "copying the field name itself is forbidden",
             json.loads(first)["instructions"].lower(),
         )
         self.assertIn(
@@ -602,6 +746,10 @@ class DomainGenerationSpecTest(unittest.TestCase):
             ),
             "invalid_candidate_id": (
                 {"task_contracts": [{**valid, "candidate_id": "wrong_prefix_task"}]},
+                1,
+            ),
+            "invalid_final_answer": (
+                {"task_contracts": [{**valid, "final_answer_contains": "email"}]},
                 1,
             ),
             "unsafe_provider_value": (
@@ -800,53 +948,14 @@ class DomainGenerationSpecTest(unittest.TestCase):
                 self.assertEqual(raised.exception.reason, "invalid_expected_state")
                 self.assertEqual(raised.exception.detail, expected_detail)
 
-    def test_domain_batch_policies_generate_thirty_unique_candidates(self) -> None:
-        from synthesis.domain_generation import generate_domain_llm_candidates
+    def test_domain_batch_policies_generate_thirty_axis_compliant_candidates(self) -> None:
+        from synthesis.domain_generation import (
+            generate_domain_llm_candidates,
+            grounding_context_hash,
+            sanitized_generation_spec_metadata,
+        )
         from synthesis.domain_pipeline import build_domain_pipeline_bundle
-        from synthesis.llm import LLMGenerationResult
         from synthesis.seeds import DomainSeed, foundation_seed
-
-        class DeterministicBatchClient:
-            def __init__(self) -> None:
-                self.requests: list[tuple[int, str]] = []
-
-            def generate_json(self, prompt: str, *, role: str) -> LLMGenerationResult:
-                payload = json.loads(prompt)
-                count = payload["requested_candidate_count"]
-                prefix = payload["batch_context"]["candidate_id_prefix"]
-                self.requests.append((count, prefix))
-                task_type = payload["task_types"][0]
-                grounding = next(iter(payload["grounding_context"].values()))[0]
-                field = task_type["final_answer"]["allowed_fields"][0]
-                return LLMGenerationResult(
-                    content={
-                        "task_contracts": [
-                            {
-                                "candidate_id": f"{prefix}task_{index:02d}",
-                                "instruction": "Execute the grounded fixture task.",
-                                "task_type": task_type["task_type"],
-                                "difficulty": {
-                                    "level": "easy",
-                                    "tool_count": 1,
-                                    "constraint_count": 1,
-                                    "state_changes": 0,
-                                    "ambiguity": "none",
-                                    "recovery_paths": 0,
-                                },
-                                "required_capabilities": task_type[
-                                    "required_capabilities"
-                                ],
-                                "required_tools": task_type["required_tools"],
-                                "primary_tool": task_type["required_tools"][0],
-                                "primary_arguments": grounding["primary_arguments"],
-                                "final_answer_contains": grounding["observation"][field],
-                                "expected_state": [],
-                            }
-                            for index in range(count)
-                        ]
-                    },
-                    lineage={"role": role, "retry_count": 0},
-                )
 
         seeds = (
             foundation_seed(),
@@ -862,29 +971,123 @@ class DomainGenerationSpecTest(unittest.TestCase):
             for seed in seeds:
                 with self.subTest(domain=seed.domain):
                     bundle = build_domain_pipeline_bundle(seed, Path(tmp) / seed.domain)
-                    client = DeterministicBatchClient()
+                    spec = bundle.generation_spec
+                    client = AxisAwareBatchClient()
                     result = generate_domain_llm_candidates(
                         seed,
                         client,
-                        spec=bundle.generation_spec,
+                        spec=spec,
                         target_candidate_count=30,
                     )
+                    sizes = expected_sizes[bundle.domain_id]
                     self.assertEqual(
-                        [count for count, _ in client.requests],
-                        expected_sizes[bundle.domain_id],
+                        [payload["requested_candidate_count"] for payload in client.payloads],
+                        sizes,
                     )
-                    for batch_index, (_, prefix) in enumerate(client.requests, start=1):
+                    full_entries = next(iter(spec.grounding_context.values()))
+                    emitted_so_far: list[str] = []
+                    for batch_index, payload in enumerate(client.payloads, start=1):
+                        focused = spec.task_types[(batch_index - 1) % len(spec.task_types)]
+                        self.assertEqual(
+                            [item["task_type"] for item in payload["task_types"]],
+                            [focused.task_type],
+                        )
+                        self.assertEqual(
+                            [
+                                item["task_type"]
+                                for item in payload["output_contract"]["task_type_contracts"]
+                            ],
+                            [focused.task_type],
+                        )
+                        rendered = next(iter(payload["grounding_context"].values()))
+                        self.assertEqual(rendered, _windowed_entries(spec, batch_index))
+                        self.assertLessEqual(len(rendered), len(full_entries))
+                        expected_excluded = emitted_so_far[-20:]
+                        diversity = payload["diversity_contract"]
+                        self.assertEqual(
+                            diversity["excluded_instructions"],
+                            expected_excluded,
+                        )
+                        self.assertIn(
+                            "do not repeat or paraphrase",
+                            diversity["rule"],
+                        )
+                        prefix = payload["batch_context"]["candidate_id_prefix"]
                         safe_domain = bundle.domain_id.removesuffix("_fixture")
                         self.assertEqual(prefix, f"{safe_domain}_b{batch_index:03d}_")
+                        emitted_so_far.extend(
+                            f"Execute grounded task {prefix}task_{index:02d}."
+                            for index in range(payload["requested_candidate_count"])
+                        )
+                    self.assertGreater(len(set(client.prompts)), 1)
                     self.assertEqual(result.target_candidate_count, 30)
                     self.assertEqual(result.generated_candidate_count, 30)
-                    self.assertEqual(
-                        result.provider_call_count,
-                        len(expected_sizes[bundle.domain_id]),
-                    )
+                    self.assertEqual(result.provider_call_count, len(sizes))
                     self.assertEqual(
                         len({candidate.candidate_id for candidate in result.candidates}),
                         30,
+                    )
+                    per_type = 30 // len(spec.task_types)
+                    type_counts: dict[str, int] = {}
+                    for candidate in result.candidates:
+                        task_type = str(candidate.constraints["task_type"])
+                        type_counts[task_type] = type_counts.get(task_type, 0) + 1
+                    self.assertEqual(
+                        type_counts,
+                        {item.task_type: per_type for item in spec.task_types},
+                    )
+                    fields_by_type = {
+                        item.task_type: item.final_answer_fields
+                        for item in spec.task_types
+                    }
+                    safe_domain = bundle.domain_id.removesuffix("_fixture")
+                    for candidate in result.candidates:
+                        task_type = str(candidate.constraints["task_type"])
+                        self.assertNotIn(
+                            candidate.expected_answer,
+                            fields_by_type[task_type],
+                        )
+                        batch = int(
+                            candidate.candidate_id.removeprefix(f"{safe_domain}_b")[:3]
+                        )
+                        lineage = candidate.generation_lineage or {}
+                        self.assertEqual(
+                            lineage.get("excluded_instruction_count"),
+                            min((batch - 1) * sizes[0], 20),
+                        )
+                        self.assertNotIn("excluded_instructions", lineage)
+                        if task_type != "workspace_task_creation" and task_type != (
+                            "workspace_comment_update"
+                        ):
+                            grounded_values = [
+                                value
+                                for entry in full_entries
+                                for field in fields_by_type[task_type]
+                                for value in [entry["observation"].get(field)]
+                                if isinstance(value, str)
+                            ]
+                            self.assertTrue(
+                                any(
+                                    candidate.expected_answer in value
+                                    for value in grounded_values
+                                ),
+                                f"{candidate.candidate_id} not grounded",
+                            )
+                    if bundle.domain_id == "workspace_tasks_fixture":
+                        derived_answers = {
+                            candidate.expected_answer
+                            for candidate in result.candidates
+                            if str(candidate.constraints["task_type"])
+                            in {"workspace_task_creation", "workspace_comment_update"}
+                        }
+                        self.assertEqual(len(derived_answers), 20)
+                    self.assertEqual(
+                        result.spec_metadata,
+                        sanitized_generation_spec_metadata(spec),
+                    )
+                    self.assertEqual(
+                        result.spec_metadata["grounding_context_hash"],
+                        grounding_context_hash(spec),
                     )
 
     def test_third_batch_prefix_failure_is_fail_closed_and_sanitized(self) -> None:
@@ -932,6 +1135,99 @@ class DomainGenerationSpecTest(unittest.TestCase):
         self.assertNotIn("RAW_PROVIDER_MARKER", persisted)
         self.assertNotIn("contacts_b001_", persisted)
         self.assertNotIn("contacts_b002_", persisted)
+
+    def test_grounding_gates_are_fail_closed_and_sanitized(self) -> None:
+        from synthesis.datasets import assemble_generation_stage_rejection
+        from synthesis.domain_generation import generate_domain_llm_candidates
+        from synthesis.domain_pipeline import build_domain_pipeline_bundle
+        from synthesis.llm import LLMProviderError
+        from synthesis.seeds import DomainSeed, foundation_seed
+
+        def replace_final_answer(value: str):
+            def mutate(batch_index: int, records: list[dict]) -> list[dict]:
+                if batch_index == 2:
+                    records[0]["final_answer_contains"] = value
+                return records
+
+            return mutate
+
+        def replace_mobile_reference(batch_index: int, records: list[dict]) -> list[dict]:
+            if batch_index == 2:
+                for item in records[0]["expected_state"]:
+                    if "source_message_id" in item["expected"]:
+                        item["expected"]["source_message_id"] = "msg_ungrounded_zzz"
+            return records
+
+        cases = (
+            (
+                "field_name_literal",
+                foundation_seed(),
+                replace_final_answer("email"),
+                "invalid_final_answer",
+                "final_answer_field_name_literal",
+                None,
+            ),
+            (
+                "ungrounded_final_answer",
+                foundation_seed(),
+                replace_final_answer("ungrounded_value_zzz"),
+                "invalid_final_answer",
+                "final_answer_not_grounded",
+                "ungrounded_value_zzz",
+            ),
+            (
+                "sentinel_mismatch",
+                DomainSeed(
+                    "seed_workspace_fail", "workspace_tasks_fixture", "Workspace.", ("search",)
+                ),
+                replace_final_answer("task_hardcoded_zzz"),
+                "invalid_final_answer",
+                "final_answer_sentinel_mismatch",
+                "task_hardcoded_zzz",
+            ),
+            (
+                "ungrounded_reference",
+                DomainSeed(
+                    "seed_mobile_fail", "mobile_messages_fixture", "Mobile.", ("search",)
+                ),
+                replace_mobile_reference,
+                "invalid_expected_state",
+                "expected_state_reference_not_grounded",
+                "msg_ungrounded_zzz",
+            ),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, seed, mutate, reason, detail, injected in cases:
+                with self.subTest(gate=name):
+                    bundle = build_domain_pipeline_bundle(seed, Path(tmp) / name)
+                    client = AxisAwareBatchClient(mutate=mutate)
+                    with self.assertRaises(LLMProviderError) as raised:
+                        generate_domain_llm_candidates(
+                            seed,
+                            client,
+                            spec=bundle.generation_spec,
+                            target_candidate_count=30,
+                        )
+                    error = raised.exception
+                    self.assertEqual(error.cause, "llm_response_schema_error")
+                    self.assertEqual(error.schema_reason, reason)
+                    self.assertEqual(error.schema_detail, detail)
+                    self.assertEqual(error.lineage["batch_index"], 2)
+                    self.assertEqual(len(client.payloads), 2)
+                    persisted = json.dumps(
+                        assemble_generation_stage_rejection(error=error),
+                        sort_keys=True,
+                    )
+                    safe_domain = bundle.domain_id.removesuffix("_fixture")
+                    markers = [
+                        "Execute grounded task",
+                        f"{safe_domain}_b001_",
+                        f"{safe_domain}_b002_",
+                    ]
+                    if injected is not None:
+                        markers.append(injected)
+                    for marker in markers:
+                        self.assertNotIn(marker, persisted)
 
     def test_pipeline_resolves_candidate_generator_factory_after_bundle(self) -> None:
         from synthesis.pipeline import run_foundation_pipeline
@@ -1140,3 +1436,1027 @@ class DomainGenerationSpecTest(unittest.TestCase):
                 ),
                 generation_lineage={},
             )
+
+
+class FinalAnswerDerivationTest(unittest.TestCase):
+    def _workspace_bundle(self, tmp_path: Path):
+        from synthesis.domain_pipeline import build_domain_pipeline_bundle
+        from synthesis.seeds import DomainSeed
+
+        seed = DomainSeed(
+            "seed_workspace_derivation",
+            "workspace_tasks_fixture",
+            "Workspace derivation.",
+            ("workspace_task_creation",),
+        )
+        return seed, build_domain_pipeline_bundle(seed, Path(tmp_path))
+
+    def _workspace_record(
+        self,
+        task_type: str,
+        *,
+        final_answer: str,
+        expected_state: list[dict[str, object]],
+    ) -> dict[str, object]:
+        capabilities = {
+            "workspace_task_creation": ["workspace_search", "workspace_task_creation"],
+            "workspace_comment_update": ["workspace_search", "workspace_comment_update"],
+        }
+        tools = {
+            "workspace_task_creation": ["search_workspace_items", "create_workspace_task"],
+            "workspace_comment_update": ["search_workspace_items", "add_workspace_comment"],
+        }
+        return {
+            "candidate_id": f"workspace_tasks_b001_{task_type}",
+            "instruction": "Run the grounded workspace mutation.",
+            "task_type": task_type,
+            "difficulty": {
+                "level": "medium",
+                "tool_count": 2,
+                "constraint_count": 2,
+                "state_changes": 1,
+                "ambiguity": "none",
+                "recovery_paths": 0,
+            },
+            "required_capabilities": capabilities[task_type],
+            "required_tools": tools[task_type],
+            "primary_tool": "search_workspace_items",
+            "primary_arguments": {"query": "Alpha Launch", "kind": "project"},
+            "final_answer_contains": final_answer,
+            "expected_state": expected_state,
+        }
+
+    def test_shared_stable_id_primitive_rules(self) -> None:
+        from synthesis.stable_ids import stable_id
+
+        self.assertEqual(stable_id("Prepare Launch Checklist!"), "prepare_launch_checklist")
+        self.assertEqual(stable_id("  spaced value  "), "spaced_value")
+        self.assertEqual(stable_id("Already_Good-1"), "already_good_1")
+
+    def test_workspace_spec_declares_exact_derivation_templates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            _, bundle = self._workspace_bundle(tmp)
+        self.assertIsNotNone(bundle.generation_spec)
+        templates = {
+            item.task_type: item.final_answer_derivation
+            for item in bundle.generation_spec.task_types
+        }
+        self.assertEqual(
+            templates,
+            {
+                "workspace_item_search": None,
+                "workspace_task_creation": "task_{title|stable_id}",
+                "workspace_comment_update": "comment_{task_id}_{comment|stable_id}",
+            },
+        )
+
+    def test_derivation_templates_are_validated_against_spec_contract(self) -> None:
+        from synthesis.domain_generation import (
+            DomainGenerationSpec,
+            DomainTaskTypeSpec,
+            validate_domain_generation_spec,
+        )
+
+        tools = (
+            {
+                "name": "search_items",
+                "version": "tool_search_items_v1",
+                "schema": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                    "additionalProperties": False,
+                },
+                "side_effects": "read_only",
+            },
+            {
+                "name": "mutate_item",
+                "version": "tool_mutate_item_v1",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "note": {"type": "string"},
+                    },
+                    "required": ["title"],
+                    "additionalProperties": False,
+                },
+                "side_effects": "state_mutating",
+            },
+        )
+
+        def spec_with(task_type: DomainTaskTypeSpec) -> DomainGenerationSpec:
+            return DomainGenerationSpec(
+                schema_version="domain_generation_spec_v1",
+                domain_id="workspace_tasks_fixture",
+                task_types=(task_type,),
+                tools=tools,
+                grounding_context={
+                    "items": [
+                        {
+                            "primary_arguments": {"query": "alpha"},
+                            "observation": {"item_id": "item_alpha"},
+                        }
+                    ]
+                },
+                context_policy="synthetic_fixture",
+                max_candidates_per_call=5,
+            )
+
+        base = {
+            "task_type": "custom_mutation",
+            "required_tools": ("search_items", "mutate_item"),
+            "allowed_expected_state_checks": ("workspace_task",),
+            "required_capabilities": ("custom_mutation",),
+            "expected_state_tool": "mutate_item",
+            "final_answer_fields": ("item_id",),
+        }
+        invalid_specs = (
+            spec_with(DomainTaskTypeSpec(**base, final_answer_derivation="item_{title|stable_id}")),
+            spec_with(
+                DomainTaskTypeSpec(
+                    **base,
+                    final_answer_source="state_tool_observation",
+                    final_answer_derivation="",
+                )
+            ),
+            spec_with(
+                DomainTaskTypeSpec(
+                    **base,
+                    final_answer_source="state_tool_observation",
+                    final_answer_derivation="item_{unknown_field}",
+                )
+            ),
+            spec_with(
+                DomainTaskTypeSpec(
+                    **base,
+                    final_answer_source="state_tool_observation",
+                    final_answer_derivation="item_{title|upper}",
+                )
+            ),
+            spec_with(
+                DomainTaskTypeSpec(
+                    **base,
+                    final_answer_source="state_tool_observation",
+                    final_answer_derivation="item_{title",
+                )
+            ),
+            spec_with(
+                DomainTaskTypeSpec(
+                    **base,
+                    final_answer_source="state_tool_observation",
+                    final_answer_derivation="item_static",
+                )
+            ),
+        )
+        for spec in invalid_specs:
+            with self.subTest(spec=spec), self.assertRaises(ValueError):
+                validate_domain_generation_spec(spec)
+        validate_domain_generation_spec(
+            spec_with(
+                DomainTaskTypeSpec(
+                    **base,
+                    final_answer_source="state_tool_observation",
+                    final_answer_derivation="item_{title|stable_id}_{note}",
+                )
+            )
+        )
+
+    def test_sentinel_record_derives_task_and_comment_ids(self) -> None:
+        from synthesis.domain_generation import (
+            DERIVED_FINAL_ANSWER_SENTINEL,
+            build_generation_batch_context,
+            parse_domain_task_contracts,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            seed, bundle = self._workspace_bundle(tmp)
+        spec = bundle.generation_spec
+        context = build_generation_batch_context(spec, batch_index=1)
+        task_record = self._workspace_record(
+            "workspace_task_creation",
+            final_answer=DERIVED_FINAL_ANSWER_SENTINEL,
+            expected_state=[
+                {
+                    "check_type": "workspace_task",
+                    "expected": {
+                        "project_id": "project_alpha",
+                        "title": "Prepare Launch Checklist!",
+                        "priority": "high",
+                        "due_label": "this_week",
+                    },
+                }
+            ],
+        )
+        comment_record = self._workspace_record(
+            "workspace_comment_update",
+            final_answer=DERIVED_FINAL_ANSWER_SENTINEL,
+            expected_state=[
+                {
+                    "check_type": "workspace_comment",
+                    "expected": {
+                        "task_id": "task_launch_plan",
+                        "comment": "Assign Owner: QA Team",
+                    },
+                }
+            ],
+        )
+        contracts = parse_domain_task_contracts(
+            {"task_contracts": [task_record, comment_record]},
+            seed=seed,
+            spec=spec,
+            batch_context=context,
+            generation_lineage={},
+        )
+        self.assertEqual(
+            contracts[0].expected_outcome.final_answer_contains,
+            "task_prepare_launch_checklist",
+        )
+        self.assertEqual(
+            contracts[1].expected_outcome.final_answer_contains,
+            "comment_task_launch_plan_assign_owner__qa_team",
+        )
+
+    def test_non_sentinel_value_fails_with_sentinel_mismatch(self) -> None:
+        from synthesis.domain_generation import (
+            DomainGenerationValidationError,
+            build_generation_batch_context,
+            parse_domain_task_contracts,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            seed, bundle = self._workspace_bundle(tmp)
+        spec = bundle.generation_spec
+        record = self._workspace_record(
+            "workspace_task_creation",
+            final_answer="task_prepare_launch_checklist",
+            expected_state=[
+                {
+                    "check_type": "workspace_task",
+                    "expected": {
+                        "project_id": "project_alpha",
+                        "title": "Prepare Launch Checklist!",
+                        "priority": "high",
+                        "due_label": "this_week",
+                    },
+                }
+            ],
+        )
+        with self.assertRaises(DomainGenerationValidationError) as raised:
+            parse_domain_task_contracts(
+                {"task_contracts": [record]},
+                seed=seed,
+                spec=spec,
+                batch_context=build_generation_batch_context(spec, batch_index=1),
+                generation_lineage={},
+            )
+        self.assertEqual(raised.exception.reason, "invalid_final_answer")
+        self.assertEqual(raised.exception.detail, "final_answer_sentinel_mismatch")
+
+    def test_derivation_failure_fails_closed(self) -> None:
+        from synthesis.domain_generation import (
+            DERIVED_FINAL_ANSWER_SENTINEL,
+            DomainGenerationSpec,
+            DomainGenerationValidationError,
+            DomainTaskTypeSpec,
+            build_generation_batch_context,
+            parse_domain_task_contracts,
+        )
+        from synthesis.seeds import DomainSeed
+
+        spec = DomainGenerationSpec(
+            schema_version="domain_generation_spec_v1",
+            domain_id="workspace_tasks_fixture",
+            task_types=(
+                DomainTaskTypeSpec(
+                    task_type="custom_mutation",
+                    required_tools=("search_items", "mutate_item"),
+                    allowed_expected_state_checks=("workspace_task",),
+                    required_capabilities=("custom_mutation",),
+                    expected_state_tool="mutate_item",
+                    final_answer_source="state_tool_observation",
+                    final_answer_fields=("item_id",),
+                    final_answer_derivation="item_{note|stable_id}",
+                ),
+            ),
+            tools=(
+                {
+                    "name": "search_items",
+                    "version": "tool_search_items_v1",
+                    "schema": {
+                        "type": "object",
+                        "properties": {"query": {"type": "string"}},
+                        "required": ["query"],
+                        "additionalProperties": False,
+                    },
+                    "side_effects": "read_only",
+                },
+                {
+                    "name": "mutate_item",
+                    "version": "tool_mutate_item_v1",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "note": {"type": "string"},
+                        },
+                        "required": ["title"],
+                        "additionalProperties": False,
+                    },
+                    "side_effects": "state_mutating",
+                },
+            ),
+            grounding_context={
+                "items": [
+                    {
+                        "primary_arguments": {"query": "alpha"},
+                        "observation": {"item_id": "item_alpha"},
+                    }
+                ]
+            },
+            context_policy="synthetic_fixture",
+            max_candidates_per_call=5,
+        )
+        record = {
+            "candidate_id": "workspace_tasks_b001_derivation_failure",
+            "instruction": "Mutate the alpha item.",
+            "task_type": "custom_mutation",
+            "difficulty": {"level": "medium", "tool_count": 2},
+            "required_capabilities": ["custom_mutation"],
+            "required_tools": ["search_items", "mutate_item"],
+            "primary_tool": "search_items",
+            "primary_arguments": {"query": "alpha"},
+            "final_answer_contains": DERIVED_FINAL_ANSWER_SENTINEL,
+            "expected_state": [
+                {"check_type": "workspace_task", "expected": {"title": "Alpha"}}
+            ],
+        }
+        with self.assertRaises(DomainGenerationValidationError) as raised:
+            parse_domain_task_contracts(
+                {"task_contracts": [record]},
+                seed=DomainSeed(
+                    "seed_workspace_derivation",
+                    "workspace_tasks_fixture",
+                    "Workspace derivation.",
+                    ("custom_mutation",),
+                ),
+                spec=spec,
+                batch_context=build_generation_batch_context(spec, batch_index=1),
+                generation_lineage={},
+            )
+        self.assertEqual(raised.exception.reason, "invalid_final_answer")
+        self.assertEqual(raised.exception.detail, "final_answer_derivation_failed")
+
+    def test_prompt_renders_sentinel_contract_for_derived_types(self) -> None:
+        from synthesis.domain_generation import (
+            DERIVED_FINAL_ANSWER_SENTINEL,
+            build_domain_generation_prompt,
+            build_generation_batch_context,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _, bundle = self._workspace_bundle(tmp)
+        spec = bundle.generation_spec
+        prompt = json.loads(
+            build_domain_generation_prompt(
+                spec,
+                requested_candidate_count=1,
+                batch_context=build_generation_batch_context(spec, batch_index=2),
+            )
+        )
+        task_types = {item["task_type"]: item for item in prompt["task_types"]}
+        derived = task_types["workspace_task_creation"]["final_answer"]
+        self.assertEqual(derived["value_contract"], "sentinel")
+        self.assertEqual(derived["sentinel"], DERIVED_FINAL_ANSWER_SENTINEL)
+        contract_blocks = {
+            item["task_type"]: item
+            for item in prompt["output_contract"]["task_type_contracts"]
+        }
+        self.assertEqual(
+            contract_blocks["workspace_task_creation"]["final_answer"]["value_contract"],
+            "sentinel",
+        )
+
+
+class FinalAnswerGroundingTest(unittest.TestCase):
+    def _domain_cases(self, tmp: str) -> dict[str, dict[str, object]]:
+        from synthesis.domain_pipeline import build_domain_pipeline_bundle
+        from synthesis.seeds import DomainSeed, foundation_seed
+
+        difficulty = {
+            "level": "easy",
+            "tool_count": 1,
+            "constraint_count": 1,
+            "state_changes": 0,
+            "ambiguity": "none",
+            "recovery_paths": 0,
+        }
+        contacts_seed = foundation_seed()
+        contacts = build_domain_pipeline_bundle(contacts_seed, Path(tmp) / "contacts")
+        mobile_seed = DomainSeed(
+            "seed_mobile_grounding",
+            "mobile_messages_fixture",
+            "Mobile grounding.",
+            ("mobile_message_search",),
+        )
+        mobile = build_domain_pipeline_bundle(mobile_seed, Path(tmp) / "mobile")
+        workspace_seed = DomainSeed(
+            "seed_workspace_grounding",
+            "workspace_tasks_fixture",
+            "Workspace grounding.",
+            ("workspace_item_search",),
+        )
+        workspace = build_domain_pipeline_bundle(workspace_seed, Path(tmp) / "workspace")
+        return {
+            "contacts_fixture": {
+                "seed": contacts_seed,
+                "spec": contacts.generation_spec,
+                "record": {
+                    "candidate_id": "contacts_b001_lookup",
+                    "instruction": "Find Alice Zhang's email address.",
+                    "task_type": "contact_lookup",
+                    "difficulty": difficulty,
+                    "required_capabilities": ["contact_lookup"],
+                    "required_tools": ["lookup_contact_email"],
+                    "primary_tool": "lookup_contact_email",
+                    "primary_arguments": {"name": "Alice Zhang"},
+                    "final_answer_contains": "alice.zhang@example.test",
+                    "expected_state": [],
+                },
+                "field_literal": "email",
+                "grounded_values": ("alice.zhang@example.test", "alice.zhang"),
+                "example": {"field": "email", "value": "alice.zhang@example.test"},
+            },
+            "mobile_messages_fixture": {
+                "seed": mobile_seed,
+                "spec": mobile.generation_spec,
+                "record": {
+                    "candidate_id": "mobile_messages_b001_lookup",
+                    "instruction": "Find Maya's project update message.",
+                    "task_type": "mobile_message_search",
+                    "difficulty": difficulty,
+                    "required_capabilities": ["message_search"],
+                    "required_tools": ["search_phone_messages"],
+                    "primary_tool": "search_phone_messages",
+                    "primary_arguments": {"query": "project update", "participant": "Maya"},
+                    "final_answer_contains": "msg_maya_project_update",
+                    "expected_state": [],
+                },
+                "field_literal": "snippet",
+                "grounded_values": (
+                    "msg_maya_project_update",
+                    "remind me to send the project update",
+                ),
+                "example": {"field": "message_id", "value": "msg_maya_project_update"},
+            },
+            "workspace_tasks_fixture": {
+                "seed": workspace_seed,
+                "spec": workspace.generation_spec,
+                "record": {
+                    "candidate_id": "workspace_tasks_b001_lookup",
+                    "instruction": "Find the Alpha Launch project.",
+                    "task_type": "workspace_item_search",
+                    "difficulty": difficulty,
+                    "required_capabilities": ["workspace_search"],
+                    "required_tools": ["search_workspace_items"],
+                    "primary_tool": "search_workspace_items",
+                    "primary_arguments": {"query": "Alpha Launch", "kind": "project"},
+                    "final_answer_contains": "project_alpha",
+                    "expected_state": [],
+                },
+                "field_literal": "item_id",
+                "grounded_values": ("project_alpha", "Alpha Launch (active)"),
+                "example": {"field": "item_id", "value": "project_alpha"},
+            },
+        }
+
+    def test_field_name_literal_fails_with_fixed_detail(self) -> None:
+        from synthesis.domain_generation import (
+            DomainGenerationValidationError,
+            build_generation_batch_context,
+            parse_domain_task_contracts,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = self._domain_cases(tmp)
+            for domain, case in cases.items():
+                with self.subTest(domain=domain):
+                    record = {**case["record"], "final_answer_contains": case["field_literal"]}
+                    with self.assertRaises(DomainGenerationValidationError) as raised:
+                        parse_domain_task_contracts(
+                            {"task_contracts": [record]},
+                            seed=case["seed"],
+                            spec=case["spec"],
+                            batch_context=build_generation_batch_context(
+                                case["spec"],
+                                batch_index=1,
+                            ),
+                            generation_lineage={},
+                        )
+                    self.assertEqual(raised.exception.reason, "invalid_final_answer")
+                    self.assertEqual(
+                        raised.exception.detail,
+                        "final_answer_field_name_literal",
+                    )
+
+    def test_ungrounded_value_fails_with_fixed_detail(self) -> None:
+        from synthesis.domain_generation import (
+            DomainGenerationValidationError,
+            build_generation_batch_context,
+            parse_domain_task_contracts,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = self._domain_cases(tmp)
+            for domain, case in cases.items():
+                with self.subTest(domain=domain):
+                    record = {
+                        **case["record"],
+                        "final_answer_contains": "ungrounded_value_zzz",
+                    }
+                    with self.assertRaises(DomainGenerationValidationError) as raised:
+                        parse_domain_task_contracts(
+                            {"task_contracts": [record]},
+                            seed=case["seed"],
+                            spec=case["spec"],
+                            batch_context=build_generation_batch_context(
+                                case["spec"],
+                                batch_index=1,
+                            ),
+                            generation_lineage={},
+                        )
+                    self.assertEqual(raised.exception.reason, "invalid_final_answer")
+                    self.assertEqual(raised.exception.detail, "final_answer_not_grounded")
+
+    def test_grounded_values_pass(self) -> None:
+        from synthesis.domain_generation import (
+            build_generation_batch_context,
+            parse_domain_task_contracts,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = self._domain_cases(tmp)
+            for domain, case in cases.items():
+                for value in case["grounded_values"]:
+                    with self.subTest(domain=domain, value=value):
+                        record = {**case["record"], "final_answer_contains": value}
+                        contracts = parse_domain_task_contracts(
+                            {"task_contracts": [record]},
+                            seed=case["seed"],
+                            spec=case["spec"],
+                            batch_context=build_generation_batch_context(
+                                case["spec"],
+                                batch_index=1,
+                            ),
+                            generation_lineage={},
+                        )
+                        self.assertEqual(
+                            contracts[0].expected_outcome.final_answer_contains,
+                            value,
+                        )
+
+    def test_prompt_renders_grounded_rule_and_per_type_examples(self) -> None:
+        from synthesis.domain_generation import (
+            build_domain_generation_prompt,
+            build_generation_batch_context,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = self._domain_cases(tmp)
+            for domain, case in cases.items():
+                with self.subTest(domain=domain):
+                    spec = case["spec"]
+                    prompt = json.loads(
+                        build_domain_generation_prompt(
+                            spec,
+                            requested_candidate_count=1,
+                            batch_context=build_generation_batch_context(
+                                spec,
+                                batch_index=1,
+                            ),
+                        )
+                    )
+                    instructions = prompt["instructions"].lower()
+                    self.assertIn("copying the field name itself is forbidden", instructions)
+                    self.assertIn("substring copied from the observation value", instructions)
+                    focused = prompt["task_types"][0]
+                    self.assertEqual(
+                        focused["final_answer"]["example"],
+                        case["example"],
+                    )
+                    contract_block = prompt["output_contract"]["task_type_contracts"][0]
+                    self.assertEqual(
+                        contract_block["final_answer"]["example"],
+                        case["example"],
+                    )
+
+    def test_derived_types_render_no_example(self) -> None:
+        from synthesis.domain_generation import (
+            build_domain_generation_prompt,
+            build_generation_batch_context,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._domain_cases(tmp)["workspace_tasks_fixture"]
+            spec = case["spec"]
+            prompt = json.loads(
+                build_domain_generation_prompt(
+                    spec,
+                    requested_candidate_count=1,
+                    batch_context=build_generation_batch_context(spec, batch_index=2),
+                )
+            )
+            for block in prompt["task_types"]:
+                if block["task_type"] == "workspace_task_creation":
+                    self.assertNotIn("example", block["final_answer"])
+
+
+class ExpectedStateReferenceTest(unittest.TestCase):
+    def _mobile_bundle(self, tmp: str):
+        from synthesis.domain_pipeline import build_domain_pipeline_bundle
+        from synthesis.seeds import DomainSeed
+
+        seed = DomainSeed(
+            "seed_mobile_reference",
+            "mobile_messages_fixture",
+            "Mobile reference grounding.",
+            ("mobile_reminder_creation",),
+        )
+        return seed, build_domain_pipeline_bundle(seed, Path(tmp) / "mobile")
+
+    def _workspace_bundle(self, tmp: str):
+        from synthesis.domain_pipeline import build_domain_pipeline_bundle
+        from synthesis.seeds import DomainSeed
+
+        seed = DomainSeed(
+            "seed_workspace_reference",
+            "workspace_tasks_fixture",
+            "Workspace reference grounding.",
+            ("workspace_comment_update",),
+        )
+        return seed, build_domain_pipeline_bundle(seed, Path(tmp) / "workspace")
+
+    def _mobile_reminder_record(self, source_message_id: str) -> dict[str, object]:
+        return {
+            "candidate_id": "mobile_messages_b001_reminder",
+            "instruction": "Find Maya's project update and create a reminder.",
+            "task_type": "mobile_reminder_creation",
+            "difficulty": {"level": "medium", "tool_count": 2},
+            "required_capabilities": ["message_search", "reminder_creation"],
+            "required_tools": ["search_phone_messages", "create_phone_reminder"],
+            "primary_tool": "search_phone_messages",
+            "primary_arguments": {"query": "project update", "participant": "Maya"},
+            "final_answer_contains": "msg_maya_project_update",
+            "expected_state": [
+                {
+                    "check_type": "mobile_reminder",
+                    "expected": {
+                        "title": "Send the project update",
+                        "due_at": "tomorrow 9 AM",
+                        "source_message_id": source_message_id,
+                    },
+                }
+            ],
+        }
+
+    def _mobile_draft_record(self, thread_id: str) -> dict[str, object]:
+        return {
+            "candidate_id": "mobile_messages_b001_draft",
+            "instruction": "Find Alex's late message and draft a reply.",
+            "task_type": "mobile_draft_reply",
+            "difficulty": {"level": "medium", "tool_count": 2},
+            "required_capabilities": ["message_search", "draft_reply"],
+            "required_tools": ["search_phone_messages", "draft_message_reply"],
+            "primary_tool": "search_phone_messages",
+            "primary_arguments": {"query": "five minutes late", "participant": "Alex"},
+            "final_answer_contains": "I will be five minutes late.",
+            "expected_state": [
+                {
+                    "check_type": "mobile_draft_reply",
+                    "expected": {
+                        "thread_id": thread_id,
+                        "body": "I will be five minutes late.",
+                    },
+                }
+            ],
+        }
+
+    def _workspace_comment_record(self, task_id: str) -> dict[str, object]:
+        from synthesis.domain_generation import DERIVED_FINAL_ANSWER_SENTINEL
+
+        return {
+            "candidate_id": "workspace_tasks_b001_comment",
+            "instruction": "Find the launch plan task and add a comment.",
+            "task_type": "workspace_comment_update",
+            "difficulty": {"level": "medium", "tool_count": 2},
+            "required_capabilities": ["workspace_search", "workspace_comment_update"],
+            "required_tools": ["search_workspace_items", "add_workspace_comment"],
+            "primary_tool": "search_workspace_items",
+            "primary_arguments": {"query": "launch plan", "kind": "task"},
+            "final_answer_contains": DERIVED_FINAL_ANSWER_SENTINEL,
+            "expected_state": [
+                {
+                    "check_type": "workspace_comment",
+                    "expected": {
+                        "task_id": task_id,
+                        "comment": "Assign the checklist owner.",
+                    },
+                }
+            ],
+        }
+
+    def _parse(self, *, seed, spec, record):
+        from synthesis.domain_generation import (
+            build_generation_batch_context,
+            parse_domain_task_contracts,
+        )
+
+        return parse_domain_task_contracts(
+            {"task_contracts": [record]},
+            seed=seed,
+            spec=spec,
+            batch_context=build_generation_batch_context(spec, batch_index=1),
+            generation_lineage={},
+        )
+
+    def test_domain_specs_declare_reference_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            _, mobile = self._mobile_bundle(tmp)
+            _, workspace = self._workspace_bundle(tmp + "_ws")
+        mobile_refs = {
+            item.task_type: item.expected_state_reference_fields
+            for item in mobile.generation_spec.task_types
+        }
+        self.assertEqual(
+            mobile_refs,
+            {
+                "mobile_message_search": (),
+                "mobile_reminder_creation": (("source_message_id", "message_id"),),
+                "mobile_draft_reply": (("thread_id", "thread_id"),),
+            },
+        )
+        workspace_refs = {
+            item.task_type: item.expected_state_reference_fields
+            for item in workspace.generation_spec.task_types
+        }
+        self.assertEqual(
+            workspace_refs,
+            {
+                "workspace_item_search": (),
+                "workspace_task_creation": (),
+                "workspace_comment_update": (("task_id", "item_id"),),
+            },
+        )
+
+    def test_grounded_references_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            mobile_seed, mobile = self._mobile_bundle(tmp)
+            workspace_seed, workspace = self._workspace_bundle(tmp)
+        reminder = self._mobile_reminder_record("msg_maya_project_update")
+        draft = self._mobile_draft_record("thread_alex")
+        comment = self._workspace_comment_record("task_launch_plan")
+        self.assertEqual(
+            self._parse(
+                seed=mobile_seed, spec=mobile.generation_spec, record=reminder
+            )[0].intent.task_type,
+            "mobile_reminder_creation",
+        )
+        self.assertEqual(
+            self._parse(
+                seed=mobile_seed, spec=mobile.generation_spec, record=draft
+            )[0].intent.task_type,
+            "mobile_draft_reply",
+        )
+        contracts = self._parse(
+            seed=workspace_seed, spec=workspace.generation_spec, record=comment
+        )
+        self.assertEqual(
+            contracts[0].expected_outcome.final_answer_contains,
+            "comment_task_launch_plan_assign_the_checklist_owner",
+        )
+
+    def test_ungrounded_references_fail_with_fixed_detail(self) -> None:
+        from synthesis.domain_generation import DomainGenerationValidationError
+
+        with tempfile.TemporaryDirectory() as tmp:
+            mobile_seed, mobile = self._mobile_bundle(tmp)
+            workspace_seed, workspace = self._workspace_bundle(tmp)
+            cases = (
+                (mobile_seed, mobile.generation_spec, self._mobile_reminder_record("msg_invented")),
+                (mobile_seed, mobile.generation_spec, self._mobile_draft_record("thread_invented")),
+                (workspace_seed, workspace.generation_spec, self._workspace_comment_record("task_invented")),
+            )
+            for seed, spec, record in cases:
+                with self.subTest(record=record["task_type"]):
+                    with self.assertRaises(DomainGenerationValidationError) as raised:
+                        self._parse(seed=seed, spec=spec, record=record)
+                    self.assertEqual(raised.exception.reason, "invalid_expected_state")
+                    self.assertEqual(
+                        raised.exception.detail,
+                        "expected_state_reference_not_grounded",
+                    )
+
+    def test_undeclared_fields_remain_unchecked(self) -> None:
+        from synthesis.domain_generation import DERIVED_FINAL_ANSWER_SENTINEL
+
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace_seed, workspace = self._workspace_bundle(tmp)
+        record = {
+            "candidate_id": "workspace_tasks_b001_create",
+            "instruction": "Create a launch follow-up task.",
+            "task_type": "workspace_task_creation",
+            "difficulty": {"level": "medium", "tool_count": 2},
+            "required_capabilities": ["workspace_search", "workspace_task_creation"],
+            "required_tools": ["search_workspace_items", "create_workspace_task"],
+            "primary_tool": "search_workspace_items",
+            "primary_arguments": {"query": "Alpha Launch", "kind": "project"},
+            "final_answer_contains": DERIVED_FINAL_ANSWER_SENTINEL,
+            "expected_state": [
+                {
+                    "check_type": "workspace_task",
+                    "expected": {
+                        "project_id": "project_not_in_grounding",
+                        "title": "Prepare launch checklist",
+                        "priority": "high",
+                        "due_label": "this_week",
+                    },
+                }
+            ],
+        }
+        contracts = self._parse(
+            seed=workspace_seed, spec=workspace.generation_spec, record=record
+        )
+        self.assertEqual(
+            contracts[0].expected_outcome.final_answer_contains,
+            "task_prepare_launch_checklist",
+        )
+
+    def test_reference_fields_are_validated_against_spec_contract(self) -> None:
+        from synthesis.domain_generation import (
+            DomainGenerationSpec,
+            DomainTaskTypeSpec,
+            validate_domain_generation_spec,
+        )
+
+        tools = (
+            {
+                "name": "search_items",
+                "version": "tool_search_items_v1",
+                "schema": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                    "additionalProperties": False,
+                },
+                "side_effects": "read_only",
+            },
+            {
+                "name": "mutate_item",
+                "version": "tool_mutate_item_v1",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "note": {"type": "string"},
+                    },
+                    "required": ["title"],
+                    "additionalProperties": False,
+                },
+                "side_effects": "state_mutating",
+            },
+        )
+
+        def spec_with(task_type: DomainTaskTypeSpec) -> DomainGenerationSpec:
+            return DomainGenerationSpec(
+                schema_version="domain_generation_spec_v1",
+                domain_id="workspace_tasks_fixture",
+                task_types=(task_type,),
+                tools=tools,
+                grounding_context={
+                    "items": [
+                        {
+                            "primary_arguments": {"query": "alpha"},
+                            "observation": {"item_id": "item_alpha"},
+                        }
+                    ]
+                },
+                context_policy="synthetic_fixture",
+                max_candidates_per_call=5,
+            )
+
+        base = {
+            "task_type": "custom_mutation",
+            "required_tools": ("search_items", "mutate_item"),
+            "allowed_expected_state_checks": ("workspace_task",),
+            "required_capabilities": ("custom_mutation",),
+            "expected_state_tool": "mutate_item",
+            "final_answer_source": "state_tool_observation",
+            "final_answer_fields": ("item_id",),
+            "final_answer_derivation": "item_{title|stable_id}",
+        }
+        invalid_specs = (
+            spec_with(
+                DomainTaskTypeSpec(
+                    task_type="read_only_refs",
+                    required_tools=("search_items",),
+                    required_capabilities=("custom_mutation",),
+                    final_answer_fields=("item_id",),
+                    expected_state_reference_fields=(("title", "item_id"),),
+                )
+            ),
+            spec_with(
+                DomainTaskTypeSpec(
+                    **base,
+                    expected_state_reference_fields=(("unknown_field", "item_id"),),
+                )
+            ),
+            spec_with(
+                DomainTaskTypeSpec(
+                    **base,
+                    expected_state_reference_fields=(("not a field", "item_id"),),
+                )
+            ),
+            spec_with(
+                DomainTaskTypeSpec(
+                    **base,
+                    expected_state_reference_fields=(
+                        ("title", "item_id"),
+                        ("title", "item_id"),
+                    ),
+                )
+            ),
+        )
+        for spec in invalid_specs:
+            with self.subTest(spec=spec), self.assertRaises(ValueError):
+                validate_domain_generation_spec(spec)
+
+    def test_prompt_renders_reference_contract(self) -> None:
+        from synthesis.domain_generation import (
+            build_domain_generation_prompt,
+            build_generation_batch_context,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _, mobile = self._mobile_bundle(tmp)
+        spec = mobile.generation_spec
+        prompt = json.loads(
+            build_domain_generation_prompt(
+                spec,
+                requested_candidate_count=1,
+                batch_context=build_generation_batch_context(spec, batch_index=2),
+            )
+        )
+        self.assertIn("reference", prompt["instructions"].lower())
+        reminder = next(
+            item
+            for item in prompt["output_contract"]["task_type_contracts"]
+            if item["task_type"] == "mobile_reminder_creation"
+        )
+        self.assertEqual(
+            reminder["expected_state"]["reference_fields"],
+            {"source_message_id": "message_id"},
+        )
+
+
+class ContactsFixtureWindowTest(unittest.TestCase):
+    def test_contacts_grounding_window_rotates_across_six_entries(self) -> None:
+        from synthesis.domain_generation import (
+            build_domain_generation_prompt,
+            build_generation_batch_context,
+        )
+        from synthesis.domain_pipeline import build_domain_pipeline_bundle
+        from synthesis.seeds import foundation_seed
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = build_domain_pipeline_bundle(foundation_seed(), Path(tmp))
+        spec = bundle.generation_spec
+        full_entries = next(iter(spec.grounding_context.values()))
+        self.assertEqual(len(full_entries), 6)
+        self.assertEqual(spec.grounding_window_size, 2)
+        windows = []
+        for batch_index in (1, 2, 3, 4):
+            prompt = json.loads(
+                build_domain_generation_prompt(
+                    spec,
+                    requested_candidate_count=1,
+                    batch_context=build_generation_batch_context(
+                        spec,
+                        batch_index=batch_index,
+                    ),
+                )
+            )
+            windows.append(
+                [
+                    entry["observation"]["email"]
+                    for entry in next(iter(prompt["grounding_context"].values()))
+                ]
+            )
+        self.assertEqual(
+            windows,
+            [
+                ["alice.zhang@example.test", "ben.carter@example.test"],
+                ["carla.diaz@example.test", "david.kim@example.test"],
+                ["elena.petrova@example.test", "frank.osei@example.test"],
+                ["alice.zhang@example.test", "ben.carter@example.test"],
+            ],
+        )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import time
 from dataclasses import dataclass, field
@@ -14,6 +15,7 @@ import httpx
 LLM_BASE_URL_ENV = "AGENT_DATA_LLM_BASE_URL"
 LLM_API_KEY_ENV = "AGENT_DATA_API_KEY"
 LLM_MODEL_ENV = "AGENT_DATA_LLM_MODEL"
+LLM_TEMPERATURE_ENV = "AGENT_DATA_LLM_TEMPERATURE"
 REQUIRED_LLM_ENV_MESSAGE = (
     f"{LLM_BASE_URL_ENV}, {LLM_API_KEY_ENV}, and {LLM_MODEL_ENV} "
     "are required for remote generation"
@@ -25,6 +27,7 @@ class LLMConfig:
     base_url: str | None
     api_key: str | None = field(default=None, repr=False)
     model: str | None = None
+    temperature: float | None = None
 
     @classmethod
     def from_env(cls) -> "LLMConfig":
@@ -32,7 +35,12 @@ class LLMConfig:
             base_url=os.environ.get(LLM_BASE_URL_ENV),
             api_key=os.environ.get(LLM_API_KEY_ENV),
             model=os.environ.get(LLM_MODEL_ENV),
+            temperature=_temperature_from_env(os.environ.get(LLM_TEMPERATURE_ENV)),
         )
+
+    @property
+    def effective_temperature(self) -> float:
+        return self.temperature if self.temperature is not None else 0.0
 
     @property
     def provider_host(self) -> str:
@@ -64,7 +72,24 @@ class LLMConfig:
             "model": self.model or "unconfigured",
             "config_hash": config_hash,
             "configured": self.configured,
+            "temperature": self.effective_temperature,
         }
+
+
+def _temperature_from_env(raw: str | None) -> float | None:
+    if raw is None or not raw.strip():
+        return None
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise LLMConfigurationError(
+            f"{LLM_TEMPERATURE_ENV} must be a finite float in [0.0, 1.0]"
+        ) from exc
+    if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+        raise LLMConfigurationError(
+            f"{LLM_TEMPERATURE_ENV} must be a finite float in [0.0, 1.0]"
+        )
+    return value
 
 
 @dataclass(frozen=True)
@@ -136,7 +161,7 @@ class OpenAICompatibleClient:
                                 "content": prompt,
                             },
                         ],
-                        "temperature": 0,
+                        "temperature": self.config.effective_temperature,
                         "response_format": {"type": "json_object"},
                     },
                 )
