@@ -222,7 +222,7 @@ class RunProfileTest(unittest.TestCase):
         from synthesis.run_profiles import RunProfileValidationError, load_run_profile
 
         with tempfile.TemporaryDirectory() as tmp:
-            path = self._write_profile(Path(tmp), overrides={"schema_version": "run_profile_v4"})
+            path = self._write_profile(Path(tmp), overrides={"schema_version": "run_profile_v5"})
 
             with self.assertRaisesRegex(RunProfileValidationError, "schema_version"):
                 load_run_profile(path)
@@ -256,6 +256,91 @@ class RunProfileTest(unittest.TestCase):
                 load_run_profile(path).config_hash,
                 expected["foundation-fixture.json"],
             )
+
+    def test_v4_selects_disabled_or_shadow_mutation_admission(self) -> None:
+        base = {
+            "schema_version": "run_profile_v4",
+            "profile_id": "workspace_comment_shadow_test",
+            "dataset_version": "dataset_workspace_comment_shadow_test",
+            "profile_purpose": "diagnostic_probe",
+            "seed": {
+                "seed_id": "seed_workspace_comment_shadow_test",
+                "domain": "workspace_tasks_fixture",
+                "description": "Exercise workspace comment admission.",
+                "task_taxonomy": ["workspace_comment_update"],
+            },
+            "generation": {"mode": "workspace_fixture"},
+            "features": {},
+        }
+
+        disabled = self._load_mapping(
+            {**base, "mutation_admission": {"mode": "disabled"}}
+        )
+        shadow = self._load_mapping(
+            {**base, "mutation_admission": {"mode": "shadow"}}
+        )
+
+        self.assertEqual(disabled.mutation_admission.mode, "disabled")
+        self.assertEqual(shadow.mutation_admission.mode, "shadow")
+        self.assertEqual(
+            shadow.sanitized_metadata()["mutation_admission"],
+            {"mode": "shadow"},
+        )
+        self.assertNotEqual(disabled.config_hash, shadow.config_hash)
+
+    def test_older_profiles_normalize_to_disabled_without_changing_hashes(self) -> None:
+        profile = self._load_mapping(
+            {
+                "schema_version": "run_profile_v1",
+                "profile_id": "legacy_disabled_test",
+                "dataset_version": "dataset_legacy_disabled_test",
+                "seed": {
+                    "seed_id": "seed_legacy_disabled_test",
+                    "domain": "contacts",
+                    "description": "Legacy profile behavior.",
+                    "task_taxonomy": ["contact_lookup"],
+                },
+                "generation": {"mode": "foundation_fixture"},
+                "features": {},
+            }
+        )
+
+        self.assertEqual(profile.mutation_admission.mode, "disabled")
+        self.assertNotIn("mutation_admission", profile.canonical())
+        self.assertNotIn("mutation_admission", profile.sanitized_metadata())
+
+    def test_mutation_admission_is_versioned_and_rejects_unknown_configuration(self) -> None:
+        base = {
+            "schema_version": "run_profile_v4",
+            "profile_id": "workspace_comment_admission_validation",
+            "dataset_version": "dataset_workspace_comment_admission_validation",
+            "profile_purpose": "diagnostic_probe",
+            "seed": {
+                "seed_id": "seed_workspace_comment_admission_validation",
+                "domain": "workspace_tasks_fixture",
+                "description": "Validate admission configuration.",
+                "task_taxonomy": ["workspace_comment_update"],
+            },
+            "generation": {"mode": "workspace_fixture"},
+            "features": {},
+        }
+
+        for mutation_admission in (
+            None,
+            {"mode": "enforce"},
+            {"mode": "shadow", "extra": True},
+        ):
+            with self.subTest(mutation_admission=mutation_admission), self.assertRaises(Exception):
+                mapping = dict(base)
+                if mutation_admission is not None:
+                    mapping["mutation_admission"] = mutation_admission
+                self._load_mapping(mapping)
+
+        legacy = dict(base)
+        legacy["schema_version"] = "run_profile_v1"
+        legacy["mutation_admission"] = {"mode": "shadow"}
+        with self.assertRaises(Exception):
+            self._load_mapping(legacy)
 
     def test_v3_llm_requires_target_and_synthetic_context_policy(self) -> None:
         base = {

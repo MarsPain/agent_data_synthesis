@@ -403,6 +403,8 @@ def validate_candidate_task(task: object) -> "CandidateTask":
         _require_mapping(task.expected_state, "expected_state")
     if task.branch_plan is not None:
         validate_branch_plan_record(task.branch_plan)
+    if task.mutation_authorization is not None:
+        _require_mapping(task.mutation_authorization, "mutation_authorization")
     if not task.seed_ids:
         raise ContractValidationError("seed_ids must contain at least one seed id")
     for index, seed_id in enumerate(task.seed_ids):
@@ -423,6 +425,22 @@ def validate_sample_record(record: Mapping[str, Any]) -> None:
     _validate_verification(record.get("verification"))
     _validate_quality(record.get("quality"))
     _validate_lineage(record.get("lineage"))
+    sample_schema_version = record.get("schema_version")
+    if sample_schema_version is not None and sample_schema_version != "dataset_sample_v2":
+        raise ContractValidationError("sample schema_version is unsupported")
+    if "mutation_admission" in record:
+        if sample_schema_version != "dataset_sample_v2":
+            raise ContractValidationError(
+                "mutation_admission requires dataset_sample_v2"
+            )
+        from synthesis.mutation_admission import validate_mutation_admission_evidence
+
+        try:
+            validate_mutation_admission_evidence(record.get("mutation_admission"))
+        except ValueError as exc:
+            raise ContractValidationError(str(exc)) from exc
+    elif sample_schema_version == "dataset_sample_v2":
+        raise ContractValidationError("dataset_sample_v2 requires mutation_admission")
 
 
 def validate_rejection_record(record: Mapping[str, Any]) -> None:
@@ -467,6 +485,13 @@ def validate_rejection_record(record: Mapping[str, Any]) -> None:
             details.get("run_profile"),
             "details.run_profile",
         )
+    if "mutation_admission" in details:
+        from synthesis.mutation_admission import validate_mutation_admission_evidence
+
+        try:
+            validate_mutation_admission_evidence(details.get("mutation_admission"))
+        except ValueError as exc:
+            raise ContractValidationError(str(exc)) from exc
 
 
 def validate_manifest_record(record: Mapping[str, Any]) -> None:
@@ -494,6 +519,16 @@ def validate_manifest_record(record: Mapping[str, Any]) -> None:
         )
     if "run_profile" in record:
         _validate_run_profile_metadata(record.get("run_profile"))
+    if "sample_contract_versions" in record:
+        versions = _require_non_empty_string_sequence(
+            record.get("sample_contract_versions"),
+            "sample_contract_versions",
+        )
+        if any(
+            version not in {"dataset_sample_v1", "dataset_sample_v2"}
+            for version in versions
+        ):
+            raise ContractValidationError("sample_contract_versions is unsupported")
 
 
 def validate_runtime_metadata_record(record: Mapping[str, Any]) -> None:
@@ -3570,6 +3605,7 @@ def _validate_run_profile_metadata(raw: object) -> None:
         "seed",
         "source",
         "generation_contract",
+        "mutation_admission",
     }
     unexpected = sorted(str(key) for key in profile if key not in allowed_keys)
     if unexpected:
@@ -3580,7 +3616,12 @@ def _validate_run_profile_metadata(raw: object) -> None:
         profile.get("schema_version"),
         "run_profile.schema_version",
     )
-    if schema_version not in {"run_profile_v1", "run_profile_v2", "run_profile_v3"}:
+    if schema_version not in {
+        "run_profile_v1",
+        "run_profile_v2",
+        "run_profile_v3",
+        "run_profile_v4",
+    }:
         raise ContractValidationError("run_profile.schema_version is unsupported")
     _require_non_empty_string(profile.get("profile_id"), "run_profile.profile_id")
     mode = _require_non_empty_string(
@@ -3634,6 +3675,15 @@ def _validate_run_profile_metadata(raw: object) -> None:
             raise ContractValidationError("run_profile.generation_contract requires benchmark purpose")
         if target_count != contract.get("target_candidate_count"):
             raise ContractValidationError("run_profile target and generation contract target mismatch")
+    if "mutation_admission" in profile:
+        if schema_version != "run_profile_v4":
+            raise ContractValidationError(
+                "run_profile.mutation_admission requires run_profile_v4"
+            )
+        _validate_mutation_admission_profile_section(
+            profile.get("mutation_admission"),
+            "run_profile.mutation_admission",
+        )
 
 
 def validate_generation_contract_record(raw: object) -> None:
@@ -3735,6 +3785,7 @@ def _validate_run_profile_attribution(raw: object, path: str) -> None:
         "profile_purpose",
         "config_hash",
         "source",
+        "mutation_admission",
     }
     unexpected = sorted(str(key) for key in attribution if key not in allowed_keys)
     if unexpected:
@@ -3751,7 +3802,12 @@ def _validate_run_profile_attribution(raw: object, path: str) -> None:
         attribution.get("profile_schema_version"),
         f"{path}.profile_schema_version",
     )
-    if profile_schema_version not in {"run_profile_v1", "run_profile_v2", "run_profile_v3"}:
+    if profile_schema_version not in {
+        "run_profile_v1",
+        "run_profile_v2",
+        "run_profile_v3",
+        "run_profile_v4",
+    }:
         raise ContractValidationError(f"{path}.profile_schema_version is unsupported")
     _require_non_empty_string(attribution.get("profile_id"), f"{path}.profile_id")
     mode = _require_non_empty_string(
@@ -3771,6 +3827,24 @@ def _validate_run_profile_attribution(raw: object, path: str) -> None:
             attribution.get("source"),
             f"{path}.source",
         )
+    if "mutation_admission" in attribution:
+        if profile_schema_version != "run_profile_v4":
+            raise ContractValidationError(
+                f"{path}.mutation_admission requires run_profile_v4"
+            )
+        _validate_mutation_admission_profile_section(
+            attribution.get("mutation_admission"),
+            f"{path}.mutation_admission",
+        )
+
+
+def _validate_mutation_admission_profile_section(raw: object, path: str) -> None:
+    section = _require_mapping(raw, path)
+    if set(section) != {"mode"}:
+        raise ContractValidationError(f"{path} must contain only mode")
+    mode = _require_non_empty_string(section.get("mode"), f"{path}.mode")
+    if mode not in {"disabled", "shadow"}:
+        raise ContractValidationError(f"{path}.mode is unsupported")
 
 
 def _validate_run_profile_source_attribution(raw: object, path: str) -> None:
@@ -3855,7 +3929,12 @@ def _validate_profile_decision_profile(raw: object) -> None:
             f"profile contains unsupported keys: {', '.join(unexpected)}"
         )
     schema_version = _require_non_empty_string(profile.get("schema_version"), "profile.schema_version")
-    if schema_version not in {"run_profile_v1", "run_profile_v2", "run_profile_v3"}:
+    if schema_version not in {
+        "run_profile_v1",
+        "run_profile_v2",
+        "run_profile_v3",
+        "run_profile_v4",
+    }:
         raise ContractValidationError("profile.schema_version is unsupported")
     _require_non_empty_string(profile.get("profile_id"), "profile.profile_id")
     mode = _require_non_empty_string(profile.get("generation_mode"), "profile.generation_mode")

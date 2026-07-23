@@ -89,7 +89,10 @@ def parse_args() -> argparse.Namespace:
         "--run-profile",
         type=Path,
         default=None,
-        help="Validated run_profile_v1, run_profile_v2, or run_profile_v3 JSON file.",
+        help=(
+            "Validated run_profile_v1, run_profile_v2, run_profile_v3, "
+            "or run_profile_v4 JSON file."
+        ),
     )
     parser.add_argument(
         "--dataset-version",

@@ -372,7 +372,7 @@ def _run_candidate_attempt(
                 policy=None,
                 capability_gap=None,
             )
-    context.admission_evaluator(task_contract, policy)
+    mutation_admission = context.admission_evaluator(task_contract, policy)
     try:
         execution = execute_candidate(
             task,
@@ -384,12 +384,15 @@ def _run_candidate_attempt(
         adapter_rejection = _adapter_rejection_record(exc)
         return _CandidateAttemptResult(
             sample=None,
-            rejection=assemble_execution_rejection(
-                task=task,
-                error=exc,
-                cause="adapter_contract_rejected",
-                policy=policy,
-                adapter_rejection=adapter_rejection,
+            rejection=_rejection_with_mutation_admission(
+                assemble_execution_rejection(
+                    task=task,
+                    error=exc,
+                    cause="adapter_contract_rejected",
+                    policy=policy,
+                    adapter_rejection=adapter_rejection,
+                ),
+                mutation_admission,
             ),
             signature=None,
             policy=policy,
@@ -405,12 +408,15 @@ def _run_candidate_attempt(
         )
         return _CandidateAttemptResult(
             sample=None,
-            rejection=assemble_execution_rejection(
-                task=task,
-                error=exc,
-                cause="tool_missing",
-                policy=policy,
-                capability_gap=gap.export(),
+            rejection=_rejection_with_mutation_admission(
+                assemble_execution_rejection(
+                    task=task,
+                    error=exc,
+                    cause="tool_missing",
+                    policy=policy,
+                    capability_gap=gap.export(),
+                ),
+                mutation_admission,
             ),
             signature=None,
             policy=policy,
@@ -426,12 +432,15 @@ def _run_candidate_attempt(
         )
         return _CandidateAttemptResult(
             sample=None,
-            rejection=assemble_execution_rejection(
-                task=task,
-                error=exc,
-                cause="tool_schema_error",
-                policy=policy,
-                capability_gap=gap.export(),
+            rejection=_rejection_with_mutation_admission(
+                assemble_execution_rejection(
+                    task=task,
+                    error=exc,
+                    cause="tool_schema_error",
+                    policy=policy,
+                    capability_gap=gap.export(),
+                ),
+                mutation_admission,
             ),
             signature=None,
             policy=policy,
@@ -440,11 +449,14 @@ def _run_candidate_attempt(
     except PolicyValidationError as exc:
         return _CandidateAttemptResult(
             sample=None,
-            rejection=assemble_execution_rejection(
-                task=task,
-                error=exc,
-                cause="tool_schema_error",
-                policy=policy,
+            rejection=_rejection_with_mutation_admission(
+                assemble_execution_rejection(
+                    task=task,
+                    error=exc,
+                    cause="tool_schema_error",
+                    policy=policy,
+                ),
+                mutation_admission,
             ),
             signature=None,
             policy=policy,
@@ -453,12 +465,15 @@ def _run_candidate_attempt(
     except BranchExecutionError as exc:
         return _CandidateAttemptResult(
             sample=None,
-            rejection=assemble_execution_rejection(
-                task=task,
-                error=exc,
-                cause="solution_logic_error",
-                policy=policy,
-                branch_outcomes=exc.branch_outcomes,
+            rejection=_rejection_with_mutation_admission(
+                assemble_execution_rejection(
+                    task=task,
+                    error=exc,
+                    cause="solution_logic_error",
+                    policy=policy,
+                    branch_outcomes=exc.branch_outcomes,
+                ),
+                mutation_admission,
             ),
             signature=None,
             policy=policy,
@@ -467,7 +482,10 @@ def _run_candidate_attempt(
     except Exception as exc:
         return _CandidateAttemptResult(
             sample=None,
-            rejection=assemble_execution_rejection(task=task, error=exc, policy=policy),
+            rejection=_rejection_with_mutation_admission(
+                assemble_execution_rejection(task=task, error=exc, policy=policy),
+                mutation_admission,
+            ),
             signature=None,
             policy=policy,
             capability_gap=None,
@@ -482,7 +500,10 @@ def _run_candidate_attempt(
         failure_cause = _verification_failure_cause(verification.export())
         return _CandidateAttemptResult(
             sample=None,
-            rejection=assemble_rejection(task=task, verification=verification, policy=policy),
+            rejection=_rejection_with_mutation_admission(
+                assemble_rejection(task=task, verification=verification, policy=policy),
+                mutation_admission,
+            ),
             signature=None,
             policy=policy,
             capability_gap=None,
@@ -506,6 +527,7 @@ def _run_candidate_attempt(
         llm_config=context.llm_config,
         refinement_attempt=refinement_attempt,
         tool_expansion=tool_expansion,
+        mutation_admission=mutation_admission,
     )
     signature = candidate_duplicate_signature(
         instruction=task.instruction,
@@ -514,11 +536,14 @@ def _run_candidate_attempt(
     if not final_answer_is_logically_supported(sample):
         return _CandidateAttemptResult(
             sample=None,
-            rejection=assemble_quality_gate_rejection(
-                task=task,
-                cause="solution_logic_error",
-                message="Final answer is not supported by observations and verifier expectation.",
-                policy=policy,
+            rejection=_rejection_with_mutation_admission(
+                assemble_quality_gate_rejection(
+                    task=task,
+                    cause="solution_logic_error",
+                    message="Final answer is not supported by observations and verifier expectation.",
+                    policy=policy,
+                ),
+                mutation_admission,
             ),
             signature=None,
             policy=policy,
@@ -547,6 +572,20 @@ def _run_candidate_attempt(
             failure_cause=None,
         ),
     )
+
+
+def _rejection_with_mutation_admission(
+    rejection: dict[str, object],
+    mutation_admission: dict[str, object] | None,
+) -> dict[str, object]:
+    if mutation_admission is None:
+        return rejection
+    retained = dict(rejection)
+    raw_details = retained.get("details")
+    details = dict(raw_details) if isinstance(raw_details, dict) else {}
+    details["mutation_admission"] = dict(mutation_admission)
+    retained["details"] = details
+    return retained
 
 
 def _build_attempt_episode_log(
@@ -817,6 +856,9 @@ def _duplicate_rejection_from_outcome(
         refinement = _refinement_rejection_metadata_from_sample_lineage(lineage)
         if refinement:
             details["refinement"] = refinement
+    mutation_admission = sample.get("mutation_admission")
+    if isinstance(mutation_admission, dict):
+        details["mutation_admission"] = dict(mutation_admission)
     return {
         "candidate_id": outcome.candidate_id,
         "cause": "quality_duplicate",

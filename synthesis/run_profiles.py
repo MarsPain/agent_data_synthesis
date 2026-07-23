@@ -11,7 +11,12 @@ from synthesis.seeds import DomainSeed
 
 
 RUN_PROFILE_SCHEMA_VERSION = "run_profile_v1"
-RUN_PROFILE_SCHEMA_VERSIONS = {"run_profile_v1", "run_profile_v2", "run_profile_v3"}
+RUN_PROFILE_SCHEMA_VERSIONS = {
+    "run_profile_v1",
+    "run_profile_v2",
+    "run_profile_v3",
+    "run_profile_v4",
+}
 GENERATION_CONTEXT_POLICIES = {"synthetic_fixture"}
 GENERATION_MODES = {
     "foundation_fixture",
@@ -28,6 +33,7 @@ SOURCE_KINDS = {
 }
 SOURCE_KEYS = {"kind", "source_id", "path", "license_label", "max_bytes"}
 DEFAULT_SOURCE_MAX_BYTES = 65536
+MUTATION_ADMISSION_MODES = {"disabled", "shadow"}
 FEATURE_KEYS = (
     "enable_branching",
     "enable_task_expansion",
@@ -49,7 +55,7 @@ class RunProfileGeneration:
     context_policy: str | None = None
 
     def canonical(self) -> dict[str, object]:
-        canonical = {
+        canonical: dict[str, object] = {
             "mode": self.mode,
             "target_candidate_count": self.target_candidate_count,
         }
@@ -94,6 +100,14 @@ class RunProfileSource:
 
 
 @dataclass(frozen=True)
+class RunProfileMutationAdmission:
+    mode: str = "disabled"
+
+    def canonical(self) -> dict[str, object]:
+        return {"mode": self.mode}
+
+
+@dataclass(frozen=True)
 class RunProfile:
     schema_version: str
     profile_id: str
@@ -104,6 +118,7 @@ class RunProfile:
     features: RunProfileFeatures
     config_hash: str
     source: RunProfileSource | None = None
+    mutation_admission: RunProfileMutationAdmission = RunProfileMutationAdmission()
 
     def sanitized_metadata(
         self,
@@ -122,6 +137,8 @@ class RunProfile:
         }
         if source_summary is not None:
             metadata["source"] = dict(source_summary)
+        if self.schema_version == "run_profile_v4":
+            metadata["mutation_admission"] = self.mutation_admission.canonical()
         return metadata
 
     def canonical(self) -> dict[str, object]:
@@ -134,6 +151,7 @@ class RunProfile:
             generation=self.generation,
             features=self.features,
             source=self.source,
+            mutation_admission=self.mutation_admission,
         )
 
 
@@ -163,6 +181,10 @@ def load_run_profile(path: Path) -> RunProfile:
     )
     features = _load_features(raw.get("features", {}))
     source = _load_source(raw.get("source"), schema_version=schema_version, profile_path=path)
+    mutation_admission = _load_mutation_admission(
+        raw.get("mutation_admission"),
+        schema_version=schema_version,
+    )
     _validate_generation_compatibility(
         schema_version=schema_version,
         profile_purpose=profile_purpose,
@@ -179,6 +201,7 @@ def load_run_profile(path: Path) -> RunProfile:
         generation=generation,
         features=features,
         source=source,
+        mutation_admission=mutation_admission,
     )
     return RunProfile(
         schema_version=schema_version,
@@ -190,7 +213,42 @@ def load_run_profile(path: Path) -> RunProfile:
         features=features,
         config_hash=_config_hash(canonical),
         source=source,
+        mutation_admission=mutation_admission,
     )
+
+
+def _load_mutation_admission(
+    raw_mutation_admission: object,
+    *,
+    schema_version: str,
+) -> RunProfileMutationAdmission:
+    if schema_version != "run_profile_v4":
+        if raw_mutation_admission is not None:
+            raise RunProfileValidationError(
+                "mutation_admission is only supported for run_profile_v4"
+            )
+        return RunProfileMutationAdmission()
+    if raw_mutation_admission is None:
+        raise RunProfileValidationError(
+            "mutation_admission is required for run_profile_v4"
+        )
+    mutation_admission = _require_mapping(
+        raw_mutation_admission,
+        "mutation_admission",
+    )
+    unknown_keys = sorted(
+        str(key) for key in mutation_admission if key not in {"mode"}
+    )
+    if unknown_keys:
+        raise RunProfileValidationError(
+            f"unsupported mutation_admission keys: {', '.join(unknown_keys)}"
+        )
+    mode = _require_string(mutation_admission.get("mode"), "mutation_admission.mode")
+    if mode not in MUTATION_ADMISSION_MODES:
+        raise RunProfileValidationError(
+            f"mutation_admission.mode must be one of {sorted(MUTATION_ADMISSION_MODES)}"
+        )
+    return RunProfileMutationAdmission(mode=mode)
 
 
 def _load_seed(raw_seed: object) -> DomainSeed:
@@ -407,6 +465,7 @@ def _canonical_profile_mapping(
     generation: RunProfileGeneration,
     features: RunProfileFeatures,
     source: RunProfileSource | None = None,
+    mutation_admission: RunProfileMutationAdmission = RunProfileMutationAdmission(),
 ) -> dict[str, object]:
     canonical: dict[str, object] = {
         "schema_version": schema_version,
@@ -424,6 +483,8 @@ def _canonical_profile_mapping(
     }
     if source is not None:
         canonical["source"] = source.canonical()
+    if schema_version == "run_profile_v4":
+        canonical["mutation_admission"] = mutation_admission.canonical()
     return canonical
 
 

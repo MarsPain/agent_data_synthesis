@@ -239,10 +239,11 @@ def assemble_sample(
     llm_config: LLMConfig,
     refinement_attempt: RefinementAttempt | None = None,
     tool_expansion: dict[str, object] | None = None,
+    mutation_admission: dict[str, object] | None = None,
 ) -> dict[str, object]:
     action_count = sum(1 for event in execution.trajectory if event.get("type") == "action")
     stateful = any(event.get("type") == "state_change" for event in execution.trajectory)
-    lineage = {
+    lineage: dict[str, object] = {
         "seed_ids": list(task.seed_ids),
         "generator": task.generation_lineage or local_task_generation_lineage(),
         "verifier": {
@@ -280,7 +281,7 @@ def assemble_sample(
     if environment.source_provenance is not None:
         environment_record["source_provenance"] = dict(environment.source_provenance)
 
-    return {
+    sample: dict[str, object] = {
         "sample_id": f"sample_{task.candidate_id}",
         "dataset_version": dataset_version,
         "environment": environment_record,
@@ -313,6 +314,10 @@ def assemble_sample(
         },
         "lineage": lineage,
     }
+    if mutation_admission is not None:
+        sample["schema_version"] = "dataset_sample_v2"
+        sample["mutation_admission"] = dict(mutation_admission)
+    return sample
 
 
 def assemble_rejection(
@@ -682,6 +687,12 @@ def write_dataset_artifacts(
         manifest["run_profile"] = dict(run_profile_metadata)
     if source_policy_hashes:
         manifest["source_policy_hashes"] = source_policy_hashes
+    sample_contract_versions = _unique_values(
+        str(sample.get("schema_version", "dataset_sample_v1"))
+        for sample in samples
+    )
+    if "dataset_sample_v2" in sample_contract_versions:
+        manifest["sample_contract_versions"] = sample_contract_versions
     validate_manifest_record(manifest)
     manifest_path.write_text(
         serialize_dataset_manifest(manifest),
@@ -716,6 +727,11 @@ def _run_profile_attribution(
         "generation_mode": run_profile_metadata.get("generation_mode"),
         "config_hash": run_profile_metadata.get("config_hash"),
     }
+    mutation_admission = run_profile_metadata.get("mutation_admission")
+    if isinstance(mutation_admission, Mapping):
+        attribution["mutation_admission"] = {
+            "mode": mutation_admission.get("mode"),
+        }
     if "profile_purpose" in run_profile_metadata:
         attribution["profile_purpose"] = run_profile_metadata["profile_purpose"]
     source = run_profile_metadata.get("source")
@@ -769,6 +785,9 @@ def _copy_run_profile_attribution(attribution: Mapping[str, object]) -> dict[str
     source = copied.get("source")
     if isinstance(source, Mapping):
         copied["source"] = dict(source)
+    mutation_admission = copied.get("mutation_admission")
+    if isinstance(mutation_admission, Mapping):
+        copied["mutation_admission"] = dict(mutation_admission)
     return copied
 
 

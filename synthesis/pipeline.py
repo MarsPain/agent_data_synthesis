@@ -39,6 +39,7 @@ from synthesis.domain_generation import (
 from synthesis.llm import LLMConfig, LLMProviderError, OpenAICompatibleClient
 from synthesis.mutation_admission import (
     CandidateAdmissionEvaluator,
+    build_local_candidate_admission_evaluator,
     permit_candidate_execution,
 )
 from synthesis.refinement import Refiner, RefinementAttempt, RefinementContext
@@ -347,6 +348,24 @@ def run_foundation_pipeline(
         generate_candidates = candidate_generator
     generate_task_expansion = task_expansion_generator or generate_deterministic_task_expansion
     generate_policy = policy_generator or domain_bundle.policy_generator
+    selected_admission_evaluator = admission_evaluator
+    if (
+        admission_evaluator is permit_candidate_execution
+        and getattr(run_profile, "schema_version", None) == "run_profile_v4"
+    ):
+        mutation_admission = getattr(run_profile, "mutation_admission", None)
+        mode = getattr(mutation_admission, "mode", "disabled")
+        state_changing_tools = tuple(
+            str(tool["name"])
+            for tool in registry.export()
+            if tool.get("side_effects") == "state_mutating"
+        )
+        selected_admission_evaluator = build_local_candidate_admission_evaluator(
+            mode=mode,
+            policies=domain_bundle.mutation_policies,
+            state_changing_tools=state_changing_tools,
+            judge=domain_bundle.mutation_judge,
+        )
     candidate_context = CandidateProcessingContext(
         dataset_version=dataset_version,
         environment=environment,
@@ -355,7 +374,7 @@ def run_foundation_pipeline(
         verifier=verifier,
         llm_config=llm_config,
         generate_policy=generate_policy,
-        admission_evaluator=admission_evaluator,
+        admission_evaluator=selected_admission_evaluator,
     )
     candidate_options = CandidateProcessingOptions(
         route_reviewable_failures=route_reviewable_failures,

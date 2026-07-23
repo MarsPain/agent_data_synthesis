@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 import tempfile
 from pathlib import Path
@@ -111,6 +112,55 @@ class WorkspacePipelineTest(unittest.TestCase):
 
         self.assertIn("workspace_task", check_types)
         self.assertIn("workspace_comment", check_types)
+
+    def test_workspace_comment_proposes_versioned_authorization_and_provenance(self) -> None:
+        from synthesis.mutation_admission import policy_hash
+        from synthesis.workspace_tasks import (
+            generate_workspace_fixture_candidates,
+            scripted_workspace_solution_policy,
+        )
+
+        candidate = next(
+            candidate
+            for candidate in generate_workspace_fixture_candidates(workspace_seed())
+            if candidate.candidate_id == "candidate_workspace_launch_comment"
+        )
+        contract = candidate.contract()
+        record = contract.mutation_authorization
+
+        self.assertIsNotNone(record)
+        assert record is not None
+        self.assertEqual(
+            record["schema_version"],
+            "mutation_authorization_record_v1",
+        )
+        self.assertRegex(str(record["instruction_hash"]), r"^sha256:[0-9a-f]{64}$")
+        self.assertEqual(
+            record["policy_hash"],
+            policy_hash(scripted_workspace_solution_policy(candidate)),
+        )
+        action = record["actions"][0]
+        self.assertEqual(action["action_type"], "workspace_comment_add")
+        self.assertEqual(action["action_ref"], "policy.steps.1")
+        provenance = {
+            argument["name"]: argument
+            for argument in action["arguments"]
+        }
+        self.assertEqual(provenance["comment"]["origin"], "instruction")
+        self.assertEqual(provenance["comment"]["support"], "semantic")
+        self.assertEqual(provenance["task_id"]["origin"], "tool_observation")
+        self.assertEqual(
+            provenance["task_id"]["evidence"]["source_action_ref"],
+            "policy.steps.0",
+        )
+        self.assertEqual(
+            provenance["task_id"]["evidence"]["source_field"],
+            "item_id",
+        )
+        self.assertRegex(
+            str(provenance["task_id"]["evidence"]["value_hash"]),
+            r"^sha256:[0-9a-f]{64}$",
+        )
 
     def test_domain_bundle_can_build_workspace_fixture(self) -> None:
         from awm_runtime.runtime import RuntimeSession
@@ -329,6 +379,78 @@ class WorkspacePipelineTest(unittest.TestCase):
         )
         self.assertEqual(failed.checks[-1]["cause"], "solution_logic_error")
         self.assertTrue(passed.passed)
+
+    def test_workspace_run_profiles_preserve_outcomes_and_emit_disabled_or_shadow_evidence(
+        self,
+    ) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+        from synthesis.run_profiles import load_run_profile
+
+        results: dict[
+            str,
+            tuple[object, list[dict[str, object]], dict[str, object]],
+        ] = {}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            for mode in ("disabled", "shadow"):
+                profile = load_run_profile(
+                    Path(f"tests/fixtures/run_profiles/workspace-comments-{mode}.json")
+                )
+                result = run_foundation_pipeline(
+                    root / mode,
+                    dataset_version=profile.dataset_version,
+                    seed_override=profile.seed,
+                    run_profile=profile,
+                    run_profile_metadata=profile.sanitized_metadata(),
+                )
+                samples = [
+                    json.loads(line)
+                    for line in result.samples_path.read_text(encoding="utf-8").splitlines()
+                    if line
+                ]
+                manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+                results[mode] = (result, samples, manifest)
+
+        disabled_result, disabled_samples, disabled_manifest = results["disabled"]
+        shadow_result, shadow_samples, shadow_manifest = results["shadow"]
+        self.assertEqual(
+            (disabled_result.accepted_count, disabled_result.rejected_count),
+            (shadow_result.accepted_count, shadow_result.rejected_count),
+        )
+        self.assertEqual(
+            disabled_manifest["sample_contract_versions"],
+            ["dataset_sample_v2"],
+        )
+        self.assertEqual(
+            shadow_manifest["sample_contract_versions"],
+            ["dataset_sample_v2"],
+        )
+        for mode, samples in (
+            ("disabled", disabled_samples),
+            ("shadow", shadow_samples),
+        ):
+            comment = next(
+                sample
+                for sample in samples
+                if sample["sample_id"] == "sample_candidate_workspace_launch_comment"
+            )
+            evidence = comment["mutation_admission"]
+            self.assertEqual(comment["schema_version"], "dataset_sample_v2")
+            self.assertEqual(evidence["mode"], mode)
+            if mode == "shadow":
+                self.assertEqual(evidence["semantic_verdict"]["verdict"], "supported")
+            else:
+                self.assertNotIn("semantic_verdict", evidence)
+
+            lookup = next(
+                sample
+                for sample in samples
+                if sample["sample_id"] == "sample_candidate_workspace_launch_lookup"
+            )
+            self.assertEqual(
+                lookup["mutation_admission"]["classification"],
+                "read_only",
+            )
 
 
 if __name__ == "__main__":

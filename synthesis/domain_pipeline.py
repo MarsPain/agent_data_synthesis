@@ -9,6 +9,7 @@ from synthesis.domain_generation import DomainGenerationSpec
 from synthesis.environments import ContactEnvironment, ContactsEnvironmentInput
 from synthesis.execution import SolutionPolicy, scripted_solution_policy
 from synthesis.mcp import LocalRuntimeAdapterShim
+from synthesis.mutation_admission import MutationActionPolicy, SemanticMutationJudge
 from synthesis.mobile_environment import (
     MobileMessagesEnvironment,
     MobileMessagesEnvironmentInput,
@@ -29,6 +30,8 @@ from synthesis.workspace_tasks import (
     build_workspace_generation_spec,
     generate_workspace_fixture_candidates,
     scripted_workspace_solution_policy,
+    workspace_mutation_policies,
+    workspace_semantic_mutation_judge,
 )
 from synthesis.workspace_tools import build_workspace_tool_registry
 
@@ -48,6 +51,8 @@ class DomainPipelineBundle:
     policy_generator: PolicyGenerator
     registry_builder: RegistryBuilder
     generation_spec: DomainGenerationSpec | None
+    mutation_policies: tuple[MutationActionPolicy, ...] = ()
+    mutation_judge: SemanticMutationJudge | None = None
     adapter_shim: LocalRuntimeAdapterShim | None = None
 
     def runtime_session(self) -> RuntimeSession:
@@ -132,6 +137,8 @@ def rebuild_domain_pipeline_bundle(
         policy_generator=base_bundle.policy_generator,
         registry_builder=base_bundle.registry_builder,
         generation_spec=base_bundle.generation_spec,
+        mutation_policies=base_bundle.mutation_policies,
+        mutation_judge=base_bundle.mutation_judge,
         adapter_shim=adapter_shim,
     )
 
@@ -284,6 +291,8 @@ def _build_workspace_bundle(
             if workspace_environment_input is None
             else None
         ),
+        mutation_policies=workspace_mutation_policies(),
+        mutation_judge=workspace_semantic_mutation_judge,
         adapter_shim=adapter_shim,
     )
 

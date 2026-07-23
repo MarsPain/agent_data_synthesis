@@ -1,0 +1,22 @@
+{
+  "schema_version": "run_profile_v4",
+  "profile_id": "workspace_comments_disabled",
+  "dataset_version": "dataset_workspace_comments_disabled_v1",
+  "profile_purpose": "diagnostic_probe",
+  "seed": {
+    "seed_id": "seed_workspace_comments_disabled_v1",
+    "domain": "workspace_tasks_fixture",
+    "description": "Run deterministic workspace comments with admission disabled.",
+    "task_taxonomy": [
+      "workspace_item_lookup",
+      "workspace_comment_update"
+    ]
+  },
+  "generation": {
+    "mode": "workspace_fixture"
+  },
+  "features": {},
+  "mutation_admission": {
+    "mode": "disabled"
+  }
+}

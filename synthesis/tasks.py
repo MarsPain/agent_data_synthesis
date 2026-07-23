@@ -94,6 +94,7 @@ class CandidateTask:
     task_suggester_lineage: dict[str, object] | None = None
     task_editor_lineage: dict[str, object] | None = None
     editor_action: str | None = None
+    mutation_authorization: dict[str, object] | None = None
 
     def export(self) -> dict[str, object]:
         record: dict[str, object] = {

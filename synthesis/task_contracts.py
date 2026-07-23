@@ -90,6 +90,7 @@ class TaskContract:
     expected_outcome: ExpectedOutcome
     expected_state: tuple[ExpectedStateCheck, ...] = ()
     compatibility: Mapping[str, object] = field(default_factory=dict)
+    mutation_authorization: Mapping[str, object] | None = None
 
 
 def task_contract_from_candidate(candidate: CandidateTask) -> TaskContract:
@@ -120,6 +121,11 @@ def task_contract_from_candidate(candidate: CandidateTask) -> TaskContract:
         ),
         expected_state=_expected_state_checks(candidate),
         compatibility=_candidate_compatibility(candidate),
+        mutation_authorization=(
+            _copy_mapping(candidate.mutation_authorization)
+            if candidate.mutation_authorization is not None
+            else None
+        ),
     )
     return validate_task_contract(contract)
 
@@ -135,6 +141,11 @@ def validate_task_contract(contract: TaskContract) -> TaskContract:
     if not isinstance(contract.compatibility, Mapping):
         raise ContractValidationError("compatibility must be an object")
     _reject_unsafe(contract.compatibility, "compatibility")
+    if contract.mutation_authorization is not None and not isinstance(
+        contract.mutation_authorization,
+        Mapping,
+    ):
+        raise ContractValidationError("mutation_authorization must be an object")
     return contract
 
 
@@ -168,6 +179,11 @@ def candidate_from_task_contract(contract: TaskContract) -> CandidateTask:
         ),
         task_editor_lineage=_optional_mapping(compatibility.get("task_editor_lineage")),
         editor_action=_optional_string(compatibility.get("editor_action")),
+        mutation_authorization=(
+            _copy_mapping(contract.mutation_authorization)
+            if contract.mutation_authorization is not None
+            else None
+        ),
     )
 
 
