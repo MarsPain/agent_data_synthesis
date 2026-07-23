@@ -9,9 +9,29 @@ from synthesis.environments import ContactEnvironment
 from synthesis.execution import SolutionPolicy, ToolStep, scripted_solution_policy
 from synthesis.llm import LLMConfig
 from synthesis.mcp import LocalContactsAdapterShim
+from synthesis.mutation_admission import permit_candidate_execution
+from synthesis.task_contracts import TaskContract
 from synthesis.tasks import CandidateTask
-from synthesis.tools import CapabilityGap, ToolProposal, build_contact_tool_registry
+from synthesis.tools import (
+    CapabilityGap,
+    ToolDefinition,
+    ToolProposal,
+    ToolRegistry,
+    build_contact_tool_registry,
+)
 from synthesis.verification import ExactAnswerVerifier
+
+
+class RecordingAdmissionEvaluator:
+    def __init__(self) -> None:
+        self.attempts: list[tuple[TaskContract, SolutionPolicy]] = []
+
+    def __call__(
+        self,
+        task_contract: TaskContract,
+        solution_policy: SolutionPolicy,
+    ) -> None:
+        self.attempts.append((task_contract, solution_policy))
 
 
 class CandidateProcessingRecordTest(unittest.TestCase):
@@ -36,7 +56,13 @@ class CandidateProcessingRecordTest(unittest.TestCase):
         values.update(overrides)
         return CandidateTask(**values)
 
-    def _context(self, tmpdir: Path, *, generate_policy=scripted_solution_policy):
+    def _context(
+        self,
+        tmpdir: Path,
+        *,
+        generate_policy=scripted_solution_policy,
+        admission_evaluator=permit_candidate_execution,
+    ):
         from synthesis.candidate_processing import CandidateProcessingContext
 
         environment = ContactEnvironment.create_fixture(tmpdir)
@@ -49,6 +75,7 @@ class CandidateProcessingRecordTest(unittest.TestCase):
             verifier=ExactAnswerVerifier(),
             llm_config=LLMConfig(base_url=None),
             generate_policy=generate_policy,
+            admission_evaluator=admission_evaluator,
         )
 
     def test_context_options_and_outcome_records_are_immutable_and_explicit(self) -> None:
@@ -82,6 +109,7 @@ class CandidateProcessingRecordTest(unittest.TestCase):
         )
 
         self.assertEqual(context.dataset_version, "dataset_candidate_boundary_test")
+        self.assertIs(context.admission_evaluator, permit_candidate_execution)
         self.assertFalse(options.route_reviewable_failures)
         self.assertIsNone(options.refiner)
         self.assertIsNone(options.tool_proposal_generator)
@@ -107,6 +135,79 @@ class CandidateProcessingRecordTest(unittest.TestCase):
         self.assertIsNotNone(PolicyGenerator)
         self.assertIsNotNone(ToolProposalGenerator)
         self.assertEqual(policy_generator.__name__, "policy_generator")
+
+    def test_admission_receives_contract_and_policy_before_first_tool_execution(self) -> None:
+        from synthesis.candidate_processing import (
+            CandidateProcessingContext,
+            CandidateProcessingOptions,
+            process_candidate_through_gates,
+        )
+        from synthesis.task_contracts import validate_task_contract
+
+        events: list[tuple[str, object]] = []
+        task = self._candidate()
+        proposed_policy = scripted_solution_policy(task)
+
+        def generate_policy(candidate: CandidateTask) -> SolutionPolicy:
+            events.append(("policy", candidate))
+            return proposed_policy
+
+        def evaluate_admission(
+            task_contract: TaskContract,
+            solution_policy: SolutionPolicy,
+        ) -> None:
+            events.append(("admission", (task_contract, solution_policy)))
+
+        def lookup_contact_email(arguments: dict[str, object]) -> dict[str, object]:
+            events.append(("tool", arguments))
+            return environment.lookup_email(str(arguments["name"]))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            environment = ContactEnvironment.create_fixture(Path(tmpdir))
+            registry = ToolRegistry()
+            registry.register(
+                ToolDefinition(
+                    name="lookup_contact_email",
+                    version="tool_lookup_contact_email_v1",
+                    schema={
+                        "type": "object",
+                        "properties": {"name": {"type": "string"}},
+                        "required": ["name"],
+                        "additionalProperties": False,
+                    },
+                    side_effects="read_only",
+                ),
+                lookup_contact_email,
+            )
+            context = CandidateProcessingContext(
+                dataset_version="dataset_candidate_boundary_test",
+                environment=environment,
+                registry=registry,
+                adapter_shim=None,
+                verifier=ExactAnswerVerifier(),
+                llm_config=LLMConfig(base_url=None),
+                generate_policy=generate_policy,
+                admission_evaluator=evaluate_admission,
+            )
+
+            outcome = process_candidate_through_gates(
+                raw_task=task,
+                context=context,
+                options=CandidateProcessingOptions(),
+            )
+
+        self.assertIsNotNone(outcome.sample)
+        self.assertEqual([event[0] for event in events], ["policy", "admission", "tool"])
+        admission_contract, admission_policy = events[1][1]
+        self.assertIsInstance(admission_contract, TaskContract)
+        self.assertIs(validate_task_contract(admission_contract), admission_contract)
+        self.assertEqual(admission_contract.intent.candidate_id, task.candidate_id)
+        self.assertEqual(admission_contract.intent.instruction, task.instruction)
+        self.assertEqual(
+            admission_contract.policy_hint.primary_arguments,
+            task.arguments,
+        )
+        self.assertIs(admission_policy, proposed_policy)
 
     def test_valid_candidate_returns_sample_signature_without_mutating_admission_set(self) -> None:
         from synthesis.candidate_processing import (
@@ -342,8 +443,14 @@ class CandidateProcessingRecordTest(unittest.TestCase):
                 },
             )
 
+        admission_evaluator = RecordingAdmissionEvaluator()
+
         with tempfile.TemporaryDirectory() as tmpdir:
-            context = self._context(Path(tmpdir), generate_policy=policy_generator)
+            context = self._context(
+                Path(tmpdir),
+                generate_policy=policy_generator,
+                admission_evaluator=admission_evaluator,
+            )
             outcome = process_candidate_through_gates(
                 raw_task=self._candidate(
                     candidate_id="candidate_list_contacts",
@@ -383,6 +490,73 @@ class CandidateProcessingRecordTest(unittest.TestCase):
         self.assertEqual(
             outcome.sample["lineage"]["tool_expansion"]["admission"]["outcome"],
             "accepted",
+        )
+        self.assertEqual(len(admission_evaluator.attempts), 2)
+        self.assertEqual(
+            [attempt[0].intent.candidate_id for attempt in admission_evaluator.attempts],
+            ["candidate_list_contacts", "candidate_list_contacts"],
+        )
+        self.assertIs(
+            admission_evaluator.attempts[0][1],
+            admission_evaluator.attempts[1][1],
+        )
+
+    def test_refinement_rerun_crosses_admission_once_per_attempt(self) -> None:
+        from synthesis.candidate_processing import (
+            CandidateProcessingOptions,
+            process_candidate_through_gates,
+        )
+        from synthesis.refinement import deterministic_fixture_refiner
+
+        admission_evaluator = RecordingAdmissionEvaluator()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outcome = process_candidate_through_gates(
+                raw_task=self._candidate(
+                    candidate_id="candidate_contacts_ben_bad_expectation",
+                    instruction="Find Ben Carter's email address.",
+                    arguments={"name": "Ben Carter"},
+                    expected_answer="ben@example.test",
+                ),
+                context=self._context(
+                    Path(tmpdir),
+                    admission_evaluator=admission_evaluator,
+                ),
+                options=CandidateProcessingOptions(
+                    refiner=deterministic_fixture_refiner,
+                ),
+            )
+
+        self.assertIsNotNone(outcome.sample)
+        self.assertEqual(len(admission_evaluator.attempts), 2)
+        self.assertEqual(
+            [attempt[0].intent.candidate_id for attempt in admission_evaluator.attempts],
+            [
+                "candidate_contacts_ben_bad_expectation",
+                "candidate_contacts_ben_bad_expectation_refined_1",
+            ],
+        )
+
+    def test_pipeline_propagates_injected_admission_to_candidate_context(self) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+
+        admission_evaluator = RecordingAdmissionEvaluator()
+
+        def generate_candidates(seed) -> list[CandidateTask]:
+            return [self._candidate(seed_ids=(seed.seed_id,))]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_foundation_pipeline(
+                Path(tmpdir),
+                dataset_version="dataset_pipeline_admission_boundary_test",
+                candidate_generator=generate_candidates,
+                admission_evaluator=admission_evaluator,
+            )
+
+        self.assertEqual(result.accepted_count, 1)
+        self.assertEqual(
+            [attempt[0].intent.candidate_id for attempt in admission_evaluator.attempts],
+            ["candidate_contacts_alice"],
         )
 
     def test_duplicate_candidate_returns_provisional_sample_for_merge_admission(self) -> None:

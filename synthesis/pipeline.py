@@ -37,6 +37,10 @@ from synthesis.domain_generation import (
     generate_domain_llm_candidates,
 )
 from synthesis.llm import LLMConfig, LLMProviderError, OpenAICompatibleClient
+from synthesis.mutation_admission import (
+    CandidateAdmissionEvaluator,
+    permit_candidate_execution,
+)
 from synthesis.refinement import Refiner, RefinementAttempt, RefinementContext
 from synthesis.refinement import generate_llm_backed_refinement
 from synthesis.roles import RoleRegistry, default_role_registry
@@ -198,6 +202,7 @@ def run_foundation_pipeline(
     route_reviewable_failures: bool = False,
     refiner: Refiner | None = None,
     tool_proposal_generator: ToolProposalGenerator | None = None,
+    admission_evaluator: CandidateAdmissionEvaluator = permit_candidate_execution,
     enable_branching: bool = False,
     enable_task_expansion: bool = False,
     task_expansion_generator: TaskExpansionGenerator | None = None,
@@ -350,6 +355,7 @@ def run_foundation_pipeline(
         verifier=verifier,
         llm_config=llm_config,
         generate_policy=generate_policy,
+        admission_evaluator=admission_evaluator,
     )
     candidate_options = CandidateProcessingOptions(
         route_reviewable_failures=route_reviewable_failures,
@@ -578,6 +584,7 @@ def _candidate_context_for_request(
         verifier=base_context.verifier,
         llm_config=base_context.llm_config,
         generate_policy=base_context.generate_policy,
+        admission_evaluator=base_context.admission_evaluator,
     )
 
 

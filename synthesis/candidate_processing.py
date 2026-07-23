@@ -26,6 +26,10 @@ from synthesis.mcp import (
     PROTOCOL_LABEL,
     AdapterExecutionError,
 )
+from synthesis.mutation_admission import (
+    CandidateAdmissionEvaluator,
+    permit_candidate_execution,
+)
 from synthesis.quality import (
     build_review_record,
     candidate_duplicate_signature,
@@ -62,6 +66,7 @@ class CandidateProcessingContext:
     verifier: ExactAnswerVerifier
     llm_config: LLMConfig
     generate_policy: PolicyGenerator
+    admission_evaluator: CandidateAdmissionEvaluator = permit_candidate_execution
 
 
 @dataclass(frozen=True)
@@ -367,6 +372,7 @@ def _run_candidate_attempt(
                 policy=None,
                 capability_gap=None,
             )
+    context.admission_evaluator(task_contract, policy)
     try:
         execution = execute_candidate(
             task,
