@@ -20,8 +20,9 @@ target-system details live in [DESIGN.md](DESIGN.md) and the
 ## Directional Priorities
 
 1. Improve generation and verification quality using evidence from real
-   representative campaigns, without weakening fail-closed contracts or
-   grounding gates.
+   representative campaigns, beginning with
+   [semantic mutation admission](product-specs/semantic-mutation-admission.md)
+   and without weakening fail-closed contracts or grounding gates.
 2. Strengthen dataset diversity measurement when representative evidence shows
    that exact duplicate detection is insufficient. Desired behavior is in the
    [semantic duplicate detection spec](product-specs/semantic-duplicate-detection.md).

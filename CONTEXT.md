@@ -9,6 +9,14 @@ terms, not package structure, implementation plans, or work status. See
 
 - **Candidate task:** A proposed agent task together with the intent, policy
   hints, expected outcome, and expected state needed to execute and verify it.
+- **Synthetic task requester:** The represented requester whose intent appears
+  in a candidate task's task instruction.
+- **Synthesis operator:** The person or system that configures and runs data
+  synthesis. Operator configuration does not authorize state changes inside a
+  candidate task.
+- **Task instruction:** The user-facing natural-language request inside a
+  candidate task. It expresses the synthetic task requester's intent, not the
+  synthesis operator's intent.
 - **Domain pack:** A domain-owned bundle of environment construction, tools,
   task semantics, generation policy, verification behavior, and runtime
   metadata. Contacts, mobile messages, and workspace tasks are the current
@@ -28,6 +36,38 @@ terms, not package structure, implementation plans, or work status. See
   candidate an accepted sample.
 - **Rejection:** A candidate that fails generation, contract, execution,
   verification, grounding, or quality admission, recorded with a bounded reason.
+
+## Mutation Safety Terms
+
+- **State-changing action:** A tool action whose successful execution creates or
+  modifies durable environment state, including draft or pending records.
+  Read-only lookup and search actions are not state-changing actions.
+- **Mutation authorization:** Evidence in the task instruction that the synthetic
+  task requester asked for a particular state-changing action. A task type,
+  policy hint, or expected state cannot independently authorize an action the
+  instruction omits.
+- **Requester-controlled mutation argument:** An argument that determines the
+  human-meaningful content, target, priority, timing, or scope of a state change.
+  Such an argument must not be invented solely to satisfy a generated contract.
+- **Mutation argument provenance:** The declared origin of a requester-controlled
+  mutation argument: instruction, tool observation, declared default, or
+  deterministic derivation. The origin set is closed within one contract
+  version and may be extended only through a new versioned contract.
+- **Mutation authorization record:** Evidence that pairs each state-changing
+  action with mutation authorization and each requester-controlled mutation
+  argument with mutation argument provenance for one candidate task.
+- **Mutation admission:** The pre-execution decision that a state-changing
+  candidate has valid authorization and supported argument provenance. Read-only
+  candidates do not require mutation admission.
+- **Semantic mutation judge:** An independent semantic verifier that decides
+  whether a task instruction supports a declared state-changing action and its
+  requester-controlled arguments after deterministic prerequisites pass. It may
+  recognize semantic equivalence, but cannot override missing authorization,
+  missing provenance, invalid references, or invalid contracts.
+- **Semantic mutation verdict:** A structured `supported`, `unsupported`, or
+  `uncertain` decision over mutation authorization and argument provenance,
+  accompanied by bounded reason codes and evidence references. Model-reported
+  confidence and free-form rationale are not admission evidence.
 
 ## Run and Release Terms
 

@@ -81,6 +81,17 @@ the default dataset sample schema and is not a release artifact.
 
 Owns executable checks, logical checks, LLM-as-judge checks, diversity checks, and human review routing.
 
+The accepted target design requires declared state-changing candidates to pass
+deterministic mutation authorization/provenance validation and an independent
+semantic mutation judge before execution when enforcement is enabled. This
+specialized admission judge is distinct from a future general post-execution
+quality judge; read-only candidates bypass mutation admission. Desired behavior
+and activation evidence are defined in the
+[semantic mutation admission spec](product-specs/semantic-mutation-admission.md).
+Its model identity is selected in the mutation-admission profile independently
+from `AGENT_DATA_LLM_MODEL`; provider endpoint and credentials still use the
+shared remote-adapter environment defaults and are never retained in profiles.
+
 The exact-answer/state verifier reads internal expected-outcome and
 expected-state contracts. Compatibility wrappers still accept `CandidateTask`,
 and verifier ids, versions, check names, sample schemas, and episode schemas
@@ -222,7 +233,8 @@ Start local and deterministic:
 - Python callable tools with explicit schemas.
 - Local job runner with resumable manifests.
 - Remote LLM provider adapter configured by `AGENT_DATA_LLM_BASE_URL`, `AGENT_DATA_API_KEY`, and `AGENT_DATA_LLM_MODEL`.
-- Executable verification before LLM-as-judge verification.
+- Deterministic mutation admission before state-changing execution; executable
+  verification before any general post-execution LLM-as-judge verification.
 - JSONL output plus a dataset manifest.
 
 Distributed Ray-style orchestration, MCP servers, and multi-model routing should be added after local contracts are stable. These additions may scale workers and route provider calls, but they should not turn the project into a local LLM serving platform.

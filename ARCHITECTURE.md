@@ -34,7 +34,10 @@ only the top-level system and package map.
    Runs solution policies or generator agents against environments and records thought/action/observation/final-response traces.
 
 6. **Verification and Quality Gates**
-   Separates generation from validation using executable verification, logical consistency checks, diversity checks, and human review queues for uncertain cases.
+   Separates generation from validation using deterministic contracts,
+   pre-execution semantic mutation admission for state-changing candidates,
+   executable verification, logical consistency checks, diversity checks, and
+   human review queues for uncertain cases.
 
 7. **Dataset Assembly and Lineage**
    Emits versioned training examples with environment, tool, task, trajectory, verifier, quality metrics, and provenance metadata.
@@ -55,6 +58,7 @@ only the top-level system and package map.
 - [docs/design-docs/algorithm-flow-and-architecture.md](docs/design-docs/algorithm-flow-and-architecture.md): explanatory walkthrough of the current algorithm flow and architecture layers.
 - [docs/design-docs/architecture-explainers.md](docs/design-docs/architecture-explainers.md): detailed explanations of architecture and algorithm concepts.
 - [docs/design-docs/domain-aware-representative-generation.md](docs/design-docs/domain-aware-representative-generation.md): domain-owned remote generation and representative eligibility boundary.
+- [docs/adr/README.md](docs/adr/README.md): accepted system-wide architecture decisions.
 
 ## Architectural Position
 

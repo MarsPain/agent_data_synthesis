@@ -33,8 +33,14 @@ the configured issue tracker.
 ## Product Specs
 
 - [product-specs/framework-mvp.md](product-specs/framework-mvp.md): MVP scope and acceptance criteria.
+- [product-specs/semantic-mutation-admission.md](product-specs/semantic-mutation-admission.md): pre-execution authorization, provenance, independent semantic judgment, calibration, and enforcement for state-changing candidates.
 - [product-specs/async-local-orchestration.md](product-specs/async-local-orchestration.md): desired behavior and acceptance for resumable local orchestration.
 - [product-specs/semantic-duplicate-detection.md](product-specs/semantic-duplicate-detection.md): desired behavior and evaluation boundary for semantic duplicate detection.
+
+## Architecture Decisions
+
+- [adr/README.md](adr/README.md): index of accepted system-wide architecture decisions.
+- [adr/0001-independent-semantic-mutation-admission.md](adr/0001-independent-semantic-mutation-admission.md): require independent, pre-execution semantic mutation admission for release-grade state-changing candidates.
 
 ## References
 

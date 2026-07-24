@@ -18,10 +18,12 @@ ENTRYPOINT_LINE_BUDGETS = {
 IGNORED_PARTS = {".git", ".venv", "artifacts"}
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 ISSUE_FIELD_RE = re.compile(
-    r"^- \*\*(Status|Assignee|Parent spec|Dependencies):\*\*\s*(.+)$",
+    r"^(?:- )?\*\*(Status|Assignee|Parent spec|Dependencies|What to build|Blocked by):\*\*\s*(.+)$",
     re.MULTILINE,
 )
 MARKDOWN_TARGET_RE = re.compile(r"\[[^\]]+\]\(([^)#]+)(?:#[^)]+)?\)")
+FEATURE_TICKET_STATUSES = {"ready-for-agent", "in-progress", "blocked", "completed"}
+FEATURE_TICKET_TITLE_RE = re.compile(r"^# (\d{2}) — \S.+$", re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -244,6 +246,87 @@ def validate_issue_tracker(registry: ArtifactRegistry, errors: list[str]) -> Non
                 errors.append(
                     f"{issue.relative_to(ROOT)} parent spec must be a file in docs/product-specs/"
                 )
+
+        scratch_index_text = (scratch / "README.md").read_text(encoding="utf-8")
+        feature_issue_dirs = sorted(scratch.glob("*/issues"))
+        for issues_dir in feature_issue_dirs:
+            feature_dir = issues_dir.parent
+            feature_index = feature_dir / "README.md"
+            if not feature_index.is_file():
+                errors.append(
+                    f"Feature ticket directory requires an index: {feature_index.relative_to(ROOT)}"
+                )
+                continue
+            if feature_dir.name + "/README.md" not in scratch_index_text:
+                errors.append(
+                    f".scratch/README.md must link feature tracker: {feature_index.relative_to(ROOT)}"
+                )
+
+            feature_text = feature_index.read_text(encoding="utf-8")
+            for issue in sorted(issues_dir.glob("*.md")):
+                if not re.fullmatch(r"\d{2}-[a-z0-9-]+\.md", issue.name):
+                    errors.append(
+                        f"Feature ticket filename must use NN-kebab-case.md: {issue.relative_to(ROOT)}"
+                    )
+                if f"issues/{issue.name}" not in feature_text:
+                    errors.append(
+                        f"Feature index must link ticket: {issue.relative_to(ROOT)}"
+                    )
+
+                text = issue.read_text(encoding="utf-8")
+                title_match = FEATURE_TICKET_TITLE_RE.search(text)
+                issue_number = issue.name[:2]
+                if not title_match or title_match.group(1) != issue_number:
+                    errors.append(
+                        f"{issue.relative_to(ROOT)} title number must match filename: "
+                        f"{issue_number}"
+                    )
+                fields = dict(ISSUE_FIELD_RE.findall(text))
+                for field in ("What to build", "Blocked by", "Status", "Assignee", "Parent spec"):
+                    if field not in fields:
+                        errors.append(
+                            f"{issue.relative_to(ROOT)} missing feature ticket field: {field}"
+                        )
+                if fields.get("Status") not in FEATURE_TICKET_STATUSES:
+                    errors.append(
+                        f"{issue.relative_to(ROOT)} has unsupported feature ticket status: "
+                        f"{fields.get('Status', '<missing>')}"
+                    )
+                if not re.search(r"^## Acceptance criteria\s*$", text, re.MULTILINE):
+                    errors.append(
+                        f"{issue.relative_to(ROOT)} must declare acceptance criteria"
+                    )
+                if not re.search(r"^- \[[ xX]\] ", text, re.MULTILINE):
+                    errors.append(
+                        f"{issue.relative_to(ROOT)} must contain acceptance checkboxes"
+                    )
+
+                blocked_by = fields.get("Blocked by", "")
+                for blocker_match in MARKDOWN_TARGET_RE.finditer(blocked_by):
+                    blocker = resolve_link(issue, blocker_match.group(1))
+                    if blocker is None or blocker.parent != issues_dir.resolve():
+                        errors.append(
+                            f"{issue.relative_to(ROOT)} blockers must be tickets in the same feature"
+                        )
+                        continue
+                    blocker_number = blocker.name[:2]
+                    if not blocker_number.isdigit() or blocker_number >= issue_number:
+                        errors.append(
+                            f"{issue.relative_to(ROOT)} blocker must have a lower ticket number: "
+                            f"{blocker.name}"
+                        )
+
+                parent = fields.get("Parent spec", "")
+                target_match = MARKDOWN_TARGET_RE.search(parent)
+                if not target_match:
+                    errors.append(f"{issue.relative_to(ROOT)} must link to one parent spec")
+                    continue
+                target = resolve_link(issue, target_match.group(1))
+                specs_root = (ROOT / "docs/product-specs").resolve()
+                if target is None or not target.is_file() or target.parent != specs_root:
+                    errors.append(
+                        f"{issue.relative_to(ROOT)} parent spec must be a file in docs/product-specs/"
+                    )
     elif scratch.exists():
         errors.append(".scratch/ may be an issue store only when Local Markdown is configured")
 
