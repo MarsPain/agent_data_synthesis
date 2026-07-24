@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from synthesis.llm import LLMProviderError
+from synthesis.mutation_admission_config import MUTATION_ADMISSION_JUDGE_ROLE
 
 
 ROLE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -149,6 +150,12 @@ def default_role_registry() -> RoleRegistry:
                 version="role_judge_verification_v0",
                 owner_module="synthesis.verification",
                 output_type="judge_verdict",
+            ),
+            _enabled_role(
+                name=MUTATION_ADMISSION_JUDGE_ROLE,
+                version="role_mutation_admission_judge_v1",
+                owner_module="synthesis.mutation_admission",
+                output_type="semantic_mutation_verdict",
             ),
             _enabled_role(
                 name=TASK_SUGGESTER_ROLE,

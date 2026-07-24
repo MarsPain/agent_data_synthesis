@@ -500,6 +500,35 @@ class DatasetContractTest(unittest.TestCase):
 
         validate_manifest_record(manifest)
 
+    def test_manifest_contract_accepts_sanitized_independent_judge_configuration(
+        self,
+    ) -> None:
+        from synthesis.contracts import validate_manifest_record
+
+        manifest = _valid_manifest()
+        manifest["run_profile"] = {
+            "schema_version": "run_profile_v4",
+            "profile_id": "workspace_comment_independent_judge",
+            "generation_mode": "workspace_fixture",
+            "profile_purpose": "diagnostic_probe",
+            "target_candidate_count": None,
+            "config_hash": "sha256:" + "1" * 64,
+            "enabled_features": [],
+            "seed": {"domain": "workspace_tasks_fixture"},
+            "mutation_admission": {
+                "mode": "shadow",
+                "judge": {
+                    "role": "mutation_admission_judge",
+                    "provider": "openai_compatible",
+                    "model": "independent-judge-model",
+                    "timeout_seconds": 12.5,
+                    "max_retries": 1,
+                },
+            },
+        }
+
+        validate_manifest_record(manifest)
+
     def test_manifest_contract_accepts_episode_quality_artifacts(self) -> None:
         from synthesis.contracts import validate_manifest_record
 

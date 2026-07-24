@@ -133,12 +133,14 @@ class OpenAICompatibleClient:
         max_retries: int = 2,
         sleeper: Callable[[float], None] | None = None,
         retry_delay_seconds: float = 0.0,
+        timeout_seconds: float = 30.0,
     ) -> None:
         self.config = config
-        self._http_client = http_client or httpx.Client(timeout=30.0)
+        self._http_client = http_client or httpx.Client(timeout=timeout_seconds)
         self._max_retries = max(0, max_retries)
         self._sleeper = sleeper or time.sleep
         self._retry_delay_seconds = retry_delay_seconds
+        self._timeout_seconds = timeout_seconds
 
     def generate_json(self, prompt: str, *, role: str) -> LLMGenerationResult:
         if not self.config.configured:
@@ -164,6 +166,7 @@ class OpenAICompatibleClient:
                         "temperature": self.config.effective_temperature,
                         "response_format": {"type": "json_object"},
                     },
+                    timeout=self._timeout_seconds,
                 )
                 response.raise_for_status()
                 payload = response.json()

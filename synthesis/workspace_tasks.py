@@ -5,6 +5,7 @@ from dataclasses import replace
 
 from synthesis.execution import SolutionPolicy, ToolStep
 from synthesis.mutation_admission import (
+    DeterministicSemanticMutationJudge,
     MutationActionPolicy,
     MutationArgumentPolicy,
     SEMANTIC_VERDICT_VERSION,
@@ -118,7 +119,7 @@ def workspace_mutation_policies() -> tuple[MutationActionPolicy, ...]:
     )
 
 
-def workspace_semantic_mutation_judge(
+def _workspace_semantic_mutation_verdict(
     request: SemanticJudgeRequest,
 ) -> dict[str, object]:
     instruction = request.instruction.lower()
@@ -160,7 +161,7 @@ def workspace_semantic_mutation_judge(
             reason = "observation_reference_supported"
         elif origin == "instruction":
             value = str(request.argument_values.get(name, ""))
-            evidence_text = request.argument_evidence_text.get(name, "")
+            evidence_text = str(request.argument_evidence.get(name, ""))
             if value.lower() in instruction:
                 outcome = "supported"
                 reason = "argument_literal_supported"
@@ -208,16 +209,13 @@ def workspace_semantic_mutation_judge(
         "reason_codes": _unique(reason_codes),
         "evidence_references": _unique(all_references),
         "input_hash": request.input_hash(),
-        "judge_lineage": {
-            "role": "mutation_admission_judge",
-            "role_version": "role_mutation_admission_judge_v1",
-            "provider_host": "local",
-            "model": "deterministic_workspace_comment_judge_v1",
-            "config_hash": canonical_hash(
-                {"judge": "deterministic_workspace_comment_judge_v1"}
-            ),
-        },
     }
+
+
+workspace_semantic_mutation_judge = DeterministicSemanticMutationJudge(
+    evaluate=_workspace_semantic_mutation_verdict,
+    model="deterministic_workspace_comment_judge_v1",
+)
 
 
 def _semantic_token_overlap(left: str, right: str) -> int:

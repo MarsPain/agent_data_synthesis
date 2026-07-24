@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import unittest
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
+
+import httpx
 
 from synthesis.execution import ExecutionResult
 from synthesis.seeds import DomainSeed
@@ -451,6 +455,140 @@ class WorkspacePipelineTest(unittest.TestCase):
                 lookup["mutation_admission"]["classification"],
                 "read_only",
             )
+
+    def test_remote_shadow_profile_audits_same_and_different_judge_models(
+        self,
+    ) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+        from synthesis.run_profiles import load_run_profile
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            payload = json.loads(request.content.decode("utf-8"))
+            judge_input = json.loads(payload["messages"][1]["content"])
+            mutation = judge_input["proposed_mutation"]
+            provenance = judge_input["validated_provenance"]
+            references = provenance["evidence_references"]
+            verdict = {
+                "schema_version": "semantic_mutation_verdict_v1",
+                "verdict": "supported",
+                "action_findings": [
+                    {
+                        "action_type": mutation["action_type"],
+                        "outcome": "supported",
+                        "reason_code": "action_authorized",
+                        "evidence_references": [references["action"]],
+                    }
+                ],
+                "argument_findings": [
+                    {
+                        "argument": name,
+                        "outcome": "supported",
+                        "reason_code": (
+                            "observation_reference_supported"
+                            if origin == "tool_observation"
+                            else "argument_semantic_supported"
+                        ),
+                        "evidence_references": [references[name]],
+                    }
+                    for name, origin in provenance["argument_origins"].items()
+                ],
+                "reason_codes": [
+                    "action_authorized",
+                    "argument_semantic_supported",
+                    "observation_reference_supported",
+                ],
+                "evidence_references": list(references.values()),
+                "input_hash": judge_input["input_hash"],
+            }
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [{"message": {"content": json.dumps(verdict)}}],
+                    "usage": {},
+                },
+            )
+
+        base_profile = {
+            "schema_version": "run_profile_v4",
+            "dataset_version": "dataset_workspace_remote_shadow",
+            "profile_purpose": "diagnostic_probe",
+            "seed": {
+                "seed_id": "seed_workspace_remote_shadow",
+                "domain": "workspace_tasks_fixture",
+                "description": "Audit independent semantic mutation judgment.",
+                "task_taxonomy": [
+                    "workspace_item_lookup",
+                    "workspace_comment_update",
+                ],
+            },
+            "generation": {"mode": "workspace_fixture"},
+            "features": {},
+        }
+        env = {
+            "AGENT_DATA_LLM_BASE_URL": "https://judge.example.test/v1",
+            "AGENT_DATA_API_KEY": "secret-test-key",
+            "AGENT_DATA_LLM_MODEL": "task-generator-model",
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir, patch.dict(
+            os.environ,
+            env,
+            clear=False,
+        ):
+            root = Path(tmpdir)
+            for expected_status, judge_model in (
+                ("independent", "independent-judge-model"),
+                ("same_model", "scripted"),
+            ):
+                with self.subTest(expected_status=expected_status):
+                    mapping = {
+                        **base_profile,
+                        "profile_id": f"workspace_remote_{expected_status}",
+                        "mutation_admission": {
+                            "mode": "shadow",
+                            "judge": {
+                                "role": "mutation_admission_judge",
+                                "provider": "openai_compatible",
+                                "model": judge_model,
+                                "timeout_seconds": 7.0,
+                                "max_retries": 1,
+                            },
+                        },
+                    }
+                    profile_path = root / f"{expected_status}.json"
+                    profile_path.write_text(json.dumps(mapping), encoding="utf-8")
+                    profile = load_run_profile(profile_path)
+                    result = run_foundation_pipeline(
+                        root / f"output-{expected_status}",
+                        dataset_version=profile.dataset_version,
+                        seed_override=profile.seed,
+                        run_profile=profile,
+                        run_profile_metadata=profile.sanitized_metadata(),
+                        mutation_judge_http_client=httpx.Client(
+                            transport=httpx.MockTransport(handler)
+                        ),
+                    )
+                    samples = [
+                        json.loads(line)
+                        for line in result.samples_path.read_text(
+                            encoding="utf-8"
+                        ).splitlines()
+                        if line
+                    ]
+                    comment = next(
+                        sample
+                        for sample in samples
+                        if sample["sample_id"]
+                        == "sample_candidate_workspace_launch_comment"
+                    )
+                    evidence = comment["mutation_admission"]
+                    self.assertEqual(
+                        evidence["model_independence"],
+                        expected_status,
+                    )
+                    self.assertEqual(evidence["lineage"]["judge"]["model"], judge_model)
+                    self.assertTrue(evidence["diagnostic_only"])
+                    self.assertNotIn("secret-test-key", json.dumps(evidence))
 
 
 if __name__ == "__main__":

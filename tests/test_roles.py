@@ -2,6 +2,7 @@ import unittest
 
 from synthesis.roles import (
     DisabledRoleError,
+    MUTATION_ADMISSION_JUDGE_ROLE,
     RoleDefinition,
     RoleRegistry,
     default_role_registry,
@@ -16,6 +17,7 @@ class RoleRegistryTests(unittest.TestCase):
             [role.name for role in registry.enabled_roles()],
             [
                 "critic_refinement",
+                "mutation_admission_judge",
                 "solution_policy",
                 "task_editor",
                 "task_generation",
@@ -30,6 +32,20 @@ class RoleRegistryTests(unittest.TestCase):
         self.assertEqual(task_role.retry_policy, "bounded_remote_json")
         self.assertIn("role_version", task_role.lineage_fields)
         self.assertIn("output_type", task_role.lineage_fields)
+
+    def test_mutation_admission_judge_is_enabled_and_distinct_from_result_judgment(
+        self,
+    ) -> None:
+        registry = default_role_registry()
+
+        admission = registry.require_enabled(MUTATION_ADMISSION_JUDGE_ROLE)
+
+        self.assertEqual(admission.version, "role_mutation_admission_judge_v1")
+        self.assertEqual(admission.owner_module, "synthesis.mutation_admission")
+        self.assertEqual(admission.output_type, "semantic_mutation_verdict")
+        self.assertEqual(admission.retry_policy, "bounded_remote_json")
+        with self.assertRaisesRegex(DisabledRoleError, "judge_verification"):
+            registry.require_enabled("judge_verification")
 
     def test_default_registry_enables_tool_generation_only_for_proposals(self) -> None:
         registry = default_role_registry()

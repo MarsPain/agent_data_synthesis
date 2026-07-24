@@ -288,6 +288,94 @@ class RunProfileTest(unittest.TestCase):
         )
         self.assertNotEqual(disabled.config_hash, shadow.config_hash)
 
+    def test_v4_configures_remote_mutation_judge_without_credentials(self) -> None:
+        profile = self._load_mapping(
+            {
+                "schema_version": "run_profile_v4",
+                "profile_id": "workspace_comment_independent_judge",
+                "dataset_version": "dataset_workspace_comment_independent_judge",
+                "profile_purpose": "diagnostic_probe",
+                "seed": {
+                    "seed_id": "seed_workspace_comment_independent_judge",
+                    "domain": "workspace_tasks_fixture",
+                    "description": "Exercise an independently configured judge.",
+                    "task_taxonomy": ["workspace_comment_update"],
+                },
+                "generation": {"mode": "workspace_fixture"},
+                "features": {},
+                "mutation_admission": {
+                    "mode": "shadow",
+                    "judge": {
+                        "role": "mutation_admission_judge",
+                        "provider": "openai_compatible",
+                        "model": "independent-judge-model",
+                        "timeout_seconds": 12.5,
+                        "max_retries": 1,
+                    },
+                },
+            }
+        )
+
+        assert profile.mutation_admission.judge is not None
+        self.assertEqual(profile.mutation_admission.judge.model, "independent-judge-model")
+        self.assertEqual(profile.mutation_admission.judge.timeout_seconds, 12.5)
+        self.assertEqual(profile.mutation_admission.judge.max_retries, 1)
+        self.assertEqual(
+            profile.sanitized_metadata()["mutation_admission"],
+            {
+                "mode": "shadow",
+                "judge": {
+                    "role": "mutation_admission_judge",
+                    "provider": "openai_compatible",
+                    "model": "independent-judge-model",
+                    "timeout_seconds": 12.5,
+                    "max_retries": 1,
+                },
+            },
+        )
+        self.assertNotIn("api_key", repr(profile))
+        self.assertNotIn("credential", repr(profile))
+
+    def test_v4_rejects_unsafe_or_unbounded_mutation_judge_configuration(self) -> None:
+        base = {
+            "schema_version": "run_profile_v4",
+            "profile_id": "workspace_comment_judge_validation",
+            "dataset_version": "dataset_workspace_comment_judge_validation",
+            "profile_purpose": "diagnostic_probe",
+            "seed": {
+                "seed_id": "seed_workspace_comment_judge_validation",
+                "domain": "workspace_tasks_fixture",
+                "description": "Validate independent judge configuration.",
+                "task_taxonomy": ["workspace_comment_update"],
+            },
+            "generation": {"mode": "workspace_fixture"},
+            "features": {},
+        }
+        valid_judge = {
+            "role": "mutation_admission_judge",
+            "provider": "openai_compatible",
+            "model": "independent-judge-model",
+            "timeout_seconds": 12.5,
+            "max_retries": 1,
+        }
+        invalid_judges = (
+            {**valid_judge, "api_key": "must-not-be-retained"},
+            {**valid_judge, "role": "judge_verification"},
+            {**valid_judge, "provider": "unbounded_provider"},
+            {**valid_judge, "model": ""},
+            {**valid_judge, "timeout_seconds": 0},
+            {**valid_judge, "max_retries": 2},
+        )
+
+        for judge in invalid_judges:
+            with self.subTest(judge=judge), self.assertRaises(Exception):
+                self._load_mapping(
+                    {
+                        **base,
+                        "mutation_admission": {"mode": "shadow", "judge": judge},
+                    }
+                )
+
     def test_older_profiles_normalize_to_disabled_without_changing_hashes(self) -> None:
         profile = self._load_mapping(
             {

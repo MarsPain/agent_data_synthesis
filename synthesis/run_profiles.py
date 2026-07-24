@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from synthesis.contracts import SOURCE_LICENSE_LABELS
+from synthesis.mutation_admission_config import (
+    MutationAdmissionJudgeConfiguration,
+    parse_mutation_admission_judge_configuration,
+)
 from synthesis.seeds import DomainSeed
 
 
@@ -102,9 +106,13 @@ class RunProfileSource:
 @dataclass(frozen=True)
 class RunProfileMutationAdmission:
     mode: str = "disabled"
+    judge: MutationAdmissionJudgeConfiguration | None = None
 
     def canonical(self) -> dict[str, object]:
-        return {"mode": self.mode}
+        canonical: dict[str, object] = {"mode": self.mode}
+        if self.judge is not None:
+            canonical["judge"] = self.judge.canonical()
+        return canonical
 
 
 @dataclass(frozen=True)
@@ -237,7 +245,7 @@ def _load_mutation_admission(
         "mutation_admission",
     )
     unknown_keys = sorted(
-        str(key) for key in mutation_admission if key not in {"mode"}
+        str(key) for key in mutation_admission if key not in {"mode", "judge"}
     )
     if unknown_keys:
         raise RunProfileValidationError(
@@ -248,7 +256,22 @@ def _load_mutation_admission(
         raise RunProfileValidationError(
             f"mutation_admission.mode must be one of {sorted(MUTATION_ADMISSION_MODES)}"
         )
-    return RunProfileMutationAdmission(mode=mode)
+    raw_judge = mutation_admission.get("judge")
+    if raw_judge is not None and mode != "shadow":
+        raise RunProfileValidationError(
+            "mutation_admission.judge is only supported in shadow mode"
+        )
+    judge = _load_mutation_judge(raw_judge) if raw_judge is not None else None
+    return RunProfileMutationAdmission(mode=mode, judge=judge)
+
+
+def _load_mutation_judge(raw_judge: object) -> MutationAdmissionJudgeConfiguration:
+    try:
+        return parse_mutation_admission_judge_configuration(raw_judge)
+    except ValueError as exc:
+        raise RunProfileValidationError(
+            f"mutation_admission.judge {exc}"
+        ) from exc
 
 
 def _load_seed(raw_seed: object) -> DomainSeed:

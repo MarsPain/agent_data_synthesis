@@ -9,6 +9,10 @@ import re
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
+from synthesis.mutation_admission_config import (
+    parse_mutation_admission_judge_configuration,
+)
+
 if TYPE_CHECKING:
     from synthesis.tasks import CandidateTask
 
@@ -3840,11 +3844,19 @@ def _validate_run_profile_attribution(raw: object, path: str) -> None:
 
 def _validate_mutation_admission_profile_section(raw: object, path: str) -> None:
     section = _require_mapping(raw, path)
-    if set(section) != {"mode"}:
-        raise ContractValidationError(f"{path} must contain only mode")
+    if not {"mode"}.issubset(section) or not set(section).issubset({"mode", "judge"}):
+        raise ContractValidationError(f"{path} contains unsupported or missing keys")
     mode = _require_non_empty_string(section.get("mode"), f"{path}.mode")
     if mode not in {"disabled", "shadow"}:
         raise ContractValidationError(f"{path}.mode is unsupported")
+    if "judge" not in section:
+        return
+    if mode != "shadow":
+        raise ContractValidationError(f"{path}.judge requires shadow mode")
+    try:
+        parse_mutation_admission_judge_configuration(section.get("judge"))
+    except ValueError as exc:
+        raise ContractValidationError(f"{path}.judge {exc}") from exc
 
 
 def _validate_run_profile_source_attribution(raw: object, path: str) -> None:

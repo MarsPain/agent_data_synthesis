@@ -40,6 +40,7 @@ from synthesis.llm import LLMConfig, LLMProviderError, OpenAICompatibleClient
 from synthesis.mutation_admission import (
     CandidateAdmissionEvaluator,
     build_local_candidate_admission_evaluator,
+    build_openai_compatible_semantic_mutation_judge,
     permit_candidate_execution,
 )
 from synthesis.refinement import Refiner, RefinementAttempt, RefinementContext
@@ -217,6 +218,7 @@ def run_foundation_pipeline(
     run_profile_metadata: dict[str, object] | None = None,
     run_profile: object | None = None,
     write_episode_logs: bool = False,
+    mutation_judge_http_client: httpx.Client | None = None,
 ) -> PipelineResult:
     if candidate_generator is not None and candidate_generator_factory is not None:
         raise ValueError("candidate_generator and candidate_generator_factory are mutually exclusive")
@@ -355,6 +357,23 @@ def run_foundation_pipeline(
     ):
         mutation_admission = getattr(run_profile, "mutation_admission", None)
         mode = getattr(mutation_admission, "mode", "disabled")
+        judge = domain_bundle.mutation_judge
+        judge_config = getattr(mutation_admission, "judge", None)
+        if judge_config is not None:
+            provider_config = LLMConfig.from_env()
+            judge = build_openai_compatible_semantic_mutation_judge(
+                config=LLMConfig(
+                    base_url=provider_config.base_url,
+                    api_key=provider_config.api_key,
+                    model=str(getattr(judge_config, "model")),
+                    temperature=0.0,
+                ),
+                http_client=mutation_judge_http_client,
+                timeout_seconds=float(
+                    getattr(judge_config, "timeout_seconds")
+                ),
+                max_retries=int(getattr(judge_config, "max_retries")),
+            )
         state_changing_tools = tuple(
             str(tool["name"])
             for tool in registry.export()
@@ -364,7 +383,7 @@ def run_foundation_pipeline(
             mode=mode,
             policies=domain_bundle.mutation_policies,
             state_changing_tools=state_changing_tools,
-            judge=domain_bundle.mutation_judge,
+            judge=judge,
         )
     candidate_context = CandidateProcessingContext(
         dataset_version=dataset_version,
