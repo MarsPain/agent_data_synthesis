@@ -19,6 +19,11 @@ from synthesis.mobile_environment import (
     MobileMessagesEnvironment,
     MobileMessagesEnvironmentInput,
 )
+from synthesis.mobile_mutations import (
+    mobile_semantic_mutation_judge,
+    mobile_mutation_policies,
+    prepare_mobile_candidate,
+)
 from synthesis.mobile_tasks import (
     build_mobile_generation_spec,
     generate_mobile_fixture_candidates,
@@ -259,6 +264,9 @@ def _build_mobile_bundle(
             if mobile_environment_input is None
             else None
         ),
+        candidate_preparer=prepare_mobile_candidate,
+        mutation_policies=mobile_mutation_policies(environment),
+        mutation_judge=mobile_semantic_mutation_judge,
         adapter_shim=adapter_shim,
     )
 

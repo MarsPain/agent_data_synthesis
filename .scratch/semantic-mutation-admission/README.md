@@ -16,7 +16,7 @@ in the ADR, and implementation state lives in the small tickets under
 2. [Shadow-admit workspace comments end to end](issues/02-shadow-workspace-comments.md) — completed
 3. [Use an independent model for shadow admission](issues/03-independent-model-shadow-admission.md) — completed
 4. [Shadow-admit contact follow-ups](issues/04-shadow-contact-followups.md) — completed
-5. [Shadow-admit mobile mutations](issues/05-shadow-mobile-mutations.md) — ready for agent
+5. [Shadow-admit mobile mutations](issues/05-shadow-mobile-mutations.md) — completed
 6. [Shadow-admit workspace task creation](issues/06-shadow-workspace-task-creation.md) — ready for agent
 7. [Enforce admission before all declared mutations](issues/07-enforce-declared-mutations.md) — blocked by 03, 04, 05, and 06
 8. [Audit admission in release artifacts](issues/08-audit-release-admission-evidence.md) — blocked by 07
@@ -32,8 +32,8 @@ independently and join at Ticket 11.
 
 ## Frontier
 
-Tickets 05 and 06 are the current frontier and may proceed independently with
-fresh implementation contexts.
+Ticket 06 is the current implementation frontier. Ticket 09 remains blocked
+until that final domain-specific shadow-admission slice is complete.
 
 ## Historical Note
 

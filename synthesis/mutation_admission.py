@@ -141,10 +141,12 @@ class MutationArgumentPolicy:
     name: str
     requester_controlled: bool
     allowed_origins: tuple[str, ...]
+    required: bool = True
     observation_tool: str | None = None
     observation_field: str | None = None
     observation_bindings: tuple[tuple[str, str], ...] = ()
     binding_argument_names: tuple[str, ...] = ()
+    binding_token_aliases: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1216,6 +1218,30 @@ def _validate_authorization(
         failures,
     )
     raw_arguments = action.get("arguments")
+    declared_argument_names = {
+        argument_policy.name
+        for argument_policy in policy.arguments
+    }
+    raw_argument_names = [
+        argument.get("name")
+        for argument in raw_arguments
+        if isinstance(argument, Mapping)
+    ] if isinstance(raw_arguments, list) else []
+    if (
+        not isinstance(raw_arguments, list)
+        or len(raw_argument_names) != len(raw_arguments)
+        or any(
+            not isinstance(name, str) or name not in declared_argument_names
+            for name in raw_argument_names
+        )
+        or len(raw_argument_names) != len(set(raw_argument_names))
+    ):
+        failures.append(
+            _failure(
+                "authorization_action_mismatch",
+                "mutation_authorization.actions.0.arguments",
+            )
+        )
     argument_records = {
         str(argument.get("name")): argument
         for argument in raw_arguments
@@ -1235,6 +1261,11 @@ def _validate_authorization(
         argument = argument_records.get(argument_policy.name)
         path = f"mutation_authorization.actions.0.arguments.{argument_policy.name}"
         if argument is None:
+            if (
+                not argument_policy.required
+                and argument_policy.name not in mutation_arguments
+            ):
+                continue
             code = (
                 "requester_argument_provenance_missing"
                 if argument_policy.requester_controlled
@@ -1430,8 +1461,14 @@ def _validate_observation_evidence(
             for name in argument_policy.binding_argument_names
             for token in _evidence_tokens(str(source_arguments.get(name, "")))
         }
-        valid_source = bool(expected_tokens) and expected_tokens.issubset(
-            _evidence_tokens(binding_text)
+        binding_tokens = _evidence_tokens(binding_text)
+        valid_source = bool(expected_tokens) and all(
+            _binding_token_supported(
+                token,
+                binding_tokens,
+                argument_policy.binding_token_aliases,
+            )
+            for token in expected_tokens
         )
     if not valid_source:
         failures.append(
@@ -1467,6 +1504,24 @@ def _policy_step_index(value: object) -> int | None:
 
 def _evidence_tokens(value: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]+", value.lower()))
+
+
+def _binding_token_supported(
+    expected: str,
+    observed: set[str],
+    aliases: tuple[tuple[str, str], ...],
+) -> bool:
+    if expected in observed:
+        return True
+    return any(
+        (
+            expected == left and right in observed
+        )
+        or (
+            expected == right and left in observed
+        )
+        for left, right in aliases
+    )
 
 
 def _bypass_evidence(

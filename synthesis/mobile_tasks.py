@@ -1,13 +1,42 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import TYPE_CHECKING, Protocol
 
 from synthesis.execution import SolutionPolicy, ToolStep
 from synthesis.seeds import DomainSeed
 from synthesis.tasks import CandidateTask, local_task_generation_lineage, order_candidates_by_curriculum
 
+if TYPE_CHECKING:
+    from synthesis.task_contracts import TaskContract
 
-def build_mobile_generation_spec(environment: object, registry: object):
+
+MOBILE_MESSAGE_GROUNDING_ARGUMENTS = (
+    {"query": "project update", "participant": "Maya"},
+    {"query": "five minutes late", "participant": "Alex"},
+    {"query": "pickup code", "participant": "Delivery"},
+)
+
+
+class MobileGenerationEnvironment(Protocol):
+    source_input: object | None
+
+    def search_messages(
+        self,
+        *,
+        query: str,
+        participant: str | None = None,
+    ) -> dict[str, object]: ...
+
+
+class MobileToolExporter(Protocol):
+    def export(self) -> list[dict[str, object]]: ...
+
+
+def build_mobile_generation_spec(
+    environment: MobileGenerationEnvironment,
+    registry: MobileToolExporter,
+):
     from synthesis.domain_generation import (
         DOMAIN_GENERATION_SPEC_VERSION,
         SYNTHETIC_CONTEXT_POLICY,
@@ -18,17 +47,12 @@ def build_mobile_generation_spec(environment: object, registry: object):
 
     if getattr(environment, "source_input", None) is not None:
         raise ValueError("source_backed_remote_context_not_allowed")
-    message_arguments = [
-        {"query": "project update", "participant": "Maya"},
-        {"query": "five minutes late", "participant": "Alex"},
-        {"query": "pickup code", "participant": "Delivery"},
-    ]
     messages = [
         {
             "primary_arguments": arguments,
             "observation": environment.search_messages(**arguments),
         }
-        for arguments in message_arguments
+        for arguments in MOBILE_MESSAGE_GROUNDING_ARGUMENTS
     ]
     spec = DomainGenerationSpec(
         schema_version=DOMAIN_GENERATION_SPEC_VERSION,
@@ -111,7 +135,10 @@ def generate_mobile_fixture_candidates(seed: DomainSeed) -> list[CandidateTask]:
         ),
         CandidateTask(
             candidate_id="candidate_mobile_alex_draft_reply",
-            instruction="Find Alex's late-arrival message and draft the requested reply.",
+            instruction=(
+                "Find Alex's message about being five minutes late and draft the "
+                'reply "I will be five minutes late."'
+            ),
             constraints={
                 "domain": "mobile_messages_fixture",
                 "task_type": "mobile_draft_reply",
@@ -199,7 +226,11 @@ def generate_mobile_fixture_candidates(seed: DomainSeed) -> list[CandidateTask]:
             },
         ),
     ]
-    return order_candidates_by_curriculum(_attach_mobile_generation_lineage(candidates))
+    from synthesis.mobile_mutations import prepare_mobile_candidate
+
+    candidates = _attach_mobile_generation_lineage(candidates)
+    candidates = [prepare_mobile_candidate(candidate) for candidate in candidates]
+    return order_candidates_by_curriculum(candidates)
 
 
 def scripted_mobile_solution_policy(task: CandidateTask) -> SolutionPolicy:
