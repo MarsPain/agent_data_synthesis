@@ -5,6 +5,11 @@ from pathlib import Path
 from typing import Callable
 
 from awm_runtime.runtime import EnvironmentRuntime, RuntimeSession
+from synthesis.contact_mutations import (
+    build_contact_followup_semantic_mutation_judge,
+    contact_followup_mutation_policies,
+    prepare_contact_candidate,
+)
 from synthesis.domain_generation import DomainGenerationSpec
 from synthesis.environments import ContactEnvironment, ContactsEnvironmentInput
 from synthesis.execution import SolutionPolicy, scripted_solution_policy
@@ -39,6 +44,11 @@ from synthesis.workspace_tools import build_workspace_tool_registry
 CandidateGenerator = Callable[[DomainSeed], list[CandidateTask]]
 PolicyGenerator = Callable[[CandidateTask], SolutionPolicy]
 RegistryBuilder = Callable[[EnvironmentRuntime], ToolRegistry]
+CandidatePreparer = Callable[[CandidateTask], CandidateTask]
+
+
+def preserve_candidate(candidate: CandidateTask) -> CandidateTask:
+    return candidate
 
 
 @dataclass(frozen=True)
@@ -51,6 +61,7 @@ class DomainPipelineBundle:
     policy_generator: PolicyGenerator
     registry_builder: RegistryBuilder
     generation_spec: DomainGenerationSpec | None
+    candidate_preparer: CandidatePreparer = preserve_candidate
     mutation_policies: tuple[MutationActionPolicy, ...] = ()
     mutation_judge: SemanticMutationJudge | None = None
     adapter_shim: LocalRuntimeAdapterShim | None = None
@@ -137,6 +148,7 @@ def rebuild_domain_pipeline_bundle(
         policy_generator=base_bundle.policy_generator,
         registry_builder=base_bundle.registry_builder,
         generation_spec=base_bundle.generation_spec,
+        candidate_preparer=base_bundle.candidate_preparer,
         mutation_policies=base_bundle.mutation_policies,
         mutation_judge=base_bundle.mutation_judge,
         adapter_shim=adapter_shim,
@@ -197,6 +209,9 @@ def _build_contacts_bundle(
             if domain_environment_input is None
             else None
         ),
+        candidate_preparer=prepare_contact_candidate,
+        mutation_policies=contact_followup_mutation_policies(environment),
+        mutation_judge=build_contact_followup_semantic_mutation_judge(environment),
         adapter_shim=adapter_shim,
     )
 

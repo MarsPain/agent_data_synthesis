@@ -212,11 +212,14 @@ class ContactEnvironment:
         return {"name": name, "email": row[0]}
 
     def list_contact_names(self) -> dict[str, str]:
+        return {"contacts": ", ".join(self.contact_names())}
+
+    def contact_names(self) -> tuple[str, ...]:
         with closing(self.connect()) as connection:
             rows = connection.execute(
                 "SELECT name FROM contacts ORDER BY name"
             ).fetchall()
-        return {"contacts": ", ".join(str(row[0]) for row in rows)}
+        return tuple(str(row[0]) for row in rows)
 
     def record_followup(self, name: str, note: str) -> dict[str, object]:
         self.lookup_email(name)

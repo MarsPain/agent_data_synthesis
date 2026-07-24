@@ -634,6 +634,7 @@ class OpenAICompatibleProviderTest(unittest.TestCase):
         self.assertEqual(edited.candidate.candidate_id, "candidate_expanded_ben_followup")
         self.assertEqual(edited.candidate.task_suggester_lineage["role"], "task_suggester")
         self.assertEqual(edited.candidate.task_editor_lineage["role"], "task_editor")
+        self.assertIsNotNone(edited.candidate.mutation_authorization)
 
     def test_llm_task_editor_classifies_malformed_remote_output(self) -> None:
         from synthesis.llm import LLMProviderError

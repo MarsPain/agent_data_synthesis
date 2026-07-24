@@ -451,6 +451,10 @@ def run_foundation_pipeline(
             )
         else:
             raw_tasks = generated
+        raw_tasks = [
+            domain_bundle.candidate_preparer(raw_task)
+            for raw_task in raw_tasks
+        ]
     except LLMProviderError as exc:
         rejections.append(assemble_generation_stage_rejection(error=exc))
         _attach_source_governance_to_rejections(rejections, source_provenance)
@@ -531,6 +535,7 @@ def run_foundation_pipeline(
         expanded_outcomes = []
         start_index = len(raw_tasks)
         for offset, expanded_task in enumerate(expansion.candidates):
+            expanded_task = domain_bundle.candidate_preparer(expanded_task)
             request = CandidateExecutionRequest(
                 sequence_index=start_index + offset,
                 raw_task=expanded_task,

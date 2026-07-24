@@ -228,7 +228,11 @@ def generate_foundation_candidates(
     ]
     if include_branching:
         candidates.append(_branching_contact_candidate(seed))
-    return order_candidates_by_curriculum(_attach_local_generation_lineage(candidates))
+    return order_candidates_by_curriculum(
+        _attach_contact_followup_authorizations(
+            _attach_local_generation_lineage(candidates)
+        )
+    )
 
 
 def generate_scale_probe_candidates(
@@ -242,7 +246,9 @@ def generate_scale_probe_candidates(
         _scale_probe_candidate(seed, index)
         for index in range(1, target_candidate_count + 1)
     ]
-    return order_candidates_by_curriculum(candidates)
+    return order_candidates_by_curriculum(
+        _attach_contact_followup_authorizations(candidates)
+    )
 
 
 def generate_llm_backed_candidates(
@@ -375,7 +381,7 @@ def candidate_from_mapping(
     if branch_plan is not None and not isinstance(branch_plan, dict):
         raise TypeError("candidate branch_plan must be an object")
 
-    return CandidateTask(
+    candidate = CandidateTask(
         candidate_id=str(raw["candidate_id"]),
         instruction=str(raw["instruction"]),
         constraints=constraints,
@@ -394,6 +400,7 @@ def candidate_from_mapping(
         task_editor_lineage=dict(task_editor_lineage) if task_editor_lineage else None,
         editor_action=editor_action,
     )
+    return _attach_contact_followup_authorization(candidate)
 
 
 def _deterministic_suggestion_for_transformation(
@@ -817,6 +824,23 @@ def _attach_local_generation_lineage(candidates: list[CandidateTask]) -> list[Ca
         candidate if candidate.generation_lineage else replace(candidate, generation_lineage=lineage)
         for candidate in candidates
     ]
+
+
+def _attach_contact_followup_authorizations(
+    candidates: list[CandidateTask],
+) -> list[CandidateTask]:
+    return [
+        _attach_contact_followup_authorization(candidate)
+        for candidate in candidates
+    ]
+
+
+def _attach_contact_followup_authorization(
+    candidate: CandidateTask,
+) -> CandidateTask:
+    from synthesis.contact_mutations import prepare_contact_candidate
+
+    return prepare_contact_candidate(candidate)
 
 
 def local_task_generation_lineage() -> dict[str, object]:
