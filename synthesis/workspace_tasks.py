@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
-from dataclasses import replace
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Protocol
 
 from synthesis.execution import SolutionPolicy, ToolStep
 from synthesis.mutation_admission import (
@@ -11,15 +13,71 @@ from synthesis.mutation_admission import (
     SEMANTIC_VERDICT_VERSION,
     SemanticJudgeRequest,
     canonical_hash,
-    instruction_span,
     normalized_instruction,
     policy_hash,
 )
 from synthesis.seeds import DomainSeed
 from synthesis.tasks import CandidateTask, local_task_generation_lineage, order_candidates_by_curriculum
 
+if TYPE_CHECKING:
+    from synthesis.task_contracts import TaskContract
 
-def build_workspace_generation_spec(environment: object, registry: object):
+
+class WorkspaceGenerationEnvironment(Protocol):
+    @property
+    def source_input(self) -> object | None: ...
+
+    def search_workspace_items(
+        self,
+        *,
+        query: str,
+        kind: str | None = None,
+    ) -> dict[str, object]: ...
+
+
+class WorkspaceToolExporter(Protocol):
+    def export(self) -> list[dict[str, object]]: ...
+
+
+class WorkspaceMutationPolicyEnvironment(Protocol):
+    def project_search_bindings(
+        self,
+    ) -> tuple[tuple[dict[str, object], str], ...]: ...
+
+
+@dataclass(frozen=True)
+class WorkspaceActionSemantics:
+    entity_tokens: frozenset[str]
+    authorization_verbs: frozenset[str]
+    negation_target_pattern: str
+
+
+@dataclass(frozen=True)
+class WorkspaceProjectMention:
+    query_matches: bool
+    is_destination: bool
+    is_lookup_subject: bool
+    is_negated: bool
+
+
+_WORKSPACE_ACTION_SEMANTICS = {
+    "workspace_task_create": WorkspaceActionSemantics(
+        entity_tokens=frozenset({"task", "item"}),
+        authorization_verbs=frozenset({"add", "create", "make", "prepare"}),
+        negation_target_pattern=r"(?:task|item)",
+    ),
+    "workspace_comment_add": WorkspaceActionSemantics(
+        entity_tokens=frozenset({"comment"}),
+        authorization_verbs=frozenset({"add", "create", "leave", "post", "write"}),
+        negation_target_pattern=r"comment",
+    ),
+}
+
+
+def build_workspace_generation_spec(
+    environment: WorkspaceGenerationEnvironment,
+    registry: WorkspaceToolExporter,
+):
     from synthesis.domain_generation import (
         DOMAIN_GENERATION_SPEC_VERSION,
         SYNTHETIC_CONTEXT_POLICY,
@@ -84,8 +142,44 @@ def build_workspace_generation_spec(environment: object, registry: object):
     return spec
 
 
-def workspace_mutation_policies() -> tuple[MutationActionPolicy, ...]:
+def workspace_mutation_policies(
+    environment: WorkspaceMutationPolicyEnvironment | None = None,
+) -> tuple[MutationActionPolicy, ...]:
+    project_bindings = _workspace_project_observation_bindings(environment)
     return (
+        MutationActionPolicy(
+            schema_version="workspace_task_mutation_policy_v1",
+            domain_id="workspace_tasks_fixture",
+            task_type="workspace_task_creation",
+            action_type="workspace_task_create",
+            tool_name="create_workspace_task",
+            arguments=(
+                MutationArgumentPolicy(
+                    name="title",
+                    requester_controlled=True,
+                    allowed_origins=("instruction",),
+                ),
+                MutationArgumentPolicy(
+                    name="priority",
+                    requester_controlled=True,
+                    allowed_origins=("instruction",),
+                ),
+                MutationArgumentPolicy(
+                    name="due_label",
+                    requester_controlled=True,
+                    allowed_origins=("instruction",),
+                ),
+                MutationArgumentPolicy(
+                    name="project_id",
+                    requester_controlled=False,
+                    allowed_origins=("tool_observation",),
+                    observation_tool="search_workspace_items",
+                    observation_field="project_id",
+                    observation_bindings=project_bindings,
+                    binding_argument_names=("query", "kind"),
+                ),
+            ),
+        ),
         MutationActionPolicy(
             schema_version="workspace_comment_mutation_policy_v1",
             domain_id="workspace_tasks_fixture",
@@ -119,6 +213,29 @@ def workspace_mutation_policies() -> tuple[MutationActionPolicy, ...]:
     )
 
 
+def _workspace_project_observation_bindings(
+    environment: WorkspaceMutationPolicyEnvironment | None,
+) -> tuple[tuple[str, str], ...]:
+    raw_bindings = (
+        environment.project_search_bindings()
+        if environment is not None
+        else (
+            (
+                {"query": "Alpha Launch", "kind": "project"},
+                "project_alpha",
+            ),
+            (
+                {"query": "Beta Research", "kind": "project"},
+                "project_beta",
+            ),
+        )
+    )
+    return tuple(
+        (canonical_hash(arguments), canonical_hash(project_id))
+        for arguments, project_id in raw_bindings
+    )
+
+
 def _workspace_semantic_mutation_verdict(
     request: SemanticJudgeRequest,
 ) -> dict[str, object]:
@@ -129,16 +246,23 @@ def _workspace_semantic_mutation_verdict(
     if "ignore previous" in instruction or "ignore all previous" in instruction:
         action_reason = "instruction_prompt_injection"
         action_outcome = "unsupported"
-    elif re.search(r"\b(?:do not|don't|without)\b[^.]{0,80}\bcomment\b", instruction):
+    elif _workspace_action_is_negated(request, instruction):
         action_reason = "action_negated"
         action_outcome = "unsupported"
     elif any(
         phrase in instruction
-        for phrase in ("if appropriate", "if needed", "maybe add", "consider adding")
+        for phrase in (
+            "if appropriate",
+            "if needed",
+            "maybe add",
+            "maybe create",
+            "consider adding",
+            "consider creating",
+        )
     ):
         action_reason = "conditional_authorization_ambiguous"
         action_outcome = "uncertain"
-    elif "comment" not in request.action_evidence_text.lower():
+    elif not _workspace_action_is_supported(request):
         action_reason = "action_not_authorized"
         action_outcome = "unsupported"
 
@@ -157,20 +281,44 @@ def _workspace_semantic_mutation_verdict(
     for name, origin in request.argument_origins.items():
         reference = request.evidence_references[name]
         if origin == "tool_observation":
-            outcome = "supported"
-            reason = "observation_reference_supported"
+            if _workspace_observation_is_semantically_supported(request, name):
+                outcome = "supported"
+                reason = "observation_reference_supported"
+            else:
+                outcome = "unsupported"
+                reason = "provenance_mismatch"
         elif origin == "instruction":
             value = str(request.argument_values.get(name, ""))
             evidence_text = str(request.argument_evidence.get(name, ""))
-            if value.lower() in instruction:
+            if value.lower() in instruction and _literal_argument_is_supported(
+                value,
+                instruction,
+            ):
                 outcome = "supported"
                 reason = "argument_literal_supported"
+            elif value.lower() in instruction:
+                outcome = "unsupported"
+                reason = "argument_not_supported"
+            elif _workspace_argument_is_semantically_supported(
+                request,
+                name=name,
+                value=value,
+                evidence_text=evidence_text,
+            ):
+                outcome = "supported"
+                reason = "argument_semantic_supported"
             else:
                 overlap = _semantic_token_overlap(value, evidence_text)
-                if overlap >= 2:
+                if (
+                    request.action_type == "workspace_comment_add"
+                    and overlap >= 2
+                ):
                     outcome = "supported"
                     reason = "argument_semantic_supported"
-                elif overlap == 1:
+                elif (
+                    request.action_type == "workspace_comment_add"
+                    and overlap == 1
+                ):
                     outcome = "uncertain"
                     reason = "evidence_ambiguous"
                 else:
@@ -214,15 +362,166 @@ def _workspace_semantic_mutation_verdict(
 
 workspace_semantic_mutation_judge = DeterministicSemanticMutationJudge(
     evaluate=_workspace_semantic_mutation_verdict,
-    model="deterministic_workspace_comment_judge_v1",
+    model="deterministic_workspace_mutation_judge_v1",
 )
+
+
+def _workspace_action_is_supported(request: SemanticJudgeRequest) -> bool:
+    tokens = _semantic_tokens(request.action_evidence_text)
+    semantics = _WORKSPACE_ACTION_SEMANTICS.get(request.action_type)
+    return bool(
+        semantics
+        and tokens & semantics.entity_tokens
+        and tokens & semantics.authorization_verbs
+    )
+
+
+def _workspace_action_is_negated(
+    request: SemanticJudgeRequest,
+    instruction: str,
+) -> bool:
+    semantics = _WORKSPACE_ACTION_SEMANTICS.get(request.action_type)
+    if semantics is None:
+        return False
+    return re.search(
+        (
+            rf"\b(?:do not|don't|without)\b[^.]{{0,80}}"
+            rf"\b{semantics.negation_target_pattern}\b"
+        ),
+        instruction,
+    ) is not None
+
+
+def _literal_argument_is_supported(value: str, instruction: str) -> bool:
+    start = instruction.index(value.lower())
+    sentence_start = max(
+        instruction.rfind(".", 0, start),
+        instruction.rfind(";", 0, start),
+        start - 48,
+    )
+    prefix = instruction[sentence_start + 1:start]
+    return re.search(
+        r"\b(?:do\s+not|don't|not\s+to|without)\b[^.]{0,40}$",
+        prefix,
+    ) is None
+
+
+def _workspace_argument_is_semantically_supported(
+    request: SemanticJudgeRequest,
+    *,
+    name: str,
+    value: str,
+    evidence_text: str,
+) -> bool:
+    value_tokens = _semantic_tokens(value)
+    if request.action_type == "workspace_task_create" and name == "title":
+        value_tokens -= {"add", "create", "item", "make", "new", "prepare", "task"}
+    evidence_tokens = _semantic_tokens(evidence_text)
+    return bool(value_tokens) and value_tokens.issubset(evidence_tokens)
+
+
+def _workspace_observation_is_semantically_supported(
+    request: SemanticJudgeRequest,
+    name: str,
+) -> bool:
+    if request.action_type != "workspace_task_create" or name != "project_id":
+        return True
+    evidence = request.argument_evidence.get(name)
+    if not isinstance(evidence, Mapping):
+        return False
+    source_arguments = evidence.get("source_arguments")
+    if not isinstance(source_arguments, Mapping):
+        return False
+    query = source_arguments.get("query")
+    if not isinstance(query, str) or not query.strip():
+        return False
+    expected_tokens = _semantic_tokens(query)
+    mentions: list[WorkspaceProjectMention] = []
+    for clause in re.split(r"[.,;]", request.instruction.lower()):
+        token_sequence = re.findall(r"[a-z0-9]+", clause)
+        project_indexes = [
+            index
+            for index, token in enumerate(token_sequence)
+            if token == "project"
+        ]
+        is_negated = re.search(
+            r"\b(?:avoid|do\s+not|don't|instead\s+of|without)\b",
+            clause,
+        ) is not None
+        is_lookup_subject = re.search(
+            r"\b(?:find|locate|look\s+up|retrieve|search)\b",
+            clause,
+        ) is not None
+        action_tokens = _WORKSPACE_ACTION_SEMANTICS[
+            "workspace_task_create"
+        ].authorization_verbs
+        has_creation_action = bool(set(token_sequence) & action_tokens)
+        for project_index in project_indexes:
+            project_phrase_tokens = set(
+                token_sequence[max(0, project_index - 4):project_index]
+                + token_sequence[project_index + 1:project_index + 5]
+            )
+            query_matches = all(
+                _project_binding_token_supported(
+                    token,
+                    project_phrase_tokens,
+                )
+                for token in expected_tokens
+            )
+            preceding_tokens = set(
+                token_sequence[max(0, project_index - 8):project_index]
+            )
+            mentions.append(
+                WorkspaceProjectMention(
+                    query_matches=query_matches,
+                    is_destination=(
+                        has_creation_action
+                        and bool(preceding_tokens & {"for", "in", "under"})
+                    ),
+                    is_lookup_subject=is_lookup_subject,
+                    is_negated=is_negated,
+                )
+            )
+    destinations = [
+        mention
+        for mention in mentions
+        if mention.is_destination and not mention.is_negated
+    ]
+    if destinations:
+        return any(mention.query_matches for mention in destinations)
+    return any(
+        mention.query_matches
+        and mention.is_lookup_subject
+        and not mention.is_negated
+        for mention in mentions
+    )
+
+
+def _project_binding_token_supported(
+    expected: str,
+    observed: set[str],
+) -> bool:
+    return expected in observed
 
 
 def _semantic_token_overlap(left: str, right: str) -> int:
     stopwords = {"a", "an", "and", "the", "to", "for", "of", "add", "added"}
-    left_tokens = set(re.findall(r"[a-z0-9]+", left.lower())) - stopwords
-    right_tokens = set(re.findall(r"[a-z0-9]+", right.lower())) - stopwords
+    left_tokens = _semantic_tokens(left) - stopwords
+    right_tokens = _semantic_tokens(right) - stopwords
     return len(left_tokens & right_tokens)
+
+
+def _semantic_tokens(value: str) -> set[str]:
+    aliases = {
+        "check": "review",
+        "checking": "review",
+        "current": "this",
+        "urgent": "high",
+    }
+    return {
+        aliases.get(token, token)
+        for token in re.findall(r"[a-z0-9]+", value.lower().replace("_", " "))
+    }
 
 
 def _unique(values: list[str]) -> list[str]:
@@ -262,8 +561,8 @@ def generate_workspace_fixture_candidates(seed: DomainSeed) -> list[CandidateTas
         CandidateTask(
             candidate_id="candidate_workspace_launch_checklist_task",
             instruction=(
-                "Find the launch project and create a high-priority launch checklist "
-                "task due this week."
+                "Find the Alpha Launch project and create a high-priority "
+                "launch checklist task due this week."
             ),
             constraints={
                 "domain": "workspace_tasks_fixture",
@@ -365,9 +664,7 @@ def generate_workspace_fixture_candidates(seed: DomainSeed) -> list[CandidateTas
     ]
     candidates = _attach_workspace_generation_lineage(candidates)
     candidates = [
-        propose_workspace_comment_authorization(candidate)
-        if candidate.constraints.get("task_type") == "workspace_comment_update"
-        else candidate
+        prepare_workspace_candidate(candidate)
         for candidate in candidates
     ]
     return order_candidates_by_curriculum(candidates)
@@ -493,56 +790,252 @@ def _workspace_policy_lineage() -> dict[str, object]:
 def propose_workspace_comment_authorization(candidate: CandidateTask) -> CandidateTask:
     policy = scripted_workspace_solution_policy(candidate)
     instruction = normalized_instruction(candidate.instruction)
-    action_evidence = instruction_span(
-        instruction,
-        "add a comment assigning the checklist owner",
-        reference_id="instruction.action",
+    source_index, source_step = _policy_step(policy, "search_workspace_items")
+    mutation_index, mutation_step = _policy_step(policy, "add_workspace_comment")
+    return _with_workspace_authorization(
+        candidate,
+        policy=policy,
+        instruction=instruction,
+        action_type="workspace_comment_add",
+        mutation_index=mutation_index,
+        action_evidence=_instruction_regex_evidence(
+            instruction,
+            (
+                r"\b(?:add|write|create|leave|post)\b"
+                r"[^.]{0,180}\bcomment\b[^.]*"
+            ),
+            reference_id="instruction.action",
+        ),
+        arguments=[
+            {
+                "name": "comment",
+                "origin": "instruction",
+                "support": "semantic",
+                "evidence": _instruction_regex_evidence(
+                    instruction,
+                    (
+                        r"\b(?:add|write|create|leave|post)\b"
+                        r"[^.]{0,180}\bcomment\b[^.]*"
+                    ),
+                    reference_id="instruction.comment",
+                ),
+            },
+            _observation_argument(
+                name="task_id",
+                source_index=source_index,
+                source_step=source_step,
+                source_field="item_id",
+                mutation_value=mutation_step.arguments.get("task_id"),
+                reference_id="observation.selected_task",
+                binding_evidence=_instruction_regex_evidence(
+                    instruction,
+                    r"[^.]{0,180}\b(?:task|item)\b[^.]*",
+                    reference_id="instruction.selected_task",
+                ),
+            ),
+        ],
     )
-    comment_evidence = instruction_span(
-        instruction,
-        "assigning the checklist owner",
-        reference_id="instruction.comment",
+
+
+def prepare_workspace_candidate(candidate: CandidateTask) -> CandidateTask:
+    task_type = candidate.constraints.get("task_type")
+    if task_type == "workspace_task_creation":
+        return propose_workspace_task_authorization(candidate)
+    if task_type == "workspace_comment_update":
+        return propose_workspace_comment_authorization(candidate)
+    return candidate
+
+
+def propose_workspace_task_authorization(candidate: CandidateTask) -> CandidateTask:
+    policy = scripted_workspace_solution_policy(candidate)
+    instruction = normalized_instruction(candidate.instruction)
+    source_index, source_step = _policy_step(policy, "search_workspace_items")
+    mutation_index, mutation_step = _policy_step(policy, "create_workspace_task")
+    return _with_workspace_authorization(
+        candidate,
+        policy=policy,
+        instruction=instruction,
+        action_type="workspace_task_create",
+        mutation_index=mutation_index,
+        action_evidence=_instruction_regex_evidence(
+            instruction,
+            (
+                r"\b(?:create|make|add|prepare)\b"
+                r"[^.]{0,180}\b(?:task|item)\b[^.]*"
+            ),
+            reference_id="instruction.action",
+        ),
+        arguments=[
+            _instruction_argument(
+                instruction,
+                name="title",
+                value=mutation_step.arguments.get("title"),
+                fallback_pattern=(
+                    r"\b(?:create|make|add|prepare)\b"
+                    r"[^.]{0,180}\b(?:task|item)\b[^.]*"
+                ),
+            ),
+            _instruction_argument(
+                instruction,
+                name="priority",
+                value=mutation_step.arguments.get("priority"),
+                fallback_pattern=r"\b(?:low|medium|high|urgent)\b[^.]*",
+            ),
+            _instruction_argument(
+                instruction,
+                name="due_label",
+                value=mutation_step.arguments.get("due_label"),
+                fallback_pattern=(
+                    r"\b(?:due|deadline|today|tomorrow|this|next)\b[^.]*"
+                ),
+            ),
+            _observation_argument(
+                name="project_id",
+                source_index=source_index,
+                source_step=source_step,
+                source_field="project_id",
+                mutation_value=mutation_step.arguments.get("project_id"),
+                reference_id="observation.selected_project",
+                binding_evidence=_instruction_regex_evidence(
+                    instruction,
+                    r"[^.]{0,180}\bproject\b[^.]*",
+                    reference_id="instruction.selected_project",
+                ),
+            ),
+        ],
     )
-    task_evidence = instruction_span(
-        instruction,
-        "launch plan task",
-        reference_id="instruction.selected_task",
-    )
-    mutation_step = policy.steps[1]
-    source_step = policy.steps[0]
+
+
+def _with_workspace_authorization(
+    candidate: CandidateTask,
+    *,
+    policy: SolutionPolicy,
+    instruction: str,
+    action_type: str,
+    mutation_index: int,
+    action_evidence: dict[str, object],
+    arguments: list[dict[str, object]],
+) -> CandidateTask:
     record: dict[str, object] = {
         "schema_version": "mutation_authorization_record_v1",
         "instruction_hash": canonical_hash(instruction),
         "policy_hash": policy_hash(policy),
         "actions": [
             {
-                "action_ref": "policy.steps.1",
-                "action_type": "workspace_comment_add",
+                "action_ref": f"policy.steps.{mutation_index}",
+                "action_type": action_type,
                 "instruction_evidence": action_evidence,
-                "arguments": [
-                    {
-                        "name": "comment",
-                        "origin": "instruction",
-                        "support": "semantic",
-                        "evidence": comment_evidence,
-                    },
-                    {
-                        "name": "task_id",
-                        "origin": "tool_observation",
-                        "evidence": {
-                            "reference_id": "observation.selected_task",
-                            "kind": "tool_observation",
-                            "source_action_ref": "policy.steps.0",
-                            "source_field": "item_id",
-                            "source_arguments_hash": canonical_hash(source_step.arguments),
-                            "value_hash": canonical_hash(
-                                mutation_step.arguments.get("task_id")
-                            ),
-                            "binding_instruction_evidence": task_evidence,
-                        },
-                    },
-                ],
+                "arguments": arguments,
             }
         ],
     }
     return replace(candidate, mutation_authorization=record)
+
+
+def _observation_argument(
+    *,
+    name: str,
+    source_index: int,
+    source_step: ToolStep,
+    source_field: str,
+    mutation_value: object,
+    reference_id: str,
+    binding_evidence: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "name": name,
+        "origin": "tool_observation",
+        "evidence": {
+            "reference_id": reference_id,
+            "kind": "tool_observation",
+            "source_action_ref": f"policy.steps.{source_index}",
+            "source_field": source_field,
+            "source_arguments_hash": canonical_hash(source_step.arguments),
+            "value_hash": canonical_hash(mutation_value),
+            "binding_instruction_evidence": binding_evidence,
+        },
+    }
+
+
+def _policy_step(policy: SolutionPolicy, tool_name: str) -> tuple[int, ToolStep]:
+    for index, step in enumerate(policy.steps):
+        if step.tool_name == tool_name:
+            return index, step
+    raise ValueError(f"workspace mutation policy requires {tool_name}")
+
+
+def _instruction_argument(
+    instruction: str,
+    *,
+    name: str,
+    value: object,
+    fallback_pattern: str,
+) -> dict[str, object]:
+    literal = str(value) if isinstance(value, str) else ""
+    literal_match = bool(literal and literal.lower() in instruction.lower())
+    return {
+        "name": name,
+        "origin": "instruction",
+        "support": "literal" if literal_match else "semantic",
+        "evidence": (
+            _instruction_literal_evidence(
+                instruction,
+                literal,
+                reference_id=f"instruction.{name}",
+            )
+            if literal_match
+            else _instruction_regex_evidence(
+                instruction,
+                fallback_pattern,
+                reference_id=f"instruction.{name}",
+            )
+        ),
+    }
+
+
+def _instruction_regex_evidence(
+    instruction: str,
+    pattern: str,
+    *,
+    reference_id: str,
+) -> dict[str, object]:
+    match = re.search(pattern, instruction, re.IGNORECASE)
+    start, end = match.span() if match is not None else (0, min(1, len(instruction)))
+    return _instruction_evidence(
+        instruction,
+        start,
+        end,
+        reference_id=reference_id,
+    )
+
+
+def _instruction_literal_evidence(
+    instruction: str,
+    text: str,
+    *,
+    reference_id: str,
+) -> dict[str, object]:
+    start = instruction.lower().index(text.lower())
+    return _instruction_evidence(
+        instruction,
+        start,
+        start + len(text),
+        reference_id=reference_id,
+    )
+
+
+def _instruction_evidence(
+    instruction: str,
+    start: int,
+    end: int,
+    *,
+    reference_id: str,
+) -> dict[str, object]:
+    text = instruction[start:end]
+    return {
+        "reference_id": reference_id,
+        "kind": "instruction_span",
+        "start": start,
+        "end": end,
+        "evidence_hash": canonical_hash(text),
+    }

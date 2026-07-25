@@ -8,7 +8,7 @@ evaluation inputs but does not run or score the remote judge.
 
 **Blocked by:** [04 — Shadow-admit Contact Follow-ups](04-shadow-contact-followups.md), [05 — Shadow-admit Mobile Mutations](05-shadow-mobile-mutations.md), [06 — Shadow-admit Workspace Task Creation](06-shadow-workspace-task-creation.md)
 
-**Status:** blocked
+**Status:** ready-for-agent
 
 **Assignee:** Unassigned
 

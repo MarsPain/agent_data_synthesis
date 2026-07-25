@@ -1,0 +1,35 @@
+{
+  "schema_version": "retained_mutation_input_evidence_v1",
+  "source_artifact": "artifacts/representative-campaign-30-v5/workspace/samples.jsonl",
+  "source_sha256": "5fdcd3563cbfe2e7c7c8e444121388ee23a52cf28ce6d771689f301947f4aaf3",
+  "samples": [
+    {
+      "sample_id": "sample_workspace_tasks_b002_01",
+      "instruction": "Locate workspace tasks related to the metrics dashboard.",
+      "search_arguments": {
+        "kind": "task",
+        "query": "metrics dashboard"
+      },
+      "expected_task": {
+        "due_label": "next_week",
+        "priority": "medium",
+        "project_id": "project_alpha",
+        "title": "Review metrics dashboard"
+      }
+    },
+    {
+      "sample_id": "sample_workspace_tasks_b002_02",
+      "instruction": "Retrieve workspace items for the Alpha Launch project.",
+      "search_arguments": {
+        "kind": "project",
+        "query": "Alpha Launch"
+      },
+      "expected_task": {
+        "due_label": "next_week",
+        "priority": "high",
+        "project_id": "project_alpha",
+        "title": "Alpha Launch planning task"
+      }
+    }
+  ]
+}

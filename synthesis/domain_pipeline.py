@@ -39,6 +39,7 @@ from synthesis.workspace_environment import WorkspaceEnvironmentInput, Workspace
 from synthesis.workspace_tasks import (
     build_workspace_generation_spec,
     generate_workspace_fixture_candidates,
+    prepare_workspace_candidate,
     scripted_workspace_solution_policy,
     workspace_mutation_policies,
     workspace_semantic_mutation_judge,
@@ -314,7 +315,8 @@ def _build_workspace_bundle(
             if workspace_environment_input is None
             else None
         ),
-        mutation_policies=workspace_mutation_policies(),
+        candidate_preparer=prepare_workspace_candidate,
+        mutation_policies=workspace_mutation_policies(environment),
         mutation_judge=workspace_semantic_mutation_judge,
         adapter_shim=adapter_shim,
     )

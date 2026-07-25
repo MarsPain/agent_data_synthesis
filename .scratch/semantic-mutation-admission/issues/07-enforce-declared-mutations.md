@@ -8,7 +8,7 @@ read-only behavior remain stable.
 
 **Blocked by:** [03 — Use an Independent Model for Shadow Admission](03-independent-model-shadow-admission.md), [04 — Shadow-admit Contact Follow-ups](04-shadow-contact-followups.md), [05 — Shadow-admit Mobile Mutations](05-shadow-mobile-mutations.md), [06 — Shadow-admit Workspace Task Creation](06-shadow-workspace-task-creation.md)
 
-**Status:** blocked
+**Status:** ready-for-agent
 
 **Assignee:** Unassigned
 

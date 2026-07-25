@@ -258,6 +258,25 @@ class WorkspaceTasksEnvironment:
         }
         return exported
 
+    def project_search_bindings(
+        self,
+    ) -> tuple[tuple[dict[str, object], str], ...]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT project_id, name
+                FROM workspace_projects
+                ORDER BY project_id
+                """
+            ).fetchall()
+        return tuple(
+            (
+                {"query": str(name), "kind": "project"},
+                str(project_id),
+            )
+            for project_id, name in rows
+        )
+
     def add_workspace_comment(self, *, task_id: str, comment: str) -> dict[str, object]:
         task_text = _required_text(task_id, "task_id")
         comment_text = _required_text(comment, "comment")
