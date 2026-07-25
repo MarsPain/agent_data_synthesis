@@ -202,6 +202,8 @@ class MutationActionPolicy:
     action_type: str
     tool_name: str
     arguments: tuple[MutationArgumentPolicy, ...]
+    operational_defaults: tuple[tuple[str, str], ...] = ()
+    deterministic_derivations: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)

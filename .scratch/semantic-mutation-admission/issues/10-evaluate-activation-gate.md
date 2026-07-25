@@ -8,7 +8,7 @@ reproduce every metric without exposing raw judge material.
 
 **Blocked by:** [03 — Use an Independent Model for Shadow Admission](03-independent-model-shadow-admission.md), [09 — Produce and Import a Reviewed Calibration Corpus](09-reviewed-calibration-corpus.md)
 
-**Status:** blocked
+**Status:** ready-for-agent
 
 **Assignee:** Unassigned
 

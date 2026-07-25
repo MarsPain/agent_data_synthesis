@@ -57,6 +57,15 @@ def preserve_candidate(candidate: CandidateTask) -> CandidateTask:
     return candidate
 
 
+def mutation_calibration_policies() -> tuple[MutationActionPolicy, ...]:
+    """Return current domain-owned fixture policies without building runtimes."""
+    return (
+        *contact_followup_mutation_policies(),
+        *mobile_mutation_policies(),
+        *workspace_mutation_policies(),
+    )
+
+
 @dataclass(frozen=True)
 class DomainPipelineBundle:
     domain_id: str

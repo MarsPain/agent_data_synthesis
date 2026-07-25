@@ -25,14 +25,19 @@ def prepare_contact_candidate(candidate: CandidateTask) -> CandidateTask:
 
 
 def contact_followup_mutation_policies(
-    environment: ContactEnvironment,
+    environment: ContactEnvironment | None = None,
 ) -> tuple[MutationActionPolicy, ...]:
+    contact_names = (
+        environment.contact_names()
+        if environment is not None
+        else ContactEnvironment.fixture_contact_names()
+    )
     bindings = tuple(
         (
             canonical_hash({"name": name}),
             canonical_hash(name),
         )
-        for name in environment.contact_names()
+        for name in contact_names
     )
     return (
         MutationActionPolicy(
@@ -55,6 +60,15 @@ def contact_followup_mutation_policies(
                     name="note",
                     requester_controlled=True,
                     allowed_origins=("instruction",),
+                ),
+            ),
+            operational_defaults=(
+                ("created_at", "contact_followup_created_at_default_v1"),
+            ),
+            deterministic_derivations=(
+                (
+                    "followup_count",
+                    "contact_followup_count_from_persisted_state_v1",
                 ),
             ),
         ),

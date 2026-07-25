@@ -9,6 +9,16 @@ from awm_runtime.runtime import RuntimeMetadata, runtime_metadata_from_environme
 from synthesis.contracts import validate_contacts_environment_input_record
 
 
+CONTACT_FIXTURE_ROWS = (
+    ("Alice Zhang", "alice.zhang@example.test"),
+    ("Ben Carter", "ben.carter@example.test"),
+    ("Carla Diaz", "carla.diaz@example.test"),
+    ("David Kim", "david.kim@example.test"),
+    ("Elena Petrova", "elena.petrova@example.test"),
+    ("Frank Osei", "frank.osei@example.test"),
+)
+
+
 @dataclass(frozen=True)
 class EnvironmentMetadata:
     environment_id: str
@@ -88,14 +98,7 @@ class ContactEnvironment:
                 )
                 connection.executemany(
                     "INSERT INTO contacts(name, email) VALUES (?, ?)",
-                    [
-                        ("Alice Zhang", "alice.zhang@example.test"),
-                        ("Ben Carter", "ben.carter@example.test"),
-                        ("Carla Diaz", "carla.diaz@example.test"),
-                        ("David Kim", "david.kim@example.test"),
-                        ("Elena Petrova", "elena.petrova@example.test"),
-                        ("Frank Osei", "frank.osei@example.test"),
-                    ],
+                    CONTACT_FIXTURE_ROWS,
                 )
                 connection.execute(
                     """
@@ -220,6 +223,10 @@ class ContactEnvironment:
                 "SELECT name FROM contacts ORDER BY name"
             ).fetchall()
         return tuple(str(row[0]) for row in rows)
+
+    @classmethod
+    def fixture_contact_names(cls) -> tuple[str, ...]:
+        return tuple(name for name, _email in CONTACT_FIXTURE_ROWS)
 
     def record_followup(self, name: str, note: str) -> dict[str, object]:
         self.lookup_email(name)

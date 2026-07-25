@@ -81,6 +81,11 @@ uv run python scripts/verify_dataset_release.py --output-dir artifacts/workspace
 # After a reviewer creates the local, reviewer-owned decisions file
 uv run python scripts/write_review_resolution.py --output-dir artifacts/mobile-release-candidate --decisions-path artifacts/mobile-release-candidate/review_decisions.jsonl
 
+# Freeze a balanced mutation-admission packet before tuning, then import a
+# complete directly human-reviewed label file
+uv run python scripts/export_mutation_calibration_packet.py --corpus-version mutation_calibration_corpus_v1 --output-dir artifacts/mutation-calibration
+uv run python scripts/import_mutation_calibration_labels.py --packet artifacts/mutation-calibration/mutation_calibration_review_packet.json --split-freeze artifacts/mutation-calibration/mutation_calibration_split_freeze.json --labels artifacts/mutation-calibration/human_labels.jsonl --output artifacts/mutation-calibration/reviewed_mutation_calibration_corpus.json
+
 # Offline representative-scale and downstream evidence exchange
 uv run python scripts/write_representative_scale_evidence.py --campaign artifacts/evidence-campaign/campaign.json --output artifacts/evidence-campaign/representative_scale_evidence.json
 uv run python scripts/write_downstream_benchmark_bundle.py --release-pack artifacts/contacts-release/dataset_release_pack.json --benchmark-suite-id external_agent_tasks_v1 --benchmark-suite-version external_agent_tasks_v1 --output artifacts/downstream/downstream_benchmark_bundle.json
@@ -123,6 +128,12 @@ paths, and host paths must not be written to public artifacts.
 - Standalone evidence artifacts: `representative_scale_evidence.json`,
   `downstream_benchmark_bundle.json`, and `downstream_benchmark_result.json`.
   They consume existing artifacts and are never written by default `main.py`.
+- Mutation-calibration artifacts are also standalone:
+  `mutation_calibration_review_packet.json`,
+  `mutation_calibration_split_freeze.json`, reviewer-owned
+  `human_labels.jsonl`, and the validated
+  `reviewed_mutation_calibration_corpus.json`. Export and import are offline,
+  make no judge calls, and do not attach these artifacts to a dataset manifest.
 - Review artifacts are separate: candidate rejection routing uses
   `review_queue.jsonl`; release-audit watch signals use
   `release_review_queue.jsonl`. The local reviewer-owned

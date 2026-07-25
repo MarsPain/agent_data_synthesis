@@ -1,0 +1,96 @@
+{
+  "schema_version": "mutation_calibration_action_catalog_v1",
+  "actions": [
+    {
+      "action_type": "contact_followup_record",
+      "action_phrase": "record a contact follow-up",
+      "semantic_phrase": "Log the requested follow-up for the selected contact",
+      "variants": [
+        {"name": "Alice Zhang", "note": "Review the budget"},
+        {"name": "Ben Carter", "note": "Send the revised brief"},
+        {"name": "Carla Diaz", "note": "Confirm the launch date"},
+        {"name": "David Kim", "note": "Schedule a design review"}
+      ]
+    },
+    {
+      "action_type": "mobile_reminder_create",
+      "action_phrase": "create a phone reminder",
+      "semantic_phrase": "Turn the selected message into a reminder",
+      "variants": [
+        {
+          "title": "Review launch notes",
+          "due_at": "tomorrow 09:00",
+          "source_message_id": "msg_maya_project_update"
+        },
+        {
+          "title": "Reply about the budget",
+          "due_at": "Friday 15:00",
+          "source_message_id": "msg_alex_late_reply"
+        },
+        {
+          "title": "Confirm dinner booking",
+          "due_at": "Saturday 10:00",
+          "source_message_id": "msg_delivery_pickup_code"
+        },
+        {
+          "title": "Send status update",
+          "due_at": "Monday 08:30",
+          "source_message_id": "msg_maya_project_update"
+        }
+      ]
+    },
+    {
+      "action_type": "mobile_draft_reply_create",
+      "action_phrase": "draft a message reply",
+      "semantic_phrase": "Prepare the requested reply in the selected thread",
+      "variants": [
+        {"body": "I will be there at nine.", "thread_id": "thread_maya"},
+        {"body": "The revised brief looks good.", "thread_id": "thread_alex"},
+        {"body": "Please move the call to Friday.", "thread_id": "thread_delivery"},
+        {"body": "Thanks, I have received the update.", "thread_id": "thread_maya"}
+      ]
+    },
+    {
+      "action_type": "workspace_task_create",
+      "action_phrase": "create a workspace task",
+      "semantic_phrase": "Add the requested work item to the selected project",
+      "variants": [
+        {
+          "title": "Audit launch checklist",
+          "priority": "high",
+          "due_label": "this week",
+          "project_id": "project_alpha"
+        },
+        {
+          "title": "Review research summary",
+          "priority": "medium",
+          "due_label": "next Tuesday",
+          "project_id": "project_beta"
+        },
+        {
+          "title": "Prepare customer notes",
+          "priority": "low",
+          "due_label": "end of month",
+          "project_id": "project_alpha"
+        },
+        {
+          "title": "Finalize design handoff",
+          "priority": "high",
+          "due_label": "tomorrow",
+          "project_id": "project_beta"
+        }
+      ]
+    },
+    {
+      "action_type": "workspace_comment_add",
+      "action_phrase": "add a workspace comment",
+      "semantic_phrase": "Post the requested note on the selected workspace task",
+      "variants": [
+        {"comment": "Budget review is complete.", "task_id": "task_launch_plan"},
+        {"comment": "Waiting for legal approval.", "task_id": "task_launch_plan"},
+        {"comment": "The launch date is confirmed.", "task_id": "task_launch_plan"},
+        {"comment": "Design handoff moved to Friday.", "task_id": "task_launch_plan"}
+      ]
+    }
+  ]
+}

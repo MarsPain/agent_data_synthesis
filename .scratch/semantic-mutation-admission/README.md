@@ -20,20 +20,21 @@ in the ADR, and implementation state lives in the small tickets under
 6. [Shadow-admit workspace task creation](issues/06-shadow-workspace-task-creation.md) — completed
 7. [Enforce admission before all declared mutations](issues/07-enforce-declared-mutations.md) — completed
 8. [Audit admission in release artifacts](issues/08-audit-release-admission-evidence.md) — completed
-9. [Produce and import a reviewed calibration corpus](issues/09-reviewed-calibration-corpus.md) — ready for agent
-10. [Evaluate the independent judge activation gate](issues/10-evaluate-activation-gate.md) — blocked by 03 and 09
+9. [Produce and import a reviewed calibration corpus](issues/09-reviewed-calibration-corpus.md) — completed
+10. [Evaluate the independent judge activation gate](issues/10-evaluate-activation-gate.md) — ready for agent
 11. [Run the representative activation or no-go gate](issues/11-representative-activation-gate.md) — blocked by 08, 10, and external review/model access
 
 Ticket 01 is an intentional behavior-preserving prefactor. Ticket 02 is the
 first narrow tracer bullet. Tickets 03 and 04 complete the independent-provider
 path and the contact domain slice. Tickets 05 and 06 complete the mobile and
 workspace-task shadow slices. Ticket 07 completes runtime enforcement, and
-Ticket 08 completes hash-bound offline release-artifact auditing. Calibration
-and activation evaluation remain before Ticket 11.
+Ticket 08 completes hash-bound offline release-artifact auditing, and Ticket 09
+completes calibration-corpus export, freeze, and import. Activation evaluation
+remains before Ticket 11.
 
 ## Frontier
 
-Ticket 09 is the current implementation frontier.
+Ticket 10 is the current implementation frontier.
 
 ## Historical Note
 

@@ -153,6 +153,18 @@ class MobileMessagesEnvironment:
     def connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.database_path)
 
+    @classmethod
+    def fixture_message_binding_values(
+        cls,
+        field: str,
+    ) -> tuple[str, ...]:
+        if field not in {"message_id", "thread_id"}:
+            raise ValueError("unsupported mobile fixture binding field")
+        return tuple(
+            str(getattr(message, field))
+            for message in _fixture_input().messages
+        )
+
     def checkpoint(self) -> bytes:
         return self.database_path.read_bytes()
 

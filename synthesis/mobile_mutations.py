@@ -29,7 +29,7 @@ REMINDER_TASK_TYPES = {
 
 
 def mobile_mutation_policies(
-    environment: MobileMessagesEnvironment,
+    environment: MobileMessagesEnvironment | None = None,
 ) -> tuple[MutationActionPolicy, ...]:
     message_bindings = _message_bindings(environment, "message_id")
     thread_bindings = _message_bindings(environment, "thread_id")
@@ -65,6 +65,15 @@ def mobile_mutation_policies(
                 ),
             ),
         ),
+        operational_defaults=(
+            ("created_at", "mobile_reminder_created_at_default_v1"),
+        ),
+        deterministic_derivations=(
+            (
+                "reminder_id",
+                "mobile_reminder_id_from_source_message_v1",
+            ),
+        ),
     )
     draft_policy = MutationActionPolicy(
         schema_version="mobile_draft_reply_mutation_policy_v1",
@@ -92,6 +101,12 @@ def mobile_mutation_policies(
                 ),
             ),
         ),
+        operational_defaults=(
+            ("created_at", "mobile_draft_created_at_default_v1"),
+        ),
+        deterministic_derivations=(
+            ("draft_id", "mobile_draft_id_from_thread_v1"),
+        ),
     )
     return (
         reminder_policy,
@@ -101,16 +116,25 @@ def mobile_mutation_policies(
 
 
 def _message_bindings(
-    environment: MobileMessagesEnvironment,
+    environment: MobileMessagesEnvironment | None,
     field: str,
 ) -> tuple[tuple[str, str], ...]:
     bindings: list[tuple[str, str]] = []
-    for arguments in MOBILE_MESSAGE_GROUNDING_ARGUMENTS:
-        try:
-            observation = environment.search_messages(**arguments)
-        except KeyError:
-            continue
-        value = observation.get(field)
+    fixture_values = (
+        MobileMessagesEnvironment.fixture_message_binding_values(field)
+        if environment is None
+        else ()
+    )
+    for index, arguments in enumerate(MOBILE_MESSAGE_GROUNDING_ARGUMENTS):
+        value: object
+        if environment is None:
+            value = fixture_values[index]
+        else:
+            try:
+                observation = environment.search_messages(**arguments)
+            except KeyError:
+                continue
+            value = observation.get(field)
         if isinstance(value, str):
             bindings.append(
                 (

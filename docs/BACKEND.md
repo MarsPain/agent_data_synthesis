@@ -127,6 +127,11 @@ The first backend should be a local Python pipeline with explicit modules and du
   deterministic redacted item ids, local reviewer-decision validation, and
   aggregate resolution reporting. It consumes existing release artifacts and
   cannot admit or reject candidates or datasets.
+- `synthesis.mutation_calibration`: standalone deterministic construction of a
+  balanced cross-domain mutation-admission review packet, pre-tuning held-out
+  split freeze, strict direct-human label import, contamination validation, and
+  hash-bound reviewed-corpus assembly. It neither invokes nor scores a semantic
+  judge and does not alter dataset manifests or candidate admission.
 - `synthesis.candidate_processing`: single-candidate validation, policy
   execution, verification, logical gates, optional tool-expansion reruns,
   optional refinement reruns, provisional candidate outcomes, and deterministic
@@ -335,6 +340,17 @@ must not add workspace-specific branches or tool allowlists.
    identities, non-diagnostic evidence, supported contracts, matching hashes,
    and a clean retained-material scan. Historical v1 manifests and packs retain
    their old reader path but cannot certify mutation safety.
+31. The standalone `scripts/export_mutation_calibration_packet.py` workflow
+   writes 200 deterministic review cases and a separate split-freeze artifact
+   before prompt or policy tuning. It balances all five current mutation
+   actions, all three domains, ten required scenario families, at least 100
+   unsupported/adversarial sampling strata, and exactly 60 held-out cases.
+32. The standalone `scripts/import_mutation_calibration_labels.py` workflow
+   accepts only one complete, versioned, directly human-attested label per
+   frozen case. It rejects duplicate cases or labels, changed split
+   assignments, post-freeze input drift, invalid verdicts, incomplete coverage,
+   missing provenance, and generated or judge-produced label methods before
+   writing a `human_reviewed` corpus. Neither command makes provider calls.
 
 Release-review outcomes are evidence only. They do not modify
 `samples.jsonl`, `rejections.jsonl`, quality/evaluation/profile reports,

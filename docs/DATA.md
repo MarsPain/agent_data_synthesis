@@ -168,6 +168,21 @@
 - **Mutation Admission Report:** deterministic aggregate counts over retained
   admission evidence, grouped by domain, task type, action, provenance,
   verdict, reason, provider outcome, and model-independence status.
+- **Mutation Calibration Review Packet:** standalone
+  `mutation_calibration_review_packet_v1` containing normalized judge inputs,
+  frozen action-policy snapshots, evidence references, criticality, sampling
+  strata, tuning/held-out assignments, contract versions, and hashes for 200
+  balanced cases. Its status is `pending_human_review`; it is not reviewed
+  evidence.
+- **Mutation Calibration Split Freeze:** standalone
+  `mutation_calibration_split_freeze_v1` binding the packet hash, every
+  normalized-input hash, every split assignment, and the 60 held-out case ids
+  before prompt or policy tuning.
+- **Reviewed Mutation Calibration Corpus:** standalone
+  `reviewed_mutation_calibration_corpus_v1` produced only after a complete set
+  of valid `human_mutation_calibration_label_v1` records is imported. It binds
+  the packet, freeze, ordered human labels, reviewer provenance, and final
+  corpus hash.
 
 ## Quality Metrics
 
@@ -238,6 +253,16 @@ and a quality report:
   `review_decision_v1` input. The pipeline does not create or attach it.
 - `review_resolution_report.json`: optional aggregate-only
   `review_resolution_report_v1` written by the offline resolution consumer.
+- `mutation_calibration_review_packet.json` and
+  `mutation_calibration_split_freeze.json`: standalone deterministic
+  calibration export artifacts. They are not default pipeline outputs or
+  manifest artifacts.
+- `human_labels.jsonl`: reviewer-owned calibration input. The exporter never
+  creates it and the importer never treats generated or judge-produced records
+  as human ground truth.
+- `reviewed_mutation_calibration_corpus.json`: standalone validated import
+  output. It is written only after all frozen cases have exactly one valid
+  direct-human label.
 - `dataset_release_pack.json`: optional hash-locked release pack written only
   when explicitly requested after a dataset release report passes.
 - `dataset_release_card.md`: optional human-readable release card written only
@@ -261,6 +286,48 @@ and a quality report:
   downstream model-quality proof.
 - `reward_label_report.json`: optional label coverage and decision summary over
   `reward_labels.jsonl`, written only when explicitly requested.
+
+### Mutation Calibration Import Contract
+
+The exporter assigns 40 cases to each current state-changing action. Each case
+hash-binds its normalized input, action policy, referenced evidence, criticality,
+scenario tag, and split. The packet contains 120
+`unsupported_or_adversarial` sampling strata and 80 supported-candidate strata;
+these are construction strata, not human ground truth. Exactly 60 cases are
+assigned to `held_out`. The separate freeze repeats held-out ids and
+normalized-input hashes so any later input or assignment change fails import.
+Current `legitimate_defaults` and `deterministic_derivations` cases bind
+supplemental evidence to versioned system-managed field declarations (for
+example `created_at` defaults and deterministic record identifiers); they do
+not invent requester-content defaults that the v1 mutation policies forbid.
+
+Each line of the reviewer-owned `human_labels.jsonl` must have exactly this
+versioned shape:
+
+```json
+{
+  "schema_version": "human_mutation_calibration_label_v1",
+  "corpus_version": "mutation_calibration_corpus_v1",
+  "case_id": "mutation_calibration_case:contact_followup_record:literal_support:alpha",
+  "case_hash": "sha256:<64 lowercase hex characters>",
+  "ground_truth": "supported",
+  "reviewer_provenance": {
+    "reviewer_id": "reviewer.alias",
+    "reviewed_at": "2026-07-25T09:30:00Z",
+    "review_method": "human_direct_review",
+    "human_review_attestation": "I directly reviewed this case and did not use generated or judge-produced labels as human ground truth."
+  }
+}
+```
+
+`ground_truth` is exactly `supported`, `unsupported`, or `uncertain`. The
+reviewer id is a bounded alias and `reviewed_at` is UTC. The review method and
+attestation are fixed contract literals: provider-, generator-, or
+judge-produced methods cannot be encoded as human review. Import requires one
+label for every frozen case and rejects extras, duplicates, changed case hashes,
+invalid labels, missing provenance, split drift, input drift, or a mismatched
+packet/freeze. Only a successful complete import writes a corpus whose
+`review_status` is `human_reviewed`.
 
 Internal task contracts are deliberately absent from default exports. Public
 accepted-sample and rejection schemas still expose the existing task,

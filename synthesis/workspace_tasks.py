@@ -179,6 +179,12 @@ def workspace_mutation_policies(
                     binding_argument_names=("query", "kind"),
                 ),
             ),
+            operational_defaults=(
+                ("created_at", "workspace_task_created_at_default_v1"),
+            ),
+            deterministic_derivations=(
+                ("task_id", "workspace_task_id_from_title_v1"),
+            ),
         ),
         MutationActionPolicy(
             schema_version="workspace_comment_mutation_policy_v1",
@@ -207,6 +213,15 @@ def workspace_mutation_policies(
                         ),
                     ),
                     binding_argument_names=("query", "kind"),
+                ),
+            ),
+            operational_defaults=(
+                ("created_at", "workspace_comment_created_at_default_v1"),
+            ),
+            deterministic_derivations=(
+                (
+                    "comment_id",
+                    "workspace_comment_id_from_task_and_body_v1",
                 ),
             ),
         ),
