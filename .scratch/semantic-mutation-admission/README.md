@@ -18,8 +18,8 @@ in the ADR, and implementation state lives in the small tickets under
 4. [Shadow-admit contact follow-ups](issues/04-shadow-contact-followups.md) — completed
 5. [Shadow-admit mobile mutations](issues/05-shadow-mobile-mutations.md) — completed
 6. [Shadow-admit workspace task creation](issues/06-shadow-workspace-task-creation.md) — completed
-7. [Enforce admission before all declared mutations](issues/07-enforce-declared-mutations.md) — ready for agent
-8. [Audit admission in release artifacts](issues/08-audit-release-admission-evidence.md) — blocked by 07
+7. [Enforce admission before all declared mutations](issues/07-enforce-declared-mutations.md) — completed
+8. [Audit admission in release artifacts](issues/08-audit-release-admission-evidence.md) — ready for agent
 9. [Produce and import a reviewed calibration corpus](issues/09-reviewed-calibration-corpus.md) — ready for agent
 10. [Evaluate the independent judge activation gate](issues/10-evaluate-activation-gate.md) — blocked by 03 and 09
 11. [Run the representative activation or no-go gate](issues/11-representative-activation-gate.md) — blocked by 08, 10, and external review/model access
@@ -27,13 +27,13 @@ in the ADR, and implementation state lives in the small tickets under
 Ticket 01 is an intentional behavior-preserving prefactor. Ticket 02 is the
 first narrow tracer bullet. Tickets 03 and 04 complete the independent-provider
 path and the contact domain slice. Tickets 05 and 06 complete the mobile and
-workspace-task shadow slices. Enforcement and calibration can now proceed
-independently and join at Ticket 11 after release auditing and activation
-evaluation.
+workspace-task shadow slices. Ticket 07 completes runtime enforcement. Release
+artifact auditing and calibration can now proceed independently and join at
+Ticket 11 after activation evaluation.
 
 ## Frontier
 
-Tickets 07 and 09 are the current implementation frontier.
+Tickets 08 and 09 are the current implementation frontier.
 
 ## Historical Note
 

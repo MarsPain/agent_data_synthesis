@@ -8,7 +8,7 @@ cannot pass offline release validation.
 
 **Blocked by:** [07 — Enforce Admission Before All Declared Mutations](07-enforce-declared-mutations.md)
 
-**Status:** blocked
+**Status:** ready-for-agent
 
 **Assignee:** Unassigned
 

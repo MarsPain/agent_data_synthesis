@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from synthesis.contracts import SOURCE_LICENSE_LABELS
+from synthesis.llm import LLMConfig
 from synthesis.mutation_admission_config import (
     MutationAdmissionJudgeConfiguration,
     parse_mutation_admission_judge_configuration,
@@ -37,7 +38,7 @@ SOURCE_KINDS = {
 }
 SOURCE_KEYS = {"kind", "source_id", "path", "license_label", "max_bytes"}
 DEFAULT_SOURCE_MAX_BYTES = 65536
-MUTATION_ADMISSION_MODES = {"disabled", "shadow"}
+MUTATION_ADMISSION_MODES = {"disabled", "shadow", "enforce"}
 FEATURE_KEYS = (
     "enable_branching",
     "enable_task_expansion",
@@ -193,6 +194,12 @@ def load_run_profile(path: Path) -> RunProfile:
         raw.get("mutation_admission"),
         schema_version=schema_version,
     )
+    _validate_mutation_admission_compatibility(
+        schema_version=schema_version,
+        profile_purpose=profile_purpose,
+        generation=generation,
+        mutation_admission=mutation_admission,
+    )
     _validate_generation_compatibility(
         schema_version=schema_version,
         profile_purpose=profile_purpose,
@@ -257,9 +264,13 @@ def _load_mutation_admission(
             f"mutation_admission.mode must be one of {sorted(MUTATION_ADMISSION_MODES)}"
         )
     raw_judge = mutation_admission.get("judge")
-    if raw_judge is not None and mode != "shadow":
+    if raw_judge is not None and mode not in {"shadow", "enforce"}:
         raise RunProfileValidationError(
-            "mutation_admission.judge is only supported in shadow mode"
+            "mutation_admission.judge is only supported in shadow or enforce mode"
+        )
+    if mode == "enforce" and raw_judge is None:
+        raise RunProfileValidationError(
+            "mutation_admission.judge is required in enforce mode"
         )
     judge = _load_mutation_judge(raw_judge) if raw_judge is not None else None
     return RunProfileMutationAdmission(mode=mode, judge=judge)
@@ -272,6 +283,53 @@ def _load_mutation_judge(raw_judge: object) -> MutationAdmissionJudgeConfigurati
         raise RunProfileValidationError(
             f"mutation_admission.judge {exc}"
         ) from exc
+
+
+def _validate_mutation_admission_compatibility(
+    *,
+    schema_version: str,
+    profile_purpose: str,
+    generation: RunProfileGeneration,
+    mutation_admission: RunProfileMutationAdmission,
+) -> None:
+    if schema_version != "run_profile_v4":
+        return
+    if (
+        profile_purpose == "release_candidate"
+        and mutation_admission.mode != "enforce"
+    ):
+        raise RunProfileValidationError(
+            "run_profile_v4 release_candidate profiles require enforce mode"
+        )
+    if mutation_admission.mode != "enforce":
+        return
+    judge = mutation_admission.judge
+    if judge is None:
+        raise RunProfileValidationError(
+            "mutation_admission.judge is required in enforce mode"
+        )
+    generator_model = (
+        "scripted_scale_probe"
+        if generation.mode == "deterministic_scale_probe"
+        else "scripted"
+        if generation.mode
+        in {
+            "foundation_fixture",
+            "mobile_fixture",
+            "workspace_fixture",
+        }
+        else LLMConfig.from_env().model
+        if generation.mode == "llm"
+        else None
+    )
+    if not isinstance(generator_model, str) or not generator_model:
+        raise RunProfileValidationError(
+            "enforce mode requires an explicit generator model"
+        )
+    if judge.model == generator_model:
+        raise RunProfileValidationError(
+            "enforce mode requires different generator and judge models"
+        )
 
 
 def _load_seed(raw_seed: object) -> DomainSeed:

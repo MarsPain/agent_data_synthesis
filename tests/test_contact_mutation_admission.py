@@ -175,6 +175,24 @@ class ContactMutationAdmissionCandidateProcessingTest(unittest.TestCase):
         self.assertNotIn("alice zhang", retained)
         self.assertNotIn("send follow-up email", retained)
 
+    def test_supported_contact_followup_executes_in_enforce_mode(self) -> None:
+        outcome, environment = self._process(
+            self._candidate(),
+            mode="enforce",
+        )
+
+        self.assertTrue(
+            environment.has_followup(
+                "Alice Zhang",
+                "Send follow-up email to alice.zhang@example.test.",
+            )
+        )
+        assert outcome.sample is not None
+        evidence = outcome.sample["mutation_admission"]
+        self.assertEqual(evidence["mode"], "enforce")
+        self.assertEqual(evidence["admission_outcome"], "judge_supported")
+        self.assertEqual(evidence["model_independence"], "independent")
+
     def test_deterministic_contact_failures_are_bounded_without_blocking_shadow(
         self,
     ) -> None:

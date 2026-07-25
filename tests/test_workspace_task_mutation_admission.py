@@ -109,6 +109,7 @@ class WorkspaceTaskMutationAdmissionCandidateProcessingTest(unittest.TestCase):
         candidate,
         *,
         environment_input: WorkspaceEnvironmentInput | None = None,
+        mode: str = "shadow",
     ):
         temporary_directory = tempfile.TemporaryDirectory()
         self.addCleanup(temporary_directory.cleanup)
@@ -123,7 +124,7 @@ class WorkspaceTaskMutationAdmissionCandidateProcessingTest(unittest.TestCase):
             )
         )
         evaluator = build_local_candidate_admission_evaluator(
-            mode="shadow",
+            mode=mode,
             policies=workspace_mutation_policies(environment),
             state_changing_tools=(
                 "create_workspace_task",
@@ -199,6 +200,28 @@ class WorkspaceTaskMutationAdmissionCandidateProcessingTest(unittest.TestCase):
             "observation_reference_supported",
             evidence["semantic_verdict"]["reason_codes"],
         )
+
+    def test_supported_workspace_task_creation_executes_in_enforce_mode(
+        self,
+    ) -> None:
+        outcome, environment = self._process(
+            self._candidate(),
+            mode="enforce",
+        )
+
+        self.assertTrue(
+            environment.has_workspace_task(
+                project_id="project_alpha",
+                title="Prepare launch checklist",
+                priority="high",
+                due_label="this_week",
+            )
+        )
+        assert outcome.sample is not None
+        evidence = outcome.sample["mutation_admission"]
+        self.assertEqual(evidence["mode"], "enforce")
+        self.assertEqual(evidence["admission_outcome"], "judge_supported")
+        self.assertEqual(evidence["model_independence"], "independent")
 
     def test_semantic_task_content_and_project_selection_are_supported(
         self,

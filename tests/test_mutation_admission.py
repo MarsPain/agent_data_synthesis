@@ -14,10 +14,14 @@ from synthesis.candidate_processing import (
     CandidateProcessingOptions,
     process_candidate_through_gates,
 )
+from synthesis.execution import SolutionPolicy
 from synthesis.llm import LLMConfig
 from synthesis.mutation_admission import (
+    SemanticJudgeResult,
     build_local_candidate_admission_evaluator,
     build_openai_compatible_semantic_mutation_judge,
+    canonical_hash,
+    policy_hash,
 )
 from synthesis.tasks import CandidateTask
 from synthesis.verification import ExactAnswerVerifier
@@ -47,6 +51,7 @@ class MutationAdmissionCandidateProcessingTest(unittest.TestCase):
         *,
         mode: str = "shadow",
         judge: object | None = None,
+        policies: object | None = None,
     ):
         temporary_directory = tempfile.TemporaryDirectory()
         self.addCleanup(temporary_directory.cleanup)
@@ -55,16 +60,29 @@ class MutationAdmissionCandidateProcessingTest(unittest.TestCase):
         )
         evaluator = build_local_candidate_admission_evaluator(
             mode=mode,
-            policies=workspace_mutation_policies(),
+            policies=policies or workspace_mutation_policies(),
             state_changing_tools=("create_workspace_task", "add_workspace_comment"),
             judge=judge or workspace_semantic_mutation_judge,
         )
+        registry = build_workspace_tool_registry(environment)
+        tool_calls: list[tuple[str, dict[str, object]]] = []
+        execute_tool = registry.execute
+
+        def recording_execute(
+            name: str,
+            arguments: dict[str, object],
+        ) -> dict[str, object]:
+            tool_calls.append((name, dict(arguments)))
+            return execute_tool(name, arguments)
+
+        registry.execute = recording_execute
+        self._last_tool_calls = tool_calls
         outcome = process_candidate_through_gates(
             raw_task=candidate,
             context=CandidateProcessingContext(
                 dataset_version="dataset_workspace_mutation_admission_test",
                 environment=environment,
-                registry=build_workspace_tool_registry(environment),
+                registry=registry,
                 adapter_shim=None,
                 verifier=ExactAnswerVerifier(),
                 llm_config=LLMConfig(base_url=None),
@@ -412,6 +430,573 @@ class MutationAdmissionCandidateProcessingTest(unittest.TestCase):
         self.assertNotIn("added launch checklist owner", retained)
         self.assertNotIn("find the launch plan", retained)
 
+    def test_enforce_executes_only_an_independently_supported_mutation(
+        self,
+    ) -> None:
+        supported_outcome, supported_environment = self._process(
+            self._candidate(),
+            mode="enforce",
+        )
+        unsupported = propose_workspace_comment_authorization(
+            replace(
+                self._candidate(),
+                expected_state={
+                    "workspace_comment": {
+                        "task_id": "task_launch_plan",
+                        "comment": "Schedule quarterly planning.",
+                    }
+                },
+            )
+        )
+        rejected_outcome, rejected_environment = self._process(
+            unsupported,
+            mode="enforce",
+        )
+
+        self.assertTrue(
+            supported_environment.has_workspace_comment(
+                task_id="task_launch_plan",
+                comment="Added launch checklist owner.",
+            )
+        )
+        assert supported_outcome.sample is not None
+        supported_evidence = supported_outcome.sample["mutation_admission"]
+        self.assertEqual(supported_evidence["mode"], "enforce")
+        self.assertEqual(
+            supported_evidence["admission_outcome"],
+            "judge_supported",
+        )
+        self.assertEqual(
+            supported_evidence["model_independence"],
+            "independent",
+        )
+        self.assertFalse(supported_evidence["diagnostic_only"])
+
+        self.assertFalse(
+            rejected_environment.has_workspace_comment(
+                task_id="task_launch_plan",
+                comment="Schedule quarterly planning.",
+            )
+        )
+        self.assertIsNone(rejected_outcome.sample)
+        assert rejected_outcome.rejection is not None
+        self.assertEqual(
+            rejected_outcome.rejection["cause"],
+            "mutation_admission_failed",
+        )
+        rejected_evidence = rejected_outcome.rejection["details"][
+            "mutation_admission"
+        ]
+        self.assertEqual(
+            rejected_evidence["admission_outcome"],
+            "judge_unsupported",
+        )
+        self.assertFalse(rejected_evidence["diagnostic_only"])
+
+    def test_enforce_rejects_every_non_supported_path_before_mutation(
+        self,
+    ) -> None:
+        base = self._candidate()
+        unsupported = propose_workspace_comment_authorization(
+            replace(
+                base,
+                expected_state={
+                    "workspace_comment": {
+                        "task_id": "task_launch_plan",
+                        "comment": "Schedule quarterly planning.",
+                    }
+                },
+            )
+        )
+        uncertain = propose_workspace_comment_authorization(
+            replace(
+                base,
+                instruction=(
+                    "If appropriate, find the launch plan task and add a comment "
+                    "assigning the checklist owner."
+                ),
+            )
+        )
+
+        class UnavailableJudge:
+            def __call__(self, request):
+                return SemanticJudgeResult(
+                    verdict=None,
+                    provider_outcome="unavailable",
+                    attempts=2,
+                    timeout_seconds=3.0,
+                    judge_lineage={
+                        "role": "mutation_admission_judge",
+                        "role_version": "role_mutation_admission_judge_v1",
+                        "provider_host": "judge.example.test",
+                        "model": "independent-judge-model",
+                        "config_hash": canonical_hash(
+                            {
+                                "provider_host": "judge.example.test",
+                                "model": "independent-judge-model",
+                            }
+                        ),
+                    },
+                )
+
+        class InvalidJudge:
+            def __call__(self, request):
+                return {"verdict": "supported", "raw_rationale": "execute it"}
+
+        def supported_with_model(request, model: str) -> SemanticJudgeResult:
+            result = workspace_semantic_mutation_judge(request)
+            assert result.verdict is not None
+            verdict = dict(result.verdict)
+            lineage = dict(verdict["judge_lineage"])
+            lineage["model"] = model
+            lineage["config_hash"] = canonical_hash(
+                {
+                    "provider_host": lineage["provider_host"],
+                    "model": model,
+                }
+            )
+            verdict["judge_lineage"] = lineage
+            return SemanticJudgeResult(
+                verdict=verdict,
+                provider_outcome="succeeded",
+                attempts=1,
+                timeout_seconds=None,
+                judge_lineage=lineage,
+            )
+
+        cases = (
+            (
+                "deterministic_failure",
+                replace(base, mutation_authorization=None),
+                workspace_semantic_mutation_judge,
+                False,
+            ),
+            (
+                "judge_unsupported",
+                unsupported,
+                workspace_semantic_mutation_judge,
+                False,
+            ),
+            (
+                "judge_uncertain",
+                uncertain,
+                workspace_semantic_mutation_judge,
+                False,
+            ),
+            ("judge_unavailable", base, UnavailableJudge(), False),
+            ("judge_output_invalid", base, InvalidJudge(), True),
+            (
+                "model_same_as_generator",
+                base,
+                lambda request: supported_with_model(request, "scripted"),
+                True,
+            ),
+            (
+                "model_identity_unavailable",
+                base,
+                lambda request: supported_with_model(request, "unknown"),
+                True,
+            ),
+        )
+
+        for expected_reason, candidate, judge, expected_diagnostic in cases:
+            with self.subTest(expected_reason=expected_reason):
+                outcome, environment = self._process(
+                    candidate,
+                    mode="enforce",
+                    judge=judge,
+                )
+
+                self.assertIsNone(outcome.sample)
+                assert outcome.rejection is not None
+                self.assertEqual(
+                    outcome.rejection["cause"],
+                    "mutation_admission_failed",
+                )
+                self.assertEqual(self._last_tool_calls, [])
+                self.assertEqual(
+                    outcome.rejection["details"]["admission_reason"],
+                    expected_reason,
+                )
+                self.assertFalse(
+                    environment.has_workspace_comment(
+                        task_id="task_launch_plan",
+                        comment=str(
+                            candidate.expected_state["workspace_comment"]["comment"]
+                        ),
+                    )
+                )
+                retained = json.dumps(
+                    outcome.rejection["details"]["mutation_admission"],
+                    sort_keys=True,
+                )
+                self.assertEqual(
+                    outcome.rejection["details"]["mutation_admission"][
+                        "diagnostic_only"
+                    ],
+                    expected_diagnostic,
+                )
+                self.assertNotIn("execute it", retained)
+        self.assertNotIn("raw_rationale", retained)
+
+    def test_every_deterministic_failure_code_rejects_before_any_tool_call(
+        self,
+    ) -> None:
+        from synthesis.mutation_admission import MutationArgumentPolicy
+
+        base = self._candidate()
+        assert base.mutation_authorization is not None
+
+        def changed_record(change) -> CandidateTask:
+            record = copy.deepcopy(base.mutation_authorization)
+            change(record)
+            return replace(base, mutation_authorization=record)
+
+        def missing_comment(record: dict[str, object]) -> None:
+            record["actions"][0]["arguments"] = [
+                argument
+                for argument in record["actions"][0]["arguments"]
+                if argument["name"] != "comment"
+            ]
+
+        def invalid_origin(record: dict[str, object]) -> None:
+            record["actions"][0]["arguments"][0]["origin"] = "model_inferred"
+
+        def invalid_span(record: dict[str, object]) -> None:
+            record["actions"][0]["instruction_evidence"]["end"] = 10_000
+
+        def invalid_observation(record: dict[str, object]) -> None:
+            record["actions"][0]["arguments"][1]["evidence"]["value_hash"] = (
+                "sha256:" + "0" * 64
+            )
+
+        def invalid_action(record: dict[str, object]) -> None:
+            record["actions"][0]["action_ref"] = "policy.steps.99"
+
+        def invalid_hash(record: dict[str, object]) -> None:
+            record["policy_hash"] = "sha256:" + "0" * 64
+
+        def declared_origin_candidate(origin: str) -> CandidateTask:
+            def change(record: dict[str, object]) -> None:
+                argument = record["actions"][0]["arguments"][0]
+                argument["origin"] = origin
+                argument.pop("support", None)
+                argument["evidence"] = {}
+
+            return changed_record(change)
+
+        def policies_allowing(origin: str):
+            policies = workspace_mutation_policies()
+            updated = []
+            for policy in policies:
+                if policy.task_type != "workspace_comment_update":
+                    updated.append(policy)
+                    continue
+                arguments = tuple(
+                    replace(
+                        argument,
+                        allowed_origins=(*argument.allowed_origins, origin),
+                    )
+                    if (
+                        isinstance(argument, MutationArgumentPolicy)
+                        and argument.name == "comment"
+                    )
+                    else argument
+                    for argument in policy.arguments
+                )
+                updated.append(replace(policy, arguments=arguments))
+            return tuple(updated)
+
+        cases = (
+            (
+                "authorization_record_missing",
+                replace(base, mutation_authorization=None),
+                None,
+            ),
+            (
+                "authorization_action_mismatch",
+                changed_record(invalid_action),
+                None,
+            ),
+            (
+                "requester_argument_provenance_missing",
+                changed_record(missing_comment),
+                None,
+            ),
+            (
+                "provenance_origin_invalid",
+                changed_record(invalid_origin),
+                None,
+            ),
+            ("instruction_span_invalid", changed_record(invalid_span), None),
+            (
+                "observation_reference_invalid",
+                changed_record(invalid_observation),
+                None,
+            ),
+            (
+                "declared_default_invalid",
+                declared_origin_candidate("declared_default"),
+                policies_allowing("declared_default"),
+            ),
+            (
+                "deterministic_derivation_invalid",
+                declared_origin_candidate("deterministic_derivation"),
+                policies_allowing("deterministic_derivation"),
+            ),
+            (
+                "authorization_record_hash_mismatch",
+                changed_record(invalid_hash),
+                None,
+            ),
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pristine = WorkspaceTasksEnvironment.create_fixture(
+                Path(tmpdir)
+            ).checkpoint()
+
+        for expected_code, candidate, policies in cases:
+            with self.subTest(expected_code=expected_code):
+                outcome, environment = self._process(
+                    candidate,
+                    mode="enforce",
+                    policies=policies,
+                )
+
+                self.assertIsNone(outcome.sample)
+                assert outcome.rejection is not None
+                evidence = outcome.rejection["details"]["mutation_admission"]
+                self.assertIn(
+                    expected_code,
+                    evidence["deterministic_validation"]["reason_codes"],
+                )
+                self.assertEqual(self._last_tool_calls, [])
+                self.assertEqual(environment.checkpoint(), pristine)
+
+    def test_enforce_detects_state_mutation_nested_in_a_branch_plan(
+        self,
+    ) -> None:
+        base = self._candidate("candidate_workspace_launch_branch_fallback")
+        assert base.branch_plan is not None
+        branch_plan = copy.deepcopy(base.branch_plan)
+        branch_plan["branches"][0]["steps"] = [
+            {
+                "tool_name": "add_workspace_comment",
+                "arguments": {
+                    "task_id": "task_launch_plan",
+                    "comment": "Branch mutation must not execute.",
+                },
+            }
+        ]
+        branch_plan["branches"][0][
+            "final_response_template"
+        ] = "Branch mutation completed."
+        candidate = replace(base, branch_plan=branch_plan)
+
+        outcome, environment = self._process(
+            candidate,
+            mode="enforce",
+        )
+
+        self.assertIsNone(outcome.sample)
+        assert outcome.rejection is not None
+        self.assertEqual(
+            outcome.rejection["cause"],
+            "mutation_admission_failed",
+        )
+        self.assertFalse(
+            environment.has_workspace_comment(
+                task_id="task_launch_plan",
+                comment="Branch mutation must not execute.",
+            )
+        )
+
+    def test_enforce_rejects_branch_mutation_even_with_supported_decoy_steps(
+        self,
+    ) -> None:
+        base = self._candidate()
+        fallback = self._candidate(
+            "candidate_workspace_launch_branch_fallback"
+        )
+        assert fallback.branch_plan is not None
+        branch_plan = copy.deepcopy(fallback.branch_plan)
+        branch_plan["branches"][0]["steps"] = [
+            {
+                "tool_name": "add_workspace_comment",
+                "arguments": {
+                    "task_id": "task_launch_plan",
+                    "comment": "Unauthorized branch mutation.",
+                },
+            }
+        ]
+        branch_plan["branches"][0][
+            "final_response_template"
+        ] = "Unauthorized branch mutation completed."
+        direct_policy = scripted_workspace_solution_policy(base)
+        mixed_policy = SolutionPolicy(
+            policy_id="policy_workspace_mixed_branch_mutation",
+            role=direct_policy.role,
+            steps=direct_policy.steps,
+            final_response_template=direct_policy.final_response_template,
+            lineage=direct_policy.lineage,
+            branch_plan=branch_plan,
+        )
+        assert base.mutation_authorization is not None
+        authorization = copy.deepcopy(base.mutation_authorization)
+        authorization["policy_hash"] = policy_hash(mixed_policy)
+        candidate = replace(
+            base,
+            mutation_authorization=authorization,
+        )
+
+        temporary_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary_directory.cleanup)
+        environment = WorkspaceTasksEnvironment.create_fixture(
+            Path(temporary_directory.name)
+        )
+        registry = build_workspace_tool_registry(environment)
+        tool_calls: list[tuple[str, dict[str, object]]] = []
+        execute_tool = registry.execute
+
+        def recording_execute(
+            name: str,
+            arguments: dict[str, object],
+        ) -> dict[str, object]:
+            tool_calls.append((name, dict(arguments)))
+            return execute_tool(name, arguments)
+
+        registry.execute = recording_execute
+        evaluator = build_local_candidate_admission_evaluator(
+            mode="enforce",
+            policies=workspace_mutation_policies(),
+            state_changing_tools=(
+                "create_workspace_task",
+                "add_workspace_comment",
+            ),
+            judge=workspace_semantic_mutation_judge,
+        )
+        outcome = process_candidate_through_gates(
+            raw_task=candidate,
+            context=CandidateProcessingContext(
+                dataset_version="dataset_workspace_mixed_branch_admission_test",
+                environment=environment,
+                registry=registry,
+                adapter_shim=None,
+                verifier=ExactAnswerVerifier(),
+                llm_config=LLMConfig(base_url=None),
+                generate_policy=lambda _: mixed_policy,
+                admission_evaluator=evaluator,
+            ),
+            options=CandidateProcessingOptions(),
+        )
+
+        self.assertIsNone(outcome.sample)
+        assert outcome.rejection is not None
+        self.assertEqual(
+            outcome.rejection["cause"],
+            "mutation_admission_failed",
+        )
+        self.assertEqual(tool_calls, [])
+        self.assertFalse(
+            environment.has_workspace_comment(
+                task_id="task_launch_plan",
+                comment="Unauthorized branch mutation.",
+            )
+        )
+
+    def test_enforce_retry_exhaustion_remains_pre_execution_across_reruns(
+        self,
+    ) -> None:
+        class RetryExhaustedJudge:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def __call__(self, request):
+                self.calls += 1
+                return SemanticJudgeResult(
+                    verdict=None,
+                    provider_outcome="unavailable",
+                    attempts=2,
+                    timeout_seconds=3.0,
+                    judge_lineage={
+                        "role": "mutation_admission_judge",
+                        "role_version": "role_mutation_admission_judge_v1",
+                        "provider_host": "judge.example.test",
+                        "model": "independent-judge-model",
+                        "config_hash": canonical_hash(
+                            {
+                                "provider_host": "judge.example.test",
+                                "model": "independent-judge-model",
+                            }
+                        ),
+                    },
+                )
+
+        judge = RetryExhaustedJudge()
+        temporary_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary_directory.cleanup)
+        environment = WorkspaceTasksEnvironment.create_fixture(
+            Path(temporary_directory.name)
+        )
+        evaluator = build_local_candidate_admission_evaluator(
+            mode="enforce",
+            policies=workspace_mutation_policies(),
+            state_changing_tools=(
+                "create_workspace_task",
+                "add_workspace_comment",
+            ),
+            judge=judge,
+        )
+        registry = build_workspace_tool_registry(environment)
+        tool_calls: list[tuple[str, dict[str, object]]] = []
+        execute_tool = registry.execute
+
+        def recording_execute(
+            name: str,
+            arguments: dict[str, object],
+        ) -> dict[str, object]:
+            tool_calls.append((name, dict(arguments)))
+            return execute_tool(name, arguments)
+
+        registry.execute = recording_execute
+        context = CandidateProcessingContext(
+            dataset_version="dataset_workspace_mutation_admission_rerun_test",
+            environment=environment,
+            registry=registry,
+            adapter_shim=None,
+            verifier=ExactAnswerVerifier(),
+            llm_config=LLMConfig(base_url=None),
+            generate_policy=scripted_workspace_solution_policy,
+            admission_evaluator=evaluator,
+        )
+
+        outcomes = [
+            process_candidate_through_gates(
+                raw_task=self._candidate(),
+                context=context,
+                options=CandidateProcessingOptions(),
+            )
+            for _ in range(2)
+        ]
+
+        self.assertEqual(judge.calls, 2)
+        self.assertEqual(tool_calls, [])
+        self.assertTrue(all(outcome.sample is None for outcome in outcomes))
+        self.assertTrue(
+            all(
+                outcome.rejection is not None
+                and outcome.rejection["details"]["admission_reason"]
+                == "judge_unavailable"
+                for outcome in outcomes
+            )
+        )
+        self.assertFalse(
+            environment.has_workspace_comment(
+                task_id="task_launch_plan",
+                comment="Added launch checklist owner.",
+            )
+        )
+
     def test_deterministic_failures_are_bounded_and_do_not_change_shadow_execution(
         self,
     ) -> None:
@@ -586,6 +1171,11 @@ class MutationAdmissionCandidateProcessingTest(unittest.TestCase):
             self._candidate("candidate_workspace_launch_lookup"),
             judge=judge,
         )
+        enforce_read_only_outcome, _ = self._process(
+            self._candidate("candidate_workspace_launch_lookup"),
+            mode="enforce",
+            judge=judge,
+        )
         disabled_outcome, environment = self._process(
             self._candidate(),
             mode="disabled",
@@ -600,6 +1190,16 @@ class MutationAdmissionCandidateProcessingTest(unittest.TestCase):
             "bypassed",
         )
         self.assertNotIn("semantic_verdict", read_only_evidence)
+        assert enforce_read_only_outcome.sample is not None
+        enforce_read_only_evidence = enforce_read_only_outcome.sample[
+            "mutation_admission"
+        ]
+        self.assertEqual(enforce_read_only_evidence["mode"], "enforce")
+        self.assertEqual(
+            enforce_read_only_evidence["classification"],
+            "read_only",
+        )
+        self.assertFalse(enforce_read_only_evidence["diagnostic_only"])
         assert disabled_outcome.sample is not None
         disabled_evidence = disabled_outcome.sample["mutation_admission"]
         self.assertEqual(disabled_evidence["mode"], "disabled")
@@ -694,6 +1294,32 @@ class MutationAdmissionCandidateProcessingTest(unittest.TestCase):
                 tamper(sample)
                 with self.assertRaises(ContractValidationError):
                     validate_sample_record(sample)
+
+    def test_enforce_rejection_contract_rejects_unbounded_or_inconsistent_reason(
+        self,
+    ) -> None:
+        from synthesis.contracts import ContractValidationError, validate_rejection_record
+
+        unsupported = propose_workspace_comment_authorization(
+            replace(
+                self._candidate(),
+                expected_state={
+                    "workspace_comment": {
+                        "task_id": "task_launch_plan",
+                        "comment": "Schedule quarterly planning.",
+                    }
+                },
+            )
+        )
+        outcome, _ = self._process(unsupported, mode="enforce")
+        assert outcome.rejection is not None
+
+        for admission_reason in ("free form judge rationale", "judge_uncertain"):
+            with self.subTest(admission_reason=admission_reason):
+                rejection = copy.deepcopy(outcome.rejection)
+                rejection["details"]["admission_reason"] = admission_reason
+                with self.assertRaises(ContractValidationError):
+                    validate_rejection_record(rejection)
 
     def test_retained_admission_contract_preserves_legacy_v1_compatibility(self) -> None:
         from synthesis.contracts import validate_sample_record

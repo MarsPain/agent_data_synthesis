@@ -37,6 +37,7 @@ REJECTION_CAUSES = {
     "source_policy_rejected",
     "adapter_contract_rejected",
     "unsafe_generated_code",
+    "mutation_admission_failed",
 }
 
 LLM_RESPONSE_SCHEMA_REASONS = {
@@ -490,12 +491,26 @@ def validate_rejection_record(record: Mapping[str, Any]) -> None:
             "details.run_profile",
         )
     if "mutation_admission" in details:
-        from synthesis.mutation_admission import validate_mutation_admission_evidence
+        from synthesis.mutation_admission import (
+            validate_enforcement_rejection,
+            validate_mutation_admission_evidence,
+        )
 
         try:
-            validate_mutation_admission_evidence(details.get("mutation_admission"))
+            mutation_admission = details.get("mutation_admission")
+            validate_mutation_admission_evidence(mutation_admission)
+            if cause == "mutation_admission_failed":
+                assert isinstance(mutation_admission, Mapping)
+                validate_enforcement_rejection(
+                    details.get("admission_reason"),
+                    mutation_admission,
+                )
         except ValueError as exc:
             raise ContractValidationError(str(exc)) from exc
+    elif cause == "mutation_admission_failed":
+        raise ContractValidationError(
+            "mutation_admission_failed requires mutation_admission evidence"
+        )
 
 
 def validate_manifest_record(record: Mapping[str, Any]) -> None:
@@ -3839,20 +3854,28 @@ def _validate_run_profile_attribution(raw: object, path: str) -> None:
         _validate_mutation_admission_profile_section(
             attribution.get("mutation_admission"),
             f"{path}.mutation_admission",
+            require_enforce_judge=False,
         )
 
 
-def _validate_mutation_admission_profile_section(raw: object, path: str) -> None:
+def _validate_mutation_admission_profile_section(
+    raw: object,
+    path: str,
+    *,
+    require_enforce_judge: bool = True,
+) -> None:
     section = _require_mapping(raw, path)
     if not {"mode"}.issubset(section) or not set(section).issubset({"mode", "judge"}):
         raise ContractValidationError(f"{path} contains unsupported or missing keys")
     mode = _require_non_empty_string(section.get("mode"), f"{path}.mode")
-    if mode not in {"disabled", "shadow"}:
+    if mode not in {"disabled", "shadow", "enforce"}:
         raise ContractValidationError(f"{path}.mode is unsupported")
     if "judge" not in section:
+        if mode == "enforce" and require_enforce_judge:
+            raise ContractValidationError(f"{path}.judge is required in enforce mode")
         return
-    if mode != "shadow":
-        raise ContractValidationError(f"{path}.judge requires shadow mode")
+    if mode not in {"shadow", "enforce"}:
+        raise ContractValidationError(f"{path}.judge requires shadow or enforce mode")
     try:
         parse_mutation_admission_judge_configuration(section.get("judge"))
     except ValueError as exc:

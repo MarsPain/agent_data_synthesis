@@ -10,7 +10,11 @@ from urllib.parse import urlparse
 
 import httpx
 
-from synthesis.execution import SolutionPolicy
+from synthesis.execution import (
+    SolutionPolicy,
+    declared_branch_tool_names,
+    declared_solution_policy_tool_names,
+)
 from synthesis.llm import (
     LLMConfig,
     LLMConfigurationError,
@@ -30,15 +34,47 @@ class CandidateAdmissionEvaluator(Protocol):
         self,
         task_contract: TaskContract,
         solution_policy: SolutionPolicy,
-    ) -> dict[str, object] | None: ...
+    ) -> "CandidateAdmissionDecision": ...
+
+
+@dataclass(frozen=True)
+class CandidateAdmissionDecision:
+    execution_permitted: bool
+    evidence: dict[str, object] | None
+    rejection_reason: str | None = None
 
 
 def permit_candidate_execution(
     task_contract: TaskContract,
     solution_policy: SolutionPolicy,
-) -> None:
+) -> CandidateAdmissionDecision:
     """Preserve execution while admission policy is not configured."""
     _ = task_contract, solution_policy
+    return CandidateAdmissionDecision(
+        execution_permitted=True,
+        evidence=None,
+    )
+
+
+def evaluate_candidate_admission(
+    evaluator: CandidateAdmissionEvaluator,
+    task_contract: TaskContract,
+    solution_policy: SolutionPolicy,
+) -> CandidateAdmissionDecision:
+    decision = evaluator(task_contract, solution_policy)
+    if isinstance(decision, CandidateAdmissionDecision):
+        return decision
+    if decision is None:
+        return CandidateAdmissionDecision(
+            execution_permitted=True,
+            evidence=None,
+        )
+    if isinstance(decision, dict):
+        return CandidateAdmissionDecision(
+            execution_permitted=True,
+            evidence=dict(decision),
+        )
+    raise TypeError("admission evaluator returned an unsupported decision")
 
 
 AUTHORIZATION_RECORD_VERSION = "mutation_authorization_record_v1"
@@ -118,6 +154,15 @@ ADMISSION_OUTCOMES = {
     "judge_uncertain",
     "judge_unavailable",
     "judge_output_invalid",
+}
+ENFORCEMENT_REJECTION_REASONS = {
+    "deterministic_failure",
+    "judge_unsupported",
+    "judge_uncertain",
+    "judge_unavailable",
+    "judge_output_invalid",
+    "model_same_as_generator",
+    "model_identity_unavailable",
 }
 MODEL_INDEPENDENCE_STATUSES = {
     "not_evaluated",
@@ -380,17 +425,23 @@ class LocalCandidateAdmissionEvaluator:
         self,
         task_contract: TaskContract,
         solution_policy: SolutionPolicy,
-    ) -> dict[str, object]:
-        mutation_steps = [
-            (index, step)
-            for index, step in enumerate(solution_policy.steps)
-            if step.tool_name in self.state_changing_tools
-        ]
-        if not mutation_steps:
-            return _bypass_evidence(
-                self.mode,
-                classification="read_only",
-                generator_lineage=_generator_lineage(task_contract),
+    ) -> CandidateAdmissionDecision:
+        declared_tool_names = declared_solution_policy_tool_names(
+            solution_policy
+        )
+        mutation_tool_names = declared_tool_names & self.state_changing_tools
+        branch_mutation_tool_names = (
+            declared_branch_tool_names(solution_policy)
+            & self.state_changing_tools
+        )
+        if not mutation_tool_names:
+            return CandidateAdmissionDecision(
+                execution_permitted=True,
+                evidence=_bypass_evidence(
+                    self.mode,
+                    classification="read_only",
+                    generator_lineage=_generator_lineage(task_contract),
+                ),
             )
 
         policy = next(
@@ -399,25 +450,48 @@ class LocalCandidateAdmissionEvaluator:
                 for candidate in self.policies
                 if candidate.domain_id == task_contract.intent.domain_id
                 and candidate.task_type == task_contract.intent.task_type
-                and any(step.tool_name == candidate.tool_name for _, step in mutation_steps)
+                and candidate.tool_name in mutation_tool_names
             ),
             None,
         )
         if self.mode == "disabled":
-            return _disabled_evidence(task_contract, solution_policy, policy)
+            return CandidateAdmissionDecision(
+                execution_permitted=True,
+                evidence=_disabled_evidence(task_contract, solution_policy, policy),
+            )
+        if branch_mutation_tool_names:
+            return _decision_for_evidence(
+                self.mode,
+                _failed_evidence(
+                    mode=self.mode,
+                    policy=policy,
+                    solution_policy=solution_policy,
+                    authorization=task_contract.mutation_authorization,
+                    generator_lineage=_generator_lineage(task_contract),
+                    failures=[
+                        _failure(
+                            "authorization_action_mismatch",
+                            "solution_policy.branch_plan",
+                        )
+                    ],
+                ),
+            )
         if policy is None:
-            return _failed_evidence(
-                mode=self.mode,
-                policy=None,
-                solution_policy=solution_policy,
-                authorization=task_contract.mutation_authorization,
-                generator_lineage=_generator_lineage(task_contract),
-                failures=[
-                    _failure(
-                        "authorization_record_missing",
-                        "mutation_authorization",
-                    )
-                ],
+            return _decision_for_evidence(
+                self.mode,
+                _failed_evidence(
+                    mode=self.mode,
+                    policy=None,
+                    solution_policy=solution_policy,
+                    authorization=task_contract.mutation_authorization,
+                    generator_lineage=_generator_lineage(task_contract),
+                    failures=[
+                        _failure(
+                            "authorization_record_missing",
+                            "mutation_authorization",
+                        )
+                    ],
+                ),
             )
 
         validation = _validate_authorization(
@@ -428,13 +502,16 @@ class LocalCandidateAdmissionEvaluator:
         if validation["failures"]:
             failures = validation["failures"]
             assert isinstance(failures, list)
-            return _failed_evidence(
-                mode=self.mode,
-                policy=policy,
-                solution_policy=solution_policy,
-                authorization=task_contract.mutation_authorization,
-                generator_lineage=_generator_lineage(task_contract),
-                failures=failures,
+            return _decision_for_evidence(
+                self.mode,
+                _failed_evidence(
+                    mode=self.mode,
+                    policy=policy,
+                    solution_policy=solution_policy,
+                    authorization=task_contract.mutation_authorization,
+                    generator_lineage=_generator_lineage(task_contract),
+                    failures=failures,
+                ),
             )
 
         request = validation["judge_request"]
@@ -452,32 +529,38 @@ class LocalCandidateAdmissionEvaluator:
                 if result.provider_outcome == "output_invalid"
                 else "judge_unavailable"
             )
-            return _judge_failure_evidence(
-                mode=self.mode,
-                policy=policy,
-                solution_policy=solution_policy,
-                authorization=task_contract.mutation_authorization,
-                generator_lineage=_generator_lineage(task_contract),
-                request=request,
-                admission_outcome=failure_outcome,
-                judge_call=judge_call,
-                judge_lineage=result.judge_lineage,
+            return _decision_for_evidence(
+                self.mode,
+                _judge_failure_evidence(
+                    mode=self.mode,
+                    policy=policy,
+                    solution_policy=solution_policy,
+                    authorization=task_contract.mutation_authorization,
+                    generator_lineage=_generator_lineage(task_contract),
+                    request=request,
+                    admission_outcome=failure_outcome,
+                    judge_call=judge_call,
+                    judge_lineage=result.judge_lineage,
+                ),
             )
         try:
             verdict = _strict_semantic_verdict(result.verdict, request)
         except (TypeError, ValueError):
             invalid_call = dict(judge_call)
             invalid_call["outcome"] = "output_invalid"
-            return _judge_failure_evidence(
-                mode=self.mode,
-                policy=policy,
-                solution_policy=solution_policy,
-                authorization=task_contract.mutation_authorization,
-                generator_lineage=_generator_lineage(task_contract),
-                request=request,
-                admission_outcome="judge_output_invalid",
-                judge_call=invalid_call,
-                judge_lineage=result.judge_lineage,
+            return _decision_for_evidence(
+                self.mode,
+                _judge_failure_evidence(
+                    mode=self.mode,
+                    policy=policy,
+                    solution_policy=solution_policy,
+                    authorization=task_contract.mutation_authorization,
+                    generator_lineage=_generator_lineage(task_contract),
+                    request=request,
+                    admission_outcome="judge_output_invalid",
+                    judge_call=invalid_call,
+                    judge_lineage=result.judge_lineage,
+                ),
             )
         verdict_hash = canonical_hash(verdict)
         authorization = task_contract.mutation_authorization
@@ -488,7 +571,11 @@ class LocalCandidateAdmissionEvaluator:
             if isinstance(raw_judge_lineage, Mapping)
             else {}
         )
-        return {
+        model_independence = _model_independence(
+            _generator_lineage(task_contract),
+            judge_lineage,
+        )
+        evidence = {
             "schema_version": ADMISSION_EVIDENCE_VERSION,
             "classification": "state_changing",
             "mode": self.mode,
@@ -515,12 +602,71 @@ class LocalCandidateAdmissionEvaluator:
                 },
                 "judge": judge_lineage,
             },
-            "model_independence": _model_independence(
-                _generator_lineage(task_contract),
-                judge_lineage,
+            "model_independence": model_independence,
+            "diagnostic_only": _diagnostic_only(
+                self.mode,
+                model_independence,
             ),
-            "diagnostic_only": True,
         }
+        return _decision_for_evidence(self.mode, evidence)
+
+
+def _enforcement_rejection_reason(
+    evidence: Mapping[str, object],
+) -> str | None:
+    admission_outcome = str(evidence.get("admission_outcome", ""))
+    model_independence = str(evidence.get("model_independence", ""))
+    if (
+        admission_outcome == "judge_supported"
+        and model_independence == "independent"
+    ):
+        return None
+    if (
+        admission_outcome == "judge_supported"
+        and model_independence == "same_model"
+    ):
+        return "model_same_as_generator"
+    if (
+        admission_outcome == "judge_supported"
+        and model_independence == "unknown"
+    ):
+        return "model_identity_unavailable"
+    if admission_outcome in ENFORCEMENT_REJECTION_REASONS:
+        return admission_outcome
+    return "judge_output_invalid"
+
+
+def _decision_for_evidence(
+    mode: str,
+    evidence: dict[str, object],
+) -> CandidateAdmissionDecision:
+    if mode != "enforce":
+        return CandidateAdmissionDecision(
+            execution_permitted=True,
+            evidence=evidence,
+        )
+    rejection_reason = _enforcement_rejection_reason(evidence)
+    if rejection_reason is None:
+        return CandidateAdmissionDecision(
+            execution_permitted=True,
+            evidence=evidence,
+        )
+    return CandidateAdmissionDecision(
+        execution_permitted=False,
+        evidence=evidence,
+        rejection_reason=rejection_reason,
+    )
+
+
+def validate_enforcement_rejection(
+    reason: object,
+    evidence: Mapping[str, object],
+) -> None:
+    if reason not in ENFORCEMENT_REJECTION_REASONS:
+        raise ValueError("mutation admission rejection reason is unsupported")
+    expected_reason = _enforcement_rejection_reason(evidence)
+    if reason != expected_reason:
+        raise ValueError("mutation admission rejection reason is inconsistent")
 
 
 def build_local_candidate_admission_evaluator(
@@ -530,11 +676,11 @@ def build_local_candidate_admission_evaluator(
     state_changing_tools: Sequence[str],
     judge: object | None = None,
 ) -> LocalCandidateAdmissionEvaluator:
-    if mode not in {"disabled", "shadow"}:
-        raise ValueError("mode must be disabled or shadow")
+    if mode not in {"disabled", "shadow", "enforce"}:
+        raise ValueError("mode must be disabled, shadow, or enforce")
     selected_judge = judge
-    if mode == "shadow" and not callable(selected_judge):
-        raise ValueError("shadow mode requires a semantic mutation judge")
+    if mode in {"shadow", "enforce"} and not callable(selected_judge):
+        raise ValueError(f"{mode} mode requires a semantic mutation judge")
     if selected_judge is not None and not callable(selected_judge):
         raise TypeError("judge must be callable")
     return LocalCandidateAdmissionEvaluator(
@@ -575,13 +721,11 @@ def validate_mutation_admission_evidence(raw: object) -> None:
     if classification not in {"read_only", "state_changing"}:
         raise ValueError("mutation_admission classification is unsupported")
     mode = raw.get("mode")
-    if mode not in {"disabled", "shadow"}:
+    if mode not in {"disabled", "shadow", "enforce"}:
         raise ValueError("mutation_admission mode is unsupported")
     diagnostic_only = raw.get("diagnostic_only")
     if not isinstance(diagnostic_only, bool):
         raise ValueError("mutation_admission diagnostic_only must be a bool")
-    if diagnostic_only != (mode == "shadow"):
-        raise ValueError("mutation_admission diagnostic_only is inconsistent")
     admission_outcome = raw.get("admission_outcome")
     if admission_outcome not in ADMISSION_OUTCOMES:
         raise ValueError("mutation_admission admission_outcome is unsupported")
@@ -637,7 +781,11 @@ def validate_mutation_admission_evidence(raw: object) -> None:
 
     semantic_verdict = raw.get("semantic_verdict")
     judge_call = raw.get("judge_call")
-    judged_path = status == "passed" and mode == "shadow" and classification == "state_changing"
+    judged_path = (
+        status == "passed"
+        and mode in {"shadow", "enforce"}
+        and classification == "state_changing"
+    )
     if judged_path:
         call = _exact_mapping(
             judge_call,
@@ -753,6 +901,8 @@ def validate_mutation_admission_evidence(raw: object) -> None:
     )
     if model_independence != expected_independence:
         raise ValueError("mutation_admission model independence is inconsistent")
+    if diagnostic_only != _diagnostic_only(mode, model_independence):
+        raise ValueError("mutation_admission diagnostic_only is inconsistent")
 
 
 def _normalize_legacy_mutation_admission_evidence(
@@ -1554,7 +1704,7 @@ def _bypass_evidence(
             }
         },
         "model_independence": "not_evaluated",
-        "diagnostic_only": mode != "disabled",
+        "diagnostic_only": mode == "shadow",
     }
 
 
@@ -1623,7 +1773,7 @@ def _failed_evidence(
             }
         },
         "model_independence": "not_evaluated",
-        "diagnostic_only": True,
+        "diagnostic_only": mode == "shadow",
     }
 
 
@@ -1654,6 +1804,10 @@ def _judge_failure_evidence(
     }
     if judge_lineage is not None:
         lineage["judge"] = dict(judge_lineage)
+    model_independence = _model_independence(
+        generator_lineage,
+        judge_lineage,
+    )
     return {
         "schema_version": ADMISSION_EVIDENCE_VERSION,
         "classification": "state_changing",
@@ -1668,12 +1822,16 @@ def _judge_failure_evidence(
         "judge_call": dict(judge_call),
         "hashes": hashes,
         "lineage": lineage,
-        "model_independence": _model_independence(
-            generator_lineage,
-            judge_lineage,
-        ),
-        "diagnostic_only": True,
+        "model_independence": model_independence,
+        "diagnostic_only": _diagnostic_only(mode, model_independence),
     }
+
+
+def _diagnostic_only(mode: object, model_independence: object) -> bool:
+    return mode == "shadow" or (
+        mode == "enforce"
+        and model_independence in {"same_model", "unknown"}
+    )
 
 
 def _model_independence(

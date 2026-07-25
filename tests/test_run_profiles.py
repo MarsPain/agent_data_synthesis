@@ -257,7 +257,7 @@ class RunProfileTest(unittest.TestCase):
                 expected["foundation-fixture.json"],
             )
 
-    def test_v4_selects_disabled_or_shadow_mutation_admission(self) -> None:
+    def test_v4_selects_disabled_shadow_or_enforce_mutation_admission(self) -> None:
         base = {
             "schema_version": "run_profile_v4",
             "profile_id": "workspace_comment_shadow_test",
@@ -279,14 +279,31 @@ class RunProfileTest(unittest.TestCase):
         shadow = self._load_mapping(
             {**base, "mutation_admission": {"mode": "shadow"}}
         )
+        enforce = self._load_mapping(
+            {
+                **base,
+                "mutation_admission": {
+                    "mode": "enforce",
+                    "judge": {
+                        "role": "mutation_admission_judge",
+                        "provider": "openai_compatible",
+                        "model": "independent-judge-model",
+                        "timeout_seconds": 12.5,
+                        "max_retries": 1,
+                    },
+                },
+            }
+        )
 
         self.assertEqual(disabled.mutation_admission.mode, "disabled")
         self.assertEqual(shadow.mutation_admission.mode, "shadow")
+        self.assertEqual(enforce.mutation_admission.mode, "enforce")
         self.assertEqual(
             shadow.sanitized_metadata()["mutation_admission"],
             {"mode": "shadow"},
         )
         self.assertNotEqual(disabled.config_hash, shadow.config_hash)
+        self.assertNotEqual(shadow.config_hash, enforce.config_hash)
 
     def test_v4_configures_remote_mutation_judge_without_credentials(self) -> None:
         profile = self._load_mapping(
@@ -335,6 +352,104 @@ class RunProfileTest(unittest.TestCase):
         )
         self.assertNotIn("api_key", repr(profile))
         self.assertNotIn("credential", repr(profile))
+
+    def test_v4_release_candidates_require_independent_enforcement_configuration(
+        self,
+    ) -> None:
+        base = {
+            "schema_version": "run_profile_v4",
+            "profile_id": "workspace_release_enforcement",
+            "dataset_version": "dataset_workspace_release_enforcement",
+            "profile_purpose": "release_candidate",
+            "seed": {
+                "seed_id": "seed_workspace_release_enforcement",
+                "domain": "workspace_tasks_fixture",
+                "description": "Validate release enforcement configuration.",
+                "task_taxonomy": ["workspace_item_lookup"],
+            },
+            "generation": {"mode": "workspace_fixture"},
+            "features": {},
+        }
+        judge = {
+            "role": "mutation_admission_judge",
+            "provider": "openai_compatible",
+            "model": "independent-judge-model",
+            "timeout_seconds": 12.5,
+            "max_retries": 1,
+        }
+
+        for mutation_admission in (
+            {"mode": "disabled"},
+            {"mode": "shadow", "judge": judge},
+            {"mode": "enforce"},
+            {"mode": "enforce", "judge": {**judge, "model": "scripted"}},
+        ):
+            with self.subTest(mutation_admission=mutation_admission):
+                with self.assertRaises(Exception):
+                    self._load_mapping(
+                        {
+                            **base,
+                            "mutation_admission": mutation_admission,
+                        }
+                    )
+
+        profile = self._load_mapping(
+            {
+                **base,
+                "mutation_admission": {"mode": "enforce", "judge": judge},
+            }
+        )
+        self.assertEqual(profile.mutation_admission.mode, "enforce")
+        self.assertEqual(
+            profile.mutation_admission.judge.model,
+            "independent-judge-model",
+        )
+
+    def test_v4_llm_enforcement_requires_an_explicit_different_generator_model(
+        self,
+    ) -> None:
+        base = {
+            "schema_version": "run_profile_v4",
+            "profile_id": "llm_enforcement_independence",
+            "dataset_version": "dataset_llm_enforcement_independence",
+            "profile_purpose": "diagnostic_probe",
+            "seed": {
+                "seed_id": "seed_llm_enforcement_independence",
+                "domain": "workspace_tasks_fixture",
+                "description": "Validate remote generator and judge independence.",
+                "task_taxonomy": ["workspace_comment_update"],
+            },
+            "generation": {"mode": "llm"},
+            "features": {},
+            "mutation_admission": {
+                "mode": "enforce",
+                "judge": {
+                    "role": "mutation_admission_judge",
+                    "provider": "openai_compatible",
+                    "model": "judge-model",
+                    "timeout_seconds": 12.5,
+                    "max_retries": 1,
+                },
+            },
+        }
+
+        for generator_model in ("", "judge-model"):
+            with self.subTest(generator_model=generator_model), patch.dict(
+                os.environ,
+                {"AGENT_DATA_LLM_MODEL": generator_model},
+                clear=False,
+            ):
+                with self.assertRaises(Exception):
+                    self._load_mapping(base)
+
+        with patch.dict(
+            os.environ,
+            {"AGENT_DATA_LLM_MODEL": "independent-generator-model"},
+            clear=False,
+        ):
+            profile = self._load_mapping(base)
+
+        self.assertEqual(profile.mutation_admission.mode, "enforce")
 
     def test_v4_rejects_unsafe_or_unbounded_mutation_judge_configuration(self) -> None:
         base = {

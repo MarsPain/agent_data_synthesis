@@ -456,7 +456,7 @@ class WorkspacePipelineTest(unittest.TestCase):
                 "read_only",
             )
 
-    def test_remote_shadow_profile_audits_same_and_different_judge_models(
+    def test_remote_shadow_and_enforce_profiles_audit_model_independence(
         self,
     ) -> None:
         from synthesis.pipeline import run_foundation_pipeline
@@ -536,16 +536,27 @@ class WorkspacePipelineTest(unittest.TestCase):
             clear=False,
         ):
             root = Path(tmpdir)
-            for expected_status, judge_model in (
-                ("independent", "independent-judge-model"),
-                ("same_model", "scripted"),
+            for label, mode, expected_status, judge_model in (
+                (
+                    "shadow_independent",
+                    "shadow",
+                    "independent",
+                    "independent-judge-model",
+                ),
+                ("shadow_same_model", "shadow", "same_model", "scripted"),
+                (
+                    "enforce_independent",
+                    "enforce",
+                    "independent",
+                    "independent-judge-model",
+                ),
             ):
-                with self.subTest(expected_status=expected_status):
+                with self.subTest(label=label):
                     mapping = {
                         **base_profile,
-                        "profile_id": f"workspace_remote_{expected_status}",
+                        "profile_id": f"workspace_remote_{label}",
                         "mutation_admission": {
-                            "mode": "shadow",
+                            "mode": mode,
                             "judge": {
                                 "role": "mutation_admission_judge",
                                 "provider": "openai_compatible",
@@ -555,11 +566,11 @@ class WorkspacePipelineTest(unittest.TestCase):
                             },
                         },
                     }
-                    profile_path = root / f"{expected_status}.json"
+                    profile_path = root / f"{label}.json"
                     profile_path.write_text(json.dumps(mapping), encoding="utf-8")
                     profile = load_run_profile(profile_path)
                     result = run_foundation_pipeline(
-                        root / f"output-{expected_status}",
+                        root / f"output-{label}",
                         dataset_version=profile.dataset_version,
                         seed_override=profile.seed,
                         run_profile=profile,
@@ -587,8 +598,121 @@ class WorkspacePipelineTest(unittest.TestCase):
                         expected_status,
                     )
                     self.assertEqual(evidence["lineage"]["judge"]["model"], judge_model)
-                    self.assertTrue(evidence["diagnostic_only"])
+                    self.assertEqual(
+                        evidence["diagnostic_only"],
+                        mode == "shadow",
+                    )
                     self.assertNotIn("secret-test-key", json.dumps(evidence))
+
+    def test_remote_enforce_profile_fails_closed_on_provider_retry_exhaustion(
+        self,
+    ) -> None:
+        from synthesis.pipeline import run_foundation_pipeline
+        from synthesis.run_profiles import load_run_profile
+
+        request_count = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal request_count
+            request_count += 1
+            raise httpx.ReadTimeout("raw provider timeout", request=request)
+
+        profile_mapping = {
+            "schema_version": "run_profile_v4",
+            "profile_id": "workspace_remote_enforce_failure",
+            "dataset_version": "dataset_workspace_remote_enforce_failure",
+            "profile_purpose": "diagnostic_probe",
+            "seed": {
+                "seed_id": "seed_workspace_remote_enforce_failure",
+                "domain": "workspace_tasks_fixture",
+                "description": "Fail closed when the independent judge is unavailable.",
+                "task_taxonomy": [
+                    "workspace_item_lookup",
+                    "workspace_comment_update",
+                ],
+            },
+            "generation": {"mode": "workspace_fixture"},
+            "features": {},
+            "mutation_admission": {
+                "mode": "enforce",
+                "judge": {
+                    "role": "mutation_admission_judge",
+                    "provider": "openai_compatible",
+                    "model": "independent-judge-model",
+                    "timeout_seconds": 3.0,
+                    "max_retries": 1,
+                },
+            },
+        }
+        env = {
+            "AGENT_DATA_LLM_BASE_URL": "https://judge.example.test/v1",
+            "AGENT_DATA_API_KEY": "secret-test-key",
+            "AGENT_DATA_LLM_MODEL": "task-generator-model",
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir, patch.dict(
+            os.environ,
+            env,
+            clear=False,
+        ):
+            root = Path(tmpdir)
+            profile_path = root / "enforce.json"
+            profile_path.write_text(
+                json.dumps(profile_mapping),
+                encoding="utf-8",
+            )
+            profile = load_run_profile(profile_path)
+            result = run_foundation_pipeline(
+                root / "output",
+                dataset_version=profile.dataset_version,
+                seed_override=profile.seed,
+                run_profile=profile,
+                run_profile_metadata=profile.sanitized_metadata(),
+                mutation_judge_http_client=httpx.Client(
+                    transport=httpx.MockTransport(handler)
+                ),
+            )
+            samples = [
+                json.loads(line)
+                for line in result.samples_path.read_text(encoding="utf-8").splitlines()
+                if line
+            ]
+            rejections = [
+                json.loads(line)
+                for line in result.rejections_path.read_text(
+                    encoding="utf-8"
+                ).splitlines()
+                if line
+            ]
+
+        admission_rejections = [
+            rejection
+            for rejection in rejections
+            if rejection["cause"] == "mutation_admission_failed"
+        ]
+        self.assertGreater(request_count, 0)
+        self.assertTrue(admission_rejections)
+        self.assertTrue(
+            all(
+                rejection["details"]["admission_reason"] == "judge_unavailable"
+                and rejection["details"]["mutation_admission"]["judge_call"]
+                == {
+                    "outcome": "unavailable",
+                    "attempts": 2,
+                    "timeout_seconds": 3.0,
+                }
+                for rejection in admission_rejections
+            )
+        )
+        self.assertTrue(
+            all(
+                sample["mutation_admission"]["classification"] == "read_only"
+                for sample in samples
+            )
+        )
+        retained = json.dumps(admission_rejections, sort_keys=True)
+        self.assertNotIn("raw provider timeout", retained)
+        self.assertNotIn("secret-test-key", retained)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from string import Formatter
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from synthesis.contracts import validate_branch_plan_record, validate_branch_outcomes
 from synthesis.llm import LLMProviderError
@@ -10,6 +10,9 @@ from synthesis.mcp import AdapterExecutionError, LocalRuntimeAdapterShim, ToolCa
 from synthesis.roles import RoleRegistry, SOLUTION_POLICY_ROLE, default_role_registry
 from synthesis.tasks import CandidateTask
 from synthesis.tools import ToolMissingError, ToolRegistry, ToolRegistryError, ToolSchemaError
+
+if TYPE_CHECKING:
+    from synthesis.task_contracts import TaskContract
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,40 @@ class SolutionPolicy:
     final_response_template: str
     lineage: dict[str, object] | None = None
     branch_plan: dict[str, object] | None = None
+
+
+def declared_branch_tool_names(policy: SolutionPolicy) -> frozenset[str]:
+    names: set[str] = set()
+    branch_plan = policy.branch_plan
+    raw_branches = (
+        branch_plan.get("branches")
+        if isinstance(branch_plan, dict)
+        else None
+    )
+    if not isinstance(raw_branches, list):
+        return frozenset()
+    for raw_branch in raw_branches:
+        if not isinstance(raw_branch, dict):
+            continue
+        raw_steps = raw_branch.get("steps")
+        if not isinstance(raw_steps, list):
+            continue
+        names.update(
+            str(raw_step["tool_name"])
+            for raw_step in raw_steps
+            if isinstance(raw_step, dict)
+            and isinstance(raw_step.get("tool_name"), str)
+        )
+    return frozenset(names)
+
+
+def declared_solution_policy_tool_names(
+    policy: SolutionPolicy,
+) -> frozenset[str]:
+    return frozenset(
+        step.tool_name
+        for step in policy.steps
+    ) | declared_branch_tool_names(policy)
 
 
 @dataclass(frozen=True)

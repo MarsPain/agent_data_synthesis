@@ -28,6 +28,7 @@ from synthesis.mcp import (
 )
 from synthesis.mutation_admission import (
     CandidateAdmissionEvaluator,
+    evaluate_candidate_admission,
     permit_candidate_execution,
 )
 from synthesis.quality import (
@@ -372,7 +373,30 @@ def _run_candidate_attempt(
                 policy=None,
                 capability_gap=None,
             )
-    mutation_admission = context.admission_evaluator(task_contract, policy)
+    admission_decision = evaluate_candidate_admission(
+        context.admission_evaluator,
+        task_contract,
+        policy,
+    )
+    mutation_admission = admission_decision.evidence
+    if not admission_decision.execution_permitted:
+        return _CandidateAttemptResult(
+            sample=None,
+            rejection=assemble_quality_gate_rejection(
+                task=task,
+                cause="mutation_admission_failed",
+                message="Mutation admission rejected the candidate before execution.",
+                details={
+                    "admission_reason": admission_decision.rejection_reason
+                    or "mutation_admission_failed",
+                    "mutation_admission": mutation_admission or {},
+                },
+                policy=policy,
+            ),
+            signature=None,
+            policy=policy,
+            capability_gap=None,
+        )
     try:
         execution = execute_candidate(
             task,

@@ -81,14 +81,14 @@ class MobileMutationAdmissionCandidateProcessingTest(unittest.TestCase):
             if candidate.candidate_id == candidate_id
         )
 
-    def _process(self, candidate):
+    def _process(self, candidate, *, mode: str = "shadow"):
         temporary_directory = tempfile.TemporaryDirectory()
         self.addCleanup(temporary_directory.cleanup)
         environment = MobileMessagesEnvironment.create_fixture(
             Path(temporary_directory.name)
         )
         evaluator = build_local_candidate_admission_evaluator(
-            mode="shadow",
+            mode=mode,
             policies=mobile_mutation_policies(environment),
             state_changing_tools=(
                 "create_phone_reminder",
@@ -111,6 +111,44 @@ class MobileMutationAdmissionCandidateProcessingTest(unittest.TestCase):
             options=CandidateProcessingOptions(),
         )
         return outcome, environment
+
+    def test_supported_mobile_mutations_execute_in_enforce_mode(self) -> None:
+        cases = (
+            (
+                "candidate_mobile_maya_reminder",
+                lambda environment: environment.has_reminder(
+                    title="Send the project update",
+                    due_at="tomorrow 9 AM",
+                    source_message_id="msg_maya_project_update",
+                ),
+            ),
+            (
+                "candidate_mobile_alex_draft_reply",
+                lambda environment: environment.has_draft_reply(
+                    thread_id="thread_alex",
+                    body="I will be five minutes late.",
+                ),
+            ),
+        )
+        for candidate_id, state_check in cases:
+            with self.subTest(candidate_id=candidate_id):
+                outcome, environment = self._process(
+                    self._candidate(candidate_id),
+                    mode="enforce",
+                )
+
+                self.assertTrue(state_check(environment))
+                assert outcome.sample is not None
+                evidence = outcome.sample["mutation_admission"]
+                self.assertEqual(evidence["mode"], "enforce")
+                self.assertEqual(
+                    evidence["admission_outcome"],
+                    "judge_supported",
+                )
+                self.assertEqual(
+                    evidence["model_independence"],
+                    "independent",
+                )
 
     def test_supported_mobile_mutations_execute_and_retain_shadow_evidence(
         self,
