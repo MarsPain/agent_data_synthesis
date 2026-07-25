@@ -324,6 +324,17 @@ must not add workspace-specific branches or tool allowlists.
    manifest. It does not attach the decisions file or rerun generation,
    evaluation, profile decisions, release admission, release-pack creation, or
    release-pack verification.
+29. Every `run_profile_v4` run writes `mutation_admission_report_v1` and a
+   `dataset_manifest_v2`. The report aggregates bounded admission outcomes by
+   domain, task type, action, provenance, verdict, reason, provider outcome, and
+   model independence. The manifest declares the sample and admission contract
+   versions and hash-binds samples, rejections, and the report.
+30. `dataset_release_pack_v2` construction and verification call the offline
+   mutation-safe manifest verifier. Accepted mutations require enforce mode, a
+   supported verdict, a successful judge call, independent generator/judge
+   identities, non-diagnostic evidence, supported contracts, matching hashes,
+   and a clean retained-material scan. Historical v1 manifests and packs retain
+   their old reader path but cannot certify mutation safety.
 
 Release-review outcomes are evidence only. They do not modify
 `samples.jsonl`, `rejections.jsonl`, quality/evaluation/profile reports,

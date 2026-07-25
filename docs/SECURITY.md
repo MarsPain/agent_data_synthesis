@@ -108,6 +108,26 @@ capability values.
 
 Logs may include provider alias, base URL host, model id, prompt or config hash, token counts, cost metadata, retry count, and error class. Logs must not include API keys, authorization headers, or raw secrets.
 
+## Mutation Admission Release Controls
+
+Admission-enabled runs retain only the versioned sanitized mutation evidence
+contract and bounded aggregate report. The admission material scanner rejects
+raw prompts, raw responses, chain-of-thought, credentials, headers, API-key or
+authorization material, provider payloads, and observation payloads. Semantic
+evidence uses bounded references and hashes rather than copied observations.
+The release scan permits ordinary sample trajectory observations only when each
+observation immediately follows the matching tool action; observation payloads
+outside that referenced trajectory position fail validation.
+
+`dataset_manifest_v2` hash-binds `samples.jsonl`, `rejections.jsonl`, and
+`mutation_admission_report.json`. Mutation-safe release-pack construction and
+verification are offline: they make no judge/provider calls and fail closed on
+shadow or disabled mode, diagnostic-only evidence, unsupported accepted
+mutations, missing or invalid evidence, generator/judge identity dependence,
+unsupported contract versions, or hash/byte-count drift. Historical v1
+artifacts remain readable but carry no mutation-safety claim and are never
+rewritten during verification.
+
 ## Generated Code Controls
 
 - The current `tool_generation` role is proposal-only. It may describe a tool

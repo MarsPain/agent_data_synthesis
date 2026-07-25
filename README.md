@@ -34,6 +34,9 @@ admission artifacts. Canonical design detail lives in [docs/](docs/).
 - Opt-in reports can add held-out evaluation, profile decisions, dataset release
   admission, release packs, release quality audits, release-review evidence,
   episode quality, executable replay, and deterministic reward labels.
+- `run_profile_v4` admission runs additionally emit a deterministic
+  `mutation_admission_report.json` and a hash-bound v2 manifest; mutation-safe
+  release packs are verified entirely from these retained artifacts.
 - Remote LLM generation is supported through an OpenAI-compatible API, but local
   LLM serving, distributed workers, external MCP servers, Agentic RL rollout
   collection, and separate `awm_runtime` publishing are intentionally deferred.
@@ -113,7 +116,8 @@ paths, and host paths must not be written to public artifacts.
 - Source and sandbox audits: `source_events.jsonl`, `sandbox_audits.jsonl`.
 - Evaluation and release artifacts: `evaluation_report.json`,
   `profile_decision_report.json`, `dataset_release_report.json`,
-  `dataset_release_pack.json`, `release_quality_audit.json`,
+  `mutation_admission_report.json`, `dataset_release_pack.json`,
+  `release_quality_audit.json`,
   `dataset_release_card.md`, opt-in `release_review_queue.jsonl`, and offline
   `review_resolution_report.json`.
 - Standalone evidence artifacts: `representative_scale_evidence.json`,

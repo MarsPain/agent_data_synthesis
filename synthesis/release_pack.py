@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -14,10 +14,19 @@ from synthesis.contracts import (
     validate_manifest_record,
     validate_review_resolution_report_record,
 )
-from synthesis.datasets import serialize_dataset_manifest
+from synthesis.datasets import (
+    build_artifact_hash_record,
+    serialize_dataset_manifest,
+)
+from synthesis.mutation_admission_release import verify_mutation_safe_manifest
+from synthesis.mutation_admission_reporting import (
+    MUTATION_ADMISSION_REPORT_SCHEMA_VERSION,
+    validate_mutation_admission_report,
+)
 
 
-DATASET_RELEASE_PACK_SCHEMA_VERSION = "dataset_release_pack_v1"
+DATASET_RELEASE_PACK_SCHEMA_VERSION = "dataset_release_pack_v2"
+LEGACY_DATASET_RELEASE_PACK_SCHEMA_VERSION = "dataset_release_pack_v1"
 DATASET_RELEASE_PACK_FILENAME = "dataset_release_pack.json"
 REQUIRED_MANIFEST_ARTIFACTS = (
     "samples",
@@ -48,16 +57,6 @@ PROFILE_FIELDS = (
 
 
 @dataclass(frozen=True)
-class ReleaseArtifactRecord:
-    path: str
-    sha256: str
-    byte_count: int
-
-    def export(self) -> dict[str, object]:
-        return asdict(self)
-
-
-@dataclass(frozen=True)
 class PostPackManifestAssessment:
     status: str
 
@@ -69,6 +68,25 @@ def build_dataset_release_pack(
 ) -> dict[str, object]:
     base_dir = manifest_path.parent
     manifest = _load_canonical_manifest(manifest_path)
+    mutation_safe = _is_mutation_safe_manifest(manifest)
+    mutation_verification = (
+        verify_mutation_safe_manifest(manifest_path)
+        if mutation_safe
+        else None
+    )
+    if (
+        mutation_verification is not None
+        and mutation_verification.get("status") != "passed"
+    ):
+        reasons = mutation_verification.get("reasons")
+        reason_text = (
+            "; ".join(str(reason) for reason in reasons)
+            if isinstance(reasons, list)
+            else "unknown mutation admission failure"
+        )
+        raise ValueError(
+            f"mutation-safe release admission failed: {reason_text}"
+        )
     dataset_release_report = _load_mapping(
         dataset_release_report_path,
         "dataset_release_report",
@@ -83,7 +101,7 @@ def build_dataset_release_pack(
         manifest=manifest,
     )
     artifacts = {
-        key: _artifact_record(path).export()
+        key: build_artifact_hash_record(path).export()
         for key, path in artifact_paths.items()
     }
     dataset_version = _string_value(
@@ -91,7 +109,11 @@ def build_dataset_release_pack(
         "dataset_release_report.dataset_version",
     )
     pack: dict[str, object] = {
-        "schema_version": DATASET_RELEASE_PACK_SCHEMA_VERSION,
+        "schema_version": (
+            DATASET_RELEASE_PACK_SCHEMA_VERSION
+            if mutation_safe
+            else LEGACY_DATASET_RELEASE_PACK_SCHEMA_VERSION
+        ),
         "dataset_version": dataset_version,
         "release_id": _release_id(dataset_version, artifacts),
         "profile": _profile_summary(dataset_release_report),
@@ -110,6 +132,13 @@ def build_dataset_release_pack(
             ),
         ),
     }
+    if mutation_safe:
+        pack["mutation_admission"] = {
+            "manifest_schema_version": "dataset_manifest_v2",
+            "mode": "enforce",
+            "report_schema_version": MUTATION_ADMISSION_REPORT_SCHEMA_VERSION,
+            "status": "passed",
+        }
     validate_dataset_release_pack_record(pack)
     return pack
 
@@ -153,7 +182,7 @@ def verify_dataset_release_pack(pack_path: Path) -> dict[str, object]:
         if not artifact_path.exists():
             reasons.append(f"{key} artifact is missing: {relative_path}")
             continue
-        current = _artifact_record(artifact_path)
+        current = build_artifact_hash_record(artifact_path)
         expected_hash = _string_value(
             artifact.get("sha256"),
             f"artifacts.{key}.sha256",
@@ -195,8 +224,31 @@ def verify_dataset_release_pack(pack_path: Path) -> dict[str, object]:
 
     reasons.extend(_metadata_mismatch_reasons(pack, referenced))
     reasons.extend(_release_evidence_failure_reasons(pack, referenced))
+    mutation_verification: Mapping[str, object] | None = None
+    if _is_mutation_safe_pack(pack):
+        manifest_artifact = _mapping_value(
+            artifacts.get("manifest"),
+            "artifacts.manifest",
+        )
+        mutation_verification = verify_mutation_safe_manifest(
+            base_dir
+            / _string_value(
+                manifest_artifact.get("path"),
+                "artifacts.manifest.path",
+            )
+        )
+        if mutation_verification.get("status") != "passed":
+            raw_reasons = mutation_verification.get("reasons")
+            if isinstance(raw_reasons, list):
+                reasons.extend(str(reason) for reason in raw_reasons)
+            else:
+                reasons.append("mutation-safe release admission failed")
     if reasons:
-        return _verification_result("failed", reasons)
+        return _verification_result(
+            "failed",
+            reasons,
+            mutation_admission=mutation_verification,
+        )
     if allowed_post_pack_review_attachment:
         return _verification_result(
             "passed",
@@ -206,6 +258,7 @@ def verify_dataset_release_pack(pack_path: Path) -> dict[str, object]:
                 "all other referenced artifacts match recorded hashes",
                 "release evidence is internally consistent",
             ],
+            mutation_admission=mutation_verification,
         )
     return _verification_result(
         "passed",
@@ -213,15 +266,7 @@ def verify_dataset_release_pack(pack_path: Path) -> dict[str, object]:
             "all referenced artifacts match recorded hashes",
             "release evidence is internally consistent",
         ],
-    )
-
-
-def _artifact_record(path: Path) -> ReleaseArtifactRecord:
-    data = path.read_bytes()
-    return ReleaseArtifactRecord(
-        path=path.name,
-        sha256="sha256:" + hashlib.sha256(data).hexdigest(),
-        byte_count=len(data),
+        mutation_admission=mutation_verification,
     )
 
 
@@ -297,9 +342,10 @@ def _release_artifact_paths(
     manifest: Mapping[str, Any],
 ) -> dict[str, Path]:
     artifacts = _mapping_value(manifest.get("artifacts"), "manifest.artifacts")
+    required_manifest_artifacts = _required_manifest_artifact_keys(manifest)
     missing = [
         key
-        for key in REQUIRED_MANIFEST_ARTIFACTS
+        for key in required_manifest_artifacts
         if not isinstance(artifacts.get(key), str) or not str(artifacts.get(key)).strip()
     ]
     if missing:
@@ -314,9 +360,14 @@ def _release_artifact_paths(
         "quality_report",
         "evaluation_report",
         "profile_decision_report",
+        *_mutation_admission_artifact_keys(manifest),
     ):
         paths[key] = base_dir / _string_value(artifacts.get(key), f"manifest.artifacts.{key}")
-    return {key: paths[key] for key in PACK_ARTIFACT_KEYS}
+    artifact_keys = [
+        *PACK_ARTIFACT_KEYS,
+        *_mutation_admission_artifact_keys(manifest),
+    ]
+    return {key: paths[key] for key in artifact_keys}
 
 
 def _release_id(
@@ -336,6 +387,33 @@ def _release_id(
         json.dumps(hash_inputs, ensure_ascii=False, sort_keys=True).encode("utf-8")
     ).hexdigest()
     return f"{dataset_version}:sha256:{digest}"
+
+
+def _is_mutation_safe_manifest(manifest: Mapping[str, Any]) -> bool:
+    return manifest.get("schema_version") == "dataset_manifest_v2"
+
+
+def _is_mutation_safe_pack(pack: Mapping[str, Any]) -> bool:
+    return pack.get("schema_version") == DATASET_RELEASE_PACK_SCHEMA_VERSION
+
+
+def _mutation_admission_artifact_keys(
+    manifest: Mapping[str, Any],
+) -> tuple[str, ...]:
+    return (
+        ("mutation_admission_report",)
+        if _is_mutation_safe_manifest(manifest)
+        else ()
+    )
+
+
+def _required_manifest_artifact_keys(
+    manifest: Mapping[str, Any],
+) -> list[str]:
+    return [
+        *REQUIRED_MANIFEST_ARTIFACTS,
+        *_mutation_admission_artifact_keys(manifest),
+    ]
 
 
 def _evidence(dataset_release_report: Mapping[str, Any]) -> dict[str, object]:
@@ -401,16 +479,21 @@ def _load_referenced_json_artifacts(
     artifacts: Mapping[str, Any],
 ) -> dict[str, Mapping[str, Any]]:
     referenced: dict[str, Mapping[str, Any]] = {}
-    for key in (
+    json_artifact_keys = [
         "manifest",
         "quality_report",
         "evaluation_report",
         "profile_decision_report",
         "dataset_release_report",
-    ):
+    ]
+    if "mutation_admission_report" in artifacts:
+        json_artifact_keys.append("mutation_admission_report")
+    for key in json_artifact_keys:
         artifact = _mapping_value(artifacts.get(key), f"artifacts.{key}")
         path = base_dir / _string_value(artifact.get("path"), f"artifacts.{key}.path")
         referenced[key] = _load_mapping(path, key)
+        if key == "mutation_admission_report":
+            validate_mutation_admission_report(referenced[key])
     return referenced
 
 
@@ -427,7 +510,10 @@ def _metadata_mismatch_reasons(
 
     manifest = referenced["manifest"]
     manifest_artifacts = _mapping_value(manifest.get("artifacts"), "manifest.artifacts")
-    for key in REQUIRED_MANIFEST_ARTIFACTS:
+    required_manifest_artifacts = list(REQUIRED_MANIFEST_ARTIFACTS)
+    if _is_mutation_safe_pack(pack):
+        required_manifest_artifacts.append("mutation_admission_report")
+    for key in required_manifest_artifacts:
         if not isinstance(manifest_artifacts.get(key), str) or not manifest_artifacts.get(key):
             reasons.append(f"manifest missing required artifact reference: {key}")
 
@@ -483,8 +569,18 @@ def _verification_record(status: str, reasons: tuple[str, ...] | list[str]) -> d
     return {"status": status, "reasons": list(reasons)}
 
 
-def _verification_result(status: str, reasons: list[str]) -> dict[str, object]:
-    return {"verification": _verification_record(status, reasons)}
+def _verification_result(
+    status: str,
+    reasons: list[str],
+    *,
+    mutation_admission: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    result: dict[str, object] = {
+        "verification": _verification_record(status, reasons)
+    }
+    if mutation_admission is not None:
+        result["mutation_admission"] = dict(mutation_admission)
+    return result
 
 
 def _load_mapping(path: Path, label: str) -> Mapping[str, Any]:

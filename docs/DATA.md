@@ -165,6 +165,9 @@
   an opt-in adapter run.
 - **Sample:** accepted training record assembled from the above entities.
 - **Dataset Version:** manifest that groups samples, schemas, generator configs, and quality reports.
+- **Mutation Admission Report:** deterministic aggregate counts over retained
+  admission evidence, grouped by domain, task type, action, provenance,
+  verdict, reason, provider outcome, and model-independence status.
 
 ## Quality Metrics
 
@@ -221,6 +224,9 @@ and a quality report:
 - `dataset_release_report.json`: optional dataset release admission report
   written only when explicitly requested after evaluation and profile decision
   reports are available.
+- `mutation_admission_report.json`: automatically written for
+  `run_profile_v4` admission runs. It contains bounded aggregate counts only;
+  samples and rejections retain the per-candidate evidence contract.
 - `release_quality_audit.json`: optional release quality evidence report
   written only when explicitly requested after a dataset release report is
   available.
@@ -1019,8 +1025,9 @@ release, semantic-duplicate or async decisions, or release-pack bytes.
 
 ### Dataset Release Pack Contract
 
-`dataset_release_pack.json` uses `schema_version:
-dataset_release_pack_v1` and is generated only when explicitly requested with
+Historical release packs use `dataset_release_pack_v1`. Admission-enabled
+mutation-safe releases use `dataset_release_pack_v2`; both are generated only
+when explicitly requested with
 `--write-dataset-release-pack`. It requires
 `--write-dataset-release-report`, reads existing sanitized release artifacts,
 and does not rerun candidate generation.
@@ -1028,7 +1035,8 @@ and does not rerun candidate generation.
 The pack records `dataset_version`, deterministic `release_id`, sanitized
 profile identity, input artifact names, release evidence, and file records for
 `samples`, `rejections`, `manifest`, `quality_report`, `evaluation_report`,
-`profile_decision_report`, and `dataset_release_report`. Each file record stores
+`profile_decision_report`, and `dataset_release_report`. A v2 pack also binds
+`mutation_admission_report`. Each file record stores
 only the relative artifact name, `sha256:<64 lowercase hex chars>`, and byte
 count. `release_id` is deterministic from the dataset version and sorted
 artifact hashes.
@@ -1043,6 +1051,20 @@ Verification statuses are:
   evidence no longer agrees.
 - `insufficient_evidence`: the pack or referenced JSON artifacts are absent,
   unreadable, or malformed.
+
+`dataset_manifest_v2` is emitted for `run_profile_v4` runs. It declares
+`dataset_sample_v2`, the supported authorization, evidence, domain-policy,
+semantic-verdict, and report contract versions, and independent SHA-256/byte
+count bindings for `samples.jsonl`, `rejections.jsonl`, and
+`mutation_admission_report.json`. Mutation-safe v2 pack construction and
+verification re-read those artifacts without provider calls. They require
+enforce mode, supported verdicts and successful provider outcomes for accepted
+state-changing samples, generator/judge independence, non-diagnostic evidence,
+valid internal and artifact hashes, supported contracts, and sanitized retained
+material. Missing, shadow, disabled, invalid, diagnostic-only, or tampered
+evidence fails. Historical `dataset_manifest_v1` and
+`dataset_release_pack_v1` remain readable but cannot claim mutation safety or
+grandfather `_30_v5` samples into a new release.
 
 Release-pack verification proves artifact integrity and release-admission
 consistency for the local artifact directory. It does not prove downstream model
@@ -1236,7 +1258,8 @@ contract evidence can be `representative` and support an
 activation recommendation.
 
 `downstream_benchmark_bundle_v1` can be built only from a standalone-verified
-`dataset_release_pack_v1`. It binds the release id, pack basename, raw-byte
+`dataset_release_pack_v1` or `dataset_release_pack_v2`. It binds the release id,
+pack basename, raw-byte
 digest and byte count to `external_agent_benchmark_v1`, including declared
 metric directions and bounds. External systems return the exact-key
 `downstream_benchmark_observation_v1` identity/evaluation/arms object.

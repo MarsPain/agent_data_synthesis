@@ -91,6 +91,14 @@ and activation evidence are defined in the
 Its model identity is selected in the mutation-admission profile independently
 from `AGENT_DATA_LLM_MODEL`; provider endpoint and credentials still use the
 shared remote-adapter environment defaults and are never retained in profiles.
+Admission-enabled runs persist `mutation_admission_report_v1` aggregates and a
+`dataset_manifest_v2` that declares sample/admission contract versions and
+hash-binds samples, rejections, and the report. The offline release boundary
+accepts a mutation-safe `dataset_release_pack_v2` only when the retained profile
+uses enforce mode, every accepted state-changing sample has an independently
+supported verdict, all admission artifacts match their hashes, and retained
+material passes the admission-specific sanitization scan. Historical v1
+manifests and packs remain readable but do not certify mutation safety.
 
 The exact-answer/state verifier reads internal expected-outcome and
 expected-state contracts. Compatibility wrappers still accept `CandidateTask`,

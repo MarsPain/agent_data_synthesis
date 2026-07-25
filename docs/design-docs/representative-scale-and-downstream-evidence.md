@@ -58,7 +58,7 @@ representative domain runs
   -> existing manifests and quality reports
   -> held-out/profile/release/audit/review evidence
   -> representative_scale_evidence_v1
-  -> verified dataset_release_pack_v1
+  -> verified dataset_release_pack_v1 or mutation-safe v2
   -> downstream_benchmark_bundle_v1
   -> external training and evaluation
   -> downstream_benchmark_result_v1
@@ -129,7 +129,8 @@ last. The report does not edit issue-tracker state automatically.
 
 `downstream_benchmark_bundle.json` uses
 `schema_version: downstream_benchmark_bundle_v1`. It is created only from a
-valid `dataset_release_pack_v1` whose standalone verification passes. The
+valid `dataset_release_pack_v1` or `dataset_release_pack_v2` whose standalone
+verification passes. The
 bundle records:
 
 - a deterministic benchmark id;

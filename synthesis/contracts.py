@@ -177,6 +177,7 @@ MANIFEST_ARTIFACT_KEYS = {
     "dataset_release_card",
     "release_review_queue",
     "review_resolution_report",
+    "mutation_admission_report",
 }
 EVALUATION_TASK_STATUSES = {"passed", "failed"}
 EVALUATION_DECISION_STATUSES = {"passed", "failed", "insufficient_evidence"}
@@ -293,6 +294,9 @@ DATASET_RELEASE_PACK_ARTIFACT_KEYS = {
     "profile_decision_report",
     "dataset_release_report",
 }
+MUTATION_SAFE_RELEASE_PACK_ARTIFACT_KEYS = (
+    DATASET_RELEASE_PACK_ARTIFACT_KEYS | {"mutation_admission_report"}
+)
 RUNTIME_METADATA_KEYS = {
     "schema_version",
     "runtime_id",
@@ -515,7 +519,12 @@ def validate_rejection_record(record: Mapping[str, Any]) -> None:
 
 def validate_manifest_record(record: Mapping[str, Any]) -> None:
     _require_mapping(record, "manifest")
-    _require_non_empty_string(record.get("schema_version"), "schema_version")
+    schema_version = _require_non_empty_string(
+        record.get("schema_version"),
+        "schema_version",
+    )
+    if schema_version not in {"dataset_manifest_v1", "dataset_manifest_v2"}:
+        raise ContractValidationError("manifest schema_version is unsupported")
     _require_non_empty_string(record.get("dataset_version"), "dataset_version")
     parent = record.get("parent_dataset_version")
     if parent is not None:
@@ -548,6 +557,95 @@ def validate_manifest_record(record: Mapping[str, Any]) -> None:
             for version in versions
         ):
             raise ContractValidationError("sample_contract_versions is unsupported")
+    if schema_version == "dataset_manifest_v2":
+        _validate_mutation_admission_manifest(record)
+    elif "admission_contract_versions" in record or "admission_artifacts" in record:
+        raise ContractValidationError(
+            "admission manifest fields require dataset_manifest_v2"
+        )
+
+
+def _validate_mutation_admission_manifest(record: Mapping[str, Any]) -> None:
+    sample_versions = _require_non_empty_string_sequence(
+        record.get("sample_contract_versions"),
+        "sample_contract_versions",
+    )
+    if any(version != "dataset_sample_v2" for version in sample_versions):
+        raise ContractValidationError(
+            "dataset_manifest_v2 requires dataset_sample_v2 samples"
+        )
+
+    versions = _require_mapping(
+        record.get("admission_contract_versions"),
+        "admission_contract_versions",
+    )
+    expected_version_keys = {
+        "evidence",
+        "authorization",
+        "domain_policy",
+        "semantic_verdict",
+        "report",
+    }
+    if set(versions) != expected_version_keys:
+        raise ContractValidationError(
+            "admission_contract_versions must contain exact supported keys"
+        )
+    supported_versions = {
+        "evidence": {"mutation_admission_evidence_v2"},
+        "authorization": {"mutation_authorization_record_v1"},
+        "semantic_verdict": {"semantic_mutation_verdict_v1"},
+        "report": {"mutation_admission_report_v1"},
+    }
+    for key in expected_version_keys:
+        values = _require_non_empty_string_sequence(
+            versions.get(key),
+            f"admission_contract_versions.{key}",
+        )
+        if key in supported_versions and set(values) != supported_versions[key]:
+            raise ContractValidationError(
+                f"admission_contract_versions.{key} is unsupported"
+            )
+
+    artifacts = _require_mapping(
+        record.get("admission_artifacts"),
+        "admission_artifacts",
+    )
+    expected_artifact_keys = {
+        "samples",
+        "rejections",
+        "mutation_admission_report",
+    }
+    if set(artifacts) != expected_artifact_keys:
+        raise ContractValidationError(
+            "admission_artifacts must contain exact supported keys"
+        )
+    manifest_artifacts = _require_mapping(record.get("artifacts"), "artifacts")
+    for key in sorted(expected_artifact_keys):
+        binding = _require_mapping(
+            artifacts.get(key),
+            f"admission_artifacts.{key}",
+        )
+        if set(binding) != {"path", "sha256", "byte_count"}:
+            raise ContractValidationError(
+                f"admission_artifacts.{key} must contain exact supported keys"
+            )
+        path = _require_non_empty_string(
+            binding.get("path"),
+            f"admission_artifacts.{key}.path",
+        )
+        _validate_artifact_filename(path, f"admission_artifacts.{key}.path")
+        if manifest_artifacts.get(key) != path:
+            raise ContractValidationError(
+                f"admission_artifacts.{key}.path must match artifacts.{key}"
+            )
+        _validate_content_hash(
+            binding.get("sha256"),
+            f"admission_artifacts.{key}.sha256",
+        )
+        _require_int(
+            binding.get("byte_count"),
+            f"admission_artifacts.{key}.byte_count",
+        )
 
 
 def validate_runtime_metadata_record(record: Mapping[str, Any]) -> None:
@@ -1718,7 +1816,10 @@ def validate_dataset_release_pack_record(record: Mapping[str, Any]) -> None:
     if _contains_raw_secret(record):
         raise ContractValidationError("dataset_release_pack contains raw secret material")
     schema_version = _require_non_empty_string(record.get("schema_version"), "schema_version")
-    if schema_version != "dataset_release_pack_v1":
+    if schema_version not in {
+        "dataset_release_pack_v1",
+        "dataset_release_pack_v2",
+    }:
         raise ContractValidationError("schema_version is unsupported")
     dataset_version = _require_non_empty_string(record.get("dataset_version"), "dataset_version")
     release_id = _require_non_empty_string(record.get("release_id"), "release_id")
@@ -1735,21 +1836,66 @@ def validate_dataset_release_pack_record(record: Mapping[str, Any]) -> None:
         artifact_name = _require_non_empty_string(inputs.get(field), f"inputs.{field}")
         _validate_artifact_filename(artifact_name, f"inputs.{field}")
 
+    expected_artifact_keys = (
+        MUTATION_SAFE_RELEASE_PACK_ARTIFACT_KEYS
+        if schema_version == "dataset_release_pack_v2"
+        else DATASET_RELEASE_PACK_ARTIFACT_KEYS
+    )
     artifacts = _require_mapping(record.get("artifacts"), "artifacts")
-    missing = sorted(DATASET_RELEASE_PACK_ARTIFACT_KEYS.difference(artifacts))
+    missing = sorted(expected_artifact_keys.difference(artifacts))
     if missing:
         raise ContractValidationError(f"artifacts missing required keys: {', '.join(missing)}")
-    unexpected = sorted(str(key) for key in artifacts if key not in DATASET_RELEASE_PACK_ARTIFACT_KEYS)
+    unexpected = sorted(
+        str(key) for key in artifacts if key not in expected_artifact_keys
+    )
     if unexpected:
         raise ContractValidationError(
             f"artifacts contains unsupported keys: {', '.join(unexpected)}"
         )
-    for key in sorted(DATASET_RELEASE_PACK_ARTIFACT_KEYS):
+    for key in sorted(expected_artifact_keys):
         artifact = _require_mapping(artifacts.get(key), f"artifacts.{key}")
         path = _require_non_empty_string(artifact.get("path"), f"artifacts.{key}.path")
         _validate_artifact_filename(path, f"artifacts.{key}.path")
         _validate_content_hash(artifact.get("sha256"), f"artifacts.{key}.sha256")
         _require_int(artifact.get("byte_count"), f"artifacts.{key}.byte_count")
+
+    if schema_version == "dataset_release_pack_v2":
+        admission = _require_mapping(
+            record.get("mutation_admission"),
+            "mutation_admission",
+        )
+        if set(admission) != {
+            "manifest_schema_version",
+            "mode",
+            "report_schema_version",
+            "status",
+        }:
+            raise ContractValidationError(
+                "mutation_admission must contain exact supported keys"
+            )
+        if admission.get("manifest_schema_version") != "dataset_manifest_v2":
+            raise ContractValidationError(
+                "mutation_admission manifest schema version is unsupported"
+            )
+        if admission.get("mode") != "enforce":
+            raise ContractValidationError(
+                "mutation_admission mode must be enforce"
+            )
+        if (
+            admission.get("report_schema_version")
+            != "mutation_admission_report_v1"
+        ):
+            raise ContractValidationError(
+                "mutation_admission report schema version is unsupported"
+            )
+        if admission.get("status") != "passed":
+            raise ContractValidationError(
+                "mutation_admission status must be passed"
+            )
+    elif "mutation_admission" in record:
+        raise ContractValidationError(
+            "mutation_admission requires dataset_release_pack_v2"
+        )
 
     evidence = _require_mapping(record.get("evidence"), "evidence")
     for field in ("accepted", "rejected"):

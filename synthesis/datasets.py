@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -24,6 +25,16 @@ from synthesis.contracts import (
 from synthesis.environments import EnvironmentMetadata
 from synthesis.execution import ExecutionResult, SolutionPolicy
 from synthesis.llm import LLMConfig, LLMProviderError
+from synthesis.mutation_admission import (
+    ADMISSION_EVIDENCE_VERSION,
+    AUTHORIZATION_RECORD_VERSION,
+    SEMANTIC_VERDICT_VERSION,
+)
+from synthesis.mutation_admission_reporting import (
+    MUTATION_ADMISSION_REPORT_FILENAME,
+    MUTATION_ADMISSION_REPORT_SCHEMA_VERSION,
+    write_mutation_admission_report,
+)
 from synthesis.quality import build_parent_comparison, build_quality_report, retry_eligible
 from synthesis.refinement import RefinementAttempt
 from synthesis.tasks import CandidateTask, EditedTask, local_task_generation_lineage
@@ -42,8 +53,32 @@ class DatasetArtifacts:
     sandbox_audits_path: Path | None
     parent_comparison_path: Path | None
     review_queue_path: Path | None
+    mutation_admission_report_path: Path | None
     accepted_count: int
     rejected_count: int
+
+
+@dataclass(frozen=True)
+class ArtifactHashRecord:
+    path: str
+    sha256: str
+    byte_count: int
+
+    def export(self) -> dict[str, object]:
+        return {
+            "path": self.path,
+            "sha256": self.sha256,
+            "byte_count": self.byte_count,
+        }
+
+
+def build_artifact_hash_record(path: Path) -> ArtifactHashRecord:
+    content = path.read_bytes()
+    return ArtifactHashRecord(
+        path=path.name,
+        sha256="sha256:" + hashlib.sha256(content).hexdigest(),
+        byte_count=len(content),
+    )
 
 
 def serialize_dataset_manifest(manifest: Mapping[str, object]) -> str:
@@ -570,6 +605,9 @@ def write_dataset_artifacts(
     optional_sandbox_audits_path = output_dir / "sandbox_audits.jsonl"
     optional_parent_comparison_path = output_dir / "parent_comparison.json"
     optional_review_queue_path = output_dir / "review_queue.jsonl"
+    optional_mutation_admission_report_path = (
+        output_dir / MUTATION_ADMISSION_REPORT_FILENAME
+    )
     tool_proposals_path = optional_tool_proposals_path if tool_proposals else None
     source_events_path = optional_source_events_path if source_events else None
     sandbox_audits_path = optional_sandbox_audits_path if sandbox_audits else None
@@ -598,6 +636,22 @@ def write_dataset_artifacts(
 
     _write_jsonl(samples_path, samples)
     _write_jsonl(rejections_path, rejections)
+    admission_run = (
+        isinstance(run_profile_metadata, Mapping)
+        and run_profile_metadata.get("schema_version") == "run_profile_v4"
+    )
+    mutation_admission_report_path = (
+        write_mutation_admission_report(
+            dataset_version=dataset_version,
+            samples=samples,
+            rejections=rejections,
+            output_path=optional_mutation_admission_report_path,
+        )
+        if admission_run
+        else None
+    )
+    if not admission_run:
+        _remove_if_exists(optional_mutation_admission_report_path)
     if review_records:
         _write_jsonl(optional_review_queue_path, review_records)
     else:
@@ -655,11 +709,17 @@ def write_dataset_artifacts(
         artifacts["source_events"] = source_events_path.name
     if sandbox_audits_path:
         artifacts["sandbox_audits"] = sandbox_audits_path.name
+    if mutation_admission_report_path:
+        artifacts["mutation_admission_report"] = (
+            mutation_admission_report_path.name
+        )
 
     source_policy_hashes = _source_policy_hashes(samples, rejections)
 
-    manifest = {
-        "schema_version": "dataset_manifest_v1",
+    manifest: dict[str, object] = {
+        "schema_version": (
+            "dataset_manifest_v2" if admission_run else "dataset_manifest_v1"
+        ),
         "dataset_version": dataset_version,
         "parent_dataset_version": (
             parent_comparison["parent_dataset_version"] if parent_comparison else None
@@ -691,7 +751,26 @@ def write_dataset_artifacts(
         str(sample.get("schema_version", "dataset_sample_v1"))
         for sample in samples
     )
-    if "dataset_sample_v2" in sample_contract_versions:
+    if admission_run:
+        manifest["sample_contract_versions"] = (
+            sample_contract_versions or ["dataset_sample_v2"]
+        )
+        manifest["admission_contract_versions"] = (
+            _admission_contract_versions(samples, rejections)
+        )
+        assert mutation_admission_report_path is not None
+        manifest["admission_artifacts"] = {
+            key: build_artifact_hash_record(path).export()
+            for key, path in (
+                ("samples", samples_path),
+                ("rejections", rejections_path),
+                (
+                    "mutation_admission_report",
+                    mutation_admission_report_path,
+                ),
+            )
+        }
+    elif "dataset_sample_v2" in sample_contract_versions:
         manifest["sample_contract_versions"] = sample_contract_versions
     validate_manifest_record(manifest)
     manifest_path.write_text(
@@ -709,9 +788,60 @@ def write_dataset_artifacts(
         sandbox_audits_path=sandbox_audits_path,
         parent_comparison_path=parent_comparison_path,
         review_queue_path=review_queue_path,
+        mutation_admission_report_path=mutation_admission_report_path,
         accepted_count=len(samples),
         rejected_count=len(rejections),
     )
+
+
+def _admission_contract_versions(
+    samples: list[dict[str, object]],
+    rejections: list[dict[str, object]],
+) -> dict[str, object]:
+    evidence_records: list[Mapping[str, object]] = []
+    for sample in samples:
+        evidence = sample.get("mutation_admission")
+        if isinstance(evidence, Mapping):
+            evidence_records.append(evidence)
+    for rejection in rejections:
+        details = rejection.get("details")
+        evidence = (
+            details.get("mutation_admission")
+            if isinstance(details, Mapping)
+            else None
+        )
+        if isinstance(evidence, Mapping):
+            evidence_records.append(evidence)
+
+    def contract_values(key: str, default: str) -> list[str]:
+        values = []
+        for evidence in evidence_records:
+            contracts = evidence.get("contract_versions")
+            value = contracts.get(key) if isinstance(contracts, Mapping) else None
+            if isinstance(value, str) and value not in values:
+                values.append(value)
+        return sorted(values) or [default]
+
+    evidence_versions = sorted(
+        {
+            str(evidence.get("schema_version"))
+            for evidence in evidence_records
+            if isinstance(evidence.get("schema_version"), str)
+        }
+    ) or [ADMISSION_EVIDENCE_VERSION]
+    return {
+        "evidence": evidence_versions,
+        "authorization": contract_values(
+            "authorization",
+            AUTHORIZATION_RECORD_VERSION,
+        ),
+        "domain_policy": contract_values("domain_policy", "unconfigured"),
+        "semantic_verdict": contract_values(
+            "semantic_verdict",
+            SEMANTIC_VERDICT_VERSION,
+        ),
+        "report": [MUTATION_ADMISSION_REPORT_SCHEMA_VERSION],
+    }
 
 
 def _run_profile_attribution(

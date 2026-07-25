@@ -8,8 +8,8 @@ triggers, and technical debt. Tracker configuration lives in
 ## Open
 
 - [Semantic Mutation Admission](semantic-mutation-admission/README.md) — ticketed;
-  runtime enforcement is complete; release-artifact auditing and
-  calibration-corpus work are ready
+  runtime enforcement and release-artifact auditing are complete;
+  calibration-corpus work is ready
 - [ISSUE-0001: Async local orchestration](ISSUE-0001-async-local-orchestration.md)
 - [ISSUE-0002: Semantic duplicate detection](ISSUE-0002-semantic-duplicate-detection.md)
 

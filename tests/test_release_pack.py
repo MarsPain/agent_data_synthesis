@@ -1,12 +1,134 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 
 class DatasetReleasePackTest(unittest.TestCase):
+    def test_mutation_safe_release_pack_binds_and_verifies_admission_evidence(
+        self,
+    ) -> None:
+        from synthesis.release_pack import (
+            build_dataset_release_pack,
+            verify_dataset_release_pack,
+            write_dataset_release_pack,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = _write_mutation_safe_release_artifacts(Path(tmpdir))
+
+            pack = build_dataset_release_pack(
+                manifest_path=paths["manifest"],
+                dataset_release_report_path=paths["dataset_release_report"],
+            )
+            pack_path = write_dataset_release_pack(
+                manifest_path=paths["manifest"],
+                dataset_release_report_path=paths["dataset_release_report"],
+            )
+            verification = verify_dataset_release_pack(pack_path)
+
+            self.assertEqual(
+                pack["schema_version"],
+                "dataset_release_pack_v2",
+            )
+            self.assertEqual(
+                pack["mutation_admission"],
+                {
+                    "manifest_schema_version": "dataset_manifest_v2",
+                    "mode": "enforce",
+                    "report_schema_version": "mutation_admission_report_v1",
+                    "status": "passed",
+                },
+            )
+            self.assertIn("mutation_admission_report", pack["artifacts"])
+            self.assertEqual(verification["verification"]["status"], "passed")
+            self.assertEqual(
+                verification["mutation_admission"]["status"],
+                "passed",
+            )
+
+    def test_mutation_safe_release_pack_rejects_each_controlled_failure(
+        self,
+    ) -> None:
+        from synthesis.release_pack import build_dataset_release_pack
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            for case_name in (
+                "shadow",
+                "disabled",
+                "diagnostic_only",
+                "missing",
+                "invalid",
+                "tampered",
+            ):
+                with self.subTest(case_name=case_name):
+                    paths = _write_mutation_safe_release_artifacts(
+                        root / case_name
+                    )
+                    manifest = json.loads(
+                        paths["manifest"].read_text(encoding="utf-8")
+                    )
+                    if case_name in {"shadow", "disabled"}:
+                        admission = manifest["run_profile"][
+                            "mutation_admission"
+                        ]
+                        admission["mode"] = case_name
+                        if case_name == "disabled":
+                            admission.pop("judge")
+                        _write_json(paths["manifest"], manifest)
+                    else:
+                        samples = [
+                            json.loads(line)
+                            for line in paths["samples"]
+                            .read_text(encoding="utf-8")
+                            .splitlines()
+                            if line
+                        ]
+                        mutation = next(
+                            sample
+                            for sample in samples
+                            if sample["mutation_admission"][
+                                "classification"
+                            ]
+                            == "state_changing"
+                        )
+                        evidence = mutation["mutation_admission"]
+                        if case_name == "diagnostic_only":
+                            evidence["diagnostic_only"] = True
+                        elif case_name == "missing":
+                            mutation.pop("mutation_admission")
+                        elif case_name == "invalid":
+                            evidence["semantic_verdict"]["verdict"] = (
+                                "approved"
+                            )
+                        elif case_name == "tampered":
+                            evidence["hashes"]["policy"] = (
+                                "sha256:" + "f" * 64
+                            )
+                        _write_jsonl(paths["samples"], samples)
+                        if case_name != "tampered":
+                            _refresh_admission_binding(
+                                paths["manifest"],
+                                artifact_key="samples",
+                                artifact_path=paths["samples"],
+                            )
+
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "mutation-safe release admission failed",
+                    ):
+                        build_dataset_release_pack(
+                            manifest_path=paths["manifest"],
+                            dataset_release_report_path=paths[
+                                "dataset_release_report"
+                            ],
+                        )
+
     def test_generation_contract_must_exist_in_every_referenced_profile(self) -> None:
         from synthesis.release_pack import REQUIRED_MANIFEST_ARTIFACTS, _metadata_mismatch_reasons
 
@@ -387,11 +509,136 @@ def _write_release_artifacts(output_dir: Path) -> dict[str, Path]:
     return artifacts
 
 
+def _write_mutation_safe_release_artifacts(
+    output_dir: Path,
+) -> dict[str, Path]:
+    from synthesis.datasets import (
+        attach_dataset_release_report_to_manifest,
+        attach_evaluation_report_to_manifest,
+        attach_profile_decision_report_to_manifest,
+    )
+    from synthesis.pipeline import run_foundation_pipeline
+    from synthesis.run_profiles import (
+        RunProfileMutationAdmission,
+        load_run_profile,
+    )
+
+    shadow = load_run_profile(
+        Path("tests/fixtures/run_profiles/workspace-comments-shadow.json")
+    )
+    profile = replace(
+        shadow,
+        profile_purpose="release_candidate",
+        mutation_admission=RunProfileMutationAdmission(mode="enforce"),
+    )
+    metadata = profile.sanitized_metadata()
+    admission = metadata["mutation_admission"]
+    assert isinstance(admission, dict)
+    admission["judge"] = {
+        "role": "mutation_admission_judge",
+        "provider": "openai_compatible",
+        "model": "independent-release-judge",
+        "timeout_seconds": 5.0,
+        "max_retries": 1,
+    }
+    result = run_foundation_pipeline(
+        output_dir,
+        dataset_version=profile.dataset_version,
+        seed_override=profile.seed,
+        run_profile=profile,
+        run_profile_metadata=metadata,
+    )
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    report_profile = {
+        key: value
+        for key, value in manifest["run_profile"].items()
+        if key
+        in {
+            "schema_version",
+            "profile_id",
+            "generation_mode",
+            "profile_purpose",
+            "target_candidate_count",
+            "config_hash",
+        }
+    }
+
+    evaluation = _evaluation_report()
+    evaluation["dataset_version"] = profile.dataset_version
+    evaluation["profile"] = report_profile
+    profile_decision = _profile_decision_report()
+    profile_decision["dataset_version"] = profile.dataset_version
+    profile_decision["profile"] = report_profile
+    release = _dataset_release_report()
+    release["dataset_version"] = profile.dataset_version
+    release["profile"] = report_profile
+    release["observed"]["accepted"] = result.accepted_count
+    release["observed"]["rejected"] = result.rejected_count
+    release["release_completeness"]["observed"]["accepted"] = (
+        result.accepted_count
+    )
+    release["release_completeness"]["observed"]["rejected"] = (
+        result.rejected_count
+    )
+
+    paths = {
+        "samples": result.samples_path,
+        "rejections": result.rejections_path,
+        "manifest": result.manifest_path,
+        "quality_report": result.quality_report_path,
+        "mutation_admission_report": result.mutation_admission_report_path,
+        "evaluation_report": output_dir / "evaluation_report.json",
+        "profile_decision_report": output_dir / "profile_decision_report.json",
+        "dataset_release_report": output_dir / "dataset_release_report.json",
+    }
+    assert paths["mutation_admission_report"] is not None
+    _write_json(paths["evaluation_report"], evaluation)
+    _write_json(paths["profile_decision_report"], profile_decision)
+    _write_json(paths["dataset_release_report"], release)
+    attach_evaluation_report_to_manifest(
+        manifest_path=result.manifest_path,
+        report_path=paths["evaluation_report"],
+    )
+    attach_profile_decision_report_to_manifest(
+        manifest_path=result.manifest_path,
+        report_path=paths["profile_decision_report"],
+    )
+    attach_dataset_release_report_to_manifest(
+        manifest_path=result.manifest_path,
+        report_path=paths["dataset_release_report"],
+    )
+    return paths
+
+
 def _write_json(path: Path, record: dict[str, object]) -> None:
     path.write_text(
         json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _write_jsonl(path: Path, records: list[dict[str, object]]) -> None:
+    path.write_text(
+        "".join(
+            json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n"
+            for record in records
+        ),
+        encoding="utf-8",
+    )
+
+
+def _refresh_admission_binding(
+    manifest_path: Path,
+    *,
+    artifact_key: str,
+    artifact_path: Path,
+) -> None:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    content = artifact_path.read_bytes()
+    binding = manifest["admission_artifacts"][artifact_key]
+    binding["sha256"] = "sha256:" + hashlib.sha256(content).hexdigest()
+    binding["byte_count"] = len(content)
+    _write_json(manifest_path, manifest)
 
 
 def _manifest() -> dict[str, object]:

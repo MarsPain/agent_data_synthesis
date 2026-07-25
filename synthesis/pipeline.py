@@ -17,6 +17,7 @@ from synthesis.candidate_processing import (
     process_candidate_through_gates,
 )
 from synthesis.datasets import (
+    DatasetArtifacts,
     assemble_generation_stage_rejection,
     assemble_pipeline_gate_rejection,
     assemble_source_policy_rejection,
@@ -80,6 +81,7 @@ class PipelineResult:
     sandbox_audits_path: Path | None
     parent_comparison_path: Path | None
     review_queue_path: Path | None
+    mutation_admission_report_path: Path | None
     episode_logs_path: Path | None
     accepted_count: int
     rejected_count: int
@@ -247,20 +249,7 @@ def run_foundation_pipeline(
             source_events=source_event_records,
             run_profile_metadata=run_profile_metadata,
         )
-        return PipelineResult(
-            samples_path=artifacts.samples_path,
-            manifest_path=artifacts.manifest_path,
-            rejections_path=artifacts.rejections_path,
-            quality_report_path=artifacts.quality_report_path,
-            tool_proposals_path=artifacts.tool_proposals_path,
-            source_events_path=artifacts.source_events_path,
-            sandbox_audits_path=artifacts.sandbox_audits_path,
-            parent_comparison_path=artifacts.parent_comparison_path,
-            review_queue_path=artifacts.review_queue_path,
-            episode_logs_path=None,
-            accepted_count=artifacts.accepted_count,
-            rejected_count=artifacts.rejected_count,
-        )
+        return _pipeline_result(artifacts)
     if enable_source_audit:
         source_event_records.extend(source_result.events)
 
@@ -307,20 +296,7 @@ def run_foundation_pipeline(
                 source_events=source_event_records,
                 run_profile_metadata=run_profile_metadata,
             )
-            return PipelineResult(
-                samples_path=artifacts.samples_path,
-                manifest_path=artifacts.manifest_path,
-                rejections_path=artifacts.rejections_path,
-                quality_report_path=artifacts.quality_report_path,
-                tool_proposals_path=artifacts.tool_proposals_path,
-                source_events_path=artifacts.source_events_path,
-                sandbox_audits_path=artifacts.sandbox_audits_path,
-                parent_comparison_path=artifacts.parent_comparison_path,
-                review_queue_path=artifacts.review_queue_path,
-                episode_logs_path=None,
-                accepted_count=artifacts.accepted_count,
-                rejected_count=artifacts.rejected_count,
-            )
+            return _pipeline_result(artifacts)
         if enable_source_audit:
             source_event_records.append(
                 source_environment_admission_event(
@@ -423,20 +399,7 @@ def run_foundation_pipeline(
             source_events=source_event_records,
             run_profile_metadata=run_profile_metadata,
         )
-        return PipelineResult(
-            samples_path=artifacts.samples_path,
-            manifest_path=artifacts.manifest_path,
-            rejections_path=artifacts.rejections_path,
-            quality_report_path=artifacts.quality_report_path,
-            tool_proposals_path=artifacts.tool_proposals_path,
-            source_events_path=artifacts.source_events_path,
-            sandbox_audits_path=artifacts.sandbox_audits_path,
-            parent_comparison_path=artifacts.parent_comparison_path,
-            review_queue_path=artifacts.review_queue_path,
-            episode_logs_path=None,
-            accepted_count=artifacts.accepted_count,
-            rejected_count=artifacts.rejected_count,
-        )
+        return _pipeline_result(artifacts)
 
     try:
         generated = generate_candidates(seed)
@@ -469,20 +432,7 @@ def run_foundation_pipeline(
             source_events=source_event_records,
             run_profile_metadata=run_profile_metadata,
         )
-        return PipelineResult(
-            samples_path=artifacts.samples_path,
-            manifest_path=artifacts.manifest_path,
-            rejections_path=artifacts.rejections_path,
-            quality_report_path=artifacts.quality_report_path,
-            tool_proposals_path=artifacts.tool_proposals_path,
-            source_events_path=artifacts.source_events_path,
-            sandbox_audits_path=artifacts.sandbox_audits_path,
-            parent_comparison_path=artifacts.parent_comparison_path,
-            review_queue_path=artifacts.review_queue_path,
-            episode_logs_path=None,
-            accepted_count=artifacts.accepted_count,
-            rejected_count=artifacts.rejected_count,
-        )
+        return _pipeline_result(artifacts)
 
     base_outcomes = []
     for sequence_index, raw_task in enumerate(raw_tasks):
@@ -587,6 +537,17 @@ def run_foundation_pipeline(
         if write_episode_logs
         else None
     )
+    return _pipeline_result(
+        artifacts,
+        episode_logs_path=episode_logs_path,
+    )
+
+
+def _pipeline_result(
+    artifacts: DatasetArtifacts,
+    *,
+    episode_logs_path: Path | None = None,
+) -> PipelineResult:
     return PipelineResult(
         samples_path=artifacts.samples_path,
         manifest_path=artifacts.manifest_path,
@@ -597,6 +558,7 @@ def run_foundation_pipeline(
         sandbox_audits_path=artifacts.sandbox_audits_path,
         parent_comparison_path=artifacts.parent_comparison_path,
         review_queue_path=artifacts.review_queue_path,
+        mutation_admission_report_path=artifacts.mutation_admission_report_path,
         episode_logs_path=episode_logs_path,
         accepted_count=artifacts.accepted_count,
         rejected_count=artifacts.rejected_count,

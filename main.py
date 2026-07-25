@@ -633,6 +633,11 @@ def main() -> int:
             else ""
         )
         + (
+            f" mutation_admission_report={result.mutation_admission_report_path}"
+            if result.mutation_admission_report_path is not None
+            else ""
+        )
+        + (
             f" dataset_release_pack={dataset_release_pack_path}"
             if dataset_release_pack_path is not None
             else ""
