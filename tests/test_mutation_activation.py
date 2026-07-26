@@ -120,7 +120,36 @@ class MutationActivationEvaluationTest(unittest.TestCase):
                 "provenance_origin",
                 "verdict",
                 "reason_code",
+                "provider_outcome",
+                "model_independence",
             },
+        )
+        self.assertEqual(
+            {
+                item["value"]
+                for item in first["breakdowns"]["provenance_origin"]
+            },
+            {
+                "declared_default",
+                "deterministic_derivation",
+                "instruction",
+                "tool_observation",
+            },
+        )
+        self.assertEqual(
+            {
+                item["value"]
+                for item in first["breakdowns"]["model_independence"]
+            },
+            {"independent"},
+        )
+        self.assertTrue(
+            all(
+                evaluation["input_hash"].startswith("sha256:")
+                and evaluation["normalized_input_hash"].startswith("sha256:")
+                and evaluation["input_hash"] != evaluation["normalized_input_hash"]
+                for evaluation in first["evaluations"]
+            )
         )
 
     def test_metric_threshold_boundaries_are_inclusive_and_fail_below(self) -> None:
@@ -289,6 +318,15 @@ class MutationActivationEvaluationTest(unittest.TestCase):
         self.assertIsNone(first["output_hash"])
         self.assertEqual(report["decision"], "no_go")
 
+        three_failures = _copy_predictions(baseline)
+        for run_index in range(3):
+            three_failures[run_index][0] = "failure"
+        failure_report = _evaluate_predictions(corpus, three_failures)
+        self.assertEqual(
+            failure_report["metrics"]["exact_verdict_agreement"],
+            0.995,
+        )
+
     def test_same_model_and_non_reviewed_inputs_are_rejected_as_evidence(self) -> None:
         from synthesis.mutation_activation import evaluate_mutation_activation
 
@@ -309,6 +347,19 @@ class MutationActivationEvaluationTest(unittest.TestCase):
                 corpus=corpus,
                 generator_model="generator-model",
                 judge_configuration=same_model_configuration,
+                judge=lambda request: SemanticJudgeResult(
+                    verdict=None,
+                    provider_outcome="unavailable",
+                    attempts=0,
+                    timeout_seconds=30.0,
+                ),
+            )
+
+        with self.assertRaisesRegex(ValueError, "generator model is invalid"):
+            evaluate_mutation_activation(
+                corpus=corpus,
+                generator_model=" independent-judge-model ",
+                judge_configuration=judge_configuration,
                 judge=lambda request: SemanticJudgeResult(
                     verdict=None,
                     provider_outcome="unavailable",

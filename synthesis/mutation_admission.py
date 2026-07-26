@@ -340,7 +340,7 @@ class OpenAICompatibleSemanticMutationJudge:
             attempts=_attempt_count(result.lineage),
             timeout_seconds=self.timeout_seconds,
             judge_lineage=configured_lineage,
-            token_usage=_bounded_token_usage(result.lineage.get("tokens")),
+            token_usage=bounded_token_usage(result.lineage.get("tokens")),
         )
 
 
@@ -1181,7 +1181,7 @@ def _attempt_count(lineage: Mapping[str, object]) -> int:
     return min(max(retry_count + 1, 1), 2)
 
 
-def _bounded_token_usage(raw: object) -> dict[str, int]:
+def bounded_token_usage(raw: object) -> dict[str, int]:
     if not isinstance(raw, Mapping):
         return {}
     return {

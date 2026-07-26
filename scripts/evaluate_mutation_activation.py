@@ -37,7 +37,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path(MUTATION_ACTIVATION_REPORT_FILENAME),
+        default=Path("artifacts/mutation-calibration")
+        / MUTATION_ACTIVATION_REPORT_FILENAME,
     )
     return parser.parse_args()
 

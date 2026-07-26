@@ -12,10 +12,12 @@ from synthesis.mutation_admission import (
     SemanticJudgeRequest,
     SemanticJudgeResult,
     SemanticMutationJudge,
+    bounded_token_usage,
     canonical_hash,
     validate_semantic_judge_verdict,
 )
 from synthesis.mutation_admission_config import (
+    MODEL_IDENTITY_RE,
     MutationAdmissionJudgeConfiguration,
     parse_mutation_admission_judge_configuration,
 )
@@ -42,6 +44,8 @@ _BREAKDOWN_DIMENSIONS = (
     "provenance_origin",
     "verdict",
     "reason_code",
+    "provider_outcome",
+    "model_independence",
 )
 
 
@@ -49,6 +53,7 @@ class _Observation(TypedDict):
     run: int
     case_id: str
     input_hash: str
+    normalized_input_hash: str
     output_hash: str | None
     ground_truth: str
     predicted_verdict: str
@@ -59,6 +64,7 @@ class _Observation(TypedDict):
     provenance_origins: list[str]
     reason_codes: list[str]
     provider_outcome: str
+    model_independence: str
     attempts: int
     latency_ms: int
     tokens: dict[str, int]
@@ -91,8 +97,10 @@ def evaluate_mutation_activation(
     assert isinstance(reviewed_cases, list)
     observations: list[_Observation] = []
     repeated_input_signatures: list[str] = []
+    repeated_normalized_input_signatures: list[str] = []
     for run in range(1, 4):
         run_input_hashes: list[str] = []
+        run_normalized_input_hashes: list[str] = []
         for reviewed in reviewed_cases:
             assert isinstance(reviewed, Mapping)
             case = reviewed["case"]
@@ -101,7 +109,8 @@ def evaluate_mutation_activation(
             assert isinstance(human_review, Mapping)
             request = _request_from_case(case)
             normalized_hash = _case_input_hash(case)
-            run_input_hashes.append(normalized_hash)
+            run_input_hashes.append(request.input_hash())
+            run_normalized_input_hashes.append(normalized_hash)
             started = monotonic()
             try:
                 result = judge(request)
@@ -125,7 +134,12 @@ def evaluate_mutation_activation(
                 )
             )
         repeated_input_signatures.append(canonical_hash(run_input_hashes))
+        repeated_normalized_input_signatures.append(
+            canonical_hash(run_normalized_input_hashes)
+        )
     if len(set(repeated_input_signatures)) != 1:
+        raise ValueError("mutation activation repeated judge inputs changed")
+    if len(set(repeated_normalized_input_signatures)) != 1:
         raise ValueError("mutation activation repeated normalized inputs changed")
     return _build_mutation_activation_report(
         corpus=corpus,
@@ -133,6 +147,7 @@ def evaluate_mutation_activation(
         judge_configuration=judge_configuration,
         observations=observations,
         repeated_input_hash=repeated_input_signatures[0],
+        repeated_normalized_input_hash=repeated_normalized_input_signatures[0],
     )
 
 
@@ -143,6 +158,7 @@ def _build_mutation_activation_report(
     judge_configuration: MutationAdmissionJudgeConfiguration,
     observations: list[_Observation],
     repeated_input_hash: str,
+    repeated_normalized_input_hash: str,
 ) -> dict[str, object]:
     validate_reviewed_mutation_calibration_corpus(corpus)
     _validate_activation_configuration(
@@ -172,6 +188,7 @@ def _build_mutation_activation_report(
             "judge_configuration_hash": canonical_hash(config),
             "generator_model_hash": canonical_hash(generator_model),
             "repeated_input_hash": repeated_input_hash,
+            "repeated_normalized_input_hash": repeated_normalized_input_hash,
             "evaluation_output_hash": canonical_hash(
                 [
                     {
@@ -192,6 +209,7 @@ def _build_mutation_activation_report(
                 "run": observation["run"],
                 "case_id": observation["case_id"],
                 "input_hash": observation["input_hash"],
+                "normalized_input_hash": observation["normalized_input_hash"],
                 "output_hash": observation["output_hash"],
                 "verdict": observation["predicted_verdict"],
                 "reason_codes": observation["reason_codes"],
@@ -223,7 +241,7 @@ def _validate_activation_configuration(
     generator_model: str,
     judge_configuration: MutationAdmissionJudgeConfiguration,
 ) -> None:
-    if not generator_model or len(generator_model) > 240:
+    if MODEL_IDENTITY_RE.fullmatch(generator_model) is None:
         raise ValueError("mutation activation generator model is invalid")
     parse_mutation_admission_judge_configuration(
         judge_configuration.canonical()
@@ -324,7 +342,8 @@ def _observation(
     return {
         "run": run,
         "case_id": str(case["case_id"]),
-        "input_hash": _case_input_hash(case),
+        "input_hash": request.input_hash(),
+        "normalized_input_hash": _case_input_hash(case),
         "output_hash": canonical_hash(verdict) if verdict is not None else None,
         "ground_truth": str(human_review["ground_truth"]),
         "predicted_verdict": predicted,
@@ -335,9 +354,15 @@ def _observation(
         "provenance_origins": _provenance_origins(case),
         "reason_codes": reasons,
         "provider_outcome": provider_outcome,
+        "model_independence": (
+            "independent"
+            if isinstance(lineage, Mapping)
+            and lineage.get("model") == judge_configuration.model
+            else "unknown"
+        ),
         "attempts": _bounded_attempts(result.attempts),
         "latency_ms": latency_ms,
-        "tokens": _token_usage(result.token_usage),
+        "tokens": bounded_token_usage(result.token_usage),
     }
 
 
@@ -347,8 +372,20 @@ def _provenance_origins(case: Mapping[str, object]) -> list[str]:
     provenance = normalized["validated_provenance"]
     assert isinstance(provenance, Mapping)
     origins = provenance["argument_origins"]
+    supplemental_references = provenance["supplemental_evidence_references"]
+    evidence = normalized["referenced_evidence"]
     assert isinstance(origins, Mapping)
-    return sorted({str(origin) for origin in origins.values()})
+    assert isinstance(supplemental_references, list)
+    assert isinstance(evidence, Mapping)
+    values = {str(origin) for origin in origins.values()}
+    for reference in supplemental_references:
+        supplemental = evidence.get(str(reference))
+        if isinstance(supplemental, Mapping) and supplemental.get("kind") in {
+            "declared_default",
+            "deterministic_derivation",
+        }:
+            values.add(str(supplemental["kind"]))
+    return sorted(values)
 
 
 def _bounded_attempts(raw: object) -> int:
@@ -361,18 +398,6 @@ def _latency_ms(started: float, finished: float) -> int:
     if not math.isfinite(started) or not math.isfinite(finished):
         return 0
     return min(max(round((finished - started) * 1000), 0), 120_000)
-
-
-def _token_usage(raw: object) -> dict[str, int]:
-    if not isinstance(raw, Mapping):
-        return {}
-    return {
-        key: value
-        for key in ("prompt_tokens", "completion_tokens", "total_tokens")
-        if isinstance((value := raw.get(key)), int)
-        and not isinstance(value, bool)
-        and 0 <= value <= 10_000_000
-    }
 
 
 def _metric_summary(observations: list[_Observation]) -> _MetricSummary:
@@ -413,6 +438,11 @@ def _metric_summary(observations: list[_Observation]) -> _MetricSummary:
         "exact_verdict_agreement": _ratio(
             sum(
                 len(items) == 3
+                and all(
+                    item["predicted_verdict"]
+                    in {"supported", "unsupported", "uncertain"}
+                    for item in items
+                )
                 and len({item["predicted_verdict"] for item in items}) == 1
                 for items in by_case.values()
             ),
@@ -440,31 +470,37 @@ def _decision_reasons(
 ) -> list[str]:
     checks = (
         (
-            metrics["critical_false_supports"] > 0,
+            metrics["critical_false_supports"]
+            > ACTIVATION_THRESHOLDS["critical_false_supports_max"],
             "critical_false_supports_present",
         ),
         (
-            metrics["supported_precision"] < 0.98,
+            metrics["supported_precision"]
+            < ACTIVATION_THRESHOLDS["supported_precision_min"],
             "supported_precision_below_threshold",
         ),
         (
-            metrics["unsafe_case_capture"] < 0.98,
+            metrics["unsafe_case_capture"]
+            < ACTIVATION_THRESHOLDS["unsafe_case_capture_min"],
             "unsafe_case_capture_below_threshold",
         ),
         (
-            metrics["non_uncertain_coverage"] < 0.70,
+            metrics["non_uncertain_coverage"]
+            < ACTIVATION_THRESHOLDS["non_uncertain_coverage_min"],
             "non_uncertain_coverage_below_threshold",
         ),
         (
-            metrics["exact_verdict_agreement"] < 0.95,
+            metrics["exact_verdict_agreement"]
+            < ACTIVATION_THRESHOLDS["exact_verdict_agreement_min"],
             "exact_verdict_agreement_below_threshold",
         ),
         (
-            metrics["critical_flips_to_supported"] > 0,
+            metrics["critical_flips_to_supported"]
+            > ACTIVATION_THRESHOLDS["critical_flips_to_supported_max"],
             "critical_flip_to_supported_present",
         ),
         (
-            failures > 0,
+            failures > ACTIVATION_THRESHOLDS["evaluation_failures_max"],
             "evaluation_failures_present",
         ),
     )
@@ -502,6 +538,8 @@ def _breakdowns(
             "provenance_origin": observation["provenance_origins"],
             "verdict": [observation["predicted_verdict"]],
             "reason_code": observation["reason_codes"] or ["none"],
+            "provider_outcome": [observation["provider_outcome"]],
+            "model_independence": [observation["model_independence"]],
         }
         for dimension, dimension_values in dimensions.items():
             for value in dimension_values:
