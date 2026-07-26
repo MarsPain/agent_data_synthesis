@@ -243,6 +243,7 @@ class SemanticJudgeResult:
     attempts: int
     timeout_seconds: float | None
     judge_lineage: Mapping[str, object] | None = None
+    token_usage: Mapping[str, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -339,6 +340,7 @@ class OpenAICompatibleSemanticMutationJudge:
             attempts=_attempt_count(result.lineage),
             timeout_seconds=self.timeout_seconds,
             judge_lineage=configured_lineage,
+            token_usage=_bounded_token_usage(result.lineage.get("tokens")),
         )
 
 
@@ -1177,6 +1179,26 @@ def _attempt_count(lineage: Mapping[str, object]) -> int:
     if not isinstance(retry_count, int) or isinstance(retry_count, bool):
         return 1
     return min(max(retry_count + 1, 1), 2)
+
+
+def _bounded_token_usage(raw: object) -> dict[str, int]:
+    if not isinstance(raw, Mapping):
+        return {}
+    return {
+        key: value
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+        if isinstance((value := raw.get(key)), int)
+        and not isinstance(value, bool)
+        and 0 <= value <= 10_000_000
+    }
+
+
+def validate_semantic_judge_verdict(
+    raw: Mapping[str, object],
+    request: SemanticJudgeRequest,
+) -> dict[str, object]:
+    """Return a strict, request-bound semantic verdict or raise ValueError."""
+    return _strict_semantic_verdict(raw, request)
 
 
 def _strict_semantic_verdict(

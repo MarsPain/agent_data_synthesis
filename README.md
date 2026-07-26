@@ -85,6 +85,7 @@ uv run python scripts/write_review_resolution.py --output-dir artifacts/mobile-r
 # complete directly human-reviewed label file
 uv run python scripts/export_mutation_calibration_packet.py --corpus-version mutation_calibration_corpus_v1 --output-dir artifacts/mutation-calibration
 uv run python scripts/import_mutation_calibration_labels.py --packet artifacts/mutation-calibration/mutation_calibration_review_packet.json --split-freeze artifacts/mutation-calibration/mutation_calibration_split_freeze.json --labels artifacts/mutation-calibration/human_labels.jsonl --output artifacts/mutation-calibration/reviewed_mutation_calibration_corpus.json
+uv run python scripts/evaluate_mutation_activation.py --reviewed-corpus artifacts/mutation-calibration/reviewed_mutation_calibration_corpus.json --judge-config judge-config.json --generator-model generator-model --output artifacts/mutation-calibration/mutation_activation_report.json
 
 # Offline representative-scale and downstream evidence exchange
 uv run python scripts/write_representative_scale_evidence.py --campaign artifacts/evidence-campaign/campaign.json --output artifacts/evidence-campaign/representative_scale_evidence.json

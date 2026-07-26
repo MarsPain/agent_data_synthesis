@@ -132,6 +132,10 @@ The first backend should be a local Python pipeline with explicit modules and du
   split freeze, strict direct-human label import, contamination validation, and
   hash-bound reviewed-corpus assembly. It neither invokes nor scores a semantic
   judge and does not alter dataset manifests or candidate admission.
+- `synthesis.mutation_activation`: three-repeat evaluation of an independently
+  configured semantic mutation judge over a reviewed calibration corpus,
+  deterministic safety-first activation metrics and breakdowns, and sanitized
+  hash-bound activation or no-go reporting.
 - `synthesis.candidate_processing`: single-candidate validation, policy
   execution, verification, logical gates, optional tool-expansion reruns,
   optional refinement reruns, provisional candidate outcomes, and deterministic
@@ -351,6 +355,14 @@ must not add workspace-specific branches or tool allowlists.
    assignments, post-freeze input drift, invalid verdicts, incomplete coverage,
    missing provenance, and generated or judge-produced label methods before
    writing a `human_reviewed` corpus. Neither command makes provider calls.
+33. The standalone `scripts/evaluate_mutation_activation.py` workflow requires
+   a strictly human-reviewed corpus, an explicit generator-model identity, and
+   a different bounded judge configuration. It invokes the judge three times
+   over identical normalized inputs, fails closed on malformed or incomplete
+   calls, and writes only bounded verdict metadata, operational totals, metric
+   breakdowns, and corpus/configuration/input/output hashes. It never retains
+   raw prompts, responses, credentials, or provider payloads and does not run
+   the representative pipeline gate.
 
 Release-review outcomes are evidence only. They do not modify
 `samples.jsonl`, `rejections.jsonl`, quality/evaluation/profile reports,
