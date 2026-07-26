@@ -44,6 +44,13 @@ class WorkspaceMutationPolicyEnvironment(Protocol):
         self,
     ) -> tuple[tuple[dict[str, object], str], ...]: ...
 
+    def search_workspace_items(
+        self,
+        *,
+        query: str,
+        kind: str | None = None,
+    ) -> dict[str, object]: ...
+
 
 @dataclass(frozen=True)
 class WorkspaceActionSemantics:
@@ -73,6 +80,12 @@ _WORKSPACE_ACTION_SEMANTICS = {
     ),
 }
 
+WORKSPACE_ITEM_GROUNDING_ARGUMENTS = (
+    {"query": "Alpha Launch", "kind": "project"},
+    {"query": "launch plan", "kind": "task"},
+    {"query": "metrics dashboard", "kind": "task"},
+)
+
 
 def build_workspace_generation_spec(
     environment: WorkspaceGenerationEnvironment,
@@ -89,9 +102,8 @@ def build_workspace_generation_spec(
     if getattr(environment, "source_input", None) is not None:
         raise ValueError("source_backed_remote_context_not_allowed")
     item_arguments = [
-        {"query": "Alpha Launch", "kind": "project"},
-        {"query": "launch plan", "kind": "task"},
-        {"query": "metrics dashboard", "kind": "task"},
+        dict(arguments)
+        for arguments in WORKSPACE_ITEM_GROUNDING_ARGUMENTS
     ]
     items = [
         {
@@ -146,6 +158,7 @@ def workspace_mutation_policies(
     environment: WorkspaceMutationPolicyEnvironment | None = None,
 ) -> tuple[MutationActionPolicy, ...]:
     project_bindings = _workspace_project_observation_bindings(environment)
+    task_bindings = _workspace_task_observation_bindings(environment)
     return (
         MutationActionPolicy(
             schema_version="workspace_task_mutation_policy_v1",
@@ -177,6 +190,7 @@ def workspace_mutation_policies(
                     observation_field="project_id",
                     observation_bindings=project_bindings,
                     binding_argument_names=("query", "kind"),
+                    binding_token_aliases=(("task", "tasks"),),
                 ),
             ),
             operational_defaults=(
@@ -204,15 +218,9 @@ def workspace_mutation_policies(
                     allowed_origins=("tool_observation",),
                     observation_tool="search_workspace_items",
                     observation_field="item_id",
-                    observation_bindings=(
-                        (
-                            canonical_hash(
-                                {"query": "launch plan", "kind": "task"}
-                            ),
-                            canonical_hash("task_launch_plan"),
-                        ),
-                    ),
+                    observation_bindings=task_bindings,
                     binding_argument_names=("query", "kind"),
+                    binding_token_aliases=(("task", "tasks"),),
                 ),
             ),
             operational_defaults=(
@@ -231,10 +239,18 @@ def workspace_mutation_policies(
 def _workspace_project_observation_bindings(
     environment: WorkspaceMutationPolicyEnvironment | None,
 ) -> tuple[tuple[str, str], ...]:
-    raw_bindings = (
-        environment.project_search_bindings()
-        if environment is not None
-        else (
+    if environment is not None:
+        raw_bindings = list(environment.project_search_bindings())
+        for arguments in WORKSPACE_ITEM_GROUNDING_ARGUMENTS:
+            try:
+                observation = environment.search_workspace_items(**arguments)
+            except KeyError:
+                continue
+            project_id = observation.get("project_id")
+            if isinstance(project_id, str):
+                raw_bindings.append((dict(arguments), project_id))
+    else:
+        raw_bindings = [
             (
                 {"query": "Alpha Launch", "kind": "project"},
                 "project_alpha",
@@ -243,12 +259,53 @@ def _workspace_project_observation_bindings(
                 {"query": "Beta Research", "kind": "project"},
                 "project_beta",
             ),
-        )
-    )
-    return tuple(
+            (
+                {"query": "launch plan", "kind": "task"},
+                "project_alpha",
+            ),
+            (
+                {"query": "metrics dashboard", "kind": "task"},
+                "project_alpha",
+            ),
+        ]
+    bindings = {
         (canonical_hash(arguments), canonical_hash(project_id))
         for arguments, project_id in raw_bindings
-    )
+    }
+    return tuple(sorted(bindings))
+
+
+def _workspace_task_observation_bindings(
+    environment: WorkspaceMutationPolicyEnvironment | None,
+) -> tuple[tuple[str, str], ...]:
+    if environment is not None:
+        raw_bindings: list[tuple[dict[str, object], str]] = []
+        for arguments in WORKSPACE_ITEM_GROUNDING_ARGUMENTS:
+            if arguments.get("kind") != "task":
+                continue
+            try:
+                observation = environment.search_workspace_items(**arguments)
+            except KeyError:
+                continue
+            item_id = observation.get("item_id")
+            if isinstance(item_id, str):
+                raw_bindings.append((dict(arguments), item_id))
+    else:
+        raw_bindings = [
+            (
+                {"query": "launch plan", "kind": "task"},
+                "task_launch_plan",
+            ),
+            (
+                {"query": "metrics dashboard", "kind": "task"},
+                "task_metrics_review",
+            ),
+        ]
+    bindings = {
+        (canonical_hash(arguments), canonical_hash(item_id))
+        for arguments, item_id in raw_bindings
+    }
+    return tuple(sorted(bindings))
 
 
 def _workspace_semantic_mutation_verdict(
@@ -447,10 +504,12 @@ def _workspace_observation_is_semantically_supported(
     source_arguments = evidence.get("source_arguments")
     if not isinstance(source_arguments, Mapping):
         return False
-    query = source_arguments.get("query")
-    if not isinstance(query, str) or not query.strip():
+    project_id = request.argument_values.get(name)
+    if not isinstance(project_id, str) or not project_id.strip():
         return False
-    expected_tokens = _semantic_tokens(query)
+    expected_tokens = _semantic_tokens(project_id) - {"project"}
+    if not expected_tokens:
+        return False
     mentions: list[WorkspaceProjectMention] = []
     for clause in re.split(r"[.,;]", request.instruction.lower()):
         token_sequence = re.findall(r"[a-z0-9]+", clause)
@@ -842,9 +901,10 @@ def propose_workspace_comment_authorization(candidate: CandidateTask) -> Candida
                 source_field="item_id",
                 mutation_value=mutation_step.arguments.get("task_id"),
                 reference_id="observation.selected_task",
-                binding_evidence=_instruction_regex_evidence(
+                binding_evidence=_source_binding_evidence(
                     instruction,
-                    r"[^.]{0,180}\b(?:task|item)\b[^.]*",
+                    source_step=source_step,
+                    fallback_pattern=r"[^.]{0,180}\b(?:task|item)\b[^.]*",
                     reference_id="instruction.selected_task",
                 ),
             ),
@@ -911,9 +971,10 @@ def propose_workspace_task_authorization(candidate: CandidateTask) -> CandidateT
                 source_field="project_id",
                 mutation_value=mutation_step.arguments.get("project_id"),
                 reference_id="observation.selected_project",
-                binding_evidence=_instruction_regex_evidence(
+                binding_evidence=_source_binding_evidence(
                     instruction,
-                    r"[^.]{0,180}\bproject\b[^.]*",
+                    source_step=source_step,
+                    fallback_pattern=r"[^.]{0,180}\bproject\b[^.]*",
                     reference_id="instruction.selected_project",
                 ),
             ),
@@ -1006,6 +1067,39 @@ def _instruction_argument(
             )
         ),
     }
+
+
+def _source_binding_evidence(
+    instruction: str,
+    *,
+    source_step: ToolStep,
+    fallback_pattern: str,
+    reference_id: str,
+) -> dict[str, object]:
+    spans: list[tuple[int, int]] = []
+    lowered = instruction.lower()
+    for value in source_step.arguments.values():
+        literal = value if isinstance(value, str) else ""
+        if not literal or literal.lower() not in lowered:
+            return _instruction_regex_evidence(
+                instruction,
+                fallback_pattern,
+                reference_id=reference_id,
+            )
+        start = lowered.index(literal.lower())
+        spans.append((start, start + len(literal)))
+    if not spans:
+        return _instruction_regex_evidence(
+            instruction,
+            fallback_pattern,
+            reference_id=reference_id,
+        )
+    return _instruction_evidence(
+        instruction,
+        min(start for start, _ in spans),
+        max(end for _, end in spans),
+        reference_id=reference_id,
+    )
 
 
 def _instruction_regex_evidence(

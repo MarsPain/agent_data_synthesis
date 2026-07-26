@@ -288,6 +288,7 @@ class DeterministicSemanticMutationJudge:
 class OpenAICompatibleSemanticMutationJudge:
     client: OpenAICompatibleClient
     timeout_seconds: float
+    max_retries: int
     role_registry: RoleRegistry
 
     def __call__(self, request: SemanticJudgeRequest) -> SemanticJudgeResult:
@@ -295,52 +296,78 @@ class OpenAICompatibleSemanticMutationJudge:
             self.client.config,
             self.role_registry,
         )
-        try:
-            result = self.role_registry.invoke_json(
-                MUTATION_ADMISSION_JUDGE_ROLE,
-                self.client,
-                _semantic_judge_prompt(request),
-            )
-        except LLMConfigurationError:
-            return SemanticJudgeResult(
-                verdict=None,
-                provider_outcome="unavailable",
-                attempts=0,
-                timeout_seconds=self.timeout_seconds,
-                judge_lineage=configured_lineage,
-            )
-        except LLMProviderError as exc:
-            provider_outcome = (
-                "output_invalid"
-                if exc.cause == "llm_response_schema_error"
-                else "unavailable"
-            )
-            return SemanticJudgeResult(
-                verdict=None,
-                provider_outcome=provider_outcome,
-                attempts=exc.retry_count + 1,
-                timeout_seconds=self.timeout_seconds,
-                judge_lineage=configured_lineage,
-            )
+        for attempt in range(self.max_retries + 1):
+            attempts = attempt + 1
+            try:
+                result = self.role_registry.invoke_json(
+                    MUTATION_ADMISSION_JUDGE_ROLE,
+                    self.client,
+                    _semantic_judge_prompt(request),
+                )
+            except LLMConfigurationError:
+                return SemanticJudgeResult(
+                    verdict=None,
+                    provider_outcome="unavailable",
+                    attempts=0,
+                    timeout_seconds=self.timeout_seconds,
+                    judge_lineage=configured_lineage,
+                )
+            except LLMProviderError as exc:
+                output_invalid = exc.cause == "llm_response_schema_error"
+                if (
+                    attempt < self.max_retries
+                    and (exc.retryable or output_invalid)
+                ):
+                    continue
+                return SemanticJudgeResult(
+                    verdict=None,
+                    provider_outcome=(
+                        "output_invalid" if output_invalid else "unavailable"
+                    ),
+                    attempts=attempts,
+                    timeout_seconds=self.timeout_seconds,
+                    judge_lineage=configured_lineage,
+                )
 
-        content = result.content
-        if not isinstance(content, Mapping) or set(content) != SEMANTIC_MODEL_OUTPUT_KEYS:
+            content = result.content
+            if not isinstance(content, Mapping) or set(content) != SEMANTIC_MODEL_OUTPUT_KEYS:
+                if attempt < self.max_retries:
+                    continue
+                return SemanticJudgeResult(
+                    verdict=None,
+                    provider_outcome="output_invalid",
+                    attempts=attempts,
+                    timeout_seconds=self.timeout_seconds,
+                    judge_lineage=configured_lineage,
+                )
+            verdict = dict(content)
+            verdict["judge_lineage"] = configured_lineage
+            try:
+                validate_semantic_judge_verdict(verdict, request)
+            except ValueError:
+                if attempt < self.max_retries:
+                    continue
+                return SemanticJudgeResult(
+                    verdict=None,
+                    provider_outcome="output_invalid",
+                    attempts=attempts,
+                    timeout_seconds=self.timeout_seconds,
+                    judge_lineage=configured_lineage,
+                )
             return SemanticJudgeResult(
-                verdict=None,
-                provider_outcome="output_invalid",
-                attempts=_attempt_count(result.lineage),
+                verdict=verdict,
+                provider_outcome="succeeded",
+                attempts=attempts,
                 timeout_seconds=self.timeout_seconds,
                 judge_lineage=configured_lineage,
+                token_usage=bounded_token_usage(result.lineage.get("tokens")),
             )
-        verdict = dict(content)
-        verdict["judge_lineage"] = configured_lineage
         return SemanticJudgeResult(
-            verdict=verdict,
-            provider_outcome="succeeded",
-            attempts=_attempt_count(result.lineage),
+            verdict=None,
+            provider_outcome="output_invalid",
+            attempts=self.max_retries + 1,
             timeout_seconds=self.timeout_seconds,
             judge_lineage=configured_lineage,
-            token_usage=bounded_token_usage(result.lineage.get("tokens")),
         )
 
 
@@ -366,10 +393,11 @@ def build_openai_compatible_semantic_mutation_judge(
         client=OpenAICompatibleClient(
             sanitized_config,
             http_client=http_client,
-            max_retries=max_retries,
+            max_retries=0,
             timeout_seconds=timeout_seconds,
         ),
         timeout_seconds=timeout_seconds,
+        max_retries=max_retries,
         role_registry=role_registry or default_role_registry(),
     )
 
@@ -1101,6 +1129,7 @@ def _semantic_judge_prompt(request: SemanticJudgeRequest) -> str:
                 "verdict_values": ["supported", "unsupported", "uncertain"],
                 "allowed_reason_codes": sorted(SEMANTIC_REASON_CODES),
                 "output_schema": {
+                    "schema_version": SEMANTIC_VERDICT_VERSION,
                     "exact_keys": sorted(SEMANTIC_MODEL_OUTPUT_KEYS),
                     "action_finding_keys": [
                         "action_type",
@@ -1114,7 +1143,44 @@ def _semantic_judge_prompt(request: SemanticJudgeRequest) -> str:
                         "reason_code",
                         "evidence_references",
                     ],
+                    "argument_field_semantics": (
+                        "argument_name_not_argument_value"
+                    ),
+                    "finding_outcome_values": [
+                        "supported",
+                        "unsupported",
+                        "uncertain",
+                    ],
+                    "reason_code_outcomes": dict(SEMANTIC_REASON_OUTCOMES),
+                    "reason_codes_order": (
+                        "unique_first_occurrence_across_action_then_argument_findings"
+                    ),
+                    "verdict_aggregation": (
+                        "unsupported_if_any_finding_is_unsupported_else_"
+                        "uncertain_if_any_finding_is_uncertain_else_supported"
+                    ),
                     "free_form_rationale_allowed": False,
+                },
+                "request_binding": {
+                    "action_finding": {
+                        "action_type": request.action_type,
+                        "evidence_references": [
+                            request.evidence_references["action"]
+                        ],
+                    },
+                    "argument_findings": [
+                        {
+                            "argument": name,
+                            "evidence_references": [
+                                request.evidence_references[name]
+                            ],
+                        }
+                        for name in request.argument_values
+                    ],
+                    "evidence_references": list(
+                        dict.fromkeys(request.evidence_references.values())
+                    ),
+                    "input_hash": request.input_hash(),
                 },
             },
             "untrusted_data": {
@@ -1172,13 +1238,6 @@ def _remote_judge_lineage(
             }
         ),
     }
-
-
-def _attempt_count(lineage: Mapping[str, object]) -> int:
-    retry_count = lineage.get("retry_count", 0)
-    if not isinstance(retry_count, int) or isinstance(retry_count, bool):
-        return 1
-    return min(max(retry_count + 1, 1), 2)
 
 
 def bounded_token_usage(raw: object) -> dict[str, int]:

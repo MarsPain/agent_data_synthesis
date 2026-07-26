@@ -262,6 +262,40 @@ class WorkspaceTaskMutationAdmissionCandidateProcessingTest(unittest.TestCase):
             evidence["semantic_verdict"]["reason_codes"],
         )
 
+    def test_generated_task_lookup_can_bind_explicit_destination_project(
+        self,
+    ) -> None:
+        candidate = replace(
+            self._with_task(
+                instruction=(
+                    "Search for tasks with query 'metrics dashboard', then "
+                    "create a new task in project project_alpha with title "
+                    "'Metrics follow-up' and priority medium due this_week."
+                ),
+                search_arguments={"query": "metrics dashboard", "kind": "task"},
+                expected_task={
+                    "project_id": "project_alpha",
+                    "title": "Metrics follow-up",
+                    "priority": "medium",
+                    "due_label": "this_week",
+                },
+            ),
+            expected_answer="task_metrics_follow_up",
+        )
+
+        outcome, _ = self._process(candidate)
+
+        assert outcome.sample is not None
+        evidence = outcome.sample["mutation_admission"]
+        self.assertEqual(
+            evidence["deterministic_validation"]["status"],
+            "passed",
+        )
+        self.assertEqual(
+            evidence["semantic_verdict"]["verdict"],
+            "supported",
+        )
+
     def test_beta_project_observation_is_bound_to_the_selected_project(
         self,
     ) -> None:
@@ -643,13 +677,22 @@ class WorkspaceTaskMutationAdmissionCandidateProcessingTest(unittest.TestCase):
                 self.assertIsNotNone(outcome.sample)
                 outcomes[sample["sample_id"]] = outcome
 
-        false_binding = outcomes["sample_workspace_tasks_b002_01"]
-        assert false_binding.sample is not None
+        lookup_without_project_selection = outcomes["sample_workspace_tasks_b002_01"]
+        assert lookup_without_project_selection.sample is not None
+        unsafe_evidence = lookup_without_project_selection.sample[
+            "mutation_admission"
+        ]
+        self.assertEqual(
+            unsafe_evidence["deterministic_validation"]["status"],
+            "passed",
+        )
+        self.assertEqual(
+            unsafe_evidence["semantic_verdict"]["verdict"],
+            "unsupported",
+        )
         self.assertIn(
-            "observation_reference_invalid",
-            false_binding.sample["mutation_admission"][
-                "deterministic_validation"
-            ]["reason_codes"],
+            "provenance_mismatch",
+            unsafe_evidence["semantic_verdict"]["reason_codes"],
         )
         lookup_only = outcomes["sample_workspace_tasks_b002_02"]
         assert lookup_only.sample is not None

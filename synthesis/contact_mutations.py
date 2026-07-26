@@ -249,8 +249,9 @@ def propose_contact_followup_authorization(candidate: CandidateTask) -> Candidat
     )
     name_evidence = _instruction_regex_evidence(
         instruction,
-        (
-            r"(?i:\b(?:find|look\s+up|lookup)\s+(?:the\s+contact\s+)?)"
+        pattern=(
+            r"(?i:\b(?:access|find|retrieve|get|obtain|search(?:\s+for)?|"
+            r"look\s+up|lookup)\b[^.]{0,80}?)"
             r"(?P<name>[A-Z][A-Za-z-]*(?:\s+[A-Z][A-Za-z-]*)+)"
         ),
         reference_id="instruction.selected_contact",
@@ -347,7 +348,7 @@ def _instruction_literal_evidence(
     *,
     reference_id: str,
 ) -> dict[str, object]:
-    start = instruction.index(text)
+    start = instruction.lower().index(text.lower())
     return _instruction_evidence(
         instruction,
         start,

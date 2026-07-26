@@ -175,6 +175,80 @@ class ContactMutationAdmissionCandidateProcessingTest(unittest.TestCase):
         self.assertNotIn("alice zhang", retained)
         self.assertNotIn("send follow-up email", retained)
 
+    def test_generated_retrieve_wording_reaches_semantic_note_judgment(
+        self,
+    ) -> None:
+        from synthesis.contact_mutations import propose_contact_followup_authorization
+
+        candidate = propose_contact_followup_authorization(
+            replace(
+                self._candidate(),
+                instruction=(
+                    "Retrieve the email for Carla Diaz and then record a "
+                    "follow-up note for her."
+                ),
+                arguments={"name": "Carla Diaz"},
+                expected_answer="carla.diaz@example.test",
+                expected_state={
+                    "contact_followup": {
+                        "name": "Carla Diaz",
+                        "note": "Initial follow-up after meeting",
+                    }
+                },
+            )
+        )
+
+        outcome, _ = self._process(candidate)
+
+        assert outcome.sample is not None
+        evidence = outcome.sample["mutation_admission"]
+        self.assertEqual(
+            evidence["deterministic_validation"]["status"],
+            "passed",
+        )
+        self.assertEqual(
+            evidence["semantic_verdict"]["verdict"],
+            "unsupported",
+        )
+        self.assertIn(
+            "argument_not_supported",
+            evidence["semantic_verdict"]["reason_codes"],
+        )
+
+    def test_generated_obtain_wording_preserves_selected_contact_binding(
+        self,
+    ) -> None:
+        from synthesis.contact_mutations import propose_contact_followup_authorization
+
+        candidate = propose_contact_followup_authorization(
+            replace(
+                self._candidate(),
+                instruction=(
+                    "Obtain the email of Alice Zhang and record a follow-up "
+                    "note 'Share feedback on presentation'."
+                ),
+                expected_state={
+                    "contact_followup": {
+                        "name": "Alice Zhang",
+                        "note": "Share feedback on presentation",
+                    }
+                },
+            )
+        )
+
+        outcome, _ = self._process(candidate)
+
+        assert outcome.sample is not None
+        evidence = outcome.sample["mutation_admission"]
+        self.assertEqual(
+            evidence["deterministic_validation"]["status"],
+            "passed",
+        )
+        self.assertEqual(
+            evidence["semantic_verdict"]["verdict"],
+            "supported",
+        )
+
     def test_supported_contact_followup_executes_in_enforce_mode(self) -> None:
         outcome, environment = self._process(
             self._candidate(),

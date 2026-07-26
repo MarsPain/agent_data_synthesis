@@ -232,6 +232,195 @@ class MutationAdmissionCandidateProcessingTest(unittest.TestCase):
         ):
             self.assertNotIn(prohibited, retained)
 
+    def test_remote_judge_prompt_declares_exact_verdict_schema_version(
+        self,
+    ) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            payload = json.loads(request.content.decode("utf-8"))
+            judge_input = json.loads(payload["messages"][1]["content"])
+            output_schema = judge_input["decision_contract"]["output_schema"]
+            schema_version = output_schema["schema_version"]
+            mutation = judge_input["proposed_mutation"]
+            provenance = judge_input["validated_provenance"]
+            references = provenance["evidence_references"]
+            request_binding = judge_input["decision_contract"]["request_binding"]
+            self.assertEqual(
+                request_binding,
+                {
+                    "action_finding": {
+                        "action_type": mutation["action_type"],
+                        "evidence_references": [references["action"]],
+                    },
+                    "argument_findings": [
+                        {
+                            "argument": name,
+                            "evidence_references": [references[name]],
+                        }
+                        for name in provenance["argument_origins"]
+                    ],
+                    "evidence_references": list(references.values()),
+                    "input_hash": judge_input["input_hash"],
+                },
+            )
+            self.assertEqual(
+                output_schema["argument_field_semantics"],
+                "argument_name_not_argument_value",
+            )
+            self.assertEqual(
+                output_schema["reason_codes_order"],
+                "unique_first_occurrence_across_action_then_argument_findings",
+            )
+            self.assertEqual(
+                output_schema["finding_outcome_values"],
+                ["supported", "unsupported", "uncertain"],
+            )
+            self.assertEqual(
+                output_schema["verdict_aggregation"],
+                (
+                    "unsupported_if_any_finding_is_unsupported_else_"
+                    "uncertain_if_any_finding_is_uncertain_else_supported"
+                ),
+            )
+            self.assertEqual(
+                output_schema["reason_code_outcomes"]["action_authorized"],
+                "supported",
+            )
+            self.assertEqual(
+                output_schema["reason_code_outcomes"]["argument_not_supported"],
+                "unsupported",
+            )
+            verdict = {
+                "schema_version": schema_version,
+                "verdict": "supported",
+                "action_findings": [
+                    {
+                        "action_type": mutation["action_type"],
+                        "outcome": "supported",
+                        "reason_code": "action_authorized",
+                        "evidence_references": [references["action"]],
+                    }
+                ],
+                "argument_findings": [
+                    {
+                        "argument": name,
+                        "outcome": "supported",
+                        "reason_code": (
+                            "observation_reference_supported"
+                            if origin == "tool_observation"
+                            else "argument_semantic_supported"
+                        ),
+                        "evidence_references": [references[name]],
+                    }
+                    for name, origin in provenance["argument_origins"].items()
+                ],
+                "reason_codes": [
+                    "action_authorized",
+                    "argument_semantic_supported",
+                    "observation_reference_supported",
+                ],
+                "evidence_references": list(references.values()),
+                "input_hash": judge_input["input_hash"],
+            }
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [{"message": {"content": json.dumps(verdict)}}],
+                    "usage": {},
+                },
+            )
+
+        judge = build_openai_compatible_semantic_mutation_judge(
+            config=LLMConfig(
+                base_url="https://judge.example.test/v1",
+                api_key="secret-test-key",
+                model="independent-judge-model",
+            ),
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+            timeout_seconds=3.0,
+            max_retries=0,
+        )
+
+        outcome, _ = self._process(self._candidate(), judge=judge)
+
+        assert outcome.sample is not None
+        evidence = outcome.sample["mutation_admission"]
+        self.assertEqual(evidence["admission_outcome"], "judge_supported")
+
+    def test_remote_judge_retries_one_strictly_invalid_verdict_within_budget(
+        self,
+    ) -> None:
+        request_count = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal request_count
+            request_count += 1
+            payload = json.loads(request.content.decode("utf-8"))
+            judge_input = json.loads(payload["messages"][1]["content"])
+            mutation = judge_input["proposed_mutation"]
+            provenance = judge_input["validated_provenance"]
+            references = provenance["evidence_references"]
+            reason_codes = [
+                "action_authorized",
+                "argument_semantic_supported",
+                "observation_reference_supported",
+            ]
+            if request_count == 1:
+                reason_codes.insert(2, "argument_semantic_supported")
+            verdict = {
+                "schema_version": "semantic_mutation_verdict_v1",
+                "verdict": "supported",
+                "action_findings": [
+                    {
+                        "action_type": mutation["action_type"],
+                        "outcome": "supported",
+                        "reason_code": "action_authorized",
+                        "evidence_references": [references["action"]],
+                    }
+                ],
+                "argument_findings": [
+                    {
+                        "argument": name,
+                        "outcome": "supported",
+                        "reason_code": (
+                            "observation_reference_supported"
+                            if origin == "tool_observation"
+                            else "argument_semantic_supported"
+                        ),
+                        "evidence_references": [references[name]],
+                    }
+                    for name, origin in provenance["argument_origins"].items()
+                ],
+                "reason_codes": reason_codes,
+                "evidence_references": list(references.values()),
+                "input_hash": judge_input["input_hash"],
+            }
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [{"message": {"content": json.dumps(verdict)}}],
+                    "usage": {},
+                },
+            )
+
+        judge = build_openai_compatible_semantic_mutation_judge(
+            config=LLMConfig(
+                base_url="https://judge.example.test/v1",
+                api_key="secret-test-key",
+                model="independent-judge-model",
+            ),
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+            timeout_seconds=3.0,
+            max_retries=1,
+        )
+
+        outcome, _ = self._process(self._candidate(), judge=judge)
+
+        self.assertEqual(request_count, 2)
+        assert outcome.sample is not None
+        evidence = outcome.sample["mutation_admission"]
+        self.assertEqual(evidence["admission_outcome"], "judge_supported")
+        self.assertEqual(evidence["judge_call"]["attempts"], 2)
+
     def test_remote_timeout_and_retry_exhaustion_are_bounded_without_blocking_shadow(
         self,
     ) -> None:

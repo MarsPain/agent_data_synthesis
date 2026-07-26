@@ -203,6 +203,41 @@ class MobileMutationAdmissionCandidateProcessingTest(unittest.TestCase):
                     action_type,
                 )
 
+    def test_generated_retrieve_wording_preserves_message_binding(self) -> None:
+        base = self._candidate("candidate_mobile_maya_reminder")
+        candidate = prepare_mobile_candidate(
+            replace(
+                base,
+                instruction=(
+                    "Retrieve the message from Maya about the project update "
+                    "and set a reminder."
+                ),
+                constraints={
+                    **base.constraints,
+                    "task_type": "mobile_reminder_creation",
+                },
+                expected_state={
+                    "mobile_reminder": {
+                        "title": "Project Update",
+                        "source_message_id": "msg_maya_project_update",
+                    }
+                },
+            )
+        )
+
+        outcome, _ = self._process(candidate)
+
+        assert outcome.sample is not None
+        evidence = outcome.sample["mutation_admission"]
+        self.assertEqual(
+            evidence["deterministic_validation"]["status"],
+            "passed",
+        )
+        self.assertEqual(
+            evidence["semantic_verdict"]["verdict"],
+            "supported",
+        )
+
     def test_reminder_without_due_time_is_supported_without_a_default(self) -> None:
         candidate = prepare_mobile_candidate(
             replace(

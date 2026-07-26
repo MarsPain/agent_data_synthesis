@@ -94,7 +94,7 @@ def mobile_mutation_policies(
                 observation_tool="search_phone_messages",
                 observation_field="thread_id",
                 observation_bindings=thread_bindings,
-                binding_argument_names=("query", "participant"),
+                binding_argument_names=("participant",),
                 binding_token_aliases=(
                     ("minutes", "minute"),
                     ("late", "delay"),
@@ -379,7 +379,8 @@ def propose_mobile_reminder_authorization(
             source_field="message_id",
             mutation_value=mutation_step.arguments.get("source_message_id"),
             binding_pattern=(
-                r"\b(?:find|locate|search(?:\s+for)?|look\s+up)\b[^.]*"
+                r"\b(?:find|locate|retrieve|get|search(?:\s+for)?|look\s+up)"
+                r"\b[^.]*"
             ),
         )
     )
@@ -429,7 +430,8 @@ def propose_mobile_draft_reply_authorization(
                 source_field="thread_id",
                 mutation_value=mutation_step.arguments.get("thread_id"),
                 binding_pattern=(
-                    r"\b(?:find|locate|search(?:\s+for)?|look\s+up)\b[^.]*"
+                    r"\b(?:find|locate|retrieve|get|search(?:\s+for)?|look\s+up)"
+                    r"\b[^.]*"
                 ),
             ),
         ],
@@ -515,13 +517,47 @@ def _observation_argument(
             "source_field": source_field,
             "source_arguments_hash": canonical_hash(source_step.arguments),
             "value_hash": canonical_hash(mutation_value),
-            "binding_instruction_evidence": _instruction_regex_evidence(
+            "binding_instruction_evidence": _source_binding_evidence(
                 instruction,
-                binding_pattern,
+                source_step=source_step,
+                fallback_pattern=binding_pattern,
                 reference_id="instruction.selected_message",
             ),
         },
     }
+
+
+def _source_binding_evidence(
+    instruction: str,
+    *,
+    source_step: ToolStep,
+    fallback_pattern: str,
+    reference_id: str,
+) -> dict[str, object]:
+    spans: list[tuple[int, int]] = []
+    lowered = instruction.lower()
+    for value in source_step.arguments.values():
+        literal = value if isinstance(value, str) else ""
+        if not literal or literal.lower() not in lowered:
+            return _instruction_regex_evidence(
+                instruction,
+                fallback_pattern,
+                reference_id=reference_id,
+            )
+        start = lowered.index(literal.lower())
+        spans.append((start, start + len(literal)))
+    if not spans:
+        return _instruction_regex_evidence(
+            instruction,
+            fallback_pattern,
+            reference_id=reference_id,
+        )
+    return _instruction_evidence(
+        instruction,
+        min(start for start, _ in spans),
+        max(end for _, end in spans),
+        reference_id=reference_id,
+    )
 
 
 def _policy_step(policy: SolutionPolicy, tool_name: str) -> tuple[int, ToolStep]:
