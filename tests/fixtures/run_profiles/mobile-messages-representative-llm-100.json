@@ -1,5 +1,5 @@
 {
-  "schema_version": "run_profile_v3",
+  "schema_version": "run_profile_v4",
   "profile_id": "mobile_messages_representative_llm_100",
   "dataset_version": "dataset_mobile_messages_representative_llm_100_v1",
   "profile_purpose": "benchmark",
@@ -14,5 +14,15 @@
     "target_candidate_count": 100,
     "context_policy": "synthetic_fixture"
   },
-  "features": {}
+  "features": {},
+  "mutation_admission": {
+    "mode": "enforce",
+    "judge": {
+      "role": "mutation_admission_judge",
+      "provider": "openai_compatible",
+      "model": "independent-judge-model",
+      "timeout_seconds": 30.0,
+      "max_retries": 1
+    }
+  }
 }

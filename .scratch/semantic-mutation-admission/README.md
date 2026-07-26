@@ -22,7 +22,7 @@ in the ADR, and implementation state lives in the small tickets under
 8. [Audit admission in release artifacts](issues/08-audit-release-admission-evidence.md) — completed
 9. [Produce and import a reviewed calibration corpus](issues/09-reviewed-calibration-corpus.md) — completed
 10. [Evaluate the independent judge activation gate](issues/10-evaluate-activation-gate.md) — completed
-11. [Run the representative activation or no-go gate](issues/11-representative-activation-gate.md) — blocked by 08, 10, and external review/model access
+11. [Run the representative activation or no-go gate](issues/11-representative-activation-gate.md) — implementation complete; execution blocked by approved review evidence and explicit provider authorization
 
 Ticket 01 is an intentional behavior-preserving prefactor. Ticket 02 is the
 first narrow tracer bullet. Tickets 03 and 04 complete the independent-provider
@@ -30,12 +30,13 @@ path and the contact domain slice. Tickets 05 and 06 complete the mobile and
 workspace-task shadow slices. Ticket 07 completes runtime enforcement, and
 Ticket 08 completes hash-bound offline release-artifact auditing, and Ticket 09
 completes calibration-corpus export, freeze, and import. Activation evaluation
-is complete; Ticket 11 remains blocked on representative evidence, approved
-human review, and explicit provider authorization.
+and the offline final-gate implementation are complete. Ticket 11 execution
+remains blocked on representative evidence, approved human review, and explicit
+provider authorization.
 
 ## Frontier
 
-Ticket 11 is the current implementation frontier and remains externally blocked.
+Ticket 11 is the current execution frontier and remains externally blocked.
 
 ## Historical Note
 

@@ -9,6 +9,9 @@ from typing import Mapping
 
 from synthesis.contracts import LLM_RESPONSE_SCHEMA_DETAILS, LLM_RESPONSE_SCHEMA_REASONS
 from synthesis.llm import LLMProviderError
+from synthesis.profile_contracts import (
+    REPRESENTATIVE_RUN_PROFILE_SCHEMA_VERSIONS,
+)
 from synthesis.roles import TASK_GENERATION_ROLE, RoleRegistry, default_role_registry
 from synthesis.seeds import DomainSeed
 from synthesis.stable_ids import stable_id
@@ -648,7 +651,8 @@ def build_generation_contract_evidence(
     generation = getattr(profile, "generation", None)
     seed = getattr(profile, "seed", None)
     profile_representative = (
-        getattr(profile, "schema_version", None) == "run_profile_v3"
+        getattr(profile, "schema_version", None)
+        in REPRESENTATIVE_RUN_PROFILE_SCHEMA_VERSIONS
         and getattr(profile, "profile_purpose", None) == "benchmark"
         and getattr(generation, "mode", None) == "llm"
     )

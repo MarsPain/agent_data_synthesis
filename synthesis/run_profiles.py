@@ -12,6 +12,9 @@ from synthesis.mutation_admission_config import (
     MutationAdmissionJudgeConfiguration,
     parse_mutation_admission_judge_configuration,
 )
+from synthesis.profile_contracts import (
+    REPRESENTATIVE_RUN_PROFILE_SCHEMA_VERSIONS,
+)
 from synthesis.seeds import DomainSeed
 
 
@@ -357,7 +360,7 @@ def _load_generation(
     schema_version: str,
 ) -> RunProfileGeneration:
     generation = _require_mapping(raw_generation, "generation")
-    if schema_version == "run_profile_v3":
+    if schema_version in REPRESENTATIVE_RUN_PROFILE_SCHEMA_VERSIONS:
         unknown_keys = sorted(
             str(key)
             for key in generation
@@ -381,7 +384,11 @@ def _load_generation(
         raise RunProfileValidationError(
             "generation.target_candidate_count is required for deterministic_scale_probe"
         )
-    context_policy = generation.get("context_policy") if schema_version == "run_profile_v3" else None
+    context_policy = (
+        generation.get("context_policy")
+        if schema_version in REPRESENTATIVE_RUN_PROFILE_SCHEMA_VERSIONS
+        else None
+    )
     if context_policy is not None:
         context_policy = _require_string(context_policy, "generation.context_policy")
     return RunProfileGeneration(
@@ -398,29 +405,35 @@ def _validate_generation_compatibility(
     generation: RunProfileGeneration,
     source: RunProfileSource | None,
 ) -> None:
-    if schema_version != "run_profile_v3":
+    if schema_version not in REPRESENTATIVE_RUN_PROFILE_SCHEMA_VERSIONS:
+        return
+    if schema_version == "run_profile_v4" and profile_purpose != "benchmark":
+        if generation.context_policy is not None:
+            raise RunProfileValidationError(
+                "generation.context_policy requires benchmark purpose"
+            )
         return
     if generation.mode != "llm":
         if generation.context_policy is not None:
             raise RunProfileValidationError(
-                "generation.context_policy is only supported for run_profile_v3 llm generation"
+                "generation.context_policy is only supported for representative llm generation"
             )
         return
     if generation.target_candidate_count is None:
         raise RunProfileValidationError(
-            "generation.target_candidate_count is required for run_profile_v3 llm generation"
+            "generation.target_candidate_count is required for representative llm generation"
         )
     if generation.context_policy not in GENERATION_CONTEXT_POLICIES:
         raise RunProfileValidationError(
-            "generation.context_policy must be synthetic_fixture for run_profile_v3 llm generation"
+            "generation.context_policy must be synthetic_fixture for representative llm generation"
         )
     if profile_purpose != "benchmark":
         raise RunProfileValidationError(
-            "profile_purpose must be benchmark for run_profile_v3 llm generation"
+            "profile_purpose must be benchmark for representative llm generation"
         )
     if source is not None:
         raise RunProfileValidationError(
-            "source is not supported for run_profile_v3 llm generation"
+            "source is not supported for representative llm generation"
         )
 
 

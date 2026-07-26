@@ -12,6 +12,9 @@ from urllib.parse import urlparse
 from synthesis.mutation_admission_config import (
     parse_mutation_admission_judge_configuration,
 )
+from synthesis.profile_contracts import (
+    REPRESENTATIVE_RUN_PROFILE_SCHEMA_VERSIONS,
+)
 
 if TYPE_CHECKING:
     from synthesis.tasks import CandidateTask
@@ -3834,8 +3837,13 @@ def _validate_run_profile_metadata(raw: object) -> None:
     if "generation_contract" in profile:
         validate_generation_contract_record(profile.get("generation_contract"))
         contract = _require_mapping(profile.get("generation_contract"), "run_profile.generation_contract")
-        if schema_version != "run_profile_v3" or mode != "llm":
-            raise ContractValidationError("run_profile.generation_contract requires run_profile_v3 llm")
+        if (
+            schema_version not in REPRESENTATIVE_RUN_PROFILE_SCHEMA_VERSIONS
+            or mode != "llm"
+        ):
+            raise ContractValidationError(
+                "run_profile.generation_contract requires representative llm"
+            )
         if profile.get("profile_purpose") != "benchmark":
             raise ContractValidationError("run_profile.generation_contract requires benchmark purpose")
         if target_count != contract.get("target_candidate_count"):
@@ -4133,8 +4141,13 @@ def _validate_profile_decision_profile(raw: object) -> None:
     if "generation_contract" in profile:
         validate_generation_contract_record(profile.get("generation_contract"))
         contract = _require_mapping(profile.get("generation_contract"), "profile.generation_contract")
-        if schema_version != "run_profile_v3" or mode != "llm":
-            raise ContractValidationError("profile.generation_contract requires run_profile_v3 llm")
+        if (
+            schema_version not in REPRESENTATIVE_RUN_PROFILE_SCHEMA_VERSIONS
+            or mode != "llm"
+        ):
+            raise ContractValidationError(
+                "profile.generation_contract requires representative llm"
+            )
         if profile.get("profile_purpose") != "benchmark":
             raise ContractValidationError("profile.generation_contract requires benchmark purpose")
         if target_count != contract.get("target_candidate_count"):

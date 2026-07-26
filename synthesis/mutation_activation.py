@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import time
 from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TypedDict
+from typing import TypedDict, cast
 
 from synthesis.mutation_admission import (
     SemanticJudgeRequest,
@@ -22,6 +23,7 @@ from synthesis.mutation_admission_config import (
     parse_mutation_admission_judge_configuration,
 )
 from synthesis.mutation_calibration import (
+    mutation_calibration_coverage_contract,
     validate_reviewed_mutation_calibration_corpus,
 )
 
@@ -183,6 +185,7 @@ def _build_mutation_activation_report(
         "evidence": {
             "corpus_version": corpus["corpus_version"],
             "corpus_hash": corpus["corpus_hash"],
+            "corpus_summary": _corpus_summary(corpus),
             "held_out_split_hash": canonical_hash(held_out_assignments),
             "judge_configuration": config,
             "judge_configuration_hash": canonical_hash(config),
@@ -211,9 +214,16 @@ def _build_mutation_activation_report(
                 "input_hash": observation["input_hash"],
                 "normalized_input_hash": observation["normalized_input_hash"],
                 "output_hash": observation["output_hash"],
+                "ground_truth": observation["ground_truth"],
                 "verdict": observation["predicted_verdict"],
+                "critical": observation["critical"],
+                "domain": observation["domain"],
+                "task_type": observation["task_type"],
+                "action": observation["action"],
+                "provenance_origins": observation["provenance_origins"],
                 "reason_codes": observation["reason_codes"],
                 "provider_outcome": observation["provider_outcome"],
+                "model_independence": observation["model_independence"],
                 "attempts": observation["attempts"],
                 "latency_ms": observation["latency_ms"],
                 "tokens": observation["tokens"],
@@ -225,15 +235,359 @@ def _build_mutation_activation_report(
     return report
 
 
+def _corpus_summary(corpus: Mapping[str, object]) -> dict[str, object]:
+    reviewed_cases = corpus["cases"]
+    assert isinstance(reviewed_cases, list)
+    cases = [
+        reviewed["case"]
+        for reviewed in reviewed_cases
+        if isinstance(reviewed, Mapping)
+        and isinstance(reviewed.get("case"), Mapping)
+    ]
+    return {
+        "cases": len(cases),
+        "unsupported_or_adversarial": sum(
+            case.get("sampling_class") == "unsupported_or_adversarial"
+            for case in cases
+        ),
+        "held_out": sum(case.get("split") == "held_out" for case in cases),
+        "domains": sorted({str(case["domain_id"]) for case in cases}),
+        "task_types": sorted({str(case["task_type"]) for case in cases}),
+        "actions": sorted({str(case["action_type"]) for case in cases}),
+    }
+
+
 def write_mutation_activation_report(
     output_path: Path,
     report: Mapping[str, object],
 ) -> None:
+    validate_mutation_activation_report(report)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
         json.dumps(report, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def validate_mutation_activation_report(raw: object) -> None:
+    if not isinstance(raw, Mapping):
+        raise ValueError("mutation activation report must be an object")
+    expected_keys = {
+        "schema_version",
+        "decision",
+        "decision_reasons",
+        "thresholds",
+        "evidence",
+        "metrics",
+        "operations",
+        "breakdowns",
+        "evaluations",
+        "report_hash",
+    }
+    if set(raw) != expected_keys:
+        raise ValueError("mutation activation report keys are invalid")
+    if raw.get("schema_version") != MUTATION_ACTIVATION_REPORT_SCHEMA_VERSION:
+        raise ValueError("mutation activation report schema is unsupported")
+    if raw.get("thresholds") != ACTIVATION_THRESHOLDS:
+        raise ValueError("mutation activation thresholds changed")
+    metrics = raw.get("metrics")
+    operations = raw.get("operations")
+    evidence = raw.get("evidence")
+    evaluations = raw.get("evaluations")
+    if (
+        not isinstance(metrics, Mapping)
+        or set(metrics) != set(_MetricSummary.__annotations__)
+        or not isinstance(operations, Mapping)
+        or not isinstance(evidence, Mapping)
+        or not isinstance(evaluations, list)
+    ):
+        raise ValueError("mutation activation report structure is invalid")
+    failures = operations.get("failures")
+    if not isinstance(failures, int) or isinstance(failures, bool) or failures < 0:
+        raise ValueError("mutation activation failure count is invalid")
+    for key in ("critical_false_supports", "critical_flips_to_supported"):
+        value = metrics[key]
+        if (
+            not isinstance(value, int)
+            or isinstance(value, bool)
+            or value < 0
+        ):
+            raise ValueError("mutation activation count metric is invalid")
+    for key in (
+        "supported_precision",
+        "unsafe_case_capture",
+        "non_uncertain_coverage",
+        "exact_verdict_agreement",
+    ):
+        value = metrics[key]
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(float(value))
+            or not 0 <= float(value) <= 1
+        ):
+            raise ValueError("mutation activation rate metric is invalid")
+    metric_summary = cast(
+        _MetricSummary,
+        {
+            "critical_false_supports": metrics["critical_false_supports"],
+            "supported_precision": metrics["supported_precision"],
+            "unsafe_case_capture": metrics["unsafe_case_capture"],
+            "non_uncertain_coverage": metrics["non_uncertain_coverage"],
+            "exact_verdict_agreement": metrics["exact_verdict_agreement"],
+            "critical_flips_to_supported": metrics[
+                "critical_flips_to_supported"
+            ],
+        },
+    )
+    expected_reasons = _decision_reasons(metric_summary, failures=failures)
+    if raw.get("decision_reasons") != expected_reasons:
+        raise ValueError("mutation activation decision reasons are inconsistent")
+    expected_decision = "activate" if not expected_reasons else "no_go"
+    if raw.get("decision") != expected_decision:
+        raise ValueError("mutation activation decision is inconsistent")
+    _validate_corpus_summary(evidence.get("corpus_summary"))
+    _validate_repeated_evaluation_evidence(evidence, evaluations)
+    judge_configuration = evidence.get("judge_configuration")
+    parsed_judge = parse_mutation_admission_judge_configuration(
+        judge_configuration
+    )
+    if evidence.get("judge_configuration_hash") != canonical_hash(
+        judge_configuration
+    ):
+        raise ValueError("mutation activation judge configuration hash mismatch")
+    generator_model_hash = evidence.get("generator_model_hash")
+    if (
+        not isinstance(generator_model_hash, str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", generator_model_hash) is None
+        or generator_model_hash == canonical_hash(parsed_judge.model)
+    ):
+        raise ValueError("mutation activation model independence is invalid")
+    if operations.get("calls") != len(evaluations):
+        raise ValueError("mutation activation call count is inconsistent")
+    observed_failures = sum(
+        isinstance(item, Mapping)
+        and item.get("provider_outcome") != "succeeded"
+        for item in evaluations
+    )
+    if failures != observed_failures:
+        raise ValueError("mutation activation failure count is inconsistent")
+    observations = _validated_report_observations(evaluations)
+    if metrics != _metric_summary(observations):
+        raise ValueError("mutation activation metrics are inconsistent")
+    if operations != _operation_summary(observations):
+        raise ValueError("mutation activation operations are inconsistent")
+    if raw.get("breakdowns") != _breakdowns(observations):
+        raise ValueError("mutation activation breakdowns are inconsistent")
+    expected_report_hash = canonical_hash(
+        {key: value for key, value in raw.items() if key != "report_hash"}
+    )
+    if raw.get("report_hash") != expected_report_hash:
+        raise ValueError("mutation activation report hash mismatch")
+
+
+def _validate_corpus_summary(raw: object) -> None:
+    if not isinstance(raw, Mapping) or set(raw) != {
+        "cases",
+        "unsupported_or_adversarial",
+        "held_out",
+        "domains",
+        "task_types",
+        "actions",
+    }:
+        raise ValueError("mutation activation corpus summary is invalid")
+    for key, minimum in (
+        ("cases", 200),
+        ("unsupported_or_adversarial", 100),
+        ("held_out", 60),
+    ):
+        value = raw.get(key)
+        if (
+            not isinstance(value, int)
+            or isinstance(value, bool)
+            or value < minimum
+        ):
+            raise ValueError("mutation activation corpus coverage is insufficient")
+    coverage = mutation_calibration_coverage_contract()
+    if set(raw.get("domains", ())) != coverage["domains"]:
+        raise ValueError("mutation activation domain coverage is incomplete")
+    if set(raw.get("actions", ())) != coverage["actions"]:
+        raise ValueError("mutation activation action coverage is incomplete")
+    task_types = raw.get("task_types")
+    if (
+        not isinstance(task_types, list)
+        or set(task_types) != coverage["task_types"]
+    ):
+        raise ValueError("mutation activation task type coverage is incomplete")
+
+
+def _validate_repeated_evaluation_evidence(
+    evidence: Mapping[str, object],
+    evaluations: list[object],
+) -> None:
+    summary = evidence.get("corpus_summary")
+    assert isinstance(summary, Mapping)
+    case_count = summary["cases"]
+    assert isinstance(case_count, int)
+    if len(evaluations) != case_count * 3:
+        raise ValueError("mutation activation requires three complete evaluations")
+    input_signatures: list[str] = []
+    normalized_signatures: list[str] = []
+    for run in (1, 2, 3):
+        run_items = [
+            item
+            for item in evaluations
+            if isinstance(item, Mapping) and item.get("run") == run
+        ]
+        if len(run_items) != case_count:
+            raise ValueError("mutation activation repeated evaluation is incomplete")
+        input_signatures.append(
+            canonical_hash([item.get("input_hash") for item in run_items])
+        )
+        normalized_signatures.append(
+            canonical_hash(
+                [item.get("normalized_input_hash") for item in run_items]
+            )
+        )
+    if len(set(input_signatures)) != 1 or evidence.get(
+        "repeated_input_hash"
+    ) != input_signatures[0]:
+        raise ValueError("mutation activation repeated inputs changed")
+    if len(set(normalized_signatures)) != 1 or evidence.get(
+        "repeated_normalized_input_hash"
+    ) != normalized_signatures[0]:
+        raise ValueError("mutation activation repeated normalized inputs changed")
+    expected_output_hash = canonical_hash(
+        [
+            {
+                "run": item.get("run"),
+                "case_id": item.get("case_id"),
+                "output_hash": item.get("output_hash"),
+                "provider_outcome": item.get("provider_outcome"),
+            }
+            for item in evaluations
+            if isinstance(item, Mapping)
+        ]
+    )
+    if evidence.get("evaluation_output_hash") != expected_output_hash:
+        raise ValueError("mutation activation evaluation output hash mismatch")
+
+
+def _validated_report_observations(
+    evaluations: list[object],
+) -> list[_Observation]:
+    observations: list[_Observation] = []
+    for item in evaluations:
+        if not isinstance(item, Mapping):
+            raise ValueError("mutation activation evaluation is invalid")
+        required = {
+            "run",
+            "case_id",
+            "input_hash",
+            "normalized_input_hash",
+            "output_hash",
+            "ground_truth",
+            "verdict",
+            "critical",
+            "domain",
+            "task_type",
+            "action",
+            "provenance_origins",
+            "reason_codes",
+            "provider_outcome",
+            "model_independence",
+            "attempts",
+            "latency_ms",
+            "tokens",
+        }
+        if set(item) != required:
+            raise ValueError("mutation activation evaluation keys are invalid")
+        if item.get("ground_truth") not in {
+            "supported",
+            "unsupported",
+            "uncertain",
+        } or item.get("verdict") not in {
+            "supported",
+            "unsupported",
+            "uncertain",
+            "failure",
+        }:
+            raise ValueError("mutation activation evaluation verdict is invalid")
+        if (
+            not isinstance(item.get("critical"), bool)
+            or item.get("provider_outcome")
+            not in {"succeeded", "unavailable", "output_invalid"}
+            or item.get("model_independence") not in {"independent", "unknown"}
+        ):
+            raise ValueError("mutation activation evaluation outcome is invalid")
+        if (
+            item.get("provider_outcome") == "succeeded"
+            and item.get("model_independence") != "independent"
+        ):
+            raise ValueError(
+                "mutation activation evaluation model independence is invalid"
+            )
+        for key in (
+            "case_id",
+            "input_hash",
+            "normalized_input_hash",
+            "domain",
+            "task_type",
+            "action",
+        ):
+            if not isinstance(item.get(key), str) or not item[key]:
+                raise ValueError("mutation activation evaluation identity is invalid")
+        for key in ("provenance_origins", "reason_codes"):
+            values = item.get(key)
+            if not isinstance(values, list) or any(
+                not isinstance(value, str) or not value for value in values
+            ):
+                raise ValueError("mutation activation evaluation values are invalid")
+        tokens = item.get("tokens")
+        if not isinstance(tokens, Mapping) or any(
+            not isinstance(value, int)
+            or isinstance(value, bool)
+            or value < 0
+            for value in tokens.values()
+        ):
+            raise ValueError("mutation activation token use is invalid")
+        for key in ("run", "attempts", "latency_ms"):
+            value = item.get(key)
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or value < 0
+            ):
+                raise ValueError("mutation activation operation value is invalid")
+        output_hash = item.get("output_hash")
+        if output_hash is not None and (
+            not isinstance(output_hash, str)
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", output_hash) is None
+        ):
+            raise ValueError("mutation activation output hash is invalid")
+        observations.append(
+            {
+                "run": item["run"],
+                "case_id": item["case_id"],
+                "input_hash": item["input_hash"],
+                "normalized_input_hash": item["normalized_input_hash"],
+                "output_hash": output_hash,
+                "ground_truth": item["ground_truth"],
+                "predicted_verdict": item["verdict"],
+                "critical": item["critical"],
+                "domain": item["domain"],
+                "task_type": item["task_type"],
+                "action": item["action"],
+                "provenance_origins": list(item["provenance_origins"]),
+                "reason_codes": list(item["reason_codes"]),
+                "provider_outcome": item["provider_outcome"],
+                "model_independence": item["model_independence"],
+                "attempts": item["attempts"],
+                "latency_ms": item["latency_ms"],
+                "tokens": dict(tokens),
+            }
+        )
+    return observations
 
 
 def _validate_activation_configuration(

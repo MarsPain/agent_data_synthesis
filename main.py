@@ -41,6 +41,9 @@ from synthesis.pipeline import (
     run_foundation_pipeline,
 )
 from synthesis.profile_decisions import write_profile_decision_report
+from synthesis.profile_contracts import (
+    REPRESENTATIVE_RUN_PROFILE_SCHEMA_VERSIONS,
+)
 from synthesis.release_pack import DATASET_RELEASE_PACK_FILENAME, write_dataset_release_pack
 from synthesis.release_quality import (
     DATASET_RELEASE_CARD_FILENAME,
@@ -725,7 +728,7 @@ def _profile_candidate_generators(
     if profile is None:
         return (build_llm_candidate_generator() if use_llm else None, None)
     if profile.generation.mode == "llm":
-        if profile.schema_version == "run_profile_v3":
+        if profile.schema_version in REPRESENTATIVE_RUN_PROFILE_SCHEMA_VERSIONS:
             assert profile.generation.target_candidate_count is not None
             return (
                 None,

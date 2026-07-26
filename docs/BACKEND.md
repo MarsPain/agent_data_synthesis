@@ -136,6 +136,11 @@ The first backend should be a local Python pipeline with explicit modules and du
   configured semantic mutation judge over a reviewed calibration corpus,
   deterministic safety-first activation metrics and breakdowns, and sanitized
   hash-bound activation or no-go reporting.
+- `synthesis.representative_activation_gate`: offline final-gate assembly and
+  verification across a validated activation report, fresh three-domain
+  representative enforce campaign, mutation-safe manifests, a protected
+  historical-campaign digest, costs, failures, and explicit limitations. Its
+  readiness result distinguishes framework activation from dataset release.
 - `synthesis.candidate_processing`: single-candidate validation, policy
   execution, verification, logical gates, optional tool-expansion reruns,
   optional refinement reruns, provisional candidate outcomes, and deterministic
@@ -363,6 +368,17 @@ must not add workspace-specific branches or tool allowlists.
    breakdowns, and corpus/configuration/input/output hashes. It never retains
    raw prompts, responses, credentials, or provider payloads and does not run
    the representative pipeline gate.
+34. `run_profile_v4` benchmark profiles combine the bounded representative LLM
+   generation contract with independent mutation-admission enforcement. The
+   three checked-in representative profiles use this contract; executing them
+   remains opt-in and requires explicit generator and judge configuration.
+35. The final representative gate is written only after provider work has been
+   separately authorized. It verifies all three mutation-safe manifests
+   offline, rejects incomplete or non-representative domains, binds input
+   hashes and model lineage, compares `_30_v5` with its retained pre-run tree
+   digest, records costs/failures/limitations, and emits `no_go` for any failed
+   threshold. Offline reconstruction rejects controlled tampering. Even an
+   `activate` result records dataset release readiness as `not_established`.
 
 Release-review outcomes are evidence only. They do not modify
 `samples.jsonl`, `rejections.jsonl`, quality/evaluation/profile reports,

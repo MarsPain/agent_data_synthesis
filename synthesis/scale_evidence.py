@@ -19,6 +19,12 @@ from synthesis.contracts import (
     validate_representative_scale_evidence_record,
     validate_review_resolution_report_record,
 )
+from synthesis.mutation_admission_config import (
+    parse_mutation_admission_judge_configuration,
+)
+from synthesis.profile_contracts import (
+    REPRESENTATIVE_RUN_PROFILE_SCHEMA_VERSIONS,
+)
 
 
 SCALE_CAMPAIGN_SCHEMA_VERSION = "representative_scale_campaign_v1"
@@ -83,14 +89,30 @@ def classify_run(artifacts: Mapping[str, Any]) -> str:
     if generation_mode in DIAGNOSTIC_GENERATION_MODES:
         return "diagnostic_only"
     if generation_mode in REPRESENTATIVE_GENERATION_MODES:
-        if artifacts.get("schema_version") != "run_profile_v3":
+        schema_version = artifacts.get("schema_version")
+        if schema_version not in REPRESENTATIVE_RUN_PROFILE_SCHEMA_VERSIONS:
             return "insufficient_evidence"
+        if schema_version == "run_profile_v4":
+            mutation_admission = artifacts.get("mutation_admission")
+            if (
+                not isinstance(mutation_admission, Mapping)
+                or mutation_admission.get("mode") != "enforce"
+            ):
+                return "insufficient_evidence"
+            try:
+                parse_mutation_admission_judge_configuration(
+                    mutation_admission.get("judge")
+                )
+            except ValueError:
+                return "insufficient_evidence"
         if artifacts.get("profile_purpose") != "benchmark":
             return "insufficient_evidence"
         generation_contract = artifacts.get("generation_contract")
         try:
             validate_generation_contract_record(generation_contract)
         except (ContractValidationError, TypeError, ValueError):
+            return "insufficient_evidence"
+        if not isinstance(generation_contract, Mapping):
             return "insufficient_evidence"
         if generation_contract.get("target_fulfilled") is not True:
             return "insufficient_evidence"
@@ -227,6 +249,7 @@ def _build_domain_summary(run: CampaignRunInput) -> dict[str, Any]:
                 "schema_version": manifest_profile.get("schema_version"),
                 "profile_purpose": manifest_profile.get("profile_purpose"),
                 "target_candidate_count": manifest_profile.get("target_candidate_count"),
+                "mutation_admission": manifest_profile.get("mutation_admission"),
             }),
             "artifacts": artifact_records,
             "observed": {

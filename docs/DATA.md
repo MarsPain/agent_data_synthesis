@@ -257,6 +257,11 @@ and a quality report:
   `mutation_calibration_split_freeze.json`: standalone deterministic
   calibration export artifacts. They are not default pipeline outputs or
   manifest artifacts.
+- `representative_mutation_activation_gate.json`: standalone final framework
+  activation/no-go evidence. It binds the reviewed activation report, fresh
+  representative enforce campaign, mutation-safe manifest checks, protected
+  historical-campaign digest, model lineage, costs, failures, and limitations.
+  It always records dataset release readiness separately.
 - `human_labels.jsonl`: reviewer-owned calibration input. The exporter never
   creates it and the importer never treats generated or judge-produced records
   as human ground truth.

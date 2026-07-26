@@ -87,12 +87,22 @@ uv run python scripts/export_mutation_calibration_packet.py --corpus-version mut
 uv run python scripts/import_mutation_calibration_labels.py --packet artifacts/mutation-calibration/mutation_calibration_review_packet.json --split-freeze artifacts/mutation-calibration/mutation_calibration_split_freeze.json --labels artifacts/mutation-calibration/human_labels.jsonl --output artifacts/mutation-calibration/reviewed_mutation_calibration_corpus.json
 uv run python scripts/evaluate_mutation_activation.py --reviewed-corpus artifacts/mutation-calibration/reviewed_mutation_calibration_corpus.json --judge-config judge-config.json --generator-model generator-model --output artifacts/mutation-calibration/mutation_activation_report.json
 
+# Before starting a fresh representative enforce campaign, retain this digest.
+uv run python scripts/hash_artifact_tree.py artifacts/representative-campaign-30-v5
+
+# After the separately authorized provider run completes, bind and verify the
+# final activation/no-go evidence.
+uv run python scripts/write_representative_activation_gate.py --activation-report artifacts/mutation-calibration/mutation_activation_report.json --campaign artifacts/representative-mutation-enforce/campaign.json --protected-campaign artifacts/representative-campaign-30-v5 --protected-baseline-hash sha256:RETAINED_PRE_RUN_DIGEST --activation-judge-cost-usd 0 --representative-pipeline-cost-usd 0 --limitation "Framework activation does not establish dataset release readiness." --output artifacts/representative-mutation-enforce/representative_mutation_activation_gate.json
+uv run python scripts/verify_representative_activation_gate.py --report artifacts/representative-mutation-enforce/representative_mutation_activation_gate.json --activation-report artifacts/mutation-calibration/mutation_activation_report.json --campaign artifacts/representative-mutation-enforce/campaign.json --protected-campaign artifacts/representative-campaign-30-v5
+
 # Offline representative-scale and downstream evidence exchange
 uv run python scripts/write_representative_scale_evidence.py --campaign artifacts/evidence-campaign/campaign.json --output artifacts/evidence-campaign/representative_scale_evidence.json
 uv run python scripts/write_downstream_benchmark_bundle.py --release-pack artifacts/contacts-release/dataset_release_pack.json --benchmark-suite-id external_agent_tasks_v1 --benchmark-suite-version external_agent_tasks_v1 --output artifacts/downstream/downstream_benchmark_bundle.json
 uv run python scripts/import_downstream_benchmark_result.py --bundle artifacts/downstream/downstream_benchmark_bundle.json --observation artifacts/downstream/external_observation.json --output artifacts/downstream/downstream_benchmark_result.json
 
-# Opt-in representative campaigns (remote provider cost; synchronous batches)
+# Opt-in representative enforce campaigns (remote provider cost; synchronous
+# batches). Set AGENT_DATA_LLM_MODEL to the generator model and replace each
+# checked-in independent-judge-model placeholder with the authorized judge.
 uv run python main.py --run-profile tests/fixtures/run_profiles/contacts-representative-llm-100.json --use-llm --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --write-release-quality-audit --output-dir artifacts/representative-contacts
 uv run python main.py --run-profile tests/fixtures/run_profiles/mobile-messages-representative-llm-100.json --use-llm --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --write-release-quality-audit --output-dir artifacts/representative-mobile
 uv run python main.py --run-profile tests/fixtures/run_profiles/workspace-tasks-representative-llm-100.json --use-llm --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --write-release-quality-audit --output-dir artifacts/representative-workspace
@@ -127,6 +137,7 @@ paths, and host paths must not be written to public artifacts.
   `dataset_release_card.md`, opt-in `release_review_queue.jsonl`, and offline
   `review_resolution_report.json`.
 - Standalone evidence artifacts: `representative_scale_evidence.json`,
+  `representative_mutation_activation_gate.json`,
   `downstream_benchmark_bundle.json`, and `downstream_benchmark_result.json`.
   They consume existing artifacts and are never written by default `main.py`.
 - Mutation-calibration artifacts are also standalone:

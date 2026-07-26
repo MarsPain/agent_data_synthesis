@@ -10,7 +10,7 @@ explicit activation or no-go decision without weakening any threshold.
 
 **Status:** blocked
 
-**Assignee:** Unassigned
+**Assignee:** Codex
 
 **Parent spec:** [Semantic Mutation Admission](../../../docs/product-specs/semantic-mutation-admission.md)
 
@@ -31,3 +31,13 @@ explicit activation or no-go decision without weakening any threshold.
 Do not initiate paid or credentialed provider calls without explicit operator
 authorization. Do not lower thresholds, relabel critical cases, or alter the
 held-out split to obtain a passing result.
+
+## Implementation note
+
+The repository now supports representative `run_profile_v4` enforce campaigns,
+hash-bound activation-report validation, protected `_30_v5` tree checks, final
+activation/no-go evidence assembly, and offline reconstruction with tamper
+rejection. No provider call was made while implementing this ticket. The
+acceptance checklist remains open until an operator supplies approved reviewed
+labels, explicitly authorizes the independent-model calls, and runs the final
+workflow.

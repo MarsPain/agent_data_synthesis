@@ -594,6 +594,51 @@ class RunProfileTest(unittest.TestCase):
                 },
             })
 
+    def test_v4_llm_benchmark_combines_representative_generation_and_enforcement(
+        self,
+    ) -> None:
+        mapping = {
+            "schema_version": "run_profile_v4",
+            "profile_id": "mobile_representative_enforce",
+            "dataset_version": "dataset_mobile_representative_enforce",
+            "profile_purpose": "benchmark",
+            "seed": {
+                "seed_id": "seed_mobile_representative_enforce",
+                "domain": "mobile_messages_fixture",
+                "description": "Generate mutation-admitted representative tasks.",
+                "task_taxonomy": [
+                    "mobile_message_search",
+                    "mobile_reminder_creation",
+                ],
+            },
+            "generation": {
+                "mode": "llm",
+                "target_candidate_count": 100,
+                "context_policy": "synthetic_fixture",
+            },
+            "features": {},
+            "mutation_admission": {
+                "mode": "enforce",
+                "judge": {
+                    "role": "mutation_admission_judge",
+                    "provider": "openai_compatible",
+                    "model": "independent-judge-model",
+                    "timeout_seconds": 30.0,
+                    "max_retries": 1,
+                },
+            },
+        }
+        with patch.dict(
+            os.environ,
+            {"AGENT_DATA_LLM_MODEL": "generator-model"},
+            clear=False,
+        ):
+            profile = self._load_mapping(mapping)
+
+        self.assertEqual(profile.generation.target_candidate_count, 100)
+        self.assertEqual(profile.generation.context_policy, "synthetic_fixture")
+        self.assertEqual(profile.mutation_admission.mode, "enforce")
+
     def test_existing_fixture_profiles_remain_v1_without_source_metadata(self) -> None:
         from synthesis.run_profiles import load_run_profile
 
@@ -608,21 +653,37 @@ class RunProfileTest(unittest.TestCase):
                 self.assertIsNone(profile.source)
                 self.assertNotIn("source", profile.sanitized_metadata())
 
-    def test_checked_in_representative_profiles_use_v3_contract(self) -> None:
+    def test_checked_in_representative_profiles_use_v4_enforcement_contract(
+        self,
+    ) -> None:
         from synthesis.run_profiles import load_run_profile
 
-        for name in (
-            "contacts-representative-llm-100.json",
-            "mobile-messages-representative-llm-100.json",
-            "workspace-tasks-representative-llm-100.json",
+        with patch.dict(
+            os.environ,
+            {"AGENT_DATA_LLM_MODEL": "representative-generator-model"},
+            clear=False,
         ):
-            with self.subTest(profile=name):
-                profile = load_run_profile(Path("tests/fixtures/run_profiles") / name)
-                self.assertEqual(profile.schema_version, "run_profile_v3")
-                self.assertEqual(profile.profile_purpose, "benchmark")
-                self.assertEqual(profile.generation.target_candidate_count, 100)
-                self.assertEqual(profile.generation.context_policy, "synthetic_fixture")
-                self.assertIsNone(profile.source)
+            for name in (
+                "contacts-representative-llm-100.json",
+                "mobile-messages-representative-llm-100.json",
+                "workspace-tasks-representative-llm-100.json",
+            ):
+                with self.subTest(profile=name):
+                    profile = load_run_profile(
+                        Path("tests/fixtures/run_profiles") / name
+                    )
+                    self.assertEqual(profile.schema_version, "run_profile_v4")
+                    self.assertEqual(profile.profile_purpose, "benchmark")
+                    self.assertEqual(
+                        profile.generation.target_candidate_count,
+                        100,
+                    )
+                    self.assertEqual(
+                        profile.generation.context_policy,
+                        "synthetic_fixture",
+                    )
+                    self.assertEqual(profile.mutation_admission.mode, "enforce")
+                    self.assertIsNone(profile.source)
 
     def test_v2_profile_loads_local_contacts_source_with_sanitized_metadata(self) -> None:
         from synthesis.run_profiles import load_run_profile

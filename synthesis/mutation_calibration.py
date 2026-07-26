@@ -160,6 +160,18 @@ def build_mutation_calibration_review_packet(
     return packet
 
 
+def mutation_calibration_coverage_contract() -> dict[str, set[str]]:
+    """Return the domain-owned coverage required by activation evidence."""
+    actions = _action_specs()
+    return {
+        "domains": {action.domain_id for action in actions},
+        "task_types": {
+            task_type for action in actions for task_type in action.task_types
+        },
+        "actions": {action.action_type for action in actions},
+    }
+
+
 def write_mutation_calibration_review_packet(
     output_dir: Path,
     *,

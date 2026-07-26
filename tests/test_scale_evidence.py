@@ -169,6 +169,43 @@ class ScaleEvidenceTest(unittest.TestCase):
             }),
             "representative",
         )
+        self.assertEqual(
+            classify_run(
+                {
+                    "valid": True,
+                    "generation_mode": "llm",
+                    "generation_contract": generation_contract,
+                    "schema_version": "run_profile_v4",
+                    "profile_purpose": "benchmark",
+                    "target_candidate_count": 100,
+                    "mutation_admission": {
+                        "mode": "enforce",
+                        "judge": {
+                            "role": "mutation_admission_judge",
+                            "provider": "openai_compatible",
+                            "model": "independent-judge-model",
+                            "timeout_seconds": 30.0,
+                            "max_retries": 1,
+                        },
+                    },
+                }
+            ),
+            "representative",
+        )
+        self.assertEqual(
+            classify_run(
+                {
+                    "valid": True,
+                    "generation_mode": "llm",
+                    "generation_contract": generation_contract,
+                    "schema_version": "run_profile_v4",
+                    "profile_purpose": "benchmark",
+                    "target_candidate_count": 100,
+                    "mutation_admission": {"mode": "shadow"},
+                }
+            ),
+            "insufficient_evidence",
+        )
         for key in ("target_fulfilled", "representative_eligible"):
             invalid = dict(generation_contract)
             invalid[key] = False

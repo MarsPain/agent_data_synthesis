@@ -101,6 +101,34 @@ class MutationActivationEvaluationTest(unittest.TestCase):
             "independent-judge-model",
         )
         self.assertEqual(first["evidence"]["corpus_hash"], corpus["corpus_hash"])
+        self.assertEqual(
+            first["evidence"]["corpus_summary"],
+            {
+                "cases": 200,
+                "unsupported_or_adversarial": 120,
+                "held_out": 60,
+                "domains": [
+                    "contacts_fixture",
+                    "mobile_messages_fixture",
+                    "workspace_tasks_fixture",
+                ],
+                "task_types": [
+                    "contact_followup",
+                    "mobile_draft_reply",
+                    "mobile_message_to_reminder",
+                    "mobile_reminder_creation",
+                    "workspace_comment_update",
+                    "workspace_task_creation",
+                ],
+                "actions": [
+                    "contact_followup_record",
+                    "mobile_draft_reply_create",
+                    "mobile_reminder_create",
+                    "workspace_comment_add",
+                    "workspace_task_create",
+                ],
+            },
+        )
         self.assertTrue(first["evidence"]["held_out_split_hash"].startswith("sha256:"))
         self.assertTrue(first["report_hash"].startswith("sha256:"))
         serialized = json.dumps(first, sort_keys=True)
@@ -383,6 +411,68 @@ class MutationActivationEvaluationTest(unittest.TestCase):
                 ),
             )
 
+    def test_offline_activation_report_validation_rejects_tampering(self) -> None:
+        from synthesis.mutation_activation import (
+            validate_mutation_activation_report,
+        )
+
+        corpus = _reviewed_corpus()
+        report = _evaluate_predictions(corpus, _prediction_matrix(corpus))
+        validate_mutation_activation_report(report)
+
+        for path, replacement in (
+            (("thresholds", "supported_precision_min"), 0.5),
+            (("evidence", "corpus_summary", "cases"), 199),
+            (("decision",), "no_go"),
+        ):
+            with self.subTest(path=path):
+                tampered = json.loads(json.dumps(report))
+                target = tampered
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]] = replacement
+                with self.assertRaises(ValueError):
+                    validate_mutation_activation_report(tampered)
+
+        same_model = json.loads(json.dumps(report))
+        same_model["evidence"]["generator_model_hash"] = canonical_hash(
+            same_model["evidence"]["judge_configuration"]["model"]
+        )
+        same_model["report_hash"] = canonical_hash(
+            {
+                key: value
+                for key, value in same_model.items()
+                if key != "report_hash"
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "model independence"):
+            validate_mutation_activation_report(same_model)
+
+        self_consistent_tamper = json.loads(json.dumps(report))
+        self_consistent_tamper["evaluations"][0]["verdict"] = "unsupported"
+        self_consistent_tamper["report_hash"] = canonical_hash(
+            {
+                key: value
+                for key, value in self_consistent_tamper.items()
+                if key != "report_hash"
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "metrics are inconsistent"):
+            validate_mutation_activation_report(self_consistent_tamper)
+
+        independence_tamper = json.loads(json.dumps(report))
+        independence_tamper["evaluations"][0][
+            "model_independence"
+        ] = "unknown"
+        independence_tamper["report_hash"] = canonical_hash(
+            {
+                key: value
+                for key, value in independence_tamper.items()
+                if key != "report_hash"
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "model independence"):
+            validate_mutation_activation_report(independence_tamper)
 
 def _reviewed_corpus() -> dict[str, object]:
     packet = build_mutation_calibration_review_packet(
