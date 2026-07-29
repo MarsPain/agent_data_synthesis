@@ -941,6 +941,58 @@ class FoundationCliTest(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertIn("schema_version", result.stderr)
 
+    def test_main_can_preview_and_write_a_coverage_plan_without_running_candidates(self) -> None:
+        profile_path = "tests/fixtures/run_profiles/contacts-coverage-smoke.json"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            preview_output = Path(tmpdir) / "preview-output"
+            preview = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    profile_path,
+                    "--preview-coverage-plan",
+                    "--output-dir",
+                    str(preview_output),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(preview.returncode, 0, preview.stdout + preview.stderr)
+            previewed_plan = json.loads(preview.stdout)
+            self.assertEqual(previewed_plan["schema_version"], "coverage_plan_v1")
+            self.assertEqual(previewed_plan["target_accepted_sample_count"], 6)
+            self.assertFalse(preview_output.exists())
+
+            write_output = Path(tmpdir) / "write-output"
+            written = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    profile_path,
+                    "--write-coverage-plan",
+                    "--output-dir",
+                    str(write_output),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(written.returncode, 0, written.stdout + written.stderr)
+            plan_path = write_output / "coverage_plan.json"
+            self.assertTrue(plan_path.exists())
+            self.assertEqual(json.loads(plan_path.read_text(encoding="utf-8")), previewed_plan)
+            self.assertEqual(
+                {path.name for path in write_output.iterdir()},
+                {"coverage_plan.json"},
+            )
+            self.assertFalse((write_output / "samples.jsonl").exists())
+            self.assertFalse((write_output / "manifest.json").exists())
+
     def test_main_can_run_profile_local_contacts_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "foundation-profile-local"

@@ -218,6 +218,77 @@ class RunProfileTest(unittest.TestCase):
 
             self.assertNotEqual(release_profile.config_hash, diagnostic_profile.config_hash)
 
+    def test_versioned_profile_can_select_a_versioned_coverage_profile(self) -> None:
+        from synthesis.run_profiles import load_run_profile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write_profile(
+                Path(tmp),
+                overrides={
+                    "generation": {
+                        "mode": "deterministic_scale_probe",
+                        "target_candidate_count": 6,
+                    },
+                    "coverage_profile": {
+                        "profile_id": "contacts_smoke",
+                        "version": "contacts_smoke_v1",
+                        "overrides": {
+                            "balance_weights": {
+                                "contacts.lookup_by_name": 2,
+                            }
+                        },
+                    },
+                },
+            )
+
+            profile = load_run_profile(path)
+
+            self.assertIsNotNone(profile.coverage_profile)
+            assert profile.coverage_profile is not None
+            self.assertEqual(profile.coverage_profile.profile_id, "contacts_smoke")
+            self.assertEqual(profile.coverage_profile.version, "contacts_smoke_v1")
+            self.assertEqual(
+                profile.coverage_profile.balance_weight_overrides,
+                {"contacts.lookup_by_name": 2},
+            )
+            self.assertEqual(
+                profile.sanitized_metadata()["coverage_profile"],
+                {
+                    "profile_id": "contacts_smoke",
+                    "version": "contacts_smoke_v1",
+                    "overrides": {
+                        "balance_weights": {
+                            "contacts.lookup_by_name": 2,
+                        }
+                    },
+                },
+            )
+            self.assertEqual(
+                profile.canonical()["coverage_profile"],
+                profile.sanitized_metadata()["coverage_profile"],
+            )
+
+    def test_coverage_profile_requires_an_explicit_target_count(self) -> None:
+        from synthesis.run_profiles import RunProfileValidationError, load_run_profile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write_profile(
+                Path(tmp),
+                overrides={
+                    "generation": {"mode": "foundation_fixture"},
+                    "coverage_profile": {
+                        "profile_id": "contacts_smoke",
+                        "version": "contacts_smoke_v1",
+                    },
+                },
+            )
+
+            with self.assertRaisesRegex(
+                RunProfileValidationError,
+                "target_candidate_count is required with coverage_profile",
+            ):
+                load_run_profile(path)
+
     def test_rejects_invalid_schema_version(self) -> None:
         from synthesis.run_profiles import RunProfileValidationError, load_run_profile
 

@@ -8,10 +8,20 @@ The first backend should be a local Python pipeline with explicit modules and du
 
 - `synthesis.seeds`: source registration, normalized seed records, seed
   transformation records, and deterministic taxonomy-expansion requests.
-- `synthesis.run_profiles`: `run_profile_v1`, `run_profile_v2`, and representative `run_profile_v3` parsing,
+- `synthesis.run_profiles`: `run_profile_v1` through `run_profile_v4` parsing,
   validation, defaulted feature flags, optional profile-local domain source
-  declarations, sanitized metadata export, and stable config hashing for local
-  synchronous runs.
+  declarations, optional named/versioned coverage-profile references with
+  bounded balance-weight overrides, sanitized metadata export, and stable
+  config hashing for local synchronous runs.
+- `synthesis.coverage`: domain-neutral coverage catalog, profile, capacity, and
+  plan contracts plus deterministic validation, target-distribution
+  compilation, hashing, and canonical plan writing.
+- `synthesis.contacts_coverage`: the contacts-owned `contacts_coverage_v1`
+  reachable-cell catalog, named smoke and representative profiles, and
+  aggregate admitted-capacity projection.
+- `synthesis.coverage_registry`: domain planning registration. It connects
+  domain-owned catalogs, profile resolution, and capacity projection to the
+  shared compiler without adding domain-name branches to that compiler.
 - `synthesis.domain_generation`: immutable domain generation specifications,
   complete machine-readable provider output contracts, strict task-contract
   parsing, replayable grounding arguments paired with observations, explicit
@@ -182,8 +192,8 @@ trajectories, exports, or logs.
 
 ## Job Lifecycle
 
-1. Register seeds and target domain. For configurable local runs, load a
-   validated `run_profile_v1`, `run_profile_v2`, or `run_profile_v3` file and translate its seed,
+1. Register seeds and target domain. For configurable local runs, load a file
+   using `run_profile_v1` through `run_profile_v4` and translate its seed,
    generation mode, dataset version, feature flags, and optional governed local
    domain source into the existing synchronous pipeline arguments.
 2. Validate the source bundle before environment construction. External-source
@@ -200,6 +210,12 @@ trajectories, exports, or logs.
    admitted bytes to the matching domain importer. Controlled network ingestion
    remains contacts-only. The default pipeline does not fetch external network
    sources or ingest arbitrary local files.
+   When the profile selects `coverage_profile`, project only the admitted,
+   aggregate environment capacity into the domain planning definition. The
+   `--preview-coverage-plan` and `--write-coverage-plan` paths compile and
+   optionally write `coverage_plan.json`, then exit before provider
+   construction, candidate generation, or execution. Coverage-enabled execution
+   remains disabled until assignment scheduling is implemented.
 4. Build or load an environment version with source provenance, source-policy
    hash metadata, and environment-source admission status. Preserve that
    provenance when rebuilding isolated per-candidate environments.

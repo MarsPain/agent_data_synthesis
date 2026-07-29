@@ -7,8 +7,20 @@
   dataset version, seed metadata, generation mode, target candidate count when
   applicable, profile purpose, supported feature flags, and, for
   `run_profile_v2`, an optional governed local JSON source declaration for
-  supported domains. Profile purpose is one of `diagnostic_probe`,
+  supported domains. Any supported version may opt into the compatible
+  `coverage_profile` reference described below; its absence preserves the
+  existing profile meaning. Profile purpose is one of `diagnostic_probe`,
   `release_candidate`, or `benchmark`.
+- **Coverage Profile Reference:** optional run-profile object with exact
+  `profile_id` and `version` fields plus optional
+  `overrides.balance_weights`. Overrides may reference only cells selected by
+  the named profile and must remain within its declared positive weight bound.
+  Selecting coverage requires an explicit positive target candidate count.
+- **Coverage Plan:** sanitized `coverage_plan_v1` preview artifact compiled
+  before generation from one domain-owned catalog, named coverage profile,
+  enabled features, accepted-sample target, admitted aggregate capacity, and
+  bounded overrides. The plan records the target distribution and attempt
+  ceiling separately.
 - **Source Record:** provenance contract for fixture, synthetic, transformed, or
   external/local-file material, including source id, sanitized origin reference,
   content hash, license label, retrieval timestamp when applicable, and
@@ -460,6 +472,30 @@ persisted candidate lineage carries only the integer
 `excluded_instruction_count` for the exclusion list.
 Evaluation, profile-decision, release, and release-pack artifacts preserve the
 same validated mapping so campaign evidence can reject metadata drift.
+
+Coverage-enabled profile preview does not write a dataset manifest. The
+contacts-owned `contacts_coverage_v1` catalog currently declares the reachable
+read-only lookup and lookup-bound follow-up cells using the shared dimension
+vocabulary. The built-in `contacts_smoke_v1` and
+`contacts_representative_v1` profiles declare mandatory floors, balance
+weights, grounding reuse, an attempt ratio, and an override bound. The shared
+compiler rejects unknown contract or profile versions, unknown dimensions,
+duplicate cells, profile/catalog contradictions, missing required features,
+invalid overrides, insufficient admitted capacity, and impossible floors.
+
+`coverage_plan.json` uses canonical UTF-8 JSON with a trailing newline. It
+contains only stable identifiers, contract versions and hashes, enabled feature
+names, aggregate capacity counts and hash, per-cell target counts, mandatory
+floors, effective balance weights, feature requirements, grounding-reuse
+policy, attempt policy, the accepted-sample target, and the distinct bounded
+attempt ceiling. `plan_hash` binds the complete plan payload; `plan_id` is
+derived from that hash. Raw grounding rows, source payloads, prompts, provider
+records, credentials, and host paths are excluded. Fixed inputs produce the
+same bytes. `--preview-coverage-plan` prints those bytes and
+`--write-coverage-plan` writes them under `--output-dir`; both exit before
+candidate generation or execution. Coverage-enabled candidate execution,
+assignments, backfill, and run-level fulfillment evidence are not part of this
+contract yet.
 
 Profile-configured runs also attach a narrow per-record attribution record under
 `lineage.run_profile` for accepted samples and `details.run_profile` for

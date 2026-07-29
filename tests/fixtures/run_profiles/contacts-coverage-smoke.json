@@ -1,0 +1,29 @@
+{
+  "schema_version": "run_profile_v1",
+  "profile_id": "contacts_coverage_smoke",
+  "dataset_version": "dataset_contacts_coverage_smoke_v1",
+  "profile_purpose": "diagnostic_probe",
+  "seed": {
+    "seed_id": "seed_contacts_coverage_smoke",
+    "domain": "contacts_fixture",
+    "description": "Compile a bounded contacts coverage smoke plan.",
+    "task_taxonomy": [
+      "contact_lookup",
+      "contact_followup"
+    ]
+  },
+  "generation": {
+    "mode": "deterministic_scale_probe",
+    "target_candidate_count": 6
+  },
+  "features": {},
+  "coverage_profile": {
+    "profile_id": "contacts_smoke",
+    "version": "contacts_smoke_v1",
+    "overrides": {
+      "balance_weights": {
+        "contacts.lookup_by_name": 2
+      }
+    }
+  }
+}

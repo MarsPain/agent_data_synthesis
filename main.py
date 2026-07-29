@@ -21,6 +21,7 @@ from synthesis.datasets import (
     attach_reward_labels_to_manifest,
 )
 from synthesis.dataset_release import write_dataset_release_report
+from synthesis.coverage import CoveragePlanValidationError
 from synthesis.episode_quality import (
     EPISODE_QUALITY_REPORT_FILENAME,
     build_episode_quality_report,
@@ -38,6 +39,7 @@ from synthesis.pipeline import (
     build_domain_llm_candidate_generator_factory,
     build_llm_candidate_generator,
     build_llm_task_expansion_generator,
+    preview_coverage_plan,
     run_foundation_pipeline,
 )
 from synthesis.profile_decisions import write_profile_decision_report
@@ -95,6 +97,22 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Validated run_profile_v1, run_profile_v2, run_profile_v3, "
             "or run_profile_v4 JSON file."
+        ),
+    )
+    parser.add_argument(
+        "--preview-coverage-plan",
+        action="store_true",
+        help=(
+            "Print the sanitized coverage plan selected by the run profile and "
+            "exit without generating or executing candidates."
+        ),
+    )
+    parser.add_argument(
+        "--write-coverage-plan",
+        action="store_true",
+        help=(
+            "Write coverage_plan.json under --output-dir and exit without "
+            "generating or executing candidates."
         ),
     )
     parser.add_argument(
@@ -264,6 +282,26 @@ def parse_args() -> argparse.Namespace:
 
     if args.loaded_run_profile is not None:
         _validate_profile_cli_combinations(parser, args.loaded_run_profile, args)
+    coverage_preview_requested = (
+        args.preview_coverage_plan or args.write_coverage_plan
+    )
+    if coverage_preview_requested and (
+        args.loaded_run_profile is None
+        or args.loaded_run_profile.coverage_profile is None
+    ):
+        parser.error(
+            "--preview-coverage-plan and --write-coverage-plan require a run "
+            "profile with coverage_profile"
+        )
+    if (
+        args.loaded_run_profile is not None
+        and args.loaded_run_profile.coverage_profile is not None
+        and not coverage_preview_requested
+    ):
+        parser.error(
+            "coverage-enabled execution is not available yet; use "
+            "--preview-coverage-plan or --write-coverage-plan"
+        )
 
     if args.enable_network_source:
         if not args.source_url:
@@ -278,20 +316,6 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     profile: RunProfile | None = args.loaded_run_profile
-    candidate_generator, candidate_generator_factory = _profile_candidate_generators(
-        profile,
-        use_llm=args.use_llm,
-    )
-    task_expansion_generator = (
-        build_llm_task_expansion_generator()
-        if args.use_llm and _feature_enabled(args, profile, "enable_task_expansion")
-        else None
-    )
-    refiner = (
-        deterministic_fixture_refiner
-        if _feature_enabled(args, profile, "enable_refinement")
-        else None
-    )
     source_bundle = (
         build_external_fixture_source_bundle(network_enabled=True)
         if _feature_enabled(args, profile, "enable_source_governance_fixture")
@@ -349,6 +373,40 @@ def main() -> int:
         source_bundle = network_source.source_bundle
         domain_environment_input = network_source.environment_input
         source_events = network_source.events
+    if args.preview_coverage_plan or args.write_coverage_plan:
+        assert profile is not None
+        try:
+            plan = preview_coverage_plan(
+                profile,
+                admitted_environment_input=domain_environment_input,
+                output_path=(
+                    args.output_dir / "coverage_plan.json"
+                    if args.write_coverage_plan
+                    else None
+                ),
+            )
+        except (CoveragePlanValidationError, ValueError) as exc:
+            print(f"coverage plan validation failed: {exc}", file=sys.stderr)
+            return 1
+        if args.preview_coverage_plan:
+            sys.stdout.write(plan.to_bytes().decode("utf-8"))
+        elif args.write_coverage_plan:
+            print(f"Coverage plan written: {args.output_dir / 'coverage_plan.json'}")
+        return 0
+    candidate_generator, candidate_generator_factory = _profile_candidate_generators(
+        profile,
+        use_llm=args.use_llm,
+    )
+    task_expansion_generator = (
+        build_llm_task_expansion_generator()
+        if args.use_llm and _feature_enabled(args, profile, "enable_task_expansion")
+        else None
+    )
+    refiner = (
+        deterministic_fixture_refiner
+        if _feature_enabled(args, profile, "enable_refinement")
+        else None
+    )
     start_time = time.perf_counter() if args.write_profile_decision_report else None
     try:
         result = run_foundation_pipeline(

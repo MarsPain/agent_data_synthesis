@@ -3,7 +3,7 @@
 - **Status:** Ticketed
 - **Canonical spec:** [Coverage-Driven Representative Synthesis](../../docs/product-specs/coverage-driven-representative-synthesis.md)
 - **Architecture context:** [Domain-Aware Representative Generation](../../docs/design-docs/domain-aware-representative-generation.md)
-- **Current phase:** Ready for implementation
+- **Current phase:** Contacts assignment tracer
 
 This directory is the feature-level aggregation point for delivery state. The
 canonical desired behavior and accepted implementation and testing decisions
@@ -12,7 +12,7 @@ live only in the tickets under `issues/`.
 
 ## Tickets
 
-1. [Compile deterministic coverage plans](issues/01-compile-coverage-plans.md) — ready for agent
+1. [Compile deterministic coverage plans](issues/01-compile-coverage-plans.md) — completed
 2. [Run one contacts assignment end to end](issues/02-contacts-coverage-tracer.md) — ready for agent
 3. [Backfill accepted-coverage deficits](issues/03-bounded-coverage-backfill.md) — ready for agent
 4. [Add mobile and workspace coverage catalogs](issues/04-three-domain-coverage-catalogs.md) — ready for agent
@@ -30,4 +30,4 @@ complete.
 
 ## Frontier
 
-Ticket 01 can start immediately.
+Ticket 02 can start now that deterministic plan compilation is complete.

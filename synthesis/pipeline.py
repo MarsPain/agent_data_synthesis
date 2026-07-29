@@ -16,6 +16,8 @@ from synthesis.candidate_processing import (
     merge_candidate_outcomes,
     process_candidate_through_gates,
 )
+from synthesis.coverage import CoveragePlan, compile_coverage_plan, write_coverage_plan
+from synthesis.coverage_registry import resolve_domain_coverage_planning
 from synthesis.datasets import (
     DatasetArtifacts,
     assemble_generation_stage_rejection,
@@ -94,6 +96,57 @@ TaskExpansionGenerator = Callable[[DomainSeed], TaskExpansionResult]
 
 class FoundationGateError(RuntimeError):
     pass
+
+
+def preview_coverage_plan(
+    run_profile: object,
+    *,
+    admitted_environment_input: object | None = None,
+    output_path: Path | None = None,
+) -> CoveragePlan:
+    coverage_reference = getattr(run_profile, "coverage_profile", None)
+    if coverage_reference is None:
+        raise ValueError("run profile does not select a coverage profile")
+    generation = getattr(run_profile, "generation", None)
+    target_count = getattr(generation, "target_candidate_count", None)
+    if (
+        not isinstance(target_count, int)
+        or isinstance(target_count, bool)
+        or target_count <= 0
+    ):
+        raise ValueError(
+            "run profile target candidate count is required for coverage planning"
+        )
+    seed = getattr(run_profile, "seed", None)
+    domain_id = getattr(seed, "domain", None)
+    if not isinstance(domain_id, str):
+        raise ValueError("run profile seed domain is required for coverage planning")
+    planning = resolve_domain_coverage_planning(domain_id)
+    coverage_profile = planning.resolve_profile(
+        str(getattr(coverage_reference, "profile_id")),
+        str(getattr(coverage_reference, "version")),
+    )
+    features = getattr(run_profile, "features", None)
+    selected_features = tuple(
+        features.enabled_feature_names()
+        if features is not None
+        else ()
+    )
+    plan = compile_coverage_plan(
+        catalog=planning.catalog,
+        coverage_profile=coverage_profile,
+        selected_features=selected_features,
+        target_accepted_sample_count=target_count,
+        admitted_capacity=planning.resolve_capacity(admitted_environment_input),
+        balance_weight_overrides=getattr(
+            coverage_reference,
+            "balance_weight_overrides",
+            {},
+        ),
+    )
+    if output_path is not None:
+        write_coverage_plan(output_path, plan)
+    return plan
 
 
 def build_llm_candidate_generator(

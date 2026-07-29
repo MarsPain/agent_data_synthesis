@@ -37,6 +37,9 @@ admission artifacts. Canonical design detail lives in [docs/](docs/).
 - `run_profile_v4` admission runs additionally emit a deterministic
   `mutation_admission_report.json` and a hash-bound v2 manifest; mutation-safe
   release packs are verified entirely from these retained artifacts.
+- Versioned run profiles may opt into contacts coverage planning through a
+  named `coverage_profile`. Plan preview is local, deterministic, and does not
+  generate or execute candidates.
 - Remote LLM generation is supported through an OpenAI-compatible API, but local
   LLM serving, distributed workers, external MCP servers, Agentic RL rollout
   collection, and separate `awm_runtime` publishing are intentionally deferred.
@@ -62,6 +65,8 @@ uv run python main.py --enable-task-expansion --output-dir artifacts/foundation-
 uv run python main.py --enable-source-governance-fixture --output-dir artifacts/foundation-source-governance
 
 # Profile-driven contacts, mobile, and workspace runs
+uv run python main.py --run-profile tests/fixtures/run_profiles/contacts-coverage-smoke.json --preview-coverage-plan
+uv run python main.py --run-profile tests/fixtures/run_profiles/contacts-coverage-smoke.json --write-coverage-plan --output-dir artifacts/contacts-coverage-preview
 uv run python main.py --run-profile tests/fixtures/run_profiles/foundation-scale-probe-25.json --write-evaluation-report --write-profile-decision-report --output-dir artifacts/foundation-scale-probe
 uv run python main.py --run-profile tests/fixtures/run_profiles/profile-local-contacts.json --output-dir artifacts/profile-local-contacts
 uv run python main.py --run-profile tests/fixtures/run_profiles/profile-local-mobile-messages.json --write-episode-replay-report --write-reward-label-report --output-dir artifacts/profile-local-mobile

@@ -120,6 +120,26 @@ class RunProfileMutationAdmission:
 
 
 @dataclass(frozen=True)
+class RunProfileCoverageProfile:
+    profile_id: str
+    version: str
+    balance_weight_overrides: Mapping[str, int]
+
+    def canonical(self) -> dict[str, object]:
+        canonical: dict[str, object] = {
+            "profile_id": self.profile_id,
+            "version": self.version,
+        }
+        if self.balance_weight_overrides:
+            canonical["overrides"] = {
+                "balance_weights": dict(
+                    sorted(self.balance_weight_overrides.items())
+                )
+            }
+        return canonical
+
+
+@dataclass(frozen=True)
 class RunProfile:
     schema_version: str
     profile_id: str
@@ -131,6 +151,7 @@ class RunProfile:
     config_hash: str
     source: RunProfileSource | None = None
     mutation_admission: RunProfileMutationAdmission = RunProfileMutationAdmission()
+    coverage_profile: RunProfileCoverageProfile | None = None
 
     def sanitized_metadata(
         self,
@@ -151,6 +172,8 @@ class RunProfile:
             metadata["source"] = dict(source_summary)
         if self.schema_version == "run_profile_v4":
             metadata["mutation_admission"] = self.mutation_admission.canonical()
+        if self.coverage_profile is not None:
+            metadata["coverage_profile"] = self.coverage_profile.canonical()
         return metadata
 
     def canonical(self) -> dict[str, object]:
@@ -164,6 +187,7 @@ class RunProfile:
             features=self.features,
             source=self.source,
             mutation_admission=self.mutation_admission,
+            coverage_profile=self.coverage_profile,
         )
 
 
@@ -192,6 +216,14 @@ def load_run_profile(path: Path) -> RunProfile:
         generation_mode=generation.mode,
     )
     features = _load_features(raw.get("features", {}))
+    coverage_profile = _load_coverage_profile(raw.get("coverage_profile"))
+    if (
+        coverage_profile is not None
+        and generation.target_candidate_count is None
+    ):
+        raise RunProfileValidationError(
+            "generation.target_candidate_count is required with coverage_profile"
+        )
     source = _load_source(raw.get("source"), schema_version=schema_version, profile_path=path)
     mutation_admission = _load_mutation_admission(
         raw.get("mutation_admission"),
@@ -220,6 +252,7 @@ def load_run_profile(path: Path) -> RunProfile:
         features=features,
         source=source,
         mutation_admission=mutation_admission,
+        coverage_profile=coverage_profile,
     )
     return RunProfile(
         schema_version=schema_version,
@@ -232,6 +265,61 @@ def load_run_profile(path: Path) -> RunProfile:
         config_hash=_config_hash(canonical),
         source=source,
         mutation_admission=mutation_admission,
+        coverage_profile=coverage_profile,
+    )
+
+
+def _load_coverage_profile(raw_coverage_profile: object) -> RunProfileCoverageProfile | None:
+    if raw_coverage_profile is None:
+        return None
+    coverage_profile = _require_mapping(raw_coverage_profile, "coverage_profile")
+    unknown_keys = sorted(
+        str(key)
+        for key in coverage_profile
+        if key not in {"profile_id", "version", "overrides"}
+    )
+    if unknown_keys:
+        raise RunProfileValidationError(
+            f"unsupported coverage_profile keys: {', '.join(unknown_keys)}"
+        )
+    overrides = _require_mapping(
+        coverage_profile.get("overrides", {}),
+        "coverage_profile.overrides",
+    )
+    unknown_override_keys = sorted(
+        str(key) for key in overrides if key != "balance_weights"
+    )
+    if unknown_override_keys:
+        raise RunProfileValidationError(
+            "unsupported coverage_profile.overrides keys: "
+            + ", ".join(unknown_override_keys)
+        )
+    raw_weights = _require_mapping(
+        overrides.get("balance_weights", {}),
+        "coverage_profile.overrides.balance_weights",
+    )
+    weights: dict[str, int] = {}
+    for raw_cell_id, raw_weight in raw_weights.items():
+        cell_id = _require_string(
+            raw_cell_id,
+            "coverage_profile.overrides.balance_weights cell id",
+        )
+        weight = _optional_positive_int(
+            raw_weight,
+            f"coverage_profile.overrides.balance_weights.{cell_id}",
+        )
+        assert weight is not None
+        weights[cell_id] = weight
+    return RunProfileCoverageProfile(
+        profile_id=_require_string(
+            coverage_profile.get("profile_id"),
+            "coverage_profile.profile_id",
+        ),
+        version=_require_string(
+            coverage_profile.get("version"),
+            "coverage_profile.version",
+        ),
+        balance_weight_overrides=weights,
     )
 
 
@@ -560,6 +648,7 @@ def _canonical_profile_mapping(
     features: RunProfileFeatures,
     source: RunProfileSource | None = None,
     mutation_admission: RunProfileMutationAdmission = RunProfileMutationAdmission(),
+    coverage_profile: RunProfileCoverageProfile | None = None,
 ) -> dict[str, object]:
     canonical: dict[str, object] = {
         "schema_version": schema_version,
@@ -579,6 +668,8 @@ def _canonical_profile_mapping(
         canonical["source"] = source.canonical()
     if schema_version == "run_profile_v4":
         canonical["mutation_admission"] = mutation_admission.canonical()
+    if coverage_profile is not None:
+        canonical["coverage_profile"] = coverage_profile.canonical()
     return canonical
 
 

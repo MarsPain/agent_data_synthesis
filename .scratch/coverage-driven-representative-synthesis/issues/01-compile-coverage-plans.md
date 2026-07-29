@@ -9,24 +9,24 @@ generation.
 
 **Blocked by:** None — can start immediately
 
-**Status:** ready-for-agent
+**Status:** completed
 
-**Assignee:** Unassigned
+**Assignee:** Codex
 
 **Parent spec:** [Coverage-Driven Representative Synthesis](../../../docs/product-specs/coverage-driven-representative-synthesis.md)
 
 ## Acceptance criteria
 
-- [ ] A versioned run profile can opt into a named versioned coverage profile while existing profiles retain their current meaning.
-- [ ] Contacts can expose a versioned domain-owned catalog of stable reachable coverage cells without adding contacts-specific branches to the shared compiler.
-- [ ] The shared compiler accepts domain catalog, coverage profile, selected features, target count, admitted capacity, and bounded overrides and emits one deterministic plan.
-- [ ] The plan distinguishes target accepted-sample distribution from its bounded attempt ceiling.
-- [ ] The normal programmatic and command-line surfaces can preview and write the sanitized plan without calling a provider or executing a candidate.
-- [ ] Mandatory floors, balancing policy, grounding-reuse limits, feature requirements, and attempt policy are explicit and hash-bound.
-- [ ] Unknown versions or dimensions, duplicate cells, contradictory constraints, unavailable features, invalid overrides, insufficient capacity, and statically impossible floors fail locally before any provider call.
-- [ ] Fixed inputs produce byte-stable plan content and hashes.
-- [ ] Public profile and plan validation tests assert externally visible contracts rather than prompt text or private helper structure.
-- [ ] Documentation describes the new profile surface without changing existing default commands.
+- [x] A versioned run profile can opt into a named versioned coverage profile while existing profiles retain their current meaning.
+- [x] Contacts can expose a versioned domain-owned catalog of stable reachable coverage cells without adding contacts-specific branches to the shared compiler.
+- [x] The shared compiler accepts domain catalog, coverage profile, selected features, target count, admitted capacity, and bounded overrides and emits one deterministic plan.
+- [x] The plan distinguishes target accepted-sample distribution from its bounded attempt ceiling.
+- [x] The normal programmatic and command-line surfaces can preview and write the sanitized plan without calling a provider or executing a candidate.
+- [x] Mandatory floors, balancing policy, grounding-reuse limits, feature requirements, and attempt policy are explicit and hash-bound.
+- [x] Unknown versions or dimensions, duplicate cells, contradictory constraints, unavailable features, invalid overrides, insufficient capacity, and statically impossible floors fail locally before any provider call.
+- [x] Fixed inputs produce byte-stable plan content and hashes.
+- [x] Public profile and plan validation tests assert externally visible contracts rather than prompt text or private helper structure.
+- [x] Documentation describes the new profile surface without changing existing default commands.
 
 ## Scope guard
 
