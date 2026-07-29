@@ -123,12 +123,14 @@ class RunProfileMutationAdmission:
 class RunProfileCoverageProfile:
     profile_id: str
     version: str
+    target_accepted_sample_count: int
     balance_weight_overrides: Mapping[str, int]
 
     def canonical(self) -> dict[str, object]:
         canonical: dict[str, object] = {
             "profile_id": self.profile_id,
             "version": self.version,
+            "target_accepted_sample_count": self.target_accepted_sample_count,
         }
         if self.balance_weight_overrides:
             canonical["overrides"] = {
@@ -217,13 +219,6 @@ def load_run_profile(path: Path) -> RunProfile:
     )
     features = _load_features(raw.get("features", {}))
     coverage_profile = _load_coverage_profile(raw.get("coverage_profile"))
-    if (
-        coverage_profile is not None
-        and generation.target_candidate_count is None
-    ):
-        raise RunProfileValidationError(
-            "generation.target_candidate_count is required with coverage_profile"
-        )
     source = _load_source(raw.get("source"), schema_version=schema_version, profile_path=path)
     mutation_admission = _load_mutation_admission(
         raw.get("mutation_admission"),
@@ -276,7 +271,13 @@ def _load_coverage_profile(raw_coverage_profile: object) -> RunProfileCoveragePr
     unknown_keys = sorted(
         str(key)
         for key in coverage_profile
-        if key not in {"profile_id", "version", "overrides"}
+        if key
+        not in {
+            "profile_id",
+            "version",
+            "target_accepted_sample_count",
+            "overrides",
+        }
     )
     if unknown_keys:
         raise RunProfileValidationError(
@@ -310,6 +311,14 @@ def _load_coverage_profile(raw_coverage_profile: object) -> RunProfileCoveragePr
         )
         assert weight is not None
         weights[cell_id] = weight
+    target_accepted_sample_count = _optional_positive_int(
+        coverage_profile.get("target_accepted_sample_count"),
+        "coverage_profile.target_accepted_sample_count",
+    )
+    if target_accepted_sample_count is None:
+        raise RunProfileValidationError(
+            "coverage_profile.target_accepted_sample_count must be a positive integer"
+        )
     return RunProfileCoverageProfile(
         profile_id=_require_string(
             coverage_profile.get("profile_id"),
@@ -319,6 +328,7 @@ def _load_coverage_profile(raw_coverage_profile: object) -> RunProfileCoveragePr
             coverage_profile.get("version"),
             "coverage_profile.version",
         ),
+        target_accepted_sample_count=target_accepted_sample_count,
         balance_weight_overrides=weights,
     )
 

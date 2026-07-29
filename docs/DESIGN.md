@@ -69,7 +69,8 @@ accepted-sample target, and bounded emphasis overrides. It emits a sanitized,
 hash-bound `coverage_plan_v1` with an accepted-sample distribution and a
 separate attempt ceiling. Contacts provides the first catalog. Plan preview may
 write this artifact without constructing a provider client or executing a
-candidate; assignment scheduling and coverage fulfillment remain later work.
+candidate. Assignment scheduling and coverage fulfillment are outside this
+pre-generation contract.
 
 ### Trajectory Execution
 

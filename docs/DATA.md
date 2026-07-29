@@ -12,10 +12,11 @@
   existing profile meaning. Profile purpose is one of `diagnostic_probe`,
   `release_candidate`, or `benchmark`.
 - **Coverage Profile Reference:** optional run-profile object with exact
-  `profile_id` and `version` fields plus optional
-  `overrides.balance_weights`. Overrides may reference only cells selected by
-  the named profile and must remain within its declared positive weight bound.
-  Selecting coverage requires an explicit positive target candidate count.
+  `profile_id`, `version`, and positive `target_accepted_sample_count` fields
+  plus optional `overrides.balance_weights`. Overrides may reference only cells
+  selected by the named profile and must remain within its declared positive
+  weight bound. The explicit accepted-sample target is distinct from
+  `generation.target_candidate_count`, whose existing meaning is unchanged.
 - **Coverage Plan:** sanitized `coverage_plan_v1` preview artifact compiled
   before generation from one domain-owned catalog, named coverage profile,
   enabled features, accepted-sample target, admitted aggregate capacity, and

@@ -214,8 +214,8 @@ trajectories, exports, or logs.
    aggregate environment capacity into the domain planning definition. The
    `--preview-coverage-plan` and `--write-coverage-plan` paths compile and
    optionally write `coverage_plan.json`, then exit before provider
-   construction, candidate generation, or execution. Coverage-enabled execution
-   remains disabled until assignment scheduling is implemented.
+   construction, candidate generation, or execution. Coverage-enabled candidate
+   execution is outside this preview-only boundary.
 4. Build or load an environment version with source provenance, source-policy
    hash metadata, and environment-source admission status. Preserve that
    provenance when rebuilding isolated per-candidate environments.

@@ -14,12 +14,13 @@
   },
   "generation": {
     "mode": "deterministic_scale_probe",
-    "target_candidate_count": 6
+    "target_candidate_count": 8
   },
   "features": {},
   "coverage_profile": {
     "profile_id": "contacts_smoke",
     "version": "contacts_smoke_v1",
+    "target_accepted_sample_count": 6,
     "overrides": {
       "balance_weights": {
         "contacts.lookup_by_name": 2

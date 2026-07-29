@@ -232,6 +232,7 @@ class RunProfileTest(unittest.TestCase):
                     "coverage_profile": {
                         "profile_id": "contacts_smoke",
                         "version": "contacts_smoke_v1",
+                        "target_accepted_sample_count": 6,
                         "overrides": {
                             "balance_weights": {
                                 "contacts.lookup_by_name": 2,
@@ -248,6 +249,10 @@ class RunProfileTest(unittest.TestCase):
             self.assertEqual(profile.coverage_profile.profile_id, "contacts_smoke")
             self.assertEqual(profile.coverage_profile.version, "contacts_smoke_v1")
             self.assertEqual(
+                profile.coverage_profile.target_accepted_sample_count,
+                6,
+            )
+            self.assertEqual(
                 profile.coverage_profile.balance_weight_overrides,
                 {"contacts.lookup_by_name": 2},
             )
@@ -256,6 +261,7 @@ class RunProfileTest(unittest.TestCase):
                 {
                     "profile_id": "contacts_smoke",
                     "version": "contacts_smoke_v1",
+                    "target_accepted_sample_count": 6,
                     "overrides": {
                         "balance_weights": {
                             "contacts.lookup_by_name": 2,
@@ -268,14 +274,13 @@ class RunProfileTest(unittest.TestCase):
                 profile.sanitized_metadata()["coverage_profile"],
             )
 
-    def test_coverage_profile_requires_an_explicit_target_count(self) -> None:
+    def test_coverage_profile_requires_an_explicit_accepted_sample_target(self) -> None:
         from synthesis.run_profiles import RunProfileValidationError, load_run_profile
 
         with tempfile.TemporaryDirectory() as tmp:
             path = self._write_profile(
                 Path(tmp),
                 overrides={
-                    "generation": {"mode": "foundation_fixture"},
                     "coverage_profile": {
                         "profile_id": "contacts_smoke",
                         "version": "contacts_smoke_v1",
@@ -285,7 +290,7 @@ class RunProfileTest(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 RunProfileValidationError,
-                "target_candidate_count is required with coverage_profile",
+                "coverage_profile.target_accepted_sample_count",
             ):
                 load_run_profile(path)
 

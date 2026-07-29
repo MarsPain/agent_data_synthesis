@@ -186,6 +186,31 @@ class CoveragePlanCompilationTest(unittest.TestCase):
                 "unknown contacts coverage profile",
             ),
             (
+                "unknown matching catalog and profile versions",
+                lambda: compile_with(
+                    catalog=replace(
+                        catalog,
+                        version="contacts_coverage_v99",
+                    ),
+                    coverage_profile=replace(
+                        coverage_profile,
+                        version="contacts_smoke_v99",
+                        catalog_version="contacts_coverage_v99",
+                    ),
+                ),
+                "unknown coverage catalog version",
+            ),
+            (
+                "unknown matching profile version",
+                lambda: compile_with(
+                    coverage_profile=replace(
+                        coverage_profile,
+                        version="contacts_smoke_v99",
+                    ),
+                ),
+                "unknown coverage profile version",
+            ),
+            (
                 "unknown dimension",
                 lambda: compile_with(
                     catalog=replace(
@@ -235,6 +260,30 @@ class CoveragePlanCompilationTest(unittest.TestCase):
                     )
                 ),
                 "attempt policy contradicts",
+            ),
+            (
+                "boolean grounding reuse limit",
+                lambda: compile_with(
+                    coverage_profile=replace(
+                        coverage_profile,
+                        max_accepted_samples_per_grounding_unit=True,
+                    )
+                ),
+                "grounding reuse limit must be a positive integer",
+            ),
+            (
+                "boolean attempt multiplier",
+                lambda: compile_with(
+                    coverage_profile=replace(
+                        coverage_profile,
+                        attempt_policy=CoverageAttemptPolicy(
+                            policy_version="bounded_attempt_ratio_v1",
+                            multiplier_numerator=True,
+                            multiplier_denominator=1,
+                        ),
+                    )
+                ),
+                "attempt policy multipliers must be positive integers",
             ),
             (
                 "unavailable feature",
@@ -295,6 +344,12 @@ class CoveragePlanCompilationTest(unittest.TestCase):
 
         profile = load_run_profile(
             Path("tests/fixtures/run_profiles/contacts-coverage-smoke.json")
+        )
+        self.assertEqual(profile.generation.target_candidate_count, 8)
+        assert profile.coverage_profile is not None
+        self.assertEqual(
+            profile.coverage_profile.target_accepted_sample_count,
+            6,
         )
         with tempfile.TemporaryDirectory() as tmp:
             output_path = Path(tmp) / "coverage_plan.json"

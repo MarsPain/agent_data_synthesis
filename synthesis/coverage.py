@@ -148,28 +148,45 @@ class AdmittedCoverageCapacity:
 
 @dataclass(frozen=True)
 class CoveragePlan:
-    record: Mapping[str, object]
-
-    @property
-    def plan_hash(self) -> str:
-        return str(self.record["plan_hash"])
-
-    @property
-    def plan_id(self) -> str:
-        return str(self.record["plan_id"])
-
-    @property
-    def attempt_ceiling(self) -> int:
-        value = self.record["attempt_ceiling"]
-        if not isinstance(value, int) or isinstance(value, bool):
-            raise TypeError("coverage plan attempt ceiling is not an integer")
-        return value
+    schema_version: str
+    plan_id: str
+    plan_hash: str
+    domain_id: str
+    catalog: Mapping[str, object]
+    coverage_profile: Mapping[str, object]
+    selected_features: tuple[str, ...]
+    target_accepted_sample_count: int
+    target_distribution: tuple[Mapping[str, object], ...]
+    attempt_ceiling: int
+    policies: Mapping[str, object]
+    cell_requirements: tuple[Mapping[str, object], ...]
+    overrides: Mapping[str, object]
+    admitted_capacity: Mapping[str, object]
 
     def canonical(self) -> dict[str, object]:
-        return dict(self.record)
+        return {
+            "schema_version": self.schema_version,
+            "plan_id": self.plan_id,
+            "plan_hash": self.plan_hash,
+            "domain_id": self.domain_id,
+            "catalog": dict(self.catalog),
+            "coverage_profile": dict(self.coverage_profile),
+            "selected_features": list(self.selected_features),
+            "target_accepted_sample_count": self.target_accepted_sample_count,
+            "target_distribution": [
+                dict(item) for item in self.target_distribution
+            ],
+            "attempt_ceiling": self.attempt_ceiling,
+            "policies": dict(self.policies),
+            "cell_requirements": [
+                dict(item) for item in self.cell_requirements
+            ],
+            "overrides": dict(self.overrides),
+            "admitted_capacity": dict(self.admitted_capacity),
+        }
 
     def to_bytes(self) -> bytes:
-        return (_canonical_json(self.record) + "\n").encode("utf-8")
+        return (_canonical_json(self.canonical()) + "\n").encode("utf-8")
 
 
 def write_coverage_plan(path: Path, plan: CoveragePlan) -> Path:
@@ -335,13 +352,36 @@ def compile_coverage_plan(
         },
     }
     plan_hash = _canonical_hash(payload)
-    record = {
-        "schema_version": COVERAGE_PLAN_VERSION,
-        "plan_id": f"coverage_plan_{plan_hash.removeprefix('sha256:')[:16]}",
-        "plan_hash": plan_hash,
-        **{key: value for key, value in payload.items() if key != "schema_version"},
-    }
-    return CoveragePlan(record=record)
+    catalog_record = payload["catalog"]
+    profile_record = payload["coverage_profile"]
+    target_distribution = payload["target_distribution"]
+    policies = payload["policies"]
+    cell_requirements = payload["cell_requirements"]
+    overrides_record = payload["overrides"]
+    capacity_record = payload["admitted_capacity"]
+    assert isinstance(catalog_record, Mapping)
+    assert isinstance(profile_record, Mapping)
+    assert isinstance(target_distribution, list)
+    assert isinstance(policies, Mapping)
+    assert isinstance(cell_requirements, list)
+    assert isinstance(overrides_record, Mapping)
+    assert isinstance(capacity_record, Mapping)
+    return CoveragePlan(
+        schema_version=COVERAGE_PLAN_VERSION,
+        plan_id=f"coverage_plan_{plan_hash.removeprefix('sha256:')[:16]}",
+        plan_hash=plan_hash,
+        domain_id=catalog.domain_id,
+        catalog=catalog_record,
+        coverage_profile=profile_record,
+        selected_features=tuple(sorted(selected_features)),
+        target_accepted_sample_count=target_accepted_sample_count,
+        target_distribution=tuple(target_distribution),
+        attempt_ceiling=attempt_ceiling,
+        policies=policies,
+        cell_requirements=tuple(cell_requirements),
+        overrides=overrides_record,
+        admitted_capacity=capacity_record,
+    )
 
 
 def _validate_compilation_inputs(
@@ -358,6 +398,19 @@ def _validate_compilation_inputs(
         raise CoveragePlanValidationError("unknown coverage profile schema version")
     if admitted_capacity.schema_version != COVERAGE_CAPACITY_VERSION:
         raise CoveragePlanValidationError("unknown coverage capacity schema version")
+    _require_non_empty_string(catalog.catalog_id, "coverage catalog id")
+    _require_non_empty_string(catalog.version, "coverage catalog version")
+    _require_non_empty_string(catalog.domain_id, "coverage catalog domain")
+    if catalog.version != f"{catalog.catalog_id}_v1":
+        raise CoveragePlanValidationError(
+            f"unknown coverage catalog version: {catalog.version}"
+        )
+    _require_non_empty_string(coverage_profile.profile_id, "coverage profile id")
+    _require_non_empty_string(coverage_profile.version, "coverage profile version")
+    if coverage_profile.version != f"{coverage_profile.profile_id}_v1":
+        raise CoveragePlanValidationError(
+            f"unknown coverage profile version: {coverage_profile.version}"
+        )
     if catalog.domain_id != admitted_capacity.domain_id:
         raise CoveragePlanValidationError("coverage capacity domain does not match catalog")
     if (
@@ -379,6 +432,11 @@ def _validate_compilation_inputs(
     cell_ids: set[str] = set()
     cell_signatures: set[str] = set()
     for cell in catalog.cells:
+        _require_non_empty_string(cell.cell_id, "coverage cell id")
+        _require_non_empty_string(
+            cell.grounding_capacity_key,
+            f"coverage cell {cell.cell_id} capacity key",
+        )
         if cell.cell_id in cell_ids:
             raise CoveragePlanValidationError(
                 f"duplicate coverage cell id: {cell.cell_id}"
@@ -387,6 +445,20 @@ def _validate_compilation_inputs(
         if set(cell.dimensions) != set(catalog.dimensions):
             raise CoveragePlanValidationError(
                 f"coverage cell {cell.cell_id} dimensions do not match the catalog"
+            )
+        for dimension, value in cell.dimensions.items():
+            _validate_dimension_value(
+                value,
+                field_name=f"coverage cell {cell.cell_id} dimension {dimension}",
+            )
+        if len(cell.required_features) != len(set(cell.required_features)):
+            raise CoveragePlanValidationError(
+                f"coverage cell {cell.cell_id} required features must be unique"
+            )
+        for feature in cell.required_features:
+            _require_non_empty_string(
+                feature,
+                f"coverage cell {cell.cell_id} required feature",
             )
         signature = _canonical_json(cell.canonical()["dimensions"])
         if signature in cell_signatures:
@@ -419,11 +491,11 @@ def _validate_compilation_inputs(
         ("mandatory floor", coverage_profile.mandatory_floors, True),
         ("balance weight", coverage_profile.balance_weights, False),
     ):
-        for cell_id, value in values.items():
+        for cell_id, policy_value in values.items():
             if (
-                not isinstance(value, int)
-                or isinstance(value, bool)
-                or value < (0 if allow_zero else 1)
+                not isinstance(policy_value, int)
+                or isinstance(policy_value, bool)
+                or policy_value < (0 if allow_zero else 1)
             ):
                 raise CoveragePlanValidationError(
                     f"{label} for {cell_id} is invalid"
@@ -442,27 +514,38 @@ def _validate_compilation_inputs(
         raise CoveragePlanValidationError(
             "selected features must be non-empty strings"
         )
-    if (
-        coverage_profile.max_accepted_samples_per_grounding_unit <= 0
-        or coverage_profile.max_balance_weight_override <= 0
+    if not _is_positive_int(
+        coverage_profile.max_accepted_samples_per_grounding_unit
     ):
-        raise CoveragePlanValidationError("coverage profile limits must be positive")
+        raise CoveragePlanValidationError(
+            "grounding reuse limit must be a positive integer"
+        )
+    if not _is_positive_int(coverage_profile.max_balance_weight_override):
+        raise CoveragePlanValidationError(
+            "balance-weight override limit must be a positive integer"
+        )
     attempt_policy = coverage_profile.attempt_policy
+    if not (
+        _is_positive_int(attempt_policy.multiplier_numerator)
+        and _is_positive_int(attempt_policy.multiplier_denominator)
+    ):
+        raise CoveragePlanValidationError(
+            "attempt policy multipliers must be positive integers"
+        )
     if (
         attempt_policy.policy_version != "bounded_attempt_ratio_v1"
-        or attempt_policy.multiplier_denominator <= 0
         or attempt_policy.multiplier_numerator < attempt_policy.multiplier_denominator
     ):
         raise CoveragePlanValidationError(
             "attempt policy contradicts the accepted-sample target"
         )
-    for key, value in admitted_capacity.grounding_units.items():
+    for key, capacity_value in admitted_capacity.grounding_units.items():
         if not isinstance(key, str) or not key:
             raise CoveragePlanValidationError("capacity keys must be non-empty strings")
         if (
-            not isinstance(value, int)
-            or isinstance(value, bool)
-            or value < 0
+            not isinstance(capacity_value, int)
+            or isinstance(capacity_value, bool)
+            or capacity_value < 0
         ):
             raise CoveragePlanValidationError(
                 f"admitted capacity for {key} must be a non-negative integer"
@@ -529,4 +612,36 @@ def _canonical_json(value: object) -> str:
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
+    )
+
+
+def _is_positive_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def _require_non_empty_string(value: object, field_name: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise CoveragePlanValidationError(
+            f"{field_name} must be a non-empty string"
+        )
+    return value
+
+
+def _validate_dimension_value(
+    value: object,
+    *,
+    field_name: str,
+) -> None:
+    if isinstance(value, str):
+        _require_non_empty_string(value, field_name)
+        return
+    if (
+        isinstance(value, tuple)
+        and value
+        and all(isinstance(item, str) and bool(item) for item in value)
+        and len(value) == len(set(value))
+    ):
+        return
+    raise CoveragePlanValidationError(
+        f"{field_name} must be a non-empty string or tuple of unique strings"
     )
