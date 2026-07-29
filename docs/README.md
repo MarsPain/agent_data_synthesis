@@ -33,6 +33,7 @@ the configured issue tracker.
 ## Product Specs
 
 - [product-specs/framework-mvp.md](product-specs/framework-mvp.md): MVP scope and acceptance criteria.
+- [product-specs/coverage-driven-representative-synthesis.md](product-specs/coverage-driven-representative-synthesis.md): domain-owned coverage catalogs, operator-light profiles, deterministic deficit scheduling, bounded backfill, and representative coverage evidence.
 - [product-specs/semantic-mutation-admission.md](product-specs/semantic-mutation-admission.md): pre-execution authorization, provenance, independent semantic judgment, calibration, and enforcement for state-changing candidates.
 - [product-specs/async-local-orchestration.md](product-specs/async-local-orchestration.md): desired behavior and acceptance for resumable local orchestration.
 - [product-specs/semantic-duplicate-detection.md](product-specs/semantic-duplicate-detection.md): desired behavior and evaluation boundary for semantic duplicate detection.
@@ -45,6 +46,7 @@ the configured issue tracker.
 ## References
 
 - [references/agent-data-synthesis-pdf-analysis.md](references/agent-data-synthesis-pdf-analysis.md): structured analysis of `Agent-数据合成.pdf`.
+- [references/semantic-mutation-human-review-guide.md](references/semantic-mutation-human-review-guide.md): blind human-review workflow, verdict rubric, resume behavior, and reviewed-corpus import commands for semantic-mutation calibration.
 
 ## Generated Artifacts
 

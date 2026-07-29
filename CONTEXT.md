@@ -73,6 +73,31 @@ terms, not package structure, implementation plans, or work status. See
 
 - **Run profile:** Versioned input that selects a domain, generation mode,
   candidate target, purpose, feature flags, and optional governed source.
+- **Coverage dimension:** A domain-owned structural axis used to distinguish
+  training experiences, such as task type, tool sequence, state behavior,
+  grounding pattern, constraint profile, difficulty, ambiguity, or recovery
+  behavior.
+- **Coverage cell:** One stable, reachable combination of coverage-dimension
+  values that a domain pack can generate, execute, and verify.
+- **Coverage catalog:** A versioned domain-pack declaration of reachable
+  coverage cells, compatibility constraints, grounding capacity, and
+  difficulty semantics.
+- **Coverage profile:** A named, versioned synthesis policy that converts an
+  operator's purpose and target size into coverage floors, balance, reuse, and
+  attempt-budget requirements without requiring cell-by-cell configuration.
+- **Coverage plan:** The deterministic, hashable target distribution compiled
+  from a run profile, coverage profile, domain catalog, available features,
+  and admitted environment capacity before generation.
+- **Coverage assignment:** One locally issued requirement for a candidate to
+  satisfy a specific coverage cell within a bounded grounding scope. Provider
+  output cannot self-assert assignment fulfillment.
+- **Coverage scheduler:** The framework component that selects mandatory and
+  underfilled coverage assignments, tracks in-flight work, and performs
+  bounded deficit backfill.
+- **Coverage fulfillment:** The accepted-sample evidence that the mandatory
+  cells and distribution requirements in a coverage plan were satisfied.
+  Generated, rejected, or merely executable candidates do not fulfill
+  coverage.
 - **Diagnostic run:** A run intended to test behavior or collect evidence; it is
   not eligible to establish dataset release readiness.
 - **Representative run:** A run that satisfies declared scale, provenance, and

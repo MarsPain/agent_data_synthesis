@@ -313,6 +313,15 @@ def import_human_reviewed_mutation_calibration_corpus(
     return reviewed_corpus
 
 
+def validate_human_mutation_calibration_label(
+    raw: object,
+    *,
+    corpus_version: str,
+) -> None:
+    """Validate one directly human-produced calibration label."""
+    _validate_human_label(raw, corpus_version=corpus_version)
+
+
 def validate_reviewed_mutation_calibration_corpus(raw: object) -> None:
     if not isinstance(raw, Mapping):
         raise ValueError("reviewed mutation calibration corpus must be an object")

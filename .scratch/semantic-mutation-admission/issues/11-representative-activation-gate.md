@@ -41,3 +41,11 @@ rejection. No provider call was made while implementing this ticket. The
 acceptance checklist remains open until an operator supplies approved reviewed
 labels, explicitly authorizes the independent-model calls, and runs the final
 workflow.
+
+On 2026-07-26, the deterministic
+`mutation_calibration_corpus_v1` review packet and held-out split were exported
+under `artifacts/mutation-calibration/`. The packet contains 200 cases, 120
+unsupported or adversarial cases, and 60 held-out cases. Direct human review is
+now the next available execution step; independent-model evaluation remains
+blocked until complete labels are imported and provider authorization is
+available.
