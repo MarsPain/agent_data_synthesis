@@ -65,12 +65,14 @@ shared generator emits `TaskContract` values before crossing the existing
 Coverage planning is a separate pre-generation contract. A domain pack owns its
 versioned reachable-cell catalog and capacity projection; the shared compiler
 validates that data with a named coverage profile, selected run features,
-accepted-sample target, and bounded emphasis overrides. It emits a sanitized,
-hash-bound `coverage_plan_v1` with an accepted-sample distribution and a
-separate attempt ceiling. Contacts provides the first catalog. Plan preview may
-write this artifact without constructing a provider client or executing a
-candidate. Assignment scheduling and coverage fulfillment are outside this
-pre-generation contract.
+accepted-sample target, candidate budget, and bounded emphasis overrides. The
+candidate budget must equal the profile-derived attempt ceiling. The compiler
+emits a sanitized, hash-bound `coverage_plan_v1` with an accepted-sample
+distribution and that separate attempt ceiling. Contacts provides the first
+catalog and authoritative version registry. Plan preview may write this
+artifact without constructing a provider client or executing a candidate.
+Assignment scheduling and coverage fulfillment are outside this pre-generation
+contract.
 
 ### Trajectory Execution
 

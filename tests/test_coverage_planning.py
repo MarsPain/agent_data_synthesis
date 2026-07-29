@@ -12,6 +12,7 @@ class CoveragePlanCompilationTest(unittest.TestCase):
         from synthesis.contacts_coverage import (
             build_contacts_coverage_capacity,
             contacts_coverage_catalog,
+            contacts_coverage_version_registry,
             resolve_contacts_coverage_profile,
         )
         from synthesis.coverage import compile_coverage_plan
@@ -22,20 +23,25 @@ class CoveragePlanCompilationTest(unittest.TestCase):
             "contacts_smoke_v1",
         )
         capacity = build_contacts_coverage_capacity(contact_count=6)
+        version_registry = contacts_coverage_version_registry()
 
         first = compile_coverage_plan(
             catalog=catalog,
             coverage_profile=coverage_profile,
+            version_registry=version_registry,
             selected_features=(),
             target_accepted_sample_count=6,
+            target_candidate_count=9,
             admitted_capacity=capacity,
             balance_weight_overrides={"contacts.lookup_by_name": 2},
         )
         second = compile_coverage_plan(
             catalog=catalog,
             coverage_profile=coverage_profile,
+            version_registry=version_registry,
             selected_features=(),
             target_accepted_sample_count=6,
+            target_candidate_count=9,
             admitted_capacity=capacity,
             balance_weight_overrides={"contacts.lookup_by_name": 2},
         )
@@ -54,6 +60,7 @@ class CoveragePlanCompilationTest(unittest.TestCase):
                 "coverage_profile",
                 "selected_features",
                 "target_accepted_sample_count",
+                "target_candidate_count",
                 "target_distribution",
                 "attempt_ceiling",
                 "policies",
@@ -65,6 +72,7 @@ class CoveragePlanCompilationTest(unittest.TestCase):
         self.assertEqual(record["schema_version"], "coverage_plan_v1")
         self.assertEqual(record["domain_id"], "contacts_fixture")
         self.assertEqual(record["target_accepted_sample_count"], 6)
+        self.assertEqual(record["target_candidate_count"], 9)
         self.assertEqual(record["attempt_ceiling"], 9)
         self.assertEqual(
             record["target_distribution"],
@@ -126,14 +134,15 @@ class CoveragePlanCompilationTest(unittest.TestCase):
         self.assertRegex(record["admitted_capacity"]["capacity_hash"], r"^sha256:[0-9a-f]{64}$")
         self.assertEqual(
             record["plan_hash"],
-            "sha256:8a15527d4d5546db3fc2b752eef07d9061d49c95ad15b1b249fd75d193c390c3",
+            "sha256:a0a0f3094efa226ea731a4dfcc2202c99c9a38efa77254e5c237620089f59721",
         )
-        self.assertEqual(record["plan_id"], "coverage_plan_8a15527d4d5546db")
+        self.assertEqual(record["plan_id"], "coverage_plan_a0a0f3094efa226e")
 
     def test_invalid_or_impossible_plan_inputs_fail_before_generation(self) -> None:
         from synthesis.contacts_coverage import (
             build_contacts_coverage_capacity,
             contacts_coverage_catalog,
+            contacts_coverage_version_registry,
             resolve_contacts_coverage_profile,
         )
         from synthesis.coverage import (
@@ -148,13 +157,16 @@ class CoveragePlanCompilationTest(unittest.TestCase):
             "contacts_smoke_v1",
         )
         capacity = build_contacts_coverage_capacity(contact_count=6)
+        version_registry = contacts_coverage_version_registry()
 
         def compile_with(**changes: object) -> object:
             arguments: dict[str, object] = {
                 "catalog": catalog,
                 "coverage_profile": coverage_profile,
+                "version_registry": version_registry,
                 "selected_features": (),
                 "target_accepted_sample_count": 6,
+                "target_candidate_count": 9,
                 "admitted_capacity": capacity,
                 "balance_weight_overrides": {},
             }
@@ -209,6 +221,22 @@ class CoveragePlanCompilationTest(unittest.TestCase):
                     ),
                 ),
                 "unknown coverage profile version",
+            ),
+            (
+                "invented v1 identities",
+                lambda: compile_with(
+                    catalog=replace(
+                        catalog,
+                        catalog_id="invented",
+                        version="invented_v1",
+                    ),
+                    coverage_profile=replace(
+                        coverage_profile,
+                        catalog_id="invented",
+                        catalog_version="invented_v1",
+                    ),
+                ),
+                "unknown coverage catalog version",
             ),
             (
                 "unknown dimension",
@@ -316,8 +344,14 @@ class CoveragePlanCompilationTest(unittest.TestCase):
                         contact_count=2
                     ),
                     target_accepted_sample_count=5,
+                    target_candidate_count=8,
                 ),
                 "capacity is insufficient",
+            ),
+            (
+                "candidate budget below attempt ceiling",
+                lambda: compile_with(target_candidate_count=8),
+                "target candidate count must equal the profile-derived attempt ceiling",
             ),
             (
                 "statically impossible floors",
@@ -345,7 +379,7 @@ class CoveragePlanCompilationTest(unittest.TestCase):
         profile = load_run_profile(
             Path("tests/fixtures/run_profiles/contacts-coverage-smoke.json")
         )
-        self.assertEqual(profile.generation.target_candidate_count, 8)
+        self.assertEqual(profile.generation.target_candidate_count, 9)
         assert profile.coverage_profile is not None
         self.assertEqual(
             profile.coverage_profile.target_accepted_sample_count,

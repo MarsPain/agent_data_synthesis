@@ -15,8 +15,11 @@
   `profile_id`, `version`, and positive `target_accepted_sample_count` fields
   plus optional `overrides.balance_weights`. Overrides may reference only cells
   selected by the named profile and must remain within its declared positive
-  weight bound. The explicit accepted-sample target is distinct from
-  `generation.target_candidate_count`, whose existing meaning is unchanged.
+  weight bound. The explicit accepted-sample target is never inferred from
+  `generation.target_candidate_count`. For a coverage-enabled profile, the
+  candidate target must instead equal the attempt ceiling derived from the
+  selected coverage profile; profiles without coverage retain their existing
+  meaning.
 - **Coverage Plan:** sanitized `coverage_plan_v1` preview artifact compiled
   before generation from one domain-owned catalog, named coverage profile,
   enabled features, accepted-sample target, admitted aggregate capacity, and
@@ -483,13 +486,15 @@ weights, grounding reuse, an attempt ratio, and an override bound. The shared
 compiler rejects unknown contract or profile versions, unknown dimensions,
 duplicate cells, profile/catalog contradictions, missing required features,
 invalid overrides, insufficient admitted capacity, and impossible floors.
+Known catalog/profile identities come from the domain planning definition's
+version registry rather than a provider value or identifier naming pattern.
 
 `coverage_plan.json` uses canonical UTF-8 JSON with a trailing newline. It
 contains only stable identifiers, contract versions and hashes, enabled feature
 names, aggregate capacity counts and hash, per-cell target counts, mandatory
 floors, effective balance weights, feature requirements, grounding-reuse
 policy, attempt policy, the accepted-sample target, and the distinct bounded
-attempt ceiling. `plan_hash` binds the complete plan payload; `plan_id` is
+attempt ceiling plus candidate target. `plan_hash` binds the complete plan payload; `plan_id` is
 derived from that hash. Raw grounding rows, source payloads, prompts, provider
 records, credentials, and host paths are excluded. Fixed inputs produce the
 same bytes. `--preview-coverage-plan` prints those bytes and

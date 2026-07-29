@@ -6,6 +6,7 @@ from typing import Callable
 from synthesis.contacts_coverage import (
     build_contacts_coverage_capacity,
     contacts_coverage_catalog,
+    contacts_coverage_version_registry,
     resolve_contacts_coverage_profile,
 )
 from synthesis.coverage import (
@@ -13,6 +14,7 @@ from synthesis.coverage import (
     CoverageCatalog,
     CoveragePlanValidationError,
     CoverageProfile,
+    CoverageVersionRegistry,
 )
 from synthesis.environments import ContactEnvironment, ContactsEnvironmentInput
 
@@ -24,6 +26,7 @@ CoverageCapacityResolver = Callable[[object | None], AdmittedCoverageCapacity]
 @dataclass(frozen=True)
 class DomainCoveragePlanningDefinition:
     catalog: CoverageCatalog
+    version_registry: CoverageVersionRegistry
     resolve_profile: CoverageProfileResolver
     resolve_capacity: CoverageCapacityResolver
 
@@ -55,6 +58,7 @@ def _contacts_capacity(
 
 _CONTACTS_PLANNING = DomainCoveragePlanningDefinition(
     catalog=contacts_coverage_catalog(),
+    version_registry=contacts_coverage_version_registry(),
     resolve_profile=resolve_contacts_coverage_profile,
     resolve_capacity=_contacts_capacity,
 )

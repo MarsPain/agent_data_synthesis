@@ -4,17 +4,23 @@ from synthesis.coverage import (
     COVERAGE_CAPACITY_VERSION,
     COVERAGE_CATALOG_VERSION,
     COVERAGE_PROFILE_SCHEMA_VERSION,
+    COVERAGE_VERSION_REGISTRY_VERSION,
     AdmittedCoverageCapacity,
     CoverageAttemptPolicy,
     CoverageCatalog,
     CoverageCell,
     CoveragePlanValidationError,
     CoverageProfile,
+    CoverageVersionRegistry,
 )
 
 
 CONTACTS_COVERAGE_CATALOG_ID = "contacts_coverage"
 CONTACTS_COVERAGE_CATALOG_VERSION = "contacts_coverage_v1"
+CONTACTS_SMOKE_PROFILE_ID = "contacts_smoke"
+CONTACTS_SMOKE_PROFILE_VERSION = "contacts_smoke_v1"
+CONTACTS_REPRESENTATIVE_PROFILE_ID = "contacts_representative"
+CONTACTS_REPRESENTATIVE_PROFILE_VERSION = "contacts_representative_v1"
 
 
 def contacts_coverage_catalog() -> CoverageCatalog:
@@ -70,15 +76,34 @@ def contacts_coverage_catalog() -> CoverageCatalog:
     )
 
 
+def contacts_coverage_version_registry() -> CoverageVersionRegistry:
+    return CoverageVersionRegistry(
+        schema_version=COVERAGE_VERSION_REGISTRY_VERSION,
+        catalog_versions=(
+            (
+                CONTACTS_COVERAGE_CATALOG_ID,
+                CONTACTS_COVERAGE_CATALOG_VERSION,
+            ),
+        ),
+        profile_versions=(
+            (CONTACTS_SMOKE_PROFILE_ID, CONTACTS_SMOKE_PROFILE_VERSION),
+            (
+                CONTACTS_REPRESENTATIVE_PROFILE_ID,
+                CONTACTS_REPRESENTATIVE_PROFILE_VERSION,
+            ),
+        ),
+    )
+
+
 def resolve_contacts_coverage_profile(
     profile_id: str,
     version: str,
 ) -> CoverageProfile:
     profiles = {
-        ("contacts_smoke", "contacts_smoke_v1"): CoverageProfile(
+        (CONTACTS_SMOKE_PROFILE_ID, CONTACTS_SMOKE_PROFILE_VERSION): CoverageProfile(
             schema_version=COVERAGE_PROFILE_SCHEMA_VERSION,
-            profile_id="contacts_smoke",
-            version="contacts_smoke_v1",
+            profile_id=CONTACTS_SMOKE_PROFILE_ID,
+            version=CONTACTS_SMOKE_PROFILE_VERSION,
             catalog_id=CONTACTS_COVERAGE_CATALOG_ID,
             catalog_version=CONTACTS_COVERAGE_CATALOG_VERSION,
             mandatory_floors={
@@ -97,10 +122,13 @@ def resolve_contacts_coverage_profile(
             ),
             max_balance_weight_override=4,
         ),
-        ("contacts_representative", "contacts_representative_v1"): CoverageProfile(
+        (
+            CONTACTS_REPRESENTATIVE_PROFILE_ID,
+            CONTACTS_REPRESENTATIVE_PROFILE_VERSION,
+        ): CoverageProfile(
             schema_version=COVERAGE_PROFILE_SCHEMA_VERSION,
-            profile_id="contacts_representative",
-            version="contacts_representative_v1",
+            profile_id=CONTACTS_REPRESENTATIVE_PROFILE_ID,
+            version=CONTACTS_REPRESENTATIVE_PROFILE_VERSION,
             catalog_id=CONTACTS_COVERAGE_CATALOG_ID,
             catalog_version=CONTACTS_COVERAGE_CATALOG_VERSION,
             mandatory_floors={

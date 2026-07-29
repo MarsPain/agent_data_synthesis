@@ -12,6 +12,7 @@ COVERAGE_CATALOG_VERSION = "coverage_catalog_v1"
 COVERAGE_PROFILE_SCHEMA_VERSION = "coverage_profile_v1"
 COVERAGE_CAPACITY_VERSION = "coverage_capacity_v1"
 COVERAGE_PLAN_VERSION = "coverage_plan_v1"
+COVERAGE_VERSION_REGISTRY_VERSION = "coverage_version_registry_v1"
 SUPPORTED_COVERAGE_DIMENSIONS = frozenset(
     {
         "task_type",
@@ -31,6 +32,26 @@ class CoveragePlanValidationError(ValueError):
 
 
 CoverageDimensionValue = str | tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class CoverageVersionRegistry:
+    schema_version: str
+    catalog_versions: tuple[tuple[str, str], ...]
+    profile_versions: tuple[tuple[str, str], ...]
+
+    def canonical(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "catalog_versions": [
+                {"catalog_id": catalog_id, "version": version}
+                for catalog_id, version in sorted(self.catalog_versions)
+            ],
+            "profile_versions": [
+                {"profile_id": profile_id, "version": version}
+                for profile_id, version in sorted(self.profile_versions)
+            ],
+        }
 
 
 @dataclass(frozen=True)
@@ -156,6 +177,7 @@ class CoveragePlan:
     coverage_profile: Mapping[str, object]
     selected_features: tuple[str, ...]
     target_accepted_sample_count: int
+    target_candidate_count: int
     target_distribution: tuple[Mapping[str, object], ...]
     attempt_ceiling: int
     policies: Mapping[str, object]
@@ -173,6 +195,7 @@ class CoveragePlan:
             "coverage_profile": dict(self.coverage_profile),
             "selected_features": list(self.selected_features),
             "target_accepted_sample_count": self.target_accepted_sample_count,
+            "target_candidate_count": self.target_candidate_count,
             "target_distribution": [
                 dict(item) for item in self.target_distribution
             ],
@@ -200,18 +223,32 @@ def compile_coverage_plan(
     *,
     catalog: CoverageCatalog,
     coverage_profile: CoverageProfile,
+    version_registry: CoverageVersionRegistry,
     selected_features: tuple[str, ...],
     target_accepted_sample_count: int,
+    target_candidate_count: int,
     admitted_capacity: AdmittedCoverageCapacity,
     balance_weight_overrides: Mapping[str, int] | None = None,
 ) -> CoveragePlan:
     _validate_compilation_inputs(
         catalog=catalog,
         coverage_profile=coverage_profile,
+        version_registry=version_registry,
         selected_features=selected_features,
         target_accepted_sample_count=target_accepted_sample_count,
+        target_candidate_count=target_candidate_count,
         admitted_capacity=admitted_capacity,
     )
+    attempt_policy = coverage_profile.attempt_policy
+    attempt_ceiling = (
+        target_accepted_sample_count * attempt_policy.multiplier_numerator
+        + attempt_policy.multiplier_denominator
+        - 1
+    ) // attempt_policy.multiplier_denominator
+    if target_candidate_count != attempt_ceiling:
+        raise CoveragePlanValidationError(
+            "target candidate count must equal the profile-derived attempt ceiling"
+        )
     cells = {cell.cell_id: cell for cell in catalog.cells}
     weights = dict(coverage_profile.balance_weights)
     overrides = dict(balance_weight_overrides or {})
@@ -282,12 +319,6 @@ def compile_coverage_plan(
         )
         target_counts[selected_cell_id] = target_counts.get(selected_cell_id, 0) + 1
 
-    attempt_policy = coverage_profile.attempt_policy
-    attempt_ceiling = (
-        target_accepted_sample_count * attempt_policy.multiplier_numerator
-        + attempt_policy.multiplier_denominator
-        - 1
-    ) // attempt_policy.multiplier_denominator
     catalog_hash = _canonical_hash(catalog.canonical())
     profile_hash = _canonical_hash(coverage_profile.canonical())
     capacity_hash = _canonical_hash(admitted_capacity.canonical())
@@ -308,6 +339,7 @@ def compile_coverage_plan(
         },
         "selected_features": sorted(selected_features),
         "target_accepted_sample_count": target_accepted_sample_count,
+        "target_candidate_count": target_candidate_count,
         "target_distribution": [
             {
                 "cell_id": cell_id,
@@ -375,6 +407,7 @@ def compile_coverage_plan(
         coverage_profile=profile_record,
         selected_features=tuple(sorted(selected_features)),
         target_accepted_sample_count=target_accepted_sample_count,
+        target_candidate_count=target_candidate_count,
         target_distribution=tuple(target_distribution),
         attempt_ceiling=attempt_ceiling,
         policies=policies,
@@ -388,8 +421,10 @@ def _validate_compilation_inputs(
     *,
     catalog: CoverageCatalog,
     coverage_profile: CoverageProfile,
+    version_registry: CoverageVersionRegistry,
     selected_features: tuple[str, ...],
     target_accepted_sample_count: int,
+    target_candidate_count: int,
     admitted_capacity: AdmittedCoverageCapacity,
 ) -> None:
     if catalog.schema_version != COVERAGE_CATALOG_VERSION:
@@ -398,16 +433,25 @@ def _validate_compilation_inputs(
         raise CoveragePlanValidationError("unknown coverage profile schema version")
     if admitted_capacity.schema_version != COVERAGE_CAPACITY_VERSION:
         raise CoveragePlanValidationError("unknown coverage capacity schema version")
+    if version_registry.schema_version != COVERAGE_VERSION_REGISTRY_VERSION:
+        raise CoveragePlanValidationError(
+            "unknown coverage version registry schema version"
+        )
+    _validate_version_registry(version_registry)
     _require_non_empty_string(catalog.catalog_id, "coverage catalog id")
     _require_non_empty_string(catalog.version, "coverage catalog version")
     _require_non_empty_string(catalog.domain_id, "coverage catalog domain")
-    if catalog.version != f"{catalog.catalog_id}_v1":
+    if (catalog.catalog_id, catalog.version) not in set(
+        version_registry.catalog_versions
+    ):
         raise CoveragePlanValidationError(
             f"unknown coverage catalog version: {catalog.version}"
         )
     _require_non_empty_string(coverage_profile.profile_id, "coverage profile id")
     _require_non_empty_string(coverage_profile.version, "coverage profile version")
-    if coverage_profile.version != f"{coverage_profile.profile_id}_v1":
+    if (coverage_profile.profile_id, coverage_profile.version) not in set(
+        version_registry.profile_versions
+    ):
         raise CoveragePlanValidationError(
             f"unknown coverage profile version: {coverage_profile.version}"
         )
@@ -507,6 +551,14 @@ def _validate_compilation_inputs(
     ):
         raise CoveragePlanValidationError(
             "target accepted-sample count must be a positive integer"
+        )
+    if (
+        not isinstance(target_candidate_count, int)
+        or isinstance(target_candidate_count, bool)
+        or target_candidate_count <= 0
+    ):
+        raise CoveragePlanValidationError(
+            "target candidate count must be a positive integer"
         )
     if len(selected_features) != len(set(selected_features)):
         raise CoveragePlanValidationError("selected features must be unique")
@@ -645,3 +697,32 @@ def _validate_dimension_value(
     raise CoveragePlanValidationError(
         f"{field_name} must be a non-empty string or tuple of unique strings"
     )
+
+
+def _validate_version_registry(
+    version_registry: CoverageVersionRegistry,
+) -> None:
+    for label, entries in (
+        ("catalog", version_registry.catalog_versions),
+        ("profile", version_registry.profile_versions),
+    ):
+        if not isinstance(entries, tuple) or not entries:
+            raise CoveragePlanValidationError(
+                f"coverage {label} version registry must not be empty"
+            )
+        if any(
+            not isinstance(entry, tuple)
+            or len(entry) != 2
+            or any(
+                not isinstance(value, str) or not value
+                for value in entry
+            )
+            for entry in entries
+        ):
+            raise CoveragePlanValidationError(
+                f"coverage {label} version registry entries are invalid"
+            )
+        if len(entries) != len(set(entries)):
+            raise CoveragePlanValidationError(
+                f"coverage {label} version registry entries must be unique"
+            )

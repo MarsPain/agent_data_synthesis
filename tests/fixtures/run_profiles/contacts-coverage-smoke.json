@@ -14,7 +14,7 @@
   },
   "generation": {
     "mode": "deterministic_scale_probe",
-    "target_candidate_count": 8
+    "target_candidate_count": 9
   },
   "features": {},
   "coverage_profile": {

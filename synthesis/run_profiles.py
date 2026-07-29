@@ -219,6 +219,13 @@ def load_run_profile(path: Path) -> RunProfile:
     )
     features = _load_features(raw.get("features", {}))
     coverage_profile = _load_coverage_profile(raw.get("coverage_profile"))
+    if (
+        coverage_profile is not None
+        and generation.target_candidate_count is None
+    ):
+        raise RunProfileValidationError(
+            "generation.target_candidate_count is required with coverage_profile"
+        )
     source = _load_source(raw.get("source"), schema_version=schema_version, profile_path=path)
     mutation_admission = _load_mutation_admission(
         raw.get("mutation_admission"),

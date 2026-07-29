@@ -20,8 +20,9 @@ The first backend should be a local Python pipeline with explicit modules and du
   reachable-cell catalog, named smoke and representative profiles, and
   aggregate admitted-capacity projection.
 - `synthesis.coverage_registry`: domain planning registration. It connects
-  domain-owned catalogs, profile resolution, and capacity projection to the
-  shared compiler without adding domain-name branches to that compiler.
+  domain-owned catalogs, authoritative catalog/profile version registries,
+  profile resolution, and capacity projection to the shared compiler without
+  adding domain-name branches to that compiler.
 - `synthesis.domain_generation`: immutable domain generation specifications,
   complete machine-readable provider output contracts, strict task-contract
   parsing, replayable grounding arguments paired with observations, explicit
@@ -211,7 +212,9 @@ trajectories, exports, or logs.
    remains contacts-only. The default pipeline does not fetch external network
    sources or ingest arbitrary local files.
    When the profile selects `coverage_profile`, project only the admitted,
-   aggregate environment capacity into the domain planning definition. The
+   aggregate environment capacity into the domain planning definition and
+   validate both its explicit accepted target and the existing candidate target
+   against the profile-derived attempt ceiling. The
    `--preview-coverage-plan` and `--write-coverage-plan` paths compile and
    optionally write `coverage_plan.json`, then exit before provider
    construction, candidate generation, or execution. Coverage-enabled candidate

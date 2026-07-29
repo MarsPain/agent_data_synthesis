@@ -108,6 +108,11 @@ def preview_coverage_plan(
     coverage_reference = run_profile.coverage_profile
     if coverage_reference is None:
         raise ValueError("run profile does not select a coverage profile")
+    target_candidate_count = run_profile.generation.target_candidate_count
+    if target_candidate_count is None:
+        raise ValueError(
+            "run profile target candidate count is required for coverage planning"
+        )
     planning = resolve_domain_coverage_planning(run_profile.seed.domain)
     coverage_profile = planning.resolve_profile(
         coverage_reference.profile_id,
@@ -116,10 +121,12 @@ def preview_coverage_plan(
     plan = compile_coverage_plan(
         catalog=planning.catalog,
         coverage_profile=coverage_profile,
+        version_registry=planning.version_registry,
         selected_features=tuple(run_profile.features.enabled_feature_names()),
         target_accepted_sample_count=(
             coverage_reference.target_accepted_sample_count
         ),
+        target_candidate_count=target_candidate_count,
         admitted_capacity=planning.resolve_capacity(admitted_environment_input),
         balance_weight_overrides=coverage_reference.balance_weight_overrides,
     )
