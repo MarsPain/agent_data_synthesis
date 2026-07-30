@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
@@ -78,35 +79,47 @@ def build_profile_decision_report(
         thresholds,
         evaluation=evaluation,
     )
+    coverage_summary = _coverage_summary(
+        manifest=manifest,
+        quality_report=quality_report,
+    )
+    coverage_decision = _coverage_fulfillment_decision(coverage_summary)
+    decisions: dict[str, object] = {
+        "async_orchestration": async_decision,
+        "semantic_duplicate_detection": semantic_duplicate_decision,
+        "mvp_quality_floor": mvp_quality_decision,
+    }
+    if coverage_decision is not None:
+        decisions["coverage_fulfillment"] = coverage_decision
+    decisions["profile_promotion"] = _profile_promotion_decision(
+        mvp_quality_decision=mvp_quality_decision,
+        async_decision=async_decision,
+        semantic_duplicate_decision=semantic_duplicate_decision,
+        evaluation=evaluation,
+        coverage_decision=coverage_decision,
+    )
+    input_artifacts: dict[str, object] = {
+        "manifest_path": manifest_path.name,
+        "quality_report_path": quality_report_path.name,
+        "parent_comparison_path": parent_comparison_path.name
+        if parent_comparison_path is not None and parent_comparison is not None
+        else None,
+    }
     report: dict[str, object] = {
         "schema_version": PROFILE_DECISION_REPORT_SCHEMA_VERSION,
         "dataset_version": _string_value(manifest.get("dataset_version"), "manifest.dataset_version"),
         "profile": _profile_summary(manifest),
-        "inputs": {
-            "manifest_path": manifest_path.name,
-            "quality_report_path": quality_report_path.name,
-            "parent_comparison_path": parent_comparison_path.name
-            if parent_comparison_path is not None and parent_comparison is not None
-            else None,
-        },
+        "inputs": input_artifacts,
         "observed": observed,
         "thresholds": asdict(thresholds),
-        "decisions": {
-            "async_orchestration": async_decision,
-            "semantic_duplicate_detection": semantic_duplicate_decision,
-            "mvp_quality_floor": mvp_quality_decision,
-            "profile_promotion": _profile_promotion_decision(
-                mvp_quality_decision=mvp_quality_decision,
-                async_decision=async_decision,
-                semantic_duplicate_decision=semantic_duplicate_decision,
-                evaluation=evaluation,
-            ),
-        },
+        "decisions": decisions,
     }
     if evaluation_report_path is not None and evaluation_report is not None:
-        report["inputs"]["evaluation_report_path"] = evaluation_report_path.name
+        input_artifacts["evaluation_report_path"] = evaluation_report_path.name
     if evaluation is not None:
         report["evaluation"] = evaluation
+    if coverage_summary is not None:
+        report["coverage"] = coverage_summary
     validate_profile_decision_report_record(report)
     return report
 
@@ -119,6 +132,15 @@ def load_profile_decision_inputs(
     evaluation_report_path: Path | None = None,
     runtime_seconds: float | None = None,
 ) -> ProfileDecisionInputs:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    quality_report = json.loads(
+        quality_report_path.read_text(encoding="utf-8")
+    )
+    _verify_loaded_coverage_binding(
+        manifest=manifest,
+        quality_report=quality_report,
+        artifact_dir=manifest_path.parent,
+    )
     parent_comparison = (
         json.loads(parent_comparison_path.read_text(encoding="utf-8"))
         if parent_comparison_path is not None
@@ -130,8 +152,8 @@ def load_profile_decision_inputs(
         else None
     )
     return ProfileDecisionInputs(
-        manifest=json.loads(manifest_path.read_text(encoding="utf-8")),
-        quality_report=json.loads(quality_report_path.read_text(encoding="utf-8")),
+        manifest=manifest,
+        quality_report=quality_report,
         manifest_path=manifest_path,
         quality_report_path=quality_report_path,
         parent_comparison=parent_comparison,
@@ -348,7 +370,10 @@ def _mvp_quality_decision(
     checks = (
         (
             "success_rate",
-            float(required_rates["success_rate"]),
+            _number_value(
+                required_rates["success_rate"],
+                "observed.success_rate",
+            ),
             "mvp_min_success_rate",
             thresholds.mvp_min_success_rate,
             "at or above",
@@ -356,7 +381,10 @@ def _mvp_quality_decision(
         ),
         (
             "executable_rate",
-            float(required_rates["executable_rate"]),
+            _number_value(
+                required_rates["executable_rate"],
+                "observed.executable_rate",
+            ),
             "mvp_min_executable_rate",
             thresholds.mvp_min_executable_rate,
             "at or above",
@@ -430,6 +458,7 @@ def _profile_promotion_decision(
     async_decision: Mapping[str, object],
     semantic_duplicate_decision: Mapping[str, object],
     evaluation: Mapping[str, object] | None,
+    coverage_decision: Mapping[str, object] | None,
 ) -> dict[str, object]:
     mvp_status = _string_value(
         mvp_quality_decision.get("status"),
@@ -458,6 +487,17 @@ def _profile_promotion_decision(
             "reasons": ["mvp_quality_floor failed"],
             "triggered_by": [],
         }
+    if coverage_decision is not None:
+        coverage_status = _string_value(
+            coverage_decision.get("status"),
+            "decisions.coverage_fulfillment.status",
+        )
+        if coverage_status != "passed":
+            return {
+                "status": "insufficient_evidence",
+                "reasons": ["mandatory coverage fulfillment is incomplete"],
+                "triggered_by": ["coverage_fulfillment"],
+            }
     if evaluation is None:
         return {
             "status": "insufficient_evidence",
@@ -493,6 +533,9 @@ def _profile_promotion_decision(
 
     reasons.extend(["mvp_quality_floor passed", "held-out evaluation passed"])
     triggered_by.extend(["mvp_quality_floor", "heldout_evaluation"])
+    if coverage_decision is not None:
+        reasons.append("mandatory coverage fulfillment passed")
+        triggered_by.append("coverage_fulfillment")
     blocked = False
     if async_status == "activate":
         blocked = True
@@ -514,6 +557,172 @@ def _profile_promotion_decision(
         "status": "blocked" if blocked else "passed",
         "reasons": reasons,
         "triggered_by": triggered_by,
+    }
+
+
+def _coverage_summary(
+    *,
+    manifest: Mapping[str, Any],
+    quality_report: Mapping[str, Any],
+) -> dict[str, object] | None:
+    run_profile = manifest.get("run_profile")
+    coverage_selected = (
+        isinstance(run_profile, Mapping)
+        and isinstance(run_profile.get("coverage_profile"), Mapping)
+    )
+    if not coverage_selected:
+        return None
+    raw_summary = quality_report.get("coverage")
+    if not isinstance(raw_summary, Mapping):
+        return _unavailable_coverage_summary()
+    manifest_binding = manifest.get("coverage")
+    if (
+        not isinstance(manifest_binding, Mapping)
+        or manifest_binding.get("evidence_id")
+        != raw_summary.get("evidence_id")
+        or manifest_binding.get("evidence_hash")
+        != raw_summary.get("evidence_hash")
+    ):
+        return _unavailable_coverage_summary()
+    return {
+        key: raw_summary.get(key)
+        for key in (
+            "schema_version",
+            "evidence_id",
+            "evidence_hash",
+            "counts",
+            "distributions",
+            "fulfillment",
+        )
+    }
+
+
+def _unavailable_coverage_summary() -> dict[str, object]:
+    return {
+        "schema_version": "coverage_quality_summary_v1",
+        "evidence_id": None,
+        "evidence_hash": None,
+        "counts": {},
+        "distributions": {},
+        "fulfillment": {
+            "status": "incomplete",
+            "mandatory_fulfilled": False,
+            "target_fulfilled": False,
+            "reasons": ["coverage_summary_unavailable"],
+        },
+    }
+
+
+def _verify_loaded_coverage_binding(
+    *,
+    manifest: Mapping[str, Any],
+    quality_report: Mapping[str, Any],
+    artifact_dir: Path,
+) -> None:
+    run_profile = manifest.get("run_profile")
+    if not (
+        isinstance(run_profile, Mapping)
+        and isinstance(run_profile.get("coverage_profile"), Mapping)
+    ):
+        return
+    if not isinstance(manifest.get("coverage"), Mapping):
+        return
+    from synthesis.coverage_evidence import (
+        coverage_quality_summary,
+        verify_sanitized_coverage_evidence,
+    )
+
+    binding = _mapping_value(manifest.get("coverage"), "manifest.coverage")
+    evidence = _mapping_value(
+        json.loads(
+            (artifact_dir / "coverage_evidence.json").read_text(
+                encoding="utf-8"
+            )
+        ),
+        "coverage_evidence",
+    )
+    plan = _mapping_value(
+        json.loads(
+            (artifact_dir / "coverage_plan.json").read_text(encoding="utf-8")
+        ),
+        "coverage_plan",
+    )
+    samples_artifact = _artifact_hash_binding(
+        artifact_dir / "samples.jsonl"
+    )
+    rejections_artifact = _artifact_hash_binding(
+        artifact_dir / "rejections.jsonl"
+    )
+    try:
+        verify_sanitized_coverage_evidence(
+            evidence,
+            plan=plan,
+            run_profile=run_profile,
+            samples_artifact=samples_artifact,
+            rejections_artifact=rejections_artifact,
+        )
+    except ValueError as exc:
+        raise ValueError("coverage evidence binding is invalid") from exc
+    if (
+        binding.get("evidence_id") != evidence.get("evidence_id")
+        or binding.get("evidence_hash") != evidence.get("evidence_hash")
+        or _mapping_value(
+            binding.get("evidence_artifact"),
+            "manifest.coverage.evidence_artifact",
+        )
+        != _artifact_hash_binding(artifact_dir / "coverage_evidence.json")
+        or _mapping_value(
+            binding.get("samples_artifact"),
+            "manifest.coverage.samples_artifact",
+        )
+        != samples_artifact
+        or _mapping_value(
+            binding.get("rejections_artifact"),
+            "manifest.coverage.rejections_artifact",
+        )
+        != rejections_artifact
+        or quality_report.get("coverage")
+        != coverage_quality_summary(evidence)
+    ):
+        raise ValueError("coverage evidence binding is invalid")
+
+
+def _artifact_hash_binding(path: Path) -> dict[str, object]:
+    content = path.read_bytes()
+    return {
+        "path": path.name,
+        "sha256": "sha256:" + hashlib.sha256(content).hexdigest(),
+        "byte_count": len(content),
+    }
+
+
+def _coverage_fulfillment_decision(
+    coverage_summary: Mapping[str, object] | None,
+) -> dict[str, object] | None:
+    if coverage_summary is None:
+        return None
+    fulfillment = coverage_summary.get("fulfillment")
+    if not isinstance(fulfillment, Mapping):
+        return {
+            "status": "insufficient_evidence",
+            "reasons": ["coverage fulfillment summary is unavailable"],
+            "triggered_by": ["coverage_fulfillment"],
+        }
+    fulfilled = (
+        fulfillment.get("status") == "fulfilled"
+        and fulfillment.get("mandatory_fulfilled") is True
+        and fulfillment.get("target_fulfilled") is True
+    )
+    return {
+        "status": "passed" if fulfilled else "insufficient_evidence",
+        "reasons": [
+            (
+                "mandatory coverage fulfillment passed"
+                if fulfilled
+                else "mandatory coverage fulfillment is incomplete"
+            )
+        ],
+        "triggered_by": ["coverage_fulfillment"],
     }
 
 

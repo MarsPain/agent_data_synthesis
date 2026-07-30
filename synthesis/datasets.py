@@ -8,6 +8,7 @@ from pathlib import Path
 
 from synthesis.contracts import (
     validate_capability_gap_record,
+    validate_coverage_evidence_record,
     validate_edited_task_record,
     validate_manifest_record,
     validate_rejection_record,
@@ -21,6 +22,12 @@ from synthesis.contracts import (
     validate_seed_transformation_record,
     validate_task_suggestion_record,
     validate_tool_proposal_record,
+)
+from synthesis.coverage import CoveragePlan
+from synthesis.coverage_evidence import (
+    COVERAGE_EVIDENCE_FILENAME,
+    build_coverage_evidence,
+    coverage_quality_summary,
 )
 from synthesis.environments import EnvironmentMetadata
 from synthesis.execution import ExecutionResult, SolutionPolicy
@@ -54,6 +61,7 @@ class DatasetArtifacts:
     parent_comparison_path: Path | None
     review_queue_path: Path | None
     mutation_admission_report_path: Path | None
+    coverage_evidence_path: Path | None
     accepted_count: int
     rejected_count: int
 
@@ -606,6 +614,8 @@ def write_dataset_artifacts(
     source_events: list[dict[str, object]] | None = None,
     sandbox_audits: list[dict[str, object]] | None = None,
     run_profile_metadata: dict[str, object] | None = None,
+    coverage_plan: CoveragePlan | None = None,
+    coverage_reconciliation: Mapping[str, object] | None = None,
 ) -> DatasetArtifacts:
     output_dir.mkdir(parents=True, exist_ok=True)
     samples_path = output_dir / "samples.jsonl"
@@ -620,6 +630,9 @@ def write_dataset_artifacts(
     optional_mutation_admission_report_path = (
         output_dir / MUTATION_ADMISSION_REPORT_FILENAME
     )
+    optional_coverage_evidence_path = (
+        output_dir / COVERAGE_EVIDENCE_FILENAME
+    )
     tool_proposals_path = optional_tool_proposals_path if tool_proposals else None
     source_events_path = optional_source_events_path if source_events else None
     sandbox_audits_path = optional_sandbox_audits_path if sandbox_audits else None
@@ -631,6 +644,10 @@ def write_dataset_artifacts(
         rejections,
         run_profile_attribution,
     )
+    if (coverage_plan is None) != (coverage_reconciliation is None):
+        raise ValueError(
+            "coverage evidence requires both plan and reconciliation"
+        )
 
     for sample in samples:
         validate_sample_record(sample)
@@ -648,6 +665,44 @@ def write_dataset_artifacts(
 
     _write_jsonl(samples_path, samples)
     _write_jsonl(rejections_path, rejections)
+    coverage_evidence = (
+        build_coverage_evidence(
+            dataset_version=dataset_version,
+            plan=coverage_plan,
+            reconciliation=coverage_reconciliation,
+            run_profile=run_profile_metadata or {},
+            samples=samples,
+            rejections=rejections,
+            samples_artifact=build_artifact_hash_record(
+                samples_path
+            ).export(),
+            rejections_artifact=build_artifact_hash_record(
+                rejections_path
+            ).export(),
+        )
+        if coverage_plan is not None
+        and coverage_reconciliation is not None
+        else None
+    )
+    coverage_evidence_path = (
+        optional_coverage_evidence_path
+        if coverage_evidence is not None
+        else None
+    )
+    if coverage_evidence is not None:
+        validate_coverage_evidence_record(coverage_evidence)
+        optional_coverage_evidence_path.write_text(
+            json.dumps(
+                coverage_evidence,
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    else:
+        _remove_if_exists(optional_coverage_evidence_path)
     admission_run = (
         isinstance(run_profile_metadata, Mapping)
         and run_profile_metadata.get("schema_version") == "run_profile_v4"
@@ -686,6 +741,11 @@ def write_dataset_artifacts(
         samples=samples,
         rejections=rejections,
         sandbox_audits=sandbox_audits,
+        coverage_summary=(
+            coverage_quality_summary(coverage_evidence)
+            if coverage_evidence is not None
+            else None
+        ),
     )
     quality_report_path.write_text(
         json.dumps(quality_report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -725,6 +785,8 @@ def write_dataset_artifacts(
         artifacts["mutation_admission_report"] = (
             mutation_admission_report_path.name
         )
+    if coverage_evidence_path:
+        artifacts["coverage_evidence"] = coverage_evidence_path.name
 
     source_policy_hashes = _source_policy_hashes(samples, rejections)
 
@@ -757,6 +819,22 @@ def write_dataset_artifacts(
     }
     if run_profile_metadata is not None:
         manifest["run_profile"] = dict(run_profile_metadata)
+    if coverage_evidence is not None:
+        assert coverage_evidence_path is not None
+        manifest["coverage"] = {
+            "schema_version": "coverage_manifest_binding_v1",
+            "evidence_id": coverage_evidence["evidence_id"],
+            "evidence_hash": coverage_evidence["evidence_hash"],
+            "evidence_artifact": build_artifact_hash_record(
+                coverage_evidence_path
+            ).export(),
+            "samples_artifact": build_artifact_hash_record(
+                samples_path
+            ).export(),
+            "rejections_artifact": build_artifact_hash_record(
+                rejections_path
+            ).export(),
+        }
     if source_policy_hashes:
         manifest["source_policy_hashes"] = source_policy_hashes
     sample_contract_versions = _unique_values(
@@ -801,6 +879,7 @@ def write_dataset_artifacts(
         parent_comparison_path=parent_comparison_path,
         review_queue_path=review_queue_path,
         mutation_admission_report_path=mutation_admission_report_path,
+        coverage_evidence_path=coverage_evidence_path,
         accepted_count=len(samples),
         rejected_count=len(rejections),
     )

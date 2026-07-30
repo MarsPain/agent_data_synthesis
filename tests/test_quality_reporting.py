@@ -473,6 +473,93 @@ class QualityReportingTest(unittest.TestCase):
             },
         )
 
+    def test_parent_comparison_reports_coverage_and_concentration_deltas(
+        self,
+    ) -> None:
+        from synthesis.quality import build_parent_comparison
+
+        def report(
+            dataset_version: str,
+            *,
+            family_count: int,
+            family_share: float,
+            grounding_count: int,
+            max_reuse: int,
+            difficulty: dict[str, int],
+            status: str,
+            digest: str,
+        ) -> dict[str, object]:
+            return {
+                "schema_version": "quality_report_v1",
+                "dataset_version": dataset_version,
+                "counts": {"accepted": 10, "rejected": 0},
+                "rates": {
+                    "success_rate": 1.0,
+                    "executable_rate": 1.0,
+                },
+                "slices": {},
+                "rejection_causes": {},
+                "coverage": {
+                    "evidence_hash": "sha256:" + digest * 64,
+                    "distributions": {
+                        "structural_families": {
+                            "distinct_count": family_count,
+                            "largest_family_share": family_share,
+                        },
+                        "grounding_reuse": {
+                            "distinct_grounding_count": grounding_count,
+                            "max_accepted_per_grounding": max_reuse,
+                        },
+                        "difficulty": {
+                            "accepted_by_level": difficulty,
+                        },
+                    },
+                    "fulfillment": {"status": status},
+                },
+            }
+
+        comparison = build_parent_comparison(
+            current=report(
+                "dataset_current",
+                family_count=5,
+                family_share=0.3,
+                grounding_count=8,
+                max_reuse=2,
+                difficulty={"easy": 4, "hard": 6},
+                status="fulfilled",
+                digest="b",
+            ),
+            parent=report(
+                "dataset_parent",
+                family_count=3,
+                family_share=0.6,
+                grounding_count=5,
+                max_reuse=3,
+                difficulty={"easy": 7, "medium": 3},
+                status="incomplete",
+                digest="a",
+            ),
+        )
+
+        self.assertEqual(
+            comparison["coverage"],
+            {
+                "parent_evidence_hash": "sha256:" + "a" * 64,
+                "current_evidence_hash": "sha256:" + "b" * 64,
+                "structural_family_count_delta": 2,
+                "largest_family_share_delta": -0.3,
+                "distinct_grounding_count_delta": 3,
+                "max_accepted_per_grounding_delta": -1,
+                "difficulty_count_deltas": {
+                    "easy": -3,
+                    "hard": 6,
+                    "medium": -3,
+                },
+                "parent_fulfillment_status": "incomplete",
+                "current_fulfillment_status": "fulfilled",
+            },
+        )
+
     def test_review_record_has_stable_shape(self) -> None:
         from synthesis.quality import build_review_record
 

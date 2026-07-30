@@ -31,6 +31,7 @@ def build_quality_report(
     samples: list[dict[str, object]],
     rejections: list[dict[str, object]],
     sandbox_audits: list[dict[str, object]] | None = None,
+    coverage_summary: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     sandbox_audits = sandbox_audits or []
     total_count = len(samples) + len(rejections)
@@ -40,7 +41,7 @@ def build_quality_report(
     rejection_causes = _count_rejection_causes(rejections)
     slices = _build_slices(dataset_version, samples, rejections, sandbox_audits)
 
-    return {
+    report: dict[str, object] = {
         "schema_version": "quality_report_v1",
         "dataset_version": dataset_version,
         "counts": {
@@ -74,6 +75,9 @@ def build_quality_report(
         "sandbox_admission_outcomes": _sandbox_admission_outcomes(sandbox_audits),
         "slices": slices,
     }
+    if coverage_summary is not None:
+        report["coverage"] = dict(coverage_summary)
+    return report
 
 
 def duplicate_signature(sample: Mapping[str, Any]) -> tuple[str, tuple[str, ...]]:
@@ -130,7 +134,7 @@ def build_parent_comparison(
     current_rates = _report_rates(current)
     parent_rates = _report_rates(parent)
 
-    return {
+    comparison: dict[str, object] = {
         "schema_version": "parent_comparison_v1",
         "parent_dataset_version": parent.get("dataset_version"),
         "current_dataset_version": current.get("dataset_version"),
@@ -145,6 +149,115 @@ def build_parent_comparison(
         "removed_slice_keys": _slice_key_delta(parent, current),
         "rejection_cause_deltas": _rejection_cause_deltas(current, parent),
     }
+    coverage_comparison = _coverage_parent_comparison(current, parent)
+    if coverage_comparison is not None:
+        comparison["coverage"] = coverage_comparison
+    return comparison
+
+
+def _coverage_parent_comparison(
+    current: Mapping[str, Any],
+    parent: Mapping[str, Any],
+) -> dict[str, object] | None:
+    current_coverage = current.get("coverage")
+    parent_coverage = parent.get("coverage")
+    if not isinstance(current_coverage, Mapping) or not isinstance(
+        parent_coverage,
+        Mapping,
+    ):
+        return None
+    current_distributions = _mapping_or_empty(
+        current_coverage.get("distributions")
+    )
+    parent_distributions = _mapping_or_empty(
+        parent_coverage.get("distributions")
+    )
+    current_structural = _mapping_or_empty(
+        current_distributions.get("structural_families")
+    )
+    parent_structural = _mapping_or_empty(
+        parent_distributions.get("structural_families")
+    )
+    current_grounding = _mapping_or_empty(
+        current_distributions.get("grounding_reuse")
+    )
+    parent_grounding = _mapping_or_empty(
+        parent_distributions.get("grounding_reuse")
+    )
+    current_difficulty = _mapping_or_empty(
+        _mapping_or_empty(
+            current_distributions.get("difficulty")
+        ).get("accepted_by_level")
+    )
+    parent_difficulty = _mapping_or_empty(
+        _mapping_or_empty(
+            parent_distributions.get("difficulty")
+        ).get("accepted_by_level")
+    )
+    return {
+        "parent_evidence_hash": parent_coverage.get("evidence_hash"),
+        "current_evidence_hash": current_coverage.get("evidence_hash"),
+        "structural_family_count_delta": (
+            _integer_or_zero(current_structural.get("distinct_count"))
+            - _integer_or_zero(parent_structural.get("distinct_count"))
+        ),
+        "largest_family_share_delta": round(
+            _number_or_zero(
+                current_structural.get("largest_family_share")
+            )
+            - _number_or_zero(
+                parent_structural.get("largest_family_share")
+            ),
+            10,
+        ),
+        "distinct_grounding_count_delta": (
+            _integer_or_zero(
+                current_grounding.get("distinct_grounding_count")
+            )
+            - _integer_or_zero(
+                parent_grounding.get("distinct_grounding_count")
+            )
+        ),
+        "max_accepted_per_grounding_delta": (
+            _integer_or_zero(
+                current_grounding.get("max_accepted_per_grounding")
+            )
+            - _integer_or_zero(
+                parent_grounding.get("max_accepted_per_grounding")
+            )
+        ),
+        "difficulty_count_deltas": {
+            level: (
+                _integer_or_zero(current_difficulty.get(level))
+                - _integer_or_zero(parent_difficulty.get(level))
+            )
+            for level in sorted(
+                set(current_difficulty) | set(parent_difficulty)
+            )
+        },
+        "parent_fulfillment_status": _mapping_or_empty(
+            parent_coverage.get("fulfillment")
+        ).get("status"),
+        "current_fulfillment_status": _mapping_or_empty(
+            current_coverage.get("fulfillment")
+        ).get("status"),
+    }
+
+
+def _mapping_or_empty(value: object) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _integer_or_zero(value: object) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _number_or_zero(value: object) -> float:
+    return (
+        float(value)
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+        else 0.0
+    )
 
 
 def build_review_record(
@@ -964,8 +1077,8 @@ def _rejection_branching(rejection: Mapping[str, Any]) -> list[Mapping[str, Any]
         (outcome for outcome in branch_outcomes if isinstance(outcome, Mapping) and outcome.get("selected")),
         {},
     )
-    depth_values = [
-        outcome.get("depth")
+    depth_values: list[int] = [
+        int(outcome["depth"])
         for outcome in branch_outcomes
         if isinstance(outcome, Mapping) and isinstance(outcome.get("depth"), int)
     ]

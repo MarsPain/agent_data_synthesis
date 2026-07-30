@@ -269,7 +269,14 @@ trajectories, exports, or logs.
    than being reclassified. Candidate-processing and generation rejections
    leave the assigned cell underfilled. The next bounded wave selects mandatory
    deficits first, then the largest normalized deficit with cell-id
-   tie-breaking, and stops exactly at the plan attempt ceiling.
+   tie-breaking, and stops exactly at the plan attempt ceiling. Dataset writing
+   then publishes `coverage_evidence.json`, binding the exact planning and
+   persisted membership identities and reporting per-cell outcomes plus
+   sanitized concentration and reuse summaries. An incomplete diagnostic run
+   keeps its admitted samples and records incomplete fulfillment. Profile
+   promotion and representative-scale evidence require a fulfilled,
+   identity-verified coverage summary whenever the run profile selects
+   coverage; that requirement is additive to all existing gates.
 7. If remote generation fails after configuration, write a classified generation
    rejection plus manifest and quality report artifacts. Strict response failures
    retain the public `llm_response_schema_error` cause and exactly one approved

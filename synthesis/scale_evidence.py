@@ -9,6 +9,7 @@ from typing import Any
 
 from synthesis.contracts import (
     ContractValidationError,
+    validate_coverage_quality_summary_record,
     validate_dataset_release_report_record,
     validate_generation_contract_record,
     validate_evaluation_report_record,
@@ -18,6 +19,10 @@ from synthesis.contracts import (
     validate_representative_scale_campaign_record,
     validate_representative_scale_evidence_record,
     validate_review_resolution_report_record,
+)
+from synthesis.coverage_evidence import (
+    coverage_quality_summary,
+    verify_sanitized_coverage_evidence,
 )
 from synthesis.mutation_admission_config import (
     parse_mutation_admission_judge_configuration,
@@ -121,6 +126,11 @@ def classify_run(artifacts: Mapping[str, Any]) -> str:
         if generation_contract.get("reason_codes") != []:
             return "insufficient_evidence"
         if artifacts.get("target_candidate_count") != generation_contract.get("target_candidate_count"):
+            return "insufficient_evidence"
+        if (
+            artifacts.get("coverage_selected") is True
+            and artifacts.get("coverage_fulfillment_status") != "passed"
+        ):
             return "insufficient_evidence"
         return "representative"
     return "insufficient_evidence"
@@ -237,6 +247,22 @@ def _build_domain_summary(run: CampaignRunInput) -> dict[str, Any]:
         if semantic_status == "activate":
             signals.append("semantic_duplicate_detection")
         observed_profile = _mapping(profile_report["observed"])
+        coverage_selected = isinstance(
+            manifest_profile.get("coverage_profile"),
+            Mapping,
+        )
+        coverage_status = (
+            _decision_status(profile_report, "coverage_fulfillment")
+            if coverage_selected
+            and "coverage_fulfillment" in _mapping(
+                profile_report.get("decisions")
+            )
+            else (
+                "insufficient_evidence"
+                if coverage_selected
+                else None
+            )
+        )
         summary: dict[str, Any] = {
             "domain_id": run.domain_id,
             "dataset_version": str(manifest["dataset_version"]),
@@ -250,6 +276,8 @@ def _build_domain_summary(run: CampaignRunInput) -> dict[str, Any]:
                 "profile_purpose": manifest_profile.get("profile_purpose"),
                 "target_candidate_count": manifest_profile.get("target_candidate_count"),
                 "mutation_admission": manifest_profile.get("mutation_admission"),
+                "coverage_selected": coverage_selected,
+                "coverage_fulfillment_status": coverage_status,
             }),
             "artifacts": artifact_records,
             "observed": {
@@ -272,6 +300,10 @@ def _build_domain_summary(run: CampaignRunInput) -> dict[str, Any]:
             "_review": review_counts,
             "_confirmed_issue_count": review_counts["confirmed_issue"],
         }
+        if coverage_selected:
+            summary["observed"]["coverage_fulfillment_status"] = (
+                coverage_status
+            )
         return summary
     except (OSError, json.JSONDecodeError, ContractValidationError, KeyError, TypeError, ValueError):
         return _insufficient_domain_summary(run.domain_id, artifact_records)
@@ -315,7 +347,81 @@ def _load_and_validate_artifacts(run: CampaignRunInput) -> dict[str, Mapping[str
         review = _load_mapping(review_path)
         validate_review_resolution_report_record(review)
         records["review_resolution_report"] = review
+    _validate_coverage_artifact_bindings(run.artifact_dir, records)
     return records
+
+
+def _validate_coverage_artifact_bindings(
+    directory: Path,
+    records: Mapping[str, Mapping[str, Any]],
+) -> None:
+    manifest = records["manifest"]
+    run_profile = manifest.get("run_profile")
+    if not (
+        isinstance(run_profile, Mapping)
+        and isinstance(run_profile.get("coverage_profile"), Mapping)
+    ):
+        return
+    artifacts = _mapping(manifest.get("artifacts"))
+    expected_filenames = {
+        "coverage_evidence": "coverage_evidence.json",
+        "coverage_plan": "coverage_plan.json",
+        "samples": "samples.jsonl",
+        "rejections": "rejections.jsonl",
+    }
+    for key, expected_filename in expected_filenames.items():
+        if artifacts.get(key) != expected_filename:
+            raise ValueError(f"coverage artifact {key} is unavailable")
+
+    evidence = _load_mapping(directory / "coverage_evidence.json")
+    plan = _load_mapping(directory / "coverage_plan.json")
+    samples_artifact = _artifact_hash_binding(
+        directory / "samples.jsonl"
+    )
+    rejections_artifact = _artifact_hash_binding(
+        directory / "rejections.jsonl"
+    )
+    verify_sanitized_coverage_evidence(
+        evidence,
+        plan=plan,
+        run_profile=run_profile,
+        samples_artifact=samples_artifact,
+        rejections_artifact=rejections_artifact,
+    )
+    if evidence.get("dataset_version") != manifest.get("dataset_version"):
+        raise ValueError("coverage evidence dataset identity mismatch")
+
+    quality_coverage = _mapping(
+        records["quality_report"].get("coverage")
+    )
+    validate_coverage_quality_summary_record(quality_coverage)
+    expected_summary = coverage_quality_summary(evidence)
+    if dict(quality_coverage) != expected_summary:
+        raise ValueError("coverage quality summary identity mismatch")
+    profile_coverage = _mapping(
+        records["profile_decision_report"].get("coverage")
+    )
+    if dict(profile_coverage) != expected_summary:
+        raise ValueError("coverage profile decision identity mismatch")
+    manifest_binding = _mapping(manifest.get("coverage"))
+    if (
+        manifest_binding.get("evidence_id") != evidence.get("evidence_id")
+        or manifest_binding.get("evidence_hash")
+        != evidence.get("evidence_hash")
+        or dict(
+            _mapping(manifest_binding.get("evidence_artifact"))
+        )
+        != _artifact_hash_binding(directory / "coverage_evidence.json")
+        or dict(
+            _mapping(manifest_binding.get("samples_artifact"))
+        )
+        != samples_artifact
+        or dict(
+            _mapping(manifest_binding.get("rejections_artifact"))
+        )
+        != rejections_artifact
+    ):
+        raise ValueError("coverage manifest binding mismatch")
 
 
 def _validate_cross_artifact_identity(domain_id: str, records: Mapping[str, Mapping[str, Any]]) -> None:
@@ -361,6 +467,22 @@ def _artifact_records(directory: Path) -> dict[str, dict[str, str]]:
             "path": OPTIONAL_REVIEW_ARTIFACT,
             "sha256": hashlib.sha256(review_path.read_bytes()).hexdigest(),
         }
+    if (directory / "coverage_evidence.json").is_file():
+        for key, filename in {
+            "coverage_evidence": "coverage_evidence.json",
+            "coverage_plan": "coverage_plan.json",
+            "samples": "samples.jsonl",
+            "rejections": "rejections.jsonl",
+        }.items():
+            path = directory / filename
+            artifacts[key] = {
+                "path": filename,
+                "sha256": (
+                    hashlib.sha256(path.read_bytes()).hexdigest()
+                    if path.is_file()
+                    else "0" * 64
+                ),
+            }
     return artifacts
 
 
@@ -432,6 +554,15 @@ def _load_mapping(path: Path) -> Mapping[str, Any]:
     if not isinstance(record, Mapping):
         raise ContractValidationError(f"{path.name} must contain an object")
     return record
+
+
+def _artifact_hash_binding(path: Path) -> dict[str, object]:
+    content = path.read_bytes()
+    return {
+        "path": path.name,
+        "sha256": "sha256:" + hashlib.sha256(content).hexdigest(),
+        "byte_count": len(content),
+    }
 
 
 def _mapping(value: object) -> Mapping[str, Any]:

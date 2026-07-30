@@ -183,6 +183,7 @@ MANIFEST_ARTIFACT_KEYS = {
     "review_resolution_report",
     "mutation_admission_report",
     "coverage_plan",
+    "coverage_evidence",
 }
 EVALUATION_TASK_STATUSES = {"passed", "failed"}
 EVALUATION_DECISION_STATUSES = {"passed", "failed", "insufficient_evidence"}
@@ -552,6 +553,8 @@ def validate_manifest_record(record: Mapping[str, Any]) -> None:
         )
     if "run_profile" in record:
         _validate_run_profile_metadata(record.get("run_profile"))
+    if "coverage" in record:
+        _validate_coverage_manifest_binding(record)
     if "sample_contract_versions" in record:
         versions = _require_non_empty_string_sequence(
             record.get("sample_contract_versions"),
@@ -568,6 +571,92 @@ def validate_manifest_record(record: Mapping[str, Any]) -> None:
         raise ContractValidationError(
             "admission manifest fields require dataset_manifest_v2"
         )
+
+
+def validate_coverage_evidence_record(
+    record: Mapping[str, Any],
+) -> None:
+    from synthesis.coverage_evidence import (
+        validate_coverage_evidence_record as validate_record,
+    )
+
+    try:
+        validate_record(record)
+    except ValueError as exc:
+        raise ContractValidationError(str(exc)) from exc
+
+
+def _validate_coverage_manifest_binding(
+    manifest: Mapping[str, Any],
+) -> None:
+    binding = _require_mapping(manifest.get("coverage"), "coverage")
+    _require_exact_keys(
+        binding,
+        {
+            "schema_version",
+            "evidence_id",
+            "evidence_hash",
+            "evidence_artifact",
+            "samples_artifact",
+            "rejections_artifact",
+        },
+        "coverage",
+    )
+    if binding.get("schema_version") != "coverage_manifest_binding_v1":
+        raise ContractValidationError("coverage.schema_version is unsupported")
+    evidence_hash = _require_non_empty_string(
+        binding.get("evidence_hash"),
+        "coverage.evidence_hash",
+    )
+    _validate_content_hash(evidence_hash, "coverage.evidence_hash")
+    if binding.get("evidence_id") != (
+        "coverage_evidence_" + evidence_hash.removeprefix("sha256:")[:16]
+    ):
+        raise ContractValidationError("coverage.evidence_id is invalid")
+    artifacts = _require_mapping(manifest.get("artifacts"), "artifacts")
+    for key, expected_path in {
+        "evidence_artifact": "coverage_evidence.json",
+        "samples_artifact": "samples.jsonl",
+        "rejections_artifact": "rejections.jsonl",
+    }.items():
+        artifact = _require_mapping(binding.get(key), f"coverage.{key}")
+        _require_exact_keys(
+            artifact,
+            {"path", "sha256", "byte_count"},
+            f"coverage.{key}",
+        )
+        if artifact.get("path") != expected_path:
+            raise ContractValidationError(f"coverage.{key}.path is invalid")
+        manifest_key = (
+            "coverage_evidence"
+            if key == "evidence_artifact"
+            else key.removesuffix("_artifact")
+        )
+        if artifacts.get(manifest_key) != expected_path:
+            raise ContractValidationError(
+                f"coverage.{key}.path must match artifacts.{manifest_key}"
+            )
+        _validate_content_hash(
+            artifact.get("sha256"),
+            f"coverage.{key}.sha256",
+        )
+        _require_int(
+            artifact.get("byte_count"),
+            f"coverage.{key}.byte_count",
+        )
+
+
+def validate_coverage_quality_summary_record(
+    record: Mapping[str, Any],
+) -> None:
+    from synthesis.coverage_evidence import (
+        validate_coverage_quality_summary_record as validate_record,
+    )
+
+    try:
+        validate_record(record)
+    except ValueError as exc:
+        raise ContractValidationError(str(exc)) from exc
 
 
 def _validate_mutation_admission_manifest(record: Mapping[str, Any]) -> None:
@@ -1571,7 +1660,14 @@ def _validate_scale_domain_summary(raw: object, *, index: int, expected_domain: 
         raise ContractValidationError(f"domains.{index}.classification is unsupported")
     artifacts = _require_mapping(domain.get("artifacts"), f"domains.{index}.artifacts")
     required = {"manifest", "quality_report", "evaluation_report", "profile_decision_report", "dataset_release_report", "release_quality_audit"}
-    if not required.issubset(artifacts) or set(artifacts) - required - {"review_resolution_report"}:
+    optional = {
+        "review_resolution_report",
+        "coverage_evidence",
+        "coverage_plan",
+        "samples",
+        "rejections",
+    }
+    if not required.issubset(artifacts) or set(artifacts) - required - optional:
         raise ContractValidationError(f"domains.{index}.artifacts has invalid keys")
     for name, raw_artifact in artifacts.items():
         artifact = _require_mapping(raw_artifact, f"domains.{index}.artifacts.{name}")
@@ -1580,7 +1676,14 @@ def _validate_scale_domain_summary(raw: object, *, index: int, expected_domain: 
         _validate_plain_sha256(artifact.get("sha256"), f"domains.{index}.artifacts.{name}.sha256")
     observed = _require_mapping(domain.get("observed"), f"domains.{index}.observed")
     observed_keys = {"total_candidates", "accepted", "rejected", "runtime_seconds", "exact_duplicate_count", "exact_duplicate_rate", "heldout_status", "mvp_quality_floor_status", "profile_promotion_status", "dataset_release_status", "release_audit_status", "review_resolution_status"}
-    _require_exact_keys(observed, observed_keys, f"domains.{index}.observed")
+    optional_observed = {"coverage_fulfillment_status"}
+    if (
+        not observed_keys.issubset(observed)
+        or set(observed) - observed_keys - optional_observed
+    ):
+        raise ContractValidationError(
+            f"domains.{index}.observed has invalid keys"
+        )
     for key in ("total_candidates", "accepted", "rejected", "exact_duplicate_count"):
         _require_int(observed.get(key), f"domains.{index}.observed.{key}")
     runtime_seconds = _require_number(observed.get("runtime_seconds"), f"domains.{index}.observed.runtime_seconds")
@@ -1595,6 +1698,15 @@ def _validate_scale_domain_summary(raw: object, *, index: int, expected_domain: 
     review_status = observed.get("review_resolution_status")
     if review_status is not None:
         _require_non_empty_string(review_status, f"domains.{index}.observed.review_resolution_status")
+    if "coverage_fulfillment_status" in observed:
+        coverage_status = _require_non_empty_string(
+            observed.get("coverage_fulfillment_status"),
+            f"domains.{index}.observed.coverage_fulfillment_status",
+        )
+        if coverage_status not in {"passed", "insufficient_evidence"}:
+            raise ContractValidationError(
+                f"domains.{index}.observed.coverage_fulfillment_status is unsupported"
+            )
     _validate_unique_vocabulary(_require_sequence(domain.get("signals"), f"domains.{index}.signals"), REPRESENTATIVE_SCALE_SIGNALS, f"domains.{index}.signals")
 
 
@@ -1711,8 +1823,70 @@ def validate_profile_decision_report_record(record: Mapping[str, Any]) -> None:
         "decisions.profile_promotion",
         allowed_statuses=PROFILE_PROMOTION_STATUSES,
     )
+    coverage = record.get("coverage")
+    coverage_decision = decisions.get("coverage_fulfillment")
+    if coverage is not None:
+        coverage_record = _require_mapping(coverage, "coverage")
+        if coverage_record.get("evidence_hash") is None:
+            _validate_unavailable_coverage_summary(coverage_record)
+        else:
+            validate_coverage_quality_summary_record(coverage_record)
+        _validate_profile_decision(
+            coverage_decision,
+            "decisions.coverage_fulfillment",
+            allowed_statuses={"passed", "insufficient_evidence"},
+        )
+    elif coverage_decision is not None:
+        raise ContractValidationError(
+            "decisions.coverage_fulfillment requires coverage"
+        )
     if "evaluation" in record:
         _validate_profile_decision_evaluation(record.get("evaluation"))
+
+
+def _validate_unavailable_coverage_summary(
+    coverage: Mapping[str, Any],
+) -> None:
+    expected_keys = {
+        "schema_version",
+        "evidence_id",
+        "evidence_hash",
+        "counts",
+        "distributions",
+        "fulfillment",
+    }
+    _require_exact_keys(coverage, expected_keys, "coverage")
+    if coverage.get("schema_version") != "coverage_quality_summary_v1":
+        raise ContractValidationError("coverage.schema_version is unsupported")
+    if coverage.get("evidence_id") is not None:
+        raise ContractValidationError("coverage.evidence_id must be unavailable")
+    if coverage.get("counts") != {} or coverage.get("distributions") != {}:
+        raise ContractValidationError(
+            "unavailable coverage summary must not contain metrics"
+        )
+    fulfillment = _require_mapping(
+        coverage.get("fulfillment"),
+        "coverage.fulfillment",
+    )
+    _require_exact_keys(
+        fulfillment,
+        {
+            "status",
+            "mandatory_fulfilled",
+            "target_fulfilled",
+            "reasons",
+        },
+        "coverage.fulfillment",
+    )
+    if (
+        fulfillment.get("status") != "incomplete"
+        or fulfillment.get("mandatory_fulfilled") is not False
+        or fulfillment.get("target_fulfilled") is not False
+        or fulfillment.get("reasons") != ["coverage_summary_unavailable"]
+    ):
+        raise ContractValidationError(
+            "unavailable coverage summary is invalid"
+        )
 
 
 def validate_dataset_release_report_record(record: Mapping[str, Any]) -> None:

@@ -142,9 +142,12 @@ paths, and host paths must not be written to public artifacts.
 
 - Default dataset artifacts: `samples.jsonl`, `rejections.jsonl`,
   `manifest.json`, `quality_report.json`.
-- Coverage planning artifact: `coverage_plan.json`; coverage-enabled execution
-  attaches it to the dataset manifest, while preview-only commands do not write
-  a dataset manifest.
+- Coverage artifacts: `coverage_plan.json` and the automatic,
+  identity-bound `coverage_evidence.json`; coverage-enabled execution attaches
+  both to the dataset manifest, while preview-only commands write only the plan
+  and do not write a dataset manifest. Quality and profile reports consume the
+  sanitized coverage summary, and representative claims require fulfilled,
+  drift-free coverage in addition to the existing gates.
 - Source and sandbox audits: `source_events.jsonl`, `sandbox_audits.jsonl`.
 - Evaluation and release artifacts: `evaluation_report.json`,
   `profile_decision_report.json`, `dataset_release_report.json`,

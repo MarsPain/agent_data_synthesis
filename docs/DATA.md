@@ -30,6 +30,15 @@
   binds plan identity, assignment ordinal, cell dimensions, and grounding hash.
   Providers receive the assignment contract but cannot return locally owned
   assignment or coverage evidence.
+- **Coverage Evidence:** automatically written `coverage_evidence_v1` for a
+  coverage-enabled run. It hash-binds the catalog, coverage profile, compiled
+  plan, scheduler semantics, sanitized run profile, issued assignments,
+  accepted samples, and rejections. It reconciles planned, attempted,
+  generated, accepted, rejected, and remaining counts per cell; records bounded
+  rejection and deficit reasons; and publishes sanitized structural-family,
+  grounding-reuse, difficulty, exact-duplicate, and fulfillment summaries.
+  Partial diagnostic output remains valid with `fulfillment.status:
+  incomplete`.
 - **Source Record:** provenance contract for fixture, synthetic, transformed, or
   external/local-file material, including source id, sanitized origin reference,
   content hash, license label, retrieval timestamp when applicable, and
@@ -186,6 +195,12 @@
   an opt-in adapter run.
 - **Sample:** accepted training record assembled from the above entities.
 - **Dataset Version:** manifest that groups samples, schemas, generator configs, and quality reports.
+- **Coverage Manifest Binding:** coverage-only
+  `coverage_manifest_binding_v1` metadata that records the semantic evidence
+  identity and exact byte hashes for `coverage_evidence.json`,
+  `samples.jsonl`, and `rejections.jsonl`. Profile and representative
+  consumers verify this sanitized chain before accepting fulfillment; they do
+  not parse sample or rejection content.
 - **Mutation Admission Report:** deterministic aggregate counts over retained
   admission evidence, grouped by domain, task type, action, provenance,
   verdict, reason, provider outcome, and model-independence status.
@@ -246,7 +261,16 @@ and a quality report:
 - `manifest.json`: dataset counts, artifact names, lineage/version summaries, and
   aggregate quality rates.
 - `quality_report.json`: dataset-level counts, rates, rejection-cause counts, and
-  deterministic metric slices.
+  deterministic metric slices. Coverage-enabled runs add only the sanitized
+  `coverage_quality_summary_v1`; non-coverage reports retain their previous
+  shape.
+- `coverage_evidence.json`: automatic hash-bound evidence for coverage-enabled
+  execution. It is absent for non-coverage runs.
+- `coverage_plan.json`: the compiled plan for coverage-enabled execution.
+- `parent_comparison.json`: when both compared quality reports carry coverage,
+  adds evidence identities and deltas for structural-family count and
+  concentration, grounding reuse, and difficulty, plus both fulfillment
+  statuses. Non-coverage comparisons retain their previous shape.
 - `tool_proposals.jsonl`: optional proposal-event records with the original
   capability gap, structured proposal, and local admission decision.
 - `source_events.jsonl`: optional source-audit records written when source

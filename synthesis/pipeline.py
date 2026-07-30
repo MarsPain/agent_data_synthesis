@@ -95,6 +95,7 @@ class PipelineResult:
     accepted_count: int
     rejected_count: int
     coverage_plan_path: Path | None
+    coverage_evidence_path: Path | None
     coverage_reconciliation: Mapping[str, object] | None
 
 
@@ -272,6 +273,10 @@ def run_foundation_pipeline(
     write_episode_logs: bool = False,
     mutation_judge_http_client: httpx.Client | None = None,
 ) -> PipelineResult:
+    run_profile_metadata = _authoritative_run_profile_metadata(
+        run_profile,
+        run_profile_metadata,
+    )
     configured_generator_count = sum(
         item is not None
         for item in (
@@ -654,6 +659,8 @@ def run_foundation_pipeline(
         source_events=source_event_records,
         sandbox_audits=sandbox_audits,
         run_profile_metadata=run_profile_metadata,
+        coverage_plan=coverage_plan,
+        coverage_reconciliation=coverage_reconciliation,
     )
     episode_logs_path = (
         write_episode_log_jsonl(output_dir / EPISODES_FILENAME, episode_logs)
@@ -666,6 +673,42 @@ def run_foundation_pipeline(
         coverage_plan_path=coverage_plan_path,
         coverage_reconciliation=coverage_reconciliation,
     )
+
+
+def _authoritative_run_profile_metadata(
+    run_profile: object | None,
+    supplied_metadata: dict[str, object] | None,
+) -> dict[str, object] | None:
+    if not isinstance(run_profile, RunProfile):
+        return supplied_metadata
+    if run_profile.coverage_profile is None:
+        return supplied_metadata
+    authoritative = run_profile.sanitized_metadata()
+    if supplied_metadata is None:
+        return authoritative
+    for key, expected in authoritative.items():
+        supplied = supplied_metadata.get(key)
+        if (
+            key == "mutation_admission"
+            and isinstance(expected, Mapping)
+            and isinstance(supplied, Mapping)
+        ):
+            matches = all(
+                supplied.get(field) == value
+                for field, value in expected.items()
+            )
+        else:
+            matches = supplied == expected
+        if not matches:
+            raise ValueError(
+                "run_profile_metadata must match the authoritative run profile"
+            )
+    unexpected = set(supplied_metadata) - set(authoritative) - {"source"}
+    if unexpected:
+        raise ValueError(
+            "run_profile_metadata contains unsupported attribution fields"
+        )
+    return dict(supplied_metadata)
 
 
 def _pipeline_result(
@@ -691,6 +734,7 @@ def _pipeline_result(
         parent_comparison_path=artifacts.parent_comparison_path,
         review_queue_path=artifacts.review_queue_path,
         mutation_admission_report_path=artifacts.mutation_admission_report_path,
+        coverage_evidence_path=artifacts.coverage_evidence_path,
         episode_logs_path=episode_logs_path,
         accepted_count=artifacts.accepted_count,
         rejected_count=artifacts.rejected_count,

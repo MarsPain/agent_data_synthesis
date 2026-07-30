@@ -92,9 +92,22 @@ each processing wave, the scheduler reconciles planned, in-flight, accepted,
 rejected, and remaining counts by cell. Only accepted, locally validated
 assignments reduce the deficit; bounded replacement waves stop at the plan
 ceiling. `PipelineResult.coverage_reconciliation` exposes the deterministic
-non-artifact completion snapshot for orchestration and tests. Hash-bound public
-coverage evidence and representative fulfillment gates remain a later
-contract.
+non-artifact completion snapshot for orchestration and tests. The dataset
+writer also emits `coverage_evidence_v1`, whose stable identities bind the
+catalog, profile, plan, scheduler, run profile, assignments, admitted samples,
+and rejections. Its per-cell reconciliation and sanitized concentration,
+grounding-reuse, difficulty, exact-duplicate, and fulfillment summaries feed
+quality and profile decisions without exposing prompts, provider responses, or
+source payloads. A coverage-only manifest binding records the evidence identity
+and exact artifact-byte hashes, allowing profile and representative consumers
+to detect plan or membership drift while treating sample and rejection files
+as opaque bytes. Coverage-aware parent comparisons report structural
+concentration, grounding-reuse, difficulty, and fulfillment deltas.
+Coverage-enabled promotion and representative classification require fulfilled
+mandatory coverage in addition to every existing quality, held-out, mutation,
+safety, release, and generation-contract gate. Missing or drifted coverage
+inputs remain insufficient evidence; diagnostic runs may keep valid partial
+samples.
 
 ### Trajectory Execution
 

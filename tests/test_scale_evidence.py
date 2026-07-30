@@ -175,6 +175,36 @@ class ScaleEvidenceTest(unittest.TestCase):
                     "valid": True,
                     "generation_mode": "llm",
                     "generation_contract": generation_contract,
+                    "schema_version": "run_profile_v3",
+                    "profile_purpose": "benchmark",
+                    "target_candidate_count": 100,
+                    "coverage_selected": True,
+                    "coverage_fulfillment_status": "insufficient_evidence",
+                }
+            ),
+            "insufficient_evidence",
+        )
+        self.assertEqual(
+            classify_run(
+                {
+                    "valid": True,
+                    "generation_mode": "llm",
+                    "generation_contract": generation_contract,
+                    "schema_version": "run_profile_v3",
+                    "profile_purpose": "benchmark",
+                    "target_candidate_count": 100,
+                    "coverage_selected": True,
+                    "coverage_fulfillment_status": "passed",
+                }
+            ),
+            "representative",
+        )
+        self.assertEqual(
+            classify_run(
+                {
+                    "valid": True,
+                    "generation_mode": "llm",
+                    "generation_contract": generation_contract,
                     "schema_version": "run_profile_v4",
                     "profile_purpose": "benchmark",
                     "target_candidate_count": 100,
@@ -315,6 +345,81 @@ class ScaleEvidenceTest(unittest.TestCase):
             self.assertEqual(evidence["domains"][0]["classification"], "insufficient_evidence")
             self.assertEqual(evidence["decision"]["recommendation"], "expand_representative_evidence")
 
+    def test_selected_coverage_requires_bound_evidence_artifacts(self) -> None:
+        from synthesis.scale_evidence import (
+            build_representative_scale_evidence,
+            load_scale_campaign,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            for domain in PROFILE_BY_DOMAIN:
+                directory = write_domain_artifacts(
+                    root,
+                    domain_id=domain,
+                    dataset_version=f"dataset_{domain}",
+                    generation_mode="llm",
+                    total_candidates=10,
+                )
+                if domain == "contacts_fixture":
+                    manifest_path = directory / "manifest.json"
+                    manifest = json.loads(
+                        manifest_path.read_text(encoding="utf-8")
+                    )
+                    manifest["run_profile"]["coverage_profile"] = {
+                        "profile_id": "contacts_smoke",
+                        "version": "contacts_smoke_v1",
+                        "target_accepted_sample_count": 10,
+                    }
+                    manifest_path.write_text(
+                        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                    summary = _fulfilled_coverage_summary()
+                    quality_path = directory / "quality_report.json"
+                    quality = json.loads(
+                        quality_path.read_text(encoding="utf-8")
+                    )
+                    quality["coverage"] = summary
+                    quality_path.write_text(
+                        json.dumps(quality, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                    profile_path = directory / "profile_decision_report.json"
+                    profile = json.loads(
+                        profile_path.read_text(encoding="utf-8")
+                    )
+                    profile["coverage"] = summary
+                    profile["decisions"]["coverage_fulfillment"] = {
+                        "status": "passed",
+                        "reasons": [
+                            "mandatory coverage fulfillment passed"
+                        ],
+                        "triggered_by": ["coverage_fulfillment"],
+                    }
+                    profile_path.write_text(
+                        json.dumps(profile, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+            campaign_path = root / "campaign.json"
+            campaign_path.write_text(
+                json.dumps(_campaign_record()),
+                encoding="utf-8",
+            )
+
+            evidence = build_representative_scale_evidence(
+                load_scale_campaign(campaign_path)
+            )
+
+            self.assertEqual(
+                evidence["domains"][0]["classification"],
+                "insufficient_evidence",
+            )
+            self.assertEqual(
+                evidence["decision"]["recommendation"],
+                "expand_representative_evidence",
+            )
+
 
 def _campaign_record() -> dict[str, object]:
     return {
@@ -325,6 +430,49 @@ def _campaign_record() -> dict[str, object]:
             {"domain_id": "mobile_messages_fixture", "artifact_dir": "mobile_messages_fixture"},
             {"domain_id": "workspace_tasks_fixture", "artifact_dir": "workspace_tasks_fixture"},
         ],
+    }
+
+
+def _fulfilled_coverage_summary() -> dict[str, object]:
+    evidence_hash = "sha256:" + "a" * 64
+    return {
+        "schema_version": "coverage_quality_summary_v1",
+        "evidence_id": "coverage_evidence_" + "a" * 16,
+        "evidence_hash": evidence_hash,
+        "counts": {
+            "target_accepted": 10,
+            "attempt_ceiling": 10,
+            "attempted": 10,
+            "generated": 10,
+            "accepted": 10,
+            "rejected": 0,
+            "remaining": 0,
+            "unassigned_accepted": 0,
+            "unassigned_rejected": 0,
+        },
+        "distributions": {
+            "structural_families": {
+                "distinct_count": 1,
+                "largest_family_count": 10,
+                "largest_family_share": 1.0,
+                "accepted_by_cell": {"contacts.lookup_by_name": 10},
+            },
+            "grounding_reuse": {
+                "distinct_grounding_count": 1,
+                "max_accepted_per_grounding": 10,
+                "reuse_count_distribution": {"10": 1},
+            },
+            "difficulty": {
+                "accepted_by_level": {"medium": 10},
+            },
+            "exact_duplicates": {"count": 0, "rate": 0.0},
+        },
+        "fulfillment": {
+            "status": "fulfilled",
+            "mandatory_fulfilled": True,
+            "target_fulfilled": True,
+            "reasons": [],
+        },
     }
 
 

@@ -59,6 +59,101 @@ class ProfileDecisionReportTest(unittest.TestCase):
         self.assertEqual(report["decisions"]["async_orchestration"]["status"], "activate")
         self.assertEqual(report["decisions"]["profile_promotion"]["status"], "blocked")
 
+    def test_incomplete_mandatory_coverage_blocks_profile_promotion(self) -> None:
+        from synthesis.profile_decisions import build_profile_decision_report
+
+        inputs = _report_inputs(total=10, accepted=10, rejected=0)
+        manifest = inputs["manifest"]
+        assert isinstance(manifest, dict)
+        manifest["artifacts"]["coverage_evidence"] = "coverage_evidence.json"
+        manifest["run_profile"]["coverage_profile"] = {
+            "profile_id": "contacts_representative",
+            "version": "contacts_representative_v1",
+            "target_accepted_sample_count": 12,
+            "overrides": {"balance_weights": {}},
+        }
+        quality_report = inputs["quality_report"]
+        assert isinstance(quality_report, dict)
+        quality_report["coverage"] = _coverage_quality_summary(
+            status="incomplete",
+            mandatory_fulfilled=False,
+            target_fulfilled=False,
+        )
+        manifest["coverage"] = _coverage_manifest_binding(
+            quality_report["coverage"]
+        )
+
+        report = build_profile_decision_report(
+            **inputs,
+            evaluation_report=_evaluation_report(status="passed"),
+            evaluation_report_path=Path("evaluation_report.json"),
+        )
+
+        self.assertEqual(
+            report["decisions"]["coverage_fulfillment"]["status"],
+            "insufficient_evidence",
+        )
+        self.assertEqual(
+            report["decisions"]["profile_promotion"]["status"],
+            "insufficient_evidence",
+        )
+        self.assertIn(
+            "coverage_fulfillment",
+            report["decisions"]["profile_promotion"]["triggered_by"],
+        )
+
+    def test_fulfilled_coverage_cannot_override_other_quality_failures(self) -> None:
+        from synthesis.profile_decisions import build_profile_decision_report
+
+        for rejection_causes, expected_status in (
+            ({}, "passed"),
+            ({"source_policy_rejected": 1}, "failed"),
+            ({"infrastructure_error": 1}, "failed"),
+        ):
+            with self.subTest(rejection_causes=rejection_causes):
+                inputs = _report_inputs(
+                    total=10,
+                    accepted=10,
+                    rejected=0,
+                    rejection_causes=rejection_causes,
+                )
+                manifest = inputs["manifest"]
+                assert isinstance(manifest, dict)
+                manifest["artifacts"]["coverage_evidence"] = (
+                    "coverage_evidence.json"
+                )
+                manifest["run_profile"]["coverage_profile"] = {
+                    "profile_id": "contacts_representative",
+                    "version": "contacts_representative_v1",
+                    "target_accepted_sample_count": 10,
+                    "overrides": {"balance_weights": {}},
+                }
+                quality_report = inputs["quality_report"]
+                assert isinstance(quality_report, dict)
+                quality_report["coverage"] = _coverage_quality_summary(
+                    status="fulfilled",
+                    mandatory_fulfilled=True,
+                    target_fulfilled=True,
+                )
+                manifest["coverage"] = _coverage_manifest_binding(
+                    quality_report["coverage"]
+                )
+
+                report = build_profile_decision_report(
+                    **inputs,
+                    evaluation_report=_evaluation_report(status="passed"),
+                    evaluation_report_path=Path("evaluation_report.json"),
+                )
+
+                self.assertEqual(
+                    report["decisions"]["coverage_fulfillment"]["status"],
+                    "passed",
+                )
+                self.assertEqual(
+                    report["decisions"]["profile_promotion"]["status"],
+                    expected_status,
+                )
+
     def test_async_activates_at_runtime_threshold(self) -> None:
         from synthesis.profile_decisions import build_profile_decision_report
 
@@ -455,6 +550,95 @@ def _report_inputs(
         },
         "manifest_path": Path("manifest.json"),
         "quality_report_path": Path("quality_report.json"),
+    }
+
+
+def _coverage_quality_summary(
+    *,
+    status: str,
+    mandatory_fulfilled: bool,
+    target_fulfilled: bool,
+) -> dict[str, object]:
+    return {
+        "schema_version": "coverage_quality_summary_v1",
+        "evidence_id": "coverage_evidence_" + "a" * 16,
+        "evidence_hash": "sha256:" + "a" * 64,
+        "counts": {
+            "target_accepted": 10 if target_fulfilled else 12,
+            "attempt_ceiling": 24,
+            "attempted": 10,
+            "generated": 10,
+            "accepted": 10,
+            "rejected": 0,
+            "remaining": 0 if target_fulfilled else 2,
+            "unassigned_accepted": 0,
+            "unassigned_rejected": 0,
+        },
+        "distributions": {
+            "structural_families": {
+                "distinct_count": 3,
+                "largest_family_count": 4,
+                "largest_family_share": 0.4,
+                "accepted_by_cell": {
+                    "contacts.followup_after_lookup": 3,
+                    "contacts.lookup_by_name": 4,
+                    "contacts.lookup_with_recovery": 3,
+                },
+            },
+            "grounding_reuse": {
+                "distinct_grounding_count": 6,
+                "max_accepted_per_grounding": 2,
+                "reuse_count_distribution": {"1": 2, "2": 4},
+            },
+            "difficulty": {
+                "accepted_by_level": {
+                    "basic": 4,
+                    "intermediate": 3,
+                    "recovery": 3,
+                },
+            },
+            "exact_duplicates": {"count": 0, "rate": 0.0},
+        },
+        "fulfillment": {
+            "status": status,
+            "mandatory_fulfilled": mandatory_fulfilled,
+            "target_fulfilled": target_fulfilled,
+            "reasons": (
+                []
+                if status == "fulfilled"
+                else [
+                    "mandatory_cells_underfilled",
+                    "target_distribution_underfilled",
+                ]
+            ),
+        },
+    }
+
+
+def _coverage_manifest_binding(
+    summary: object,
+) -> dict[str, object]:
+    assert isinstance(summary, dict)
+    artifact_hash = "sha256:" + "b" * 64
+    return {
+        "schema_version": "coverage_manifest_binding_v1",
+        "evidence_id": summary["evidence_id"],
+        "evidence_hash": summary["evidence_hash"],
+        "evidence_artifact": {
+            "path": "coverage_evidence.json",
+            "sha256": artifact_hash,
+            "byte_count": 1,
+        },
+        "samples_artifact": {
+            "path": "samples.jsonl",
+            "sha256": artifact_hash,
+            "byte_count": 1,
+        },
+        "rejections_artifact": {
+            "path": "rejections.jsonl",
+            "sha256": artifact_hash,
+            "byte_count": 1,
+        },
     }
 
 

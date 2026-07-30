@@ -3,7 +3,7 @@
 - **Status:** Ticketed
 - **Canonical spec:** [Coverage-Driven Representative Synthesis](../../docs/product-specs/coverage-driven-representative-synthesis.md)
 - **Architecture context:** [Domain-Aware Representative Generation](../../docs/design-docs/domain-aware-representative-generation.md)
-- **Current phase:** Coverage evidence and gates
+- **Current phase:** Representative coverage campaigns
 
 This directory is the feature-level aggregation point for delivery state. The
 canonical desired behavior and accepted implementation and testing decisions
@@ -16,7 +16,7 @@ live only in the tickets under `issues/`.
 2. [Run one contacts assignment end to end](issues/02-contacts-coverage-tracer.md) — completed
 3. [Backfill accepted-coverage deficits](issues/03-bounded-coverage-backfill.md) — completed
 4. [Add mobile and workspace coverage catalogs](issues/04-three-domain-coverage-catalogs.md) — completed
-5. [Publish and gate coverage evidence](issues/05-coverage-evidence-and-gates.md) — ready for agent
+5. [Publish and gate coverage evidence](issues/05-coverage-evidence-and-gates.md) — completed
 6. [Validate representative coverage campaigns](issues/06-representative-coverage-campaign.md) — ready for agent
 
 Ticket 01 establishes the pure plan-compilation contract. Ticket 02 is the
@@ -30,6 +30,6 @@ complete.
 
 ## Frontier
 
-Ticket 05 is the current frontier now that all three current domain catalogs
-share validated planning, assignment, candidate-processing, and reconciliation
-interfaces.
+Ticket 06 is the current frontier now that coverage evidence is hash-bound,
+sanitized, comparable across dataset versions, and authoritative for
+coverage-driven promotion and representative claims.

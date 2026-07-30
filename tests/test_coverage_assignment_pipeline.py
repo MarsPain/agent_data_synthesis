@@ -161,6 +161,64 @@ class CoverageAssignmentPipelineTest(unittest.TestCase):
             **pipeline_options,
         )
 
+    def test_coverage_run_derives_and_enforces_profile_attribution(self) -> None:
+        from synthesis.coverage_assignments import (
+            build_coverage_assignment_scheduler_factory,
+        )
+        from synthesis.pipeline import run_foundation_pipeline
+        from synthesis.run_profiles import load_run_profile
+
+        profile = load_run_profile(
+            Path(
+                "tests/fixtures/run_profiles/"
+                "contacts-coverage-tracer.json"
+            )
+        )
+        provider = AssignmentAwareFakeProvider()
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_foundation_pipeline(
+                Path(tmp),
+                dataset_version=profile.dataset_version,
+                coverage_scheduler_factory=(
+                    build_coverage_assignment_scheduler_factory(provider)
+                ),
+                seed_override=profile.seed,
+                run_profile=profile,
+            )
+            manifest = json.loads(
+                result.manifest_path.read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                manifest["run_profile"],
+                profile.sanitized_metadata(),
+            )
+            assert result.coverage_evidence_path is not None
+            evidence = json.loads(
+                result.coverage_evidence_path.read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                evidence["identities"]["run_profile"]["profile_id"],
+                profile.profile_id,
+            )
+
+        mismatched = profile.sanitized_metadata()
+        mismatched["profile_id"] = "mismatched_profile"
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(
+                ValueError,
+                "must match the authoritative run profile",
+            ):
+                run_foundation_pipeline(
+                    Path(tmp),
+                    dataset_version=profile.dataset_version,
+                    coverage_scheduler_factory=(
+                        build_coverage_assignment_scheduler_factory(provider)
+                    ),
+                    seed_override=profile.seed,
+                    run_profile_metadata=mismatched,
+                    run_profile=profile,
+                )
+
     def test_coverage_profile_runs_read_only_and_state_changing_assignments(self) -> None:
         provider = AssignmentAwareFakeProvider()
         with tempfile.TemporaryDirectory() as tmp:
@@ -336,6 +394,250 @@ class CoverageAssignmentPipelineTest(unittest.TestCase):
                 first_plan_bytes,
                 second_result.coverage_plan_path.read_bytes(),
             )
+
+    def test_coverage_run_writes_hash_bound_evidence_artifact(self) -> None:
+        provider = AssignmentAwareFakeProvider()
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run(provider, Path(tmp))
+
+            self.assertIsNotNone(result.coverage_evidence_path)
+            assert result.coverage_evidence_path is not None
+            evidence = json.loads(
+                result.coverage_evidence_path.read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                set(evidence),
+                {
+                    "schema_version",
+                    "evidence_id",
+                    "evidence_hash",
+                    "dataset_version",
+                    "identities",
+                    "counts",
+                    "cells",
+                    "distributions",
+                    "fulfillment",
+                },
+            )
+            self.assertEqual(evidence["schema_version"], "coverage_evidence_v1")
+            self.assertRegex(evidence["evidence_id"], r"^coverage_evidence_[0-9a-f]{16}$")
+            self.assertRegex(evidence["evidence_hash"], r"^sha256:[0-9a-f]{64}$")
+            self.assertEqual(
+                set(evidence["identities"]),
+                {
+                    "catalog",
+                    "coverage_profile",
+                    "plan",
+                    "scheduler",
+                    "run_profile",
+                    "assignments",
+                    "accepted_samples",
+                    "rejections",
+                },
+            )
+            for identity in (
+                "scheduler",
+                "run_profile",
+                "assignments",
+                "accepted_samples",
+                "rejections",
+            ):
+                self.assertRegex(
+                    evidence["identities"][identity]["identity_hash"],
+                    r"^sha256:[0-9a-f]{64}$",
+                )
+            self.assertEqual(evidence["counts"]["accepted"], 2)
+            self.assertEqual(evidence["counts"]["rejected"], 0)
+            self.assertEqual(evidence["fulfillment"]["status"], "fulfilled")
+            manifest = json.loads(
+                result.manifest_path.read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                manifest["artifacts"]["coverage_evidence"],
+                "coverage_evidence.json",
+            )
+
+    def test_coverage_evidence_verification_rejects_identity_drift(self) -> None:
+        from synthesis.coverage_evidence import verify_coverage_evidence
+
+        provider = AssignmentAwareFakeProvider()
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run(provider, Path(tmp))
+            assert result.coverage_evidence_path is not None
+            assert result.coverage_plan_path is not None
+            evidence = json.loads(
+                result.coverage_evidence_path.read_text(encoding="utf-8")
+            )
+            plan = json.loads(
+                result.coverage_plan_path.read_text(encoding="utf-8")
+            )
+            manifest = json.loads(
+                result.manifest_path.read_text(encoding="utf-8")
+            )
+            samples = [
+                json.loads(line)
+                for line in result.samples_path.read_text(
+                    encoding="utf-8"
+                ).splitlines()
+            ]
+            rejections = [
+                json.loads(line)
+                for line in result.rejections_path.read_text(
+                    encoding="utf-8"
+                ).splitlines()
+            ]
+
+            verify_coverage_evidence(
+                evidence,
+                plan=plan,
+                run_profile=manifest["run_profile"],
+                samples=samples,
+                rejections=rejections,
+            )
+
+            drift_cases = []
+            catalog_drift = json.loads(json.dumps(plan))
+            catalog_drift["catalog"]["catalog_hash"] = "sha256:" + "1" * 64
+            drift_cases.append(("catalog", catalog_drift, manifest["run_profile"], samples))
+            profile_drift = json.loads(json.dumps(plan))
+            profile_drift["coverage_profile"]["profile_hash"] = "sha256:" + "2" * 64
+            drift_cases.append(("profile", profile_drift, manifest["run_profile"], samples))
+            plan_drift = json.loads(json.dumps(plan))
+            plan_drift["plan_hash"] = "sha256:" + "3" * 64
+            drift_cases.append(("plan", plan_drift, manifest["run_profile"], samples))
+            run_profile_drift = json.loads(json.dumps(manifest["run_profile"]))
+            run_profile_drift["profile_id"] = "changed_profile"
+            drift_cases.append(("run_profile", plan, run_profile_drift, samples))
+            assignment_drift = json.loads(json.dumps(samples))
+            assignment_drift[0]["lineage"]["generator"]["coverage_assignment"][
+                "assignment_hash"
+            ] = "sha256:" + "4" * 64
+            drift_cases.append(
+                ("assignment", plan, manifest["run_profile"], assignment_drift)
+            )
+            drift_cases.append(
+                ("sample_membership", plan, manifest["run_profile"], samples[1:])
+            )
+
+            for label, changed_plan, changed_profile, changed_samples in drift_cases:
+                with self.subTest(label=label):
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "coverage evidence identity mismatch",
+                    ):
+                        verify_coverage_evidence(
+                            evidence,
+                            plan=changed_plan,
+                            run_profile=changed_profile,
+                            samples=changed_samples,
+                            rejections=rejections,
+                        )
+
+    def test_profile_decision_loader_rejects_coverage_artifact_drift(
+        self,
+    ) -> None:
+        from synthesis.profile_decisions import (
+            write_profile_decision_report,
+        )
+
+        provider = AssignmentAwareFakeProvider()
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run(provider, Path(tmp))
+            decision_path = write_profile_decision_report(
+                manifest_path=result.manifest_path,
+                quality_report_path=result.quality_report_path,
+            )
+            self.assertTrue(decision_path.exists())
+
+            result.samples_path.write_text(
+                result.samples_path.read_text(encoding="utf-8") + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                ValueError,
+                "coverage evidence binding is invalid",
+            ):
+                write_profile_decision_report(
+                    manifest_path=result.manifest_path,
+                    quality_report_path=result.quality_report_path,
+                )
+
+    def test_coverage_evidence_contract_rejects_inconsistent_counts(self) -> None:
+        from synthesis.contracts import (
+            ContractValidationError,
+            validate_coverage_evidence_record,
+        )
+        from synthesis.coverage import canonical_coverage_hash
+
+        provider = AssignmentAwareFakeProvider()
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run(provider, Path(tmp))
+            assert result.coverage_evidence_path is not None
+            evidence = json.loads(
+                result.coverage_evidence_path.read_text(encoding="utf-8")
+            )
+
+            validate_coverage_evidence_record(evidence)
+            invalid = json.loads(json.dumps(evidence))
+            invalid["counts"]["accepted"] = 1
+            invalid_payload = {
+                key: value
+                for key, value in invalid.items()
+                if key not in {"evidence_id", "evidence_hash"}
+            }
+            invalid_hash = canonical_coverage_hash(invalid_payload)
+            invalid["evidence_hash"] = invalid_hash
+            invalid["evidence_id"] = (
+                "coverage_evidence_"
+                + invalid_hash.removeprefix("sha256:")[:16]
+            )
+
+            with self.assertRaisesRegex(
+                ContractValidationError,
+                "does not reconcile",
+            ):
+                validate_coverage_evidence_record(invalid)
+
+    def test_quality_report_embeds_only_sanitized_coverage_summary(self) -> None:
+        provider = AssignmentAwareFakeProvider()
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run(provider, Path(tmp))
+            assert result.coverage_evidence_path is not None
+            evidence = json.loads(
+                result.coverage_evidence_path.read_text(encoding="utf-8")
+            )
+            quality = json.loads(
+                result.quality_report_path.read_text(encoding="utf-8")
+            )
+
+            self.assertEqual(
+                set(quality["coverage"]),
+                {
+                    "schema_version",
+                    "evidence_id",
+                    "evidence_hash",
+                    "counts",
+                    "distributions",
+                    "fulfillment",
+                },
+            )
+            self.assertEqual(
+                quality["coverage"]["evidence_hash"],
+                evidence["evidence_hash"],
+            )
+            self.assertEqual(
+                quality["coverage"]["fulfillment"]["status"],
+                "fulfilled",
+            )
+            serialized = json.dumps(quality["coverage"])
+            for forbidden in (
+                "provider_prompt",
+                "provider_response",
+                "source_payload",
+                "primary_arguments",
+                "instruction",
+            ):
+                self.assertNotIn(forbidden, serialized)
 
     def test_assignment_mismatch_is_backfilled_without_reclassification(self) -> None:
         provider = AssignmentAwareFakeProvider(mismatch_first_assignment=True)
@@ -673,6 +975,47 @@ class CoverageAssignmentPipelineTest(unittest.TestCase):
                 ],
                 "target_deficit",
             )
+            assert result.coverage_evidence_path is not None
+            evidence = json.loads(
+                result.coverage_evidence_path.read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                evidence["counts"],
+                {
+                    "target_accepted": 3,
+                    "attempt_ceiling": 5,
+                    "attempted": 5,
+                    "generated": 5,
+                    "accepted": 2,
+                    "rejected": 3,
+                    "remaining": 1,
+                    "unassigned_accepted": 0,
+                    "unassigned_rejected": 0,
+                },
+            )
+            self.assertEqual(
+                evidence["distributions"]["exact_duplicates"],
+                {"count": 3, "rate": 0.6},
+            )
+            self.assertEqual(
+                evidence["fulfillment"],
+                {
+                    "status": "incomplete",
+                    "mandatory_fulfilled": True,
+                    "target_fulfilled": False,
+                    "reasons": [
+                        "target_distribution_underfilled",
+                        "attempt_ceiling_exhausted",
+                    ],
+                },
+            )
+            quality = json.loads(
+                result.quality_report_path.read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                quality["coverage"]["fulfillment"]["status"],
+                "incomplete",
+            )
 
     def test_assignment_invalid_refinement_is_rejected_before_rerun(
         self,
@@ -883,6 +1226,29 @@ class CoverageAssignmentPipelineTest(unittest.TestCase):
                         "deficit_reason": "mandatory_deficit",
                     },
                 ],
+            )
+            assert result.coverage_evidence_path is not None
+            evidence = json.loads(
+                result.coverage_evidence_path.read_text(encoding="utf-8")
+            )
+            self.assertEqual(evidence["counts"]["attempted"], 3)
+            self.assertEqual(evidence["counts"]["generated"], 0)
+            self.assertEqual(evidence["counts"]["accepted"], 0)
+            self.assertEqual(evidence["counts"]["rejected"], 3)
+            self.assertEqual(evidence["counts"]["remaining"], 2)
+            self.assertEqual(
+                {
+                    cell["cell_id"]: cell["rejection_causes"]
+                    for cell in evidence["cells"]
+                },
+                {
+                    "contacts.followup_after_lookup": {
+                        "llm_response_schema_error": 2
+                    },
+                    "contacts.lookup_by_name": {
+                        "llm_response_schema_error": 1
+                    },
+                },
             )
 
     def test_candidate_must_use_the_assigned_grounding_scope(self) -> None:
