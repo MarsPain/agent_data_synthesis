@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from dataclasses import dataclass, replace
 from typing import Callable, Mapping, cast
 
@@ -8,8 +9,10 @@ from synthesis.coverage import (
     CoverageCatalog,
     CoverageCell,
     CoveragePlan,
+    allocate_coverage_grounding_indices,
     canonical_coverage_hash,
     canonical_coverage_json,
+    validate_coverage_catalog_reachability,
 )
 from synthesis.datasets import assemble_generation_stage_rejection
 from synthesis.domain_generation import (
@@ -61,6 +64,8 @@ class CoverageAssignment:
     grounding_context_key: str
     grounding_unit_index: int
     grounding_unit_hash: str
+    difficulty_semantics: Mapping[str, object]
+    branch_plan: Mapping[str, object] | None
 
     def provider_contract(self) -> dict[str, object]:
         required_tools = _required_tools_dimension(self.dimensions)
@@ -139,7 +144,6 @@ class _CoverageCellState:
     in_flight: int = 0
     accepted: int = 0
     rejected: int = 0
-    issued: int = 0
 
     @property
     def remaining(self) -> int:
@@ -190,8 +194,17 @@ class CoverageAssignmentScheduler:
         plan: CoveragePlan,
         catalog: CoverageCatalog,
         role_registry: RoleRegistry,
+        execute_tool: Callable[
+            [str, dict[str, object]],
+            dict[str, object],
+        ],
     ) -> None:
         validate_domain_generation_spec(spec)
+        validate_coverage_catalog_reachability(
+            catalog,
+            spec,
+            execute_tool=execute_tool,
+        )
         if plan.domain_id != catalog.domain_id or plan.domain_id != spec.domain_id:
             raise ValueError("coverage assignment domains do not match")
         self._client = client
@@ -211,6 +224,20 @@ class CoverageAssignmentScheduler:
             )
             for item in plan.target_distribution
         }
+        reuse_limit = _plan_grounding_reuse_limit(plan)
+        grounding_targets = allocate_coverage_grounding_indices(
+            {
+                cell_id: state.planned
+                for cell_id, state in self._cell_states.items()
+            },
+            cells=self._cells,
+            reuse_limit=reuse_limit,
+        )
+        if grounding_targets is None:
+            raise ValueError("coverage plan exceeds usable grounding capacity")
+        self._grounding_targets = grounding_targets
+        self._accepted_grounding: Counter[tuple[str, int]] = Counter()
+        self._inflight_grounding: Counter[tuple[str, int]] = Counter()
         selected_features = set(plan.selected_features)
         for cell_id in self._cell_states:
             if cell_id not in self._cells:
@@ -269,16 +296,18 @@ class CoverageAssignmentScheduler:
             if cell_id is None:
                 break
             state = self._cell_states[cell_id]
+            grounding_index = self._next_grounding_index(cell_id)
             assignment = _build_coverage_assignment(
                 plan=self._plan,
+                catalog=self._catalog,
                 cell=self._cells[cell_id],
                 assignment_ordinal=self._issued_count,
-                cell_ordinal=state.issued,
+                grounding_index=grounding_index,
                 spec=self._spec,
             )
             assignments.append(assignment)
             state.in_flight += 1
-            state.issued += 1
+            self._inflight_grounding[(cell_id, grounding_index)] += 1
             self._issued_count += 1
         generated = _generate_coverage_assignments(
             seed=seed,
@@ -307,6 +336,7 @@ class CoverageAssignmentScheduler:
             if assignment.assignment_id in rejected_assignment_ids:
                 state = self._cell_states[assignment.cell_id]
                 state.in_flight -= 1
+                self._release_inflight_grounding(assignment)
                 state.rejected += 1
         wave_state = _CoverageWaveState(
             wave=wave_number,
@@ -350,6 +380,10 @@ class CoverageAssignmentScheduler:
                 raise CoverageAssignmentMismatch("constraint_profile_mismatch")
             recovery = assignment.dimensions["recovery"]
             if (candidate.branch_plan is None) != (recovery == "none"):
+                raise CoverageAssignmentMismatch("recovery_mismatch")
+            if canonical_coverage_hash(candidate.branch_plan) != (
+                canonical_coverage_hash(assignment.branch_plan)
+            ):
                 raise CoverageAssignmentMismatch("recovery_mismatch")
             lineage = candidate.generation_lineage
             lineage_assignment = (
@@ -399,8 +433,12 @@ class CoverageAssignmentScheduler:
             if state.in_flight < 1:
                 raise ValueError("coverage assignment is not in flight")
             state.in_flight -= 1
+            self._release_inflight_grounding(assignment)
             if candidate_id in accepted_candidate_ids:
                 state.accepted += 1
+                self._accepted_grounding[
+                    (assignment.cell_id, assignment.grounding_unit_index)
+                ] += 1
             else:
                 state.rejected += 1
         wave_number = next(
@@ -448,6 +486,26 @@ class CoverageAssignmentScheduler:
             "waves": waves,
         }
 
+    def _next_grounding_index(self, cell_id: str) -> int:
+        target_counts = Counter(self._grounding_targets[cell_id])
+        for grounding_index in self._grounding_targets[cell_id]:
+            key = (cell_id, grounding_index)
+            if (
+                self._accepted_grounding[key] + self._inflight_grounding[key]
+                < target_counts[grounding_index]
+            ):
+                return grounding_index
+        raise ValueError("coverage cell has no remaining grounding allocation")
+
+    def _release_inflight_grounding(
+        self,
+        assignment: CoverageAssignment,
+    ) -> None:
+        key = (assignment.cell_id, assignment.grounding_unit_index)
+        if self._inflight_grounding[key] < 1:
+            raise ValueError("coverage grounding assignment is not in flight")
+        self._inflight_grounding[key] -= 1
+
 
 def build_coverage_assignment_scheduler_factory(
     client: object,
@@ -469,6 +527,7 @@ def build_coverage_assignment_scheduler_factory(
             plan=plan,
             catalog=catalog,
             role_registry=registry,
+            execute_tool=bundle.registry.execute,
         )
 
     return factory
@@ -481,6 +540,11 @@ def issue_initial_coverage_assignments(
     spec: DomainGenerationSpec,
 ) -> tuple[CoverageAssignment, ...]:
     validate_domain_generation_spec(spec)
+    validate_coverage_catalog_reachability(
+        catalog,
+        spec,
+        require_executable_recovery=False,
+    )
     if plan.domain_id != catalog.domain_id or plan.domain_id != spec.domain_id:
         raise ValueError("coverage assignment domains do not match")
     cells = {cell.cell_id: cell for cell in catalog.cells}
@@ -498,6 +562,16 @@ def issue_initial_coverage_assignments(
             ),
         }
     assigned = {cell_id: 0 for cell_id in targets}
+    grounding_targets = allocate_coverage_grounding_indices(
+        {
+            cell_id: target["target_count"]
+            for cell_id, target in targets.items()
+        },
+        cells=cells,
+        reuse_limit=_plan_grounding_reuse_limit(plan),
+    )
+    if grounding_targets is None:
+        raise ValueError("coverage plan exceeds usable grounding capacity")
     assignments: list[CoverageAssignment] = []
     while len(assignments) < plan.target_accepted_sample_count:
         selected_cell_id = _select_next_deficit(
@@ -517,9 +591,10 @@ def issue_initial_coverage_assignments(
         assignments.append(
             _build_coverage_assignment(
                 plan=plan,
+                catalog=catalog,
                 cell=cells[selected_cell_id],
                 assignment_ordinal=len(assignments),
-                cell_ordinal=cell_ordinal,
+                grounding_index=grounding_targets[selected_cell_id][cell_ordinal],
                 spec=spec,
             )
         )
@@ -530,14 +605,19 @@ def issue_initial_coverage_assignments(
 def _build_coverage_assignment(
     *,
     plan: CoveragePlan,
+    catalog: CoverageCatalog,
     cell: CoverageCell,
     assignment_ordinal: int,
-    cell_ordinal: int,
+    grounding_index: int,
     spec: DomainGenerationSpec,
 ) -> CoverageAssignment:
     grounding_key, grounding_units = _single_grounding_collection(spec)
-    grounding_index = cell_ordinal % len(grounding_units)
     grounding_hash = canonical_coverage_hash(grounding_units[grounding_index])
+    difficulty_semantics = next(
+        semantics.canonical()
+        for semantics in catalog.difficulty_semantics
+        if semantics.difficulty == cell.dimensions["difficulty"]
+    )
     assignment_payload = {
         "schema_version": COVERAGE_ASSIGNMENT_VERSION,
         "assignment_ordinal": assignment_ordinal,
@@ -545,6 +625,12 @@ def _build_coverage_assignment(
         "plan_hash": plan.plan_hash,
         "cell_id": cell.cell_id,
         "dimensions": _canonical_dimensions(cell.dimensions),
+        "difficulty_semantics": difficulty_semantics,
+        "branch_plan": (
+            dict(cell.branch_plan)
+            if cell.branch_plan is not None
+            else None
+        ),
         "grounding_scope": {
             "context_key": grounding_key,
             "unit_index": grounding_index,
@@ -568,6 +654,12 @@ def _build_coverage_assignment(
         grounding_context_key=grounding_key,
         grounding_unit_index=grounding_index,
         grounding_unit_hash=grounding_hash,
+        difficulty_semantics=difficulty_semantics,
+        branch_plan=(
+            dict(cell.branch_plan)
+            if cell.branch_plan is not None
+            else None
+        ),
     )
 
 
@@ -847,22 +939,39 @@ def _with_locally_derived_difficulty(
             contract.intent,
             difficulty=_assignment_difficulty(assignment),
         ),
+        policy_hint=replace(
+            contract.policy_hint,
+            branch_plan=(
+                dict(assignment.branch_plan)
+                if assignment.branch_plan is not None
+                else None
+            ),
+        ),
     )
 
 
 def _assignment_difficulty(
     assignment: CoverageAssignment,
 ) -> dict[str, object]:
-    required_tools = _required_tools_dimension(assignment.dimensions)
-    state_behavior = assignment.dimensions["state_behavior"]
-    recovery = assignment.dimensions["recovery"]
     return {
-        "level": str(assignment.dimensions["difficulty"]),
-        "tool_count": len(required_tools),
-        "constraint_count": 1,
-        "state_changes": int(state_behavior == "state_changing"),
-        "ambiguity": str(assignment.dimensions["ambiguity"]),
-        "recovery_paths": int(recovery != "none"),
+        "level": str(assignment.difficulty_semantics["difficulty"]),
+        "tool_count": _required_int(
+            assignment.difficulty_semantics["tool_count"],
+            "difficulty tool_count",
+        ),
+        "constraint_count": _required_int(
+            assignment.difficulty_semantics["constraint_count"],
+            "difficulty constraint_count",
+        ),
+        "state_changes": _required_int(
+            assignment.difficulty_semantics["state_changes"],
+            "difficulty state_changes",
+        ),
+        "ambiguity": str(assignment.difficulty_semantics["ambiguity"]),
+        "recovery_paths": _required_int(
+            assignment.difficulty_semantics["recovery_paths"],
+            "difficulty recovery_paths",
+        ),
     }
 
 
@@ -973,6 +1082,19 @@ def _single_grounding_collection(
     if not isinstance(units, list) or not units:
         raise ValueError("coverage assignment grounding collection must not be empty")
     return key, units
+
+
+def _plan_grounding_reuse_limit(plan: CoveragePlan) -> int:
+    grounding_reuse = plan.policies.get("grounding_reuse")
+    if not isinstance(grounding_reuse, Mapping):
+        raise ValueError("coverage plan grounding reuse policy is missing")
+    reuse_limit = grounding_reuse.get(
+        "max_accepted_samples_per_grounding_unit"
+    )
+    reuse_value = _required_int(reuse_limit, "grounding reuse limit")
+    if reuse_value < 1:
+        raise ValueError("coverage plan grounding reuse limit must be positive")
+    return reuse_value
 
 
 def _canonical_dimensions(

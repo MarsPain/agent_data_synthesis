@@ -3,7 +3,7 @@
 - **Status:** Ticketed
 - **Canonical spec:** [Coverage-Driven Representative Synthesis](../../docs/product-specs/coverage-driven-representative-synthesis.md)
 - **Architecture context:** [Domain-Aware Representative Generation](../../docs/design-docs/domain-aware-representative-generation.md)
-- **Current phase:** Three-domain coverage catalogs
+- **Current phase:** Coverage evidence and gates
 
 This directory is the feature-level aggregation point for delivery state. The
 canonical desired behavior and accepted implementation and testing decisions
@@ -15,7 +15,7 @@ live only in the tickets under `issues/`.
 1. [Compile deterministic coverage plans](issues/01-compile-coverage-plans.md) — completed
 2. [Run one contacts assignment end to end](issues/02-contacts-coverage-tracer.md) — completed
 3. [Backfill accepted-coverage deficits](issues/03-bounded-coverage-backfill.md) — completed
-4. [Add mobile and workspace coverage catalogs](issues/04-three-domain-coverage-catalogs.md) — ready for agent
+4. [Add mobile and workspace coverage catalogs](issues/04-three-domain-coverage-catalogs.md) — completed
 5. [Publish and gate coverage evidence](issues/05-coverage-evidence-and-gates.md) — ready for agent
 6. [Validate representative coverage campaigns](issues/06-representative-coverage-campaign.md) — ready for agent
 
@@ -30,5 +30,6 @@ complete.
 
 ## Frontier
 
-Ticket 04 can start now that contacts assignments reconcile accepted-only
-coverage and exhaust bounded backfill deterministically.
+Ticket 05 is the current frontier now that all three current domain catalogs
+share validated planning, assignment, candidate-processing, and reconciliation
+interfaces.

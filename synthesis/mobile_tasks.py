@@ -15,6 +15,15 @@ MOBILE_MESSAGE_GROUNDING_ARGUMENTS = (
     {"query": "project update", "participant": "Maya"},
     {"query": "five minutes late", "participant": "Alex"},
     {"query": "pickup code", "participant": "Delivery"},
+    {"query": "project update"},
+    {"query": "design review", "participant": "Priya"},
+    {"query": "finance review", "participant": "Morgan"},
+    {"query": "quarterly planning", "participant": "Jordan"},
+)
+MOBILE_MUTATION_GROUNDING_ARGUMENTS = tuple(
+    arguments
+    for arguments in MOBILE_MESSAGE_GROUNDING_ARGUMENTS
+    if "participant" in arguments
 )
 
 

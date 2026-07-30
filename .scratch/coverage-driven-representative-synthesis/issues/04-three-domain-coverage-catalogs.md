@@ -7,24 +7,24 @@ verifiable task cells through the shared scheduler.
 
 **Blocked by:** [03 — Backfill Accepted-Coverage Deficits](03-bounded-coverage-backfill.md)
 
-**Status:** ready-for-agent
+**Status:** completed
 
-**Assignee:** Unassigned
+**Assignee:** Codex
 
 **Parent spec:** [Coverage-Driven Representative Synthesis](../../../docs/product-specs/coverage-driven-representative-synthesis.md)
 
 ## Acceptance criteria
 
-- [ ] Each current domain pack declares stable reachable cells, compatibility constraints, grounding capacity, domain-owned difficulty semantics, and feature requirements through the shared catalog contract.
-- [ ] The shared scheduler and validator contain no contacts, mobile, or workspace domain-name branches.
-- [ ] Each domain catalog includes meaningful read-only and state-changing structure where supported and does not treat paraphrased instructions as separate cells.
-- [ ] Mobile and workspace catalogs cover distinct grounding-selection, cross-step binding, constraint, ambiguity or expected-failure, and recovery shapes that their tools and environments can execute and verify.
-- [ ] Contacts exposes more training structure than repeated lookup and lookup-plus-note wording by using only domain-legitimate state, constraints, and outcomes.
-- [ ] Deterministic fixtures are expanded only where declared representative cells otherwise lack sufficient distinct grounding or state capacity.
-- [ ] Zero-result, multi-result, ambiguous, invalid-precondition, or recovery cases are represented only when their expected behavior is deterministic and independently verifiable.
-- [ ] Catalog validation rejects unreachable cells and detects when a requested target exceeds declared usable capacity.
-- [ ] Domain conformance tests run all three catalogs through the same plan, assignment, candidate-processing, and reconciliation interfaces.
-- [ ] A fake-provider probe demonstrates increasing structural-cell coverage as the per-domain target grows.
+- [x] Each current domain pack declares stable reachable cells, compatibility constraints, grounding capacity, domain-owned difficulty semantics, and feature requirements through the shared catalog contract.
+- [x] The shared scheduler and validator contain no contacts, mobile, or workspace domain-name branches.
+- [x] Each domain catalog includes meaningful read-only and state-changing structure where supported and does not treat paraphrased instructions as separate cells.
+- [x] Mobile and workspace catalogs cover distinct grounding-selection, cross-step binding, constraint, ambiguity or expected-failure, and recovery shapes that their tools and environments can execute and verify.
+- [x] Contacts exposes more training structure than repeated lookup and lookup-plus-note wording by using only domain-legitimate state, constraints, and outcomes.
+- [x] Deterministic fixtures are expanded only where declared representative cells otherwise lack sufficient distinct grounding or state capacity.
+- [x] Zero-result, multi-result, ambiguous, invalid-precondition, or recovery cases are represented only when their expected behavior is deterministic and independently verifiable.
+- [x] Catalog validation rejects unreachable cells and detects when a requested target exceeds declared usable capacity.
+- [x] Domain conformance tests run all three catalogs through the same plan, assignment, candidate-processing, and reconciliation interfaces.
+- [x] A fake-provider probe demonstrates increasing structural-cell coverage as the per-domain target grows.
 
 ## Scope guard
 

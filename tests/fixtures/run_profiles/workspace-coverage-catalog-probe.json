@@ -1,0 +1,31 @@
+{
+  "schema_version": "run_profile_v4",
+  "profile_id": "workspace_coverage_catalog_probe",
+  "dataset_version": "dataset_workspace_coverage_catalog_probe_v1",
+  "profile_purpose": "diagnostic_probe",
+  "seed": {
+    "seed_id": "seed_workspace_coverage_catalog_probe",
+    "domain": "workspace_tasks_fixture",
+    "description": "Exercise distinct workspace coverage cells.",
+    "task_taxonomy": [
+      "workspace_item_search",
+      "workspace_task_creation",
+      "workspace_comment_update"
+    ]
+  },
+  "generation": {
+    "mode": "llm",
+    "target_candidate_count": 8
+  },
+  "features": {
+    "enable_branching": true
+  },
+  "mutation_admission": {
+    "mode": "shadow"
+  },
+  "coverage_profile": {
+    "profile_id": "workspace_tasks_smoke",
+    "version": "workspace_tasks_smoke_v1",
+    "target_accepted_sample_count": 5
+  }
+}

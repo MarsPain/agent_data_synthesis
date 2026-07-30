@@ -134,9 +134,9 @@ class CoveragePlanCompilationTest(unittest.TestCase):
         self.assertRegex(record["admitted_capacity"]["capacity_hash"], r"^sha256:[0-9a-f]{64}$")
         self.assertEqual(
             record["plan_hash"],
-            "sha256:a0a0f3094efa226ea731a4dfcc2202c99c9a38efa77254e5c237620089f59721",
+            "sha256:cdca81866d97c4b13ce3169fc8e884629641ad37059448844af2ed118ae49728",
         )
-        self.assertEqual(record["plan_id"], "coverage_plan_a0a0f3094efa226e")
+        self.assertEqual(record["plan_id"], "coverage_plan_cdca81866d97c4b1")
 
     def test_invalid_or_impossible_plan_inputs_fail_before_generation(self) -> None:
         from synthesis.contacts_coverage import (
@@ -318,7 +318,11 @@ class CoveragePlanCompilationTest(unittest.TestCase):
                 lambda: compile_with(
                     catalog=replace(
                         catalog,
-                        cells=(feature_cell, catalog.cells[1]),
+                        cells=(
+                            feature_cell,
+                            catalog.cells[1],
+                            catalog.cells[2],
+                        ),
                     )
                 ),
                 "requires unavailable features",

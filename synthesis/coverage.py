@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
-from typing import Mapping
+from typing import Callable, Mapping
 
 
 COVERAGE_CATALOG_VERSION = "coverage_catalog_v1"
@@ -59,8 +59,11 @@ class CoverageCell:
     cell_id: str
     dimensions: Mapping[str, CoverageDimensionValue]
     grounding_capacity_key: str
+    grounding_unit_indices: tuple[int, ...]
+    grounding_unit_ids: tuple[str, ...]
     required_features: tuple[str, ...] = ()
     max_accepted_samples: int | None = None
+    branch_plan: Mapping[str, object] | None = None
 
     def canonical(self) -> dict[str, object]:
         dimensions: dict[str, object] = {}
@@ -70,11 +73,59 @@ class CoverageCell:
             "cell_id": self.cell_id,
             "dimensions": dimensions,
             "grounding_capacity_key": self.grounding_capacity_key,
+            "grounding_unit_indices": list(self.grounding_unit_indices),
+            "grounding_unit_ids": list(self.grounding_unit_ids),
             "required_features": sorted(self.required_features),
         }
         if self.max_accepted_samples is not None:
             record["max_accepted_samples"] = self.max_accepted_samples
+        if self.branch_plan is not None:
+            record["branch_plan"] = dict(self.branch_plan)
         return record
+
+
+@dataclass(frozen=True)
+class CoverageCompatibilityConstraint:
+    task_type: str
+    required_tools: tuple[str, ...]
+    state_behavior: str
+    grounding_pattern: str
+    constraint_profile: str
+    difficulty: str
+    ambiguity: str
+    recovery: str
+
+    def canonical(self) -> dict[str, object]:
+        return {
+            "task_type": self.task_type,
+            "required_tools": list(self.required_tools),
+            "state_behavior": self.state_behavior,
+            "grounding_pattern": self.grounding_pattern,
+            "constraint_profile": self.constraint_profile,
+            "difficulty": self.difficulty,
+            "ambiguity": self.ambiguity,
+            "recovery": self.recovery,
+        }
+
+
+@dataclass(frozen=True)
+class CoverageDifficultySemantics:
+    difficulty: str
+    tool_count: int
+    constraint_count: int
+    state_changes: int
+    ambiguity: str
+    recovery_paths: int
+
+    def canonical(self) -> dict[str, object]:
+        return {
+            "difficulty": self.difficulty,
+            "tool_count": self.tool_count,
+            "constraint_count": self.constraint_count,
+            "state_changes": self.state_changes,
+            "ambiguity": self.ambiguity,
+            "recovery_paths": self.recovery_paths,
+        }
 
 
 @dataclass(frozen=True)
@@ -84,7 +135,10 @@ class CoverageCatalog:
     version: str
     domain_id: str
     dimensions: tuple[str, ...]
+    grounding_context_sizes: Mapping[str, int]
     cells: tuple[CoverageCell, ...]
+    compatibility_constraints: tuple[CoverageCompatibilityConstraint, ...]
+    difficulty_semantics: tuple[CoverageDifficultySemantics, ...]
 
     def canonical(self) -> dict[str, object]:
         return {
@@ -93,6 +147,30 @@ class CoverageCatalog:
             "version": self.version,
             "domain_id": self.domain_id,
             "dimensions": sorted(self.dimensions),
+            "grounding_context_sizes": dict(
+                sorted(self.grounding_context_sizes.items())
+            ),
+            "compatibility_constraints": [
+                constraint.canonical()
+                for constraint in sorted(
+                    self.compatibility_constraints,
+                    key=lambda item: (
+                        item.task_type,
+                        item.grounding_pattern,
+                        item.constraint_profile,
+                        item.difficulty,
+                        item.ambiguity,
+                        item.recovery,
+                    ),
+                )
+            ],
+            "difficulty_semantics": [
+                semantics.canonical()
+                for semantics in sorted(
+                    self.difficulty_semantics,
+                    key=lambda item: item.difficulty,
+                )
+            ],
             "cells": [
                 cell.canonical()
                 for cell in sorted(self.cells, key=lambda item: item.cell_id)
@@ -270,15 +348,20 @@ def compile_coverage_plan(
         weights[cell_id] = weight
 
     selected_feature_set = set(selected_features)
-    for cell_id in weights:
+    for cell_id in tuple(weights):
         unavailable = sorted(
             set(cells[cell_id].required_features) - selected_feature_set
         )
         if unavailable:
-            raise CoveragePlanValidationError(
-                f"coverage cell {cell_id} requires unavailable features: "
-                + ", ".join(unavailable)
-            )
+            if (
+                coverage_profile.mandatory_floors.get(cell_id, 0) > 0
+                or cell_id in overrides
+            ):
+                raise CoveragePlanValidationError(
+                    f"coverage cell {cell_id} requires unavailable features: "
+                    + ", ".join(unavailable)
+                )
+            del weights[cell_id]
 
     target_counts = dict(coverage_profile.mandatory_floors)
     floor_total = sum(target_counts.values())
@@ -473,8 +556,26 @@ def _validate_compilation_inputs(
         raise CoveragePlanValidationError("coverage catalog dimensions must be unique")
     if not catalog.cells:
         raise CoveragePlanValidationError("coverage catalog cells must not be empty")
+    capacity_keys = {
+        cell.grounding_capacity_key
+        for cell in catalog.cells
+    }
+    if set(catalog.grounding_context_sizes) != capacity_keys:
+        raise CoveragePlanValidationError(
+            "coverage catalog grounding context sizes do not match capacity keys"
+        )
+    if any(
+        not isinstance(size, int)
+        or isinstance(size, bool)
+        or size <= 0
+        for size in catalog.grounding_context_sizes.values()
+    ):
+        raise CoveragePlanValidationError(
+            "coverage catalog grounding context sizes must be positive integers"
+        )
     cell_ids: set[str] = set()
     cell_signatures: set[str] = set()
+    grounding_ids_by_index: dict[tuple[str, int], str] = {}
     for cell in catalog.cells:
         _require_non_empty_string(cell.cell_id, "coverage cell id")
         _require_non_empty_string(
@@ -514,6 +615,56 @@ def _validate_compilation_inputs(
             raise CoveragePlanValidationError(
                 f"coverage cell {cell.cell_id} has no admitted capacity"
             )
+        if (
+            not isinstance(cell.grounding_unit_indices, tuple)
+            or not cell.grounding_unit_indices
+            or len(cell.grounding_unit_indices)
+            != len(set(cell.grounding_unit_indices))
+            or any(
+                not isinstance(index, int)
+                or isinstance(index, bool)
+                or index < 0
+                for index in cell.grounding_unit_indices
+            )
+        ):
+            raise CoveragePlanValidationError(
+                f"coverage cell {cell.cell_id} grounding unit indices are invalid"
+            )
+        if (
+            not isinstance(cell.grounding_unit_ids, tuple)
+            or len(cell.grounding_unit_ids) != len(cell.grounding_unit_indices)
+            or any(
+                not isinstance(unit_id, str) or not unit_id
+                for unit_id in cell.grounding_unit_ids
+            )
+        ):
+            raise CoveragePlanValidationError(
+                f"coverage cell {cell.cell_id} grounding unit ids are invalid"
+            )
+        grounding_context_size = catalog.grounding_context_sizes[
+            cell.grounding_capacity_key
+        ]
+        for grounding_index, grounding_unit_id in zip(
+            cell.grounding_unit_indices,
+            cell.grounding_unit_ids,
+        ):
+            if grounding_index >= grounding_context_size:
+                raise CoveragePlanValidationError(
+                    f"coverage cell {cell.cell_id} grounding unit index "
+                    "exceeds declared grounding context size"
+                )
+            identity_key = (
+                cell.grounding_capacity_key,
+                grounding_index,
+            )
+            known_unit_id = grounding_ids_by_index.setdefault(
+                identity_key,
+                grounding_unit_id,
+            )
+            if known_unit_id != grounding_unit_id:
+                raise CoveragePlanValidationError(
+                    "coverage grounding index has conflicting stable unit ids"
+                )
         if cell.max_accepted_samples is not None and (
             not isinstance(cell.max_accepted_samples, int)
             or isinstance(cell.max_accepted_samples, bool)
@@ -522,6 +673,7 @@ def _validate_compilation_inputs(
             raise CoveragePlanValidationError(
                 f"coverage cell {cell.cell_id} max accepted samples must be positive"
             )
+    _validate_catalog_semantics(catalog)
     profile_cells = set(coverage_profile.balance_weights)
     if not profile_cells or not profile_cells <= cell_ids:
         raise CoveragePlanValidationError(
@@ -615,7 +767,8 @@ def _validate_counts_fit_capacity(
     counts_by_capacity_key: dict[str, int] = {}
     for cell_id, count in counts.items():
         cell = cells[cell_id]
-        if cell.max_accepted_samples is not None and count > cell.max_accepted_samples:
+        cell_capacity = _cell_usable_capacity(cell, reuse_limit)
+        if count > cell_capacity:
             raise CoveragePlanValidationError(
                 f"{label} exceed the maximum for coverage cell {cell_id}"
             )
@@ -628,6 +781,14 @@ def _validate_counts_fit_capacity(
             raise CoveragePlanValidationError(
                 f"{label} exceed admitted capacity for {capacity_key}"
             )
+    if allocate_coverage_grounding_indices(
+        counts,
+        cells=cells,
+        reuse_limit=reuse_limit,
+    ) is None:
+        raise CoveragePlanValidationError(
+            f"{label} exceed declared usable grounding capacity"
+        )
 
 
 def _can_increment(
@@ -640,7 +801,7 @@ def _can_increment(
 ) -> bool:
     cell = cells[cell_id]
     next_count = counts.get(cell_id, 0) + 1
-    if cell.max_accepted_samples is not None and next_count > cell.max_accepted_samples:
+    if next_count > _cell_usable_capacity(cell, reuse_limit):
         return False
     capacity_key = cell.grounding_capacity_key
     current_for_key = sum(
@@ -648,10 +809,438 @@ def _can_increment(
         for counted_cell_id, count in counts.items()
         if cells[counted_cell_id].grounding_capacity_key == capacity_key
     )
-    return (
+    if (
         current_for_key + 1
-        <= admitted_capacity.grounding_units[capacity_key] * reuse_limit
+        > admitted_capacity.grounding_units[capacity_key] * reuse_limit
+    ):
+        return False
+    proposed_counts = dict(counts)
+    proposed_counts[cell_id] = next_count
+    return (
+        allocate_coverage_grounding_indices(
+            proposed_counts,
+            cells=cells,
+            reuse_limit=reuse_limit,
+        )
+        is not None
     )
+
+
+def _cell_usable_capacity(cell: CoverageCell, reuse_limit: int) -> int:
+    grounding_capacity = len(set(cell.grounding_unit_ids)) * reuse_limit
+    if cell.max_accepted_samples is None:
+        return grounding_capacity
+    return min(grounding_capacity, cell.max_accepted_samples)
+
+
+def allocate_coverage_grounding_indices(
+    counts: Mapping[str, int],
+    *,
+    cells: Mapping[str, CoverageCell],
+    reuse_limit: int,
+) -> dict[str, tuple[int, ...]] | None:
+    tokens = [
+        (cell_id, ordinal)
+        for cell_id, count in counts.items()
+        for ordinal in range(count)
+    ]
+    tokens.sort(
+        key=lambda token: (
+            len(set(cells[token[0]].grounding_unit_ids)),
+            token[0],
+            token[1],
+        )
+    )
+    slot_owner: dict[tuple[str, str, int], tuple[str, int]] = {}
+    token_slot: dict[tuple[str, int], tuple[str, str, int]] = {}
+    token_index_by_slot: dict[
+        tuple[tuple[str, int], tuple[str, str, int]],
+        int,
+    ] = {}
+
+    def assign(
+        token: tuple[str, int],
+        seen_slots: set[tuple[str, str, int]],
+    ) -> bool:
+        cell = cells[token[0]]
+        options = sorted(
+            zip(cell.grounding_unit_ids, cell.grounding_unit_indices),
+            key=lambda item: (item[0], item[1]),
+        )
+        for unit_id, grounding_index in options:
+            for reuse_ordinal in range(reuse_limit):
+                slot = (
+                    cell.grounding_capacity_key,
+                    unit_id,
+                    reuse_ordinal,
+                )
+                if slot in seen_slots:
+                    continue
+                seen_slots.add(slot)
+                owner = slot_owner.get(slot)
+                if owner is None or assign(owner, seen_slots):
+                    slot_owner[slot] = token
+                    token_slot[token] = slot
+                    token_index_by_slot[(token, slot)] = grounding_index
+                    return True
+        return False
+
+    for token in tokens:
+        if not assign(token, set()):
+            return None
+
+    allocation: dict[str, list[int]] = {
+        cell_id: []
+        for cell_id in counts
+    }
+    for cell_id, count in counts.items():
+        for ordinal in range(count):
+            token = (cell_id, ordinal)
+            slot = token_slot[token]
+            allocation[cell_id].append(token_index_by_slot[(token, slot)])
+    return {
+        cell_id: tuple(indices)
+        for cell_id, indices in allocation.items()
+    }
+
+
+def _validate_catalog_semantics(catalog: CoverageCatalog) -> None:
+    if not catalog.compatibility_constraints:
+        raise CoveragePlanValidationError(
+            "coverage catalog compatibility constraints must not be empty"
+        )
+    constraint_signatures: set[str] = set()
+    for declared_constraint in catalog.compatibility_constraints:
+        _require_non_empty_string(
+            declared_constraint.task_type,
+            "coverage compatibility task type",
+        )
+        signature = canonical_coverage_json(declared_constraint.canonical())
+        if signature in constraint_signatures:
+            raise CoveragePlanValidationError(
+                "coverage compatibility constraints must be unique"
+            )
+        constraint_signatures.add(signature)
+        if (
+            not isinstance(declared_constraint.required_tools, tuple)
+            or not declared_constraint.required_tools
+            or len(declared_constraint.required_tools)
+            != len(set(declared_constraint.required_tools))
+        ):
+            raise CoveragePlanValidationError(
+                "coverage compatibility required tools must contain unique values"
+            )
+        for tool_name in declared_constraint.required_tools:
+            _require_non_empty_string(
+                tool_name,
+                "coverage compatibility required tool",
+            )
+        for label, value in (
+            ("grounding pattern", declared_constraint.grounding_pattern),
+            ("constraint profile", declared_constraint.constraint_profile),
+            ("difficulty", declared_constraint.difficulty),
+            ("ambiguity", declared_constraint.ambiguity),
+            ("recovery", declared_constraint.recovery),
+        ):
+            _require_non_empty_string(
+                value,
+                f"coverage compatibility {label}",
+            )
+        if declared_constraint.state_behavior not in {
+            "read_only",
+            "state_changing",
+        }:
+            raise CoveragePlanValidationError(
+                "coverage compatibility state behavior is invalid"
+            )
+
+    if not catalog.difficulty_semantics:
+        raise CoveragePlanValidationError(
+            "coverage catalog difficulty semantics must not be empty"
+        )
+    difficulty_by_name: dict[str, CoverageDifficultySemantics] = {}
+    for declared_semantics in catalog.difficulty_semantics:
+        _require_non_empty_string(
+            declared_semantics.difficulty,
+            "coverage difficulty name",
+        )
+        if declared_semantics.difficulty in difficulty_by_name:
+            raise CoveragePlanValidationError(
+                "coverage difficulty names must be unique"
+            )
+        difficulty_by_name[declared_semantics.difficulty] = declared_semantics
+        if (
+            not _is_positive_int(declared_semantics.tool_count)
+            or not _is_positive_int(declared_semantics.constraint_count)
+            or declared_semantics.state_changes not in {0, 1}
+            or not isinstance(declared_semantics.recovery_paths, int)
+            or isinstance(declared_semantics.recovery_paths, bool)
+            or declared_semantics.recovery_paths < 0
+        ):
+            raise CoveragePlanValidationError(
+                "coverage difficulty semantics are invalid: "
+                f"{declared_semantics.difficulty}"
+            )
+        _require_non_empty_string(
+            declared_semantics.ambiguity,
+            f"coverage difficulty {declared_semantics.difficulty} ambiguity",
+        )
+
+    for cell in catalog.cells:
+        matching_constraints = [
+            constraint
+            for constraint in catalog.compatibility_constraints
+            if _cell_matches_constraint(cell, constraint)
+        ]
+        if len(matching_constraints) != 1:
+            raise CoveragePlanValidationError(
+                f"coverage cell {cell.cell_id} violates compatibility constraints"
+            )
+        difficulty = str(cell.dimensions["difficulty"])
+        semantics = difficulty_by_name.get(difficulty)
+        if semantics is None:
+            raise CoveragePlanValidationError(
+                f"coverage cell {cell.cell_id} has undeclared difficulty semantics"
+            )
+        if (
+            semantics.tool_count != len(_dimension_tools(cell))
+            or semantics.state_changes
+            != int(cell.dimensions["state_behavior"] == "state_changing")
+            or semantics.ambiguity != cell.dimensions["ambiguity"]
+            or semantics.recovery_paths
+            != int(cell.dimensions["recovery"] != "none")
+        ):
+            raise CoveragePlanValidationError(
+                f"coverage cell {cell.cell_id} contradicts difficulty semantics"
+            )
+        has_recovery = cell.dimensions["recovery"] != "none"
+        if has_recovery != (cell.branch_plan is not None):
+            raise CoveragePlanValidationError(
+                f"coverage cell {cell.cell_id} recovery declaration is incomplete"
+            )
+        if has_recovery and "enable_branching" not in cell.required_features:
+            raise CoveragePlanValidationError(
+                f"coverage cell {cell.cell_id} recovery requires enable_branching"
+            )
+    matched_constraint_signatures = {
+        canonical_coverage_json(constraint.canonical())
+        for cell in catalog.cells
+        for constraint in catalog.compatibility_constraints
+        if _cell_matches_constraint(cell, constraint)
+    }
+    if matched_constraint_signatures != constraint_signatures:
+        raise CoveragePlanValidationError(
+            "coverage compatibility constraints include unreachable combinations"
+        )
+
+
+def _cell_matches_constraint(
+    cell: CoverageCell,
+    constraint: CoverageCompatibilityConstraint,
+) -> bool:
+    return (
+        cell.dimensions["task_type"] == constraint.task_type
+        and _dimension_tools(cell) == constraint.required_tools
+        and cell.dimensions["state_behavior"] == constraint.state_behavior
+        and cell.dimensions["grounding_pattern"] == constraint.grounding_pattern
+        and cell.dimensions["constraint_profile"]
+        == constraint.constraint_profile
+        and cell.dimensions["difficulty"] == constraint.difficulty
+        and cell.dimensions["ambiguity"] == constraint.ambiguity
+        and cell.dimensions["recovery"] == constraint.recovery
+    )
+
+
+def _dimension_tools(cell: CoverageCell) -> tuple[str, ...]:
+    tools = cell.dimensions["required_tools"]
+    if not isinstance(tools, tuple):
+        raise CoveragePlanValidationError(
+            f"coverage cell {cell.cell_id} required tools must be a tuple"
+        )
+    return tools
+
+
+def validate_coverage_catalog_reachability(
+    catalog: CoverageCatalog,
+    generation_spec: object,
+    *,
+    execute_tool: Callable[
+        [str, dict[str, object]],
+        dict[str, object],
+    ] | None = None,
+    require_executable_recovery: bool = True,
+) -> None:
+    from synthesis.contracts import validate_branch_plan_record
+    from synthesis.domain_generation import (
+        DomainGenerationSpec,
+        validate_domain_generation_spec,
+    )
+
+    if not isinstance(generation_spec, DomainGenerationSpec):
+        raise CoveragePlanValidationError(
+            "coverage reachability requires a domain generation specification"
+        )
+    validate_domain_generation_spec(generation_spec)
+    if catalog.domain_id != generation_spec.domain_id:
+        raise CoveragePlanValidationError(
+            "coverage catalog domain does not match generation specification"
+        )
+    task_types = {
+        task_type.task_type: task_type
+        for task_type in generation_spec.task_types
+    }
+    tools = {
+        str(tool["name"]): tool
+        for tool in generation_spec.tools
+    }
+    if len(generation_spec.grounding_context) != 1:
+        raise CoveragePlanValidationError(
+            "coverage catalog requires one grounding collection"
+        )
+    grounding_units = next(iter(generation_spec.grounding_context.values()))
+    if not isinstance(grounding_units, list):
+        raise CoveragePlanValidationError(
+            "coverage catalog grounding collection must be a list"
+        )
+    for cell in catalog.cells:
+        task_type = task_types.get(str(cell.dimensions["task_type"]))
+        required_tools = _dimension_tools(cell)
+        expected_state_behavior = (
+            "state_changing"
+            if any(
+                tools.get(tool_name, {}).get("side_effects")
+                == "state_mutating"
+                for tool_name in required_tools
+            )
+            else "read_only"
+        )
+        unreachable = (
+            task_type is None
+            or task_type.required_tools != required_tools
+            or any(tool_name not in tools for tool_name in required_tools)
+            or cell.dimensions["state_behavior"] != expected_state_behavior
+            or any(index >= len(grounding_units) for index in cell.grounding_unit_indices)
+        )
+        if cell.branch_plan is not None:
+            try:
+                validate_branch_plan_record(cell.branch_plan)
+            except (TypeError, ValueError):
+                unreachable = True
+            if not _branch_plan_tools(cell.branch_plan) <= set(required_tools):
+                unreachable = True
+            if any(
+                tools.get(tool_name, {}).get("side_effects") == "state_mutating"
+                for tool_name in _branch_plan_tools(cell.branch_plan)
+            ):
+                unreachable = True
+            if execute_tool is None:
+                if require_executable_recovery:
+                    raise CoveragePlanValidationError(
+                        "coverage recovery reachability requires a tool executor"
+                    )
+            elif not _recovery_plan_is_executable(
+                cell=cell,
+                task_type=task_type,
+                grounding_units=grounding_units,
+                execute_tool=execute_tool,
+            ):
+                unreachable = True
+        if unreachable:
+            raise CoveragePlanValidationError(
+                f"unreachable coverage cell {cell.cell_id}"
+            )
+
+
+def _branch_plan_tools(branch_plan: Mapping[str, object]) -> set[str]:
+    raw_branches = branch_plan.get("branches")
+    if not isinstance(raw_branches, list):
+        return set()
+    tool_names: set[str] = set()
+    for branch in raw_branches:
+        if not isinstance(branch, Mapping):
+            continue
+        raw_steps = branch.get("steps")
+        if not isinstance(raw_steps, list):
+            continue
+        for step in raw_steps:
+            if isinstance(step, Mapping) and isinstance(step.get("tool_name"), str):
+                tool_names.add(str(step["tool_name"]))
+    return tool_names
+
+
+def _recovery_plan_is_executable(
+    *,
+    cell: CoverageCell,
+    task_type: object,
+    grounding_units: list[object],
+    execute_tool: Callable[
+        [str, dict[str, object]],
+        dict[str, object],
+    ],
+) -> bool:
+    from synthesis.domain_generation import DomainTaskTypeSpec
+
+    if (
+        not isinstance(task_type, DomainTaskTypeSpec)
+        or cell.branch_plan is None
+        or len(cell.grounding_unit_indices) != 1
+    ):
+        return False
+    grounding_record = grounding_units[cell.grounding_unit_indices[0]]
+    if not isinstance(grounding_record, Mapping):
+        return False
+    expected_observation = grounding_record.get("observation")
+    if not isinstance(expected_observation, Mapping):
+        return False
+    raw_branches = cell.branch_plan.get("branches")
+    if not isinstance(raw_branches, list):
+        return False
+
+    observed_failure = False
+    observed_success = False
+    for raw_branch in raw_branches:
+        if not isinstance(raw_branch, Mapping):
+            return False
+        outcome = raw_branch.get("terminal_outcome")
+        raw_steps = raw_branch.get("steps")
+        if not isinstance(raw_steps, list) or not raw_steps:
+            return False
+        final_observation: Mapping[str, object] | None = None
+        failed = False
+        for raw_step in raw_steps:
+            if not isinstance(raw_step, Mapping):
+                return False
+            tool_name = raw_step.get("tool_name")
+            arguments = raw_step.get("arguments")
+            if not isinstance(tool_name, str) or not isinstance(arguments, Mapping):
+                return False
+            if not all(isinstance(key, str) for key in arguments):
+                return False
+            try:
+                final_observation = execute_tool(
+                    tool_name,
+                    {str(key): value for key, value in arguments.items()},
+                )
+            except KeyError:
+                failed = True
+                break
+        if outcome == "fallback_on_failure":
+            observed_failure = observed_failure or failed
+            continue
+        if outcome != "accept_on_success" or failed:
+            return False
+        if final_observation is None:
+            return False
+        if not all(
+            field in final_observation
+            and field in expected_observation
+            and canonical_coverage_hash(final_observation[field])
+            == canonical_coverage_hash(expected_observation[field])
+            for field in task_type.final_answer_fields
+        ):
+            return False
+        observed_success = True
+    return observed_failure and observed_success
 
 
 def canonical_coverage_hash(value: object) -> str:

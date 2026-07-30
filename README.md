@@ -37,9 +37,10 @@ admission artifacts. Canonical design detail lives in [docs/](docs/).
 - `run_profile_v4` admission runs additionally emit a deterministic
   `mutation_admission_report.json` and a hash-bound v2 manifest; mutation-safe
   release packs are verified entirely from these retained artifacts.
-- Versioned run profiles may opt into contacts coverage planning through a
+- Versioned run profiles may opt into contacts, mobile-message, or workspace
+  coverage planning through a
   named `coverage_profile`. Plan preview remains local and provider-free;
-  coverage-enabled LLM runs issue deterministic, cell-bound contacts
+  coverage-enabled LLM runs issue deterministic, cell-bound domain
   assignments, reconcile accepted-only coverage after each processing wave,
   and use only the plan's remaining attempt capacity to backfill deficits
   through the existing admission, execution, verification, duplicate, and
@@ -72,6 +73,8 @@ uv run python main.py --enable-source-governance-fixture --output-dir artifacts/
 uv run python main.py --run-profile tests/fixtures/run_profiles/contacts-coverage-smoke.json --preview-coverage-plan
 uv run python main.py --run-profile tests/fixtures/run_profiles/contacts-coverage-smoke.json --write-coverage-plan --output-dir artifacts/contacts-coverage-preview
 uv run python main.py --run-profile tests/fixtures/run_profiles/contacts-coverage-tracer.json --use-llm --output-dir artifacts/contacts-coverage-tracer
+uv run python main.py --run-profile tests/fixtures/run_profiles/mobile-coverage-catalog-probe.json --preview-coverage-plan
+uv run python main.py --run-profile tests/fixtures/run_profiles/workspace-coverage-catalog-probe.json --preview-coverage-plan
 uv run python main.py --run-profile tests/fixtures/run_profiles/foundation-scale-probe-25.json --write-evaluation-report --write-profile-decision-report --output-dir artifacts/foundation-scale-probe
 uv run python main.py --run-profile tests/fixtures/run_profiles/profile-local-contacts.json --output-dir artifacts/profile-local-contacts
 uv run python main.py --run-profile tests/fixtures/run_profiles/profile-local-mobile-messages.json --write-episode-replay-report --write-reward-label-report --output-dir artifacts/profile-local-mobile

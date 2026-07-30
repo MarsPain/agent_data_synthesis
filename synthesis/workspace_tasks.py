@@ -84,6 +84,10 @@ WORKSPACE_ITEM_GROUNDING_ARGUMENTS = (
     {"query": "Alpha Launch", "kind": "project"},
     {"query": "launch plan", "kind": "task"},
     {"query": "metrics dashboard", "kind": "task"},
+    {"query": "launch"},
+    {"query": "Beta Research", "kind": "project"},
+    {"query": "research notes", "kind": "task"},
+    {"query": "checklist owner", "kind": "comment"},
 )
 
 
@@ -267,6 +271,10 @@ def _workspace_project_observation_bindings(
                 {"query": "metrics dashboard", "kind": "task"},
                 "project_alpha",
             ),
+            (
+                {"query": "research notes", "kind": "task"},
+                "project_beta",
+            ),
         ]
     bindings = {
         (canonical_hash(arguments), canonical_hash(project_id))
@@ -299,6 +307,10 @@ def _workspace_task_observation_bindings(
             (
                 {"query": "metrics dashboard", "kind": "task"},
                 "task_metrics_review",
+            ),
+            (
+                {"query": "research notes", "kind": "task"},
+                "task_research_notes",
             ),
         ]
     bindings = {

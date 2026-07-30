@@ -1,0 +1,30 @@
+{
+  "schema_version": "run_profile_v4",
+  "profile_id": "contacts_coverage_catalog_probe",
+  "dataset_version": "dataset_contacts_coverage_catalog_probe_v1",
+  "profile_purpose": "diagnostic_probe",
+  "seed": {
+    "seed_id": "seed_contacts_coverage_catalog_probe",
+    "domain": "contacts_fixture",
+    "description": "Exercise distinct contacts coverage cells.",
+    "task_taxonomy": [
+      "contact_lookup",
+      "contact_followup"
+    ]
+  },
+  "generation": {
+    "mode": "llm",
+    "target_candidate_count": 5
+  },
+  "features": {
+    "enable_branching": true
+  },
+  "mutation_admission": {
+    "mode": "shadow"
+  },
+  "coverage_profile": {
+    "profile_id": "contacts_smoke",
+    "version": "contacts_smoke_v1",
+    "target_accepted_sample_count": 3
+  }
+}

@@ -484,15 +484,26 @@ persisted candidate lineage carries only the integer
 Evaluation, profile-decision, release, and release-pack artifacts preserve the
 same validated mapping so campaign evidence can reject metadata drift.
 
-Coverage-enabled profile preview does not write a dataset manifest. The
-contacts-owned `contacts_coverage_v1` catalog currently declares the reachable
-read-only lookup and lookup-bound follow-up cells using the shared dimension
-vocabulary. The built-in `contacts_smoke_v1` and
-`contacts_representative_v1` profiles declare mandatory floors, balance
-weights, grounding reuse, an attempt ratio, and an override bound. The shared
-compiler rejects unknown contract or profile versions, unknown dimensions,
-duplicate cells, profile/catalog contradictions, missing required features,
-invalid overrides, insufficient admitted capacity, and impossible floors.
+Coverage-enabled profile preview does not write a dataset manifest.
+`contacts_coverage_v1`, `mobile_messages_coverage_v1`, and
+`workspace_tasks_coverage_v1` declare explicit reachable cells using the same
+dimension vocabulary. Their domain-owned declarations include task/tool/state
+compatibility tuples, stable grounding-unit identities and eligibility,
+declared grounding-context sizes, feature requirements, optional deterministic
+branch plans, and exact difficulty semantics. The
+catalogs cover read-only selection, state-changing cross-step bindings,
+deterministic multi-result selection, constrained mutation arguments, and
+feature-gated recovery where the domain runtime can execute and independently
+verify the outcome. Each domain provides named smoke and representative
+profiles with mandatory floors, balance weights, grounding reuse, an attempt
+ratio, and an override bound. The shared compiler and reachability validator
+reject unknown contract or profile versions, unknown dimensions, duplicate or
+unreachable cells, contradictory compatibility or difficulty declarations,
+missing mandatory features, invalid overrides, insufficient admitted or usable
+cell capacity, overlap-induced grounding reuse violations, and impossible
+floors. Recovery reachability is executable: read-only branch probes must
+observe the declared failure and a successful fallback whose final-answer
+fields equal the selected grounding observation.
 Known catalog/profile identities come from the domain planning definition's
 version registry rather than a provider value or identifier naming pattern.
 

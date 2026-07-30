@@ -1,0 +1,31 @@
+{
+  "schema_version": "run_profile_v4",
+  "profile_id": "mobile_coverage_catalog_probe",
+  "dataset_version": "dataset_mobile_coverage_catalog_probe_v1",
+  "profile_purpose": "diagnostic_probe",
+  "seed": {
+    "seed_id": "seed_mobile_coverage_catalog_probe",
+    "domain": "mobile_messages_fixture",
+    "description": "Exercise distinct mobile message coverage cells.",
+    "task_taxonomy": [
+      "mobile_message_search",
+      "mobile_reminder_creation",
+      "mobile_draft_reply"
+    ]
+  },
+  "generation": {
+    "mode": "llm",
+    "target_candidate_count": 8
+  },
+  "features": {
+    "enable_branching": true
+  },
+  "mutation_admission": {
+    "mode": "shadow"
+  },
+  "coverage_profile": {
+    "profile_id": "mobile_messages_smoke",
+    "version": "mobile_messages_smoke_v1",
+    "target_accepted_sample_count": 5
+  }
+}

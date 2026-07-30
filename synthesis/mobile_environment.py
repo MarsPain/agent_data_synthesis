@@ -486,6 +486,9 @@ def _fixture_input() -> MobileMessagesEnvironmentInput:
             MessageThreadRecord("thread_maya", "Maya"),
             MessageThreadRecord("thread_alex", "Alex"),
             MessageThreadRecord("thread_delivery", "Delivery"),
+            MessageThreadRecord("thread_priya", "Priya"),
+            MessageThreadRecord("thread_morgan", "Morgan"),
+            MessageThreadRecord("thread_jordan", "Jordan"),
         ),
         messages=(
             MessageRecord(
@@ -508,6 +511,27 @@ def _fixture_input() -> MobileMessagesEnvironmentInput:
                 sender="Delivery",
                 body="Your pickup code is 4821. Ask the desk if the sender is missing.",
                 received_at="2026-06-12T08:10:00Z",
+            ),
+            MessageRecord(
+                message_id="msg_priya_design_review",
+                thread_id="thread_priya",
+                sender="Priya",
+                body="The design review moved to Friday at 2 PM.",
+                received_at="2026-06-12T08:15:00Z",
+            ),
+            MessageRecord(
+                message_id="msg_morgan_finance_review",
+                thread_id="thread_morgan",
+                sender="Morgan",
+                body="The project update invoice is ready for finance review.",
+                received_at="2026-06-12T08:20:00Z",
+            ),
+            MessageRecord(
+                message_id="msg_jordan_quarterly_planning",
+                thread_id="thread_jordan",
+                sender="Jordan",
+                body="The quarterly planning notes are ready for review.",
+                received_at="2026-06-12T08:25:00Z",
             ),
         ),
     )

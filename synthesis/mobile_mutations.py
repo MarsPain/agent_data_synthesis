@@ -6,7 +6,7 @@ from dataclasses import replace
 from synthesis.execution import SolutionPolicy, ToolStep
 from synthesis.mobile_environment import MobileMessagesEnvironment
 from synthesis.mobile_tasks import (
-    MOBILE_MESSAGE_GROUNDING_ARGUMENTS,
+    MOBILE_MUTATION_GROUNDING_ARGUMENTS,
     scripted_mobile_solution_policy,
 )
 from synthesis.mutation_admission import (
@@ -125,7 +125,7 @@ def _message_bindings(
         if environment is None
         else ()
     )
-    for index, arguments in enumerate(MOBILE_MESSAGE_GROUNDING_ARGUMENTS):
+    for index, arguments in enumerate(MOBILE_MUTATION_GROUNDING_ARGUMENTS):
         value: object
         if environment is None:
             value = fixture_values[index]

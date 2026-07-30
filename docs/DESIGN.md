@@ -68,15 +68,25 @@ validates that data with a named coverage profile, selected run features,
 accepted-sample target, candidate budget, and bounded emphasis overrides. The
 candidate budget must equal the profile-derived attempt ceiling. The compiler
 emits a sanitized, hash-bound `coverage_plan_v1` with an accepted-sample
-distribution and that separate attempt ceiling. Contacts provides the first
-catalog and authoritative version registry. Plan preview may write this
-artifact without constructing a provider client or executing a candidate.
-Coverage-enabled contacts execution schedules the deterministic initial wave
+distribution and that separate attempt ceiling. Contacts, mobile messages, and
+workspace tasks each provide a versioned catalog, named smoke and representative
+profiles, and an authoritative version registry. Catalog validation checks
+exact allowed compatibility tuples, domain-owned difficulty semantics,
+declared grounding-context sizes, stable grounding-unit identities and
+eligibility, overlap-aware usable capacity, and reachability against the
+domain generation specification.
+Feature-gated recovery cells are additionally probed through the read-only
+domain registry so the declared failing branch must fail and the successful
+fallback must reproduce the assigned grounding evidence. Plan preview may
+write this artifact without constructing a provider client or executing a
+candidate.
+Coverage-enabled execution schedules the deterministic initial wave
 from that plan, prioritizing mandatory floors and then largest normalized
 deficits with stable cell-id tie-breaking. Each locally hashed assignment
-projects one task type, its ordered tools, and one grounding unit into the
-existing remote-generation contract. Local membership validation runs before
-candidate processing; conforming candidates reuse the existing mutation
+projects one task type, its ordered tools, a domain-eligible grounding unit,
+domain-owned difficulty evidence, and an optional feature-gated recovery plan
+into the existing remote-generation contract. Local membership validation runs
+before candidate processing; conforming candidates reuse the existing mutation
 admission, execution, verification, exact-duplicate, and assembly path. After
 each processing wave, the scheduler reconciles planned, in-flight, accepted,
 rejected, and remaining counts by cell. Only accepted, locally validated

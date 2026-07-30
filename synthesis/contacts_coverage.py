@@ -9,6 +9,8 @@ from synthesis.coverage import (
     CoverageAttemptPolicy,
     CoverageCatalog,
     CoverageCell,
+    CoverageCompatibilityConstraint,
+    CoverageDifficultySemantics,
     CoveragePlanValidationError,
     CoverageProfile,
     CoverageVersionRegistry,
@@ -40,6 +42,7 @@ def contacts_coverage_catalog() -> CoverageCatalog:
         version=CONTACTS_COVERAGE_CATALOG_VERSION,
         domain_id="contacts_fixture",
         dimensions=dimensions,
+        grounding_context_sizes={"contacts": 6},
         cells=(
             CoverageCell(
                 cell_id="contacts.lookup_by_name",
@@ -54,6 +57,15 @@ def contacts_coverage_catalog() -> CoverageCatalog:
                     "recovery": "none",
                 },
                 grounding_capacity_key="contacts",
+                grounding_unit_indices=(0, 1, 2, 3, 4, 5),
+                grounding_unit_ids=(
+                    "alice_zhang",
+                    "ben_carter",
+                    "carla_diaz",
+                    "david_kim",
+                    "elena_petrova",
+                    "frank_osei",
+                ),
             ),
             CoverageCell(
                 cell_id="contacts.followup_after_lookup",
@@ -71,6 +83,128 @@ def contacts_coverage_catalog() -> CoverageCatalog:
                     "recovery": "none",
                 },
                 grounding_capacity_key="contacts",
+                grounding_unit_indices=(0, 1, 2, 3, 4, 5),
+                grounding_unit_ids=(
+                    "alice_zhang",
+                    "ben_carter",
+                    "carla_diaz",
+                    "david_kim",
+                    "elena_petrova",
+                    "frank_osei",
+                ),
+            ),
+            CoverageCell(
+                cell_id="contacts.lookup_with_recovery",
+                dimensions={
+                    "task_type": "contact_lookup",
+                    "required_tools": ("lookup_contact_email",),
+                    "state_behavior": "read_only",
+                    "grounding_pattern": "abbreviated_then_full_name",
+                    "constraint_profile": "ordered_fallback",
+                    "difficulty": "recovery",
+                    "ambiguity": "recoverable_short_name",
+                    "recovery": "fallback_full_name",
+                },
+                grounding_capacity_key="contacts",
+                grounding_unit_indices=(0,),
+                grounding_unit_ids=("alice_zhang",),
+                required_features=("enable_branching",),
+                branch_plan={
+                    "schema_version": "branch_plan_v1",
+                    "plan_id": "branch_plan_contacts_coverage_recovery",
+                    "max_depth": 2,
+                    "branches": [
+                        {
+                            "branch_id": "direct_short_name",
+                            "node_type": "attempt",
+                            "parent_id": None,
+                            "condition": "Try the abbreviated name first.",
+                            "steps": [
+                                {
+                                    "tool_name": "lookup_contact_email",
+                                    "arguments": {"name": "Alice"},
+                                }
+                            ],
+                            "final_response_template": "{name}'s email is {email}.",
+                            "terminal_outcome": "fallback_on_failure",
+                        },
+                        {
+                            "branch_id": "fallback_full_name",
+                            "node_type": "fallback",
+                            "parent_id": "direct_short_name",
+                            "condition": "Use the full name after the abbreviated lookup fails.",
+                            "steps": [
+                                {
+                                    "tool_name": "lookup_contact_email",
+                                    "arguments": {"name": "Alice Zhang"},
+                                }
+                            ],
+                            "final_response_template": "{name}'s email is {email}.",
+                            "terminal_outcome": "accept_on_success",
+                        },
+                    ],
+                },
+            ),
+        ),
+        compatibility_constraints=(
+            CoverageCompatibilityConstraint(
+                task_type="contact_lookup",
+                required_tools=("lookup_contact_email",),
+                state_behavior="read_only",
+                grounding_pattern="exact_contact_name",
+                constraint_profile="single_entity",
+                difficulty="basic",
+                ambiguity="none",
+                recovery="none",
+            ),
+            CoverageCompatibilityConstraint(
+                task_type="contact_followup",
+                required_tools=(
+                    "lookup_contact_email",
+                    "record_contact_followup",
+                ),
+                state_behavior="state_changing",
+                grounding_pattern="lookup_bound_followup",
+                constraint_profile="cross_step_binding",
+                difficulty="intermediate",
+                ambiguity="none",
+                recovery="none",
+            ),
+            CoverageCompatibilityConstraint(
+                task_type="contact_lookup",
+                required_tools=("lookup_contact_email",),
+                state_behavior="read_only",
+                grounding_pattern="abbreviated_then_full_name",
+                constraint_profile="ordered_fallback",
+                difficulty="recovery",
+                ambiguity="recoverable_short_name",
+                recovery="fallback_full_name",
+            ),
+        ),
+        difficulty_semantics=(
+            CoverageDifficultySemantics(
+                difficulty="basic",
+                tool_count=1,
+                constraint_count=1,
+                state_changes=0,
+                ambiguity="none",
+                recovery_paths=0,
+            ),
+            CoverageDifficultySemantics(
+                difficulty="intermediate",
+                tool_count=2,
+                constraint_count=1,
+                state_changes=1,
+                ambiguity="none",
+                recovery_paths=0,
+            ),
+            CoverageDifficultySemantics(
+                difficulty="recovery",
+                tool_count=1,
+                constraint_count=2,
+                state_changes=0,
+                ambiguity="recoverable_short_name",
+                recovery_paths=1,
             ),
         ),
     )
@@ -113,6 +247,7 @@ def resolve_contacts_coverage_profile(
             balance_weights={
                 "contacts.lookup_by_name": 1,
                 "contacts.followup_after_lookup": 1,
+                "contacts.lookup_with_recovery": 1,
             },
             max_accepted_samples_per_grounding_unit=2,
             attempt_policy=CoverageAttemptPolicy(
@@ -134,10 +269,12 @@ def resolve_contacts_coverage_profile(
             mandatory_floors={
                 "contacts.lookup_by_name": 2,
                 "contacts.followup_after_lookup": 2,
+                "contacts.lookup_with_recovery": 1,
             },
             balance_weights={
                 "contacts.lookup_by_name": 1,
                 "contacts.followup_after_lookup": 1,
+                "contacts.lookup_with_recovery": 1,
             },
             max_accepted_samples_per_grounding_unit=2,
             attempt_policy=CoverageAttemptPolicy(

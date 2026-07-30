@@ -19,13 +19,20 @@ The first backend should be a local Python pipeline with explicit modules and du
 - `synthesis.contacts_coverage`: the contacts-owned `contacts_coverage_v1`
   reachable-cell catalog, named smoke and representative profiles, and
   aggregate admitted-capacity projection.
+- `synthesis.mobile_coverage`: the mobile-owned
+  `mobile_messages_coverage_v1` catalog, profiles, compatibility and difficulty
+  declarations, recovery plan, and message-capacity projection.
+- `synthesis.workspace_coverage`: the workspace-owned
+  `workspace_tasks_coverage_v1` catalog, profiles, compatibility and difficulty
+  declarations, recovery plan, and workspace-item capacity projection.
 - `synthesis.coverage_registry`: domain planning registration. It connects
   domain-owned catalogs, authoritative catalog/profile version registries,
   profile resolution, and capacity projection to the shared compiler without
   adding domain-name branches to that compiler.
 - `synthesis.coverage_assignments`: domain-neutral assignment scheduling,
   per-wave accepted-only reconciliation, bounded deficit backfill, stable
-  assignment identities, minimum-grounding prompt projection, local
+  assignment identities, overlap-aware stable-grounding allocation,
+  minimum-grounding prompt projection, local
   task-contract membership validation, and sanitized assignment lineage.
 - `synthesis.domain_generation`: immutable domain generation specifications,
   complete machine-readable provider output contracts, strict task-contract
@@ -246,10 +253,15 @@ trajectories, exports, or logs.
    final answer is derived deterministically from validated expected state.
    Persisted candidate lineage keeps only the exclusion count, never
    instruction text.
-   For a coverage-enabled contacts run, the scheduler chooses mandatory cells
+   For a coverage-enabled run, the scheduler chooses mandatory cells
    before the largest normalized remaining deficit with cell-id tie-breaking.
    Each provider call receives one cell contract, only that cell's tools, and
-   one assigned grounding unit. Provider records retain the existing exact-key
+   one assigned grounding unit. The compiler allocates stable grounding-unit
+   identities across cells before generation, so intersecting cell eligibility
+   cannot exceed the profile reuse limit. Recovery cells are admitted only
+   after their read-only failing and successful branches execute against the
+   domain registry and the success reproduces assigned final-answer evidence.
+   Provider records retain the existing exact-key
    schema and cannot assert plan, assignment, cell, fulfillment, lineage, or
    coverage-score fields. The local validator checks task type, ordered tools,
    state behavior, and exact grounding membership before the candidate enters
