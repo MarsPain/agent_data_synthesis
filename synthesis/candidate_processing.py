@@ -75,6 +75,9 @@ class CandidateProcessingOptions:
     route_reviewable_failures: bool = False
     refiner: Refiner | None = None
     tool_proposal_generator: ToolProposalGenerator | None = None
+    refined_candidate_validator: (
+        Callable[[CandidateTask], dict[str, object] | None] | None
+    ) = None
 
 
 @dataclass(frozen=True)
@@ -113,6 +116,8 @@ class CandidateMergeResult:
     tool_proposal_records: tuple[dict[str, object], ...]
     accepted_signatures: frozenset[tuple[str, tuple[str, ...]]]
     episode_logs: tuple[dict[str, object], ...] = ()
+    accepted_sequence_indices: tuple[int, ...] = ()
+    rejected_sequence_indices: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -263,6 +268,24 @@ def process_candidate_through_gates(
         )
 
     refined_task = refinement_attempt.revised_candidate or task
+    if options.refined_candidate_validator is not None:
+        validation_rejection = options.refined_candidate_validator(refined_task)
+        if validation_rejection is not None:
+            rejection = attach_refinement_to_rejection(
+                validation_rejection,
+                refinement_attempt,
+            )
+            return ProvisionalCandidateOutcome(
+                sequence_index=sequence_index,
+                candidate_id=refined_task.candidate_id,
+                sample=None,
+                rejection=rejection,
+                review_records=tuple(review_records),
+                tool_proposal_records=tuple(tool_proposal_records),
+                environment_isolation=_environment_isolation_record(context),
+                task_record=refined_task.export(),
+                episode_log=attempt_result.episode_log,
+            )
     refined_result = _run_candidate_attempt(
         task=refined_task,
         context=context,
@@ -818,6 +841,8 @@ def merge_candidate_outcomes(
     tool_proposal_records: list[dict[str, object]] = []
     episode_logs: list[dict[str, object]] = []
     accepted_signatures: set[tuple[str, tuple[str, ...]]] = set(initial_accepted_signatures or set())
+    accepted_sequence_indices: list[int] = []
+    rejected_sequence_indices: list[int] = []
 
     for outcome in sorted(outcomes, key=lambda item: item.sequence_index):
         _validate_provisional_outcome(outcome)
@@ -826,6 +851,7 @@ def merge_candidate_outcomes(
             if signature is not None and signature in accepted_signatures:
                 duplicate_rejection = _duplicate_rejection_from_outcome(outcome, signature)
                 rejections.append(duplicate_rejection)
+                rejected_sequence_indices.append(outcome.sequence_index)
                 _maybe_route_review(
                     review_records,
                     duplicate_rejection,
@@ -833,6 +859,7 @@ def merge_candidate_outcomes(
                 )
             else:
                 samples.append(outcome.sample)
+                accepted_sequence_indices.append(outcome.sequence_index)
                 if outcome.episode_log is not None:
                     episode_logs.append(outcome.episode_log)
                 if signature is not None:
@@ -840,6 +867,7 @@ def merge_candidate_outcomes(
         else:
             assert outcome.rejection is not None
             rejections.append(outcome.rejection)
+            rejected_sequence_indices.append(outcome.sequence_index)
             if outcome.episode_log is not None:
                 episode_logs.append(outcome.episode_log)
         review_records.extend(outcome.review_records)
@@ -852,6 +880,8 @@ def merge_candidate_outcomes(
         tool_proposal_records=tuple(tool_proposal_records),
         accepted_signatures=frozenset(accepted_signatures),
         episode_logs=tuple(episode_logs),
+        accepted_sequence_indices=tuple(accepted_sequence_indices),
+        rejected_sequence_indices=tuple(rejected_sequence_indices),
     )
 
 

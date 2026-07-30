@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Mapping
 
 import httpx
 
 from synthesis.candidate_processing import (
     CandidateExecutionRequest,
+    CandidateMergeResult,
     CandidateProcessingContext,
     CandidateProcessingOptions,
     PolicyGenerator,
@@ -18,8 +19,8 @@ from synthesis.candidate_processing import (
 )
 from synthesis.coverage import CoveragePlan, compile_coverage_plan, write_coverage_plan
 from synthesis.coverage_assignments import (
-    CoverageAssignmentCandidateGeneratorFactory,
-    CoverageAssignmentGenerationResult,
+    CoverageAssignmentScheduler,
+    CoverageAssignmentSchedulerFactory,
 )
 from synthesis.coverage_registry import resolve_domain_coverage_planning
 from synthesis.datasets import (
@@ -94,6 +95,7 @@ class PipelineResult:
     accepted_count: int
     rejected_count: int
     coverage_plan_path: Path | None
+    coverage_reconciliation: Mapping[str, object] | None
 
 
 CandidateGenerator = Callable[[DomainSeed], list[CandidateTask] | DomainGenerationResult]
@@ -246,8 +248,8 @@ def run_foundation_pipeline(
     dataset_version: str = "dataset_foundation_v1",
     candidate_generator: CandidateGenerator | None = None,
     candidate_generator_factory: CandidateGeneratorFactory | None = None,
-    coverage_candidate_generator_factory: (
-        CoverageAssignmentCandidateGeneratorFactory | None
+    coverage_scheduler_factory: (
+        CoverageAssignmentSchedulerFactory | None
     ) = None,
     policy_generator: PolicyGenerator | None = None,
     parent_artifact_path: Path | None = None,
@@ -275,7 +277,7 @@ def run_foundation_pipeline(
         for item in (
             candidate_generator,
             candidate_generator_factory,
-            coverage_candidate_generator_factory,
+            coverage_scheduler_factory,
         )
     )
     if configured_generator_count > 1:
@@ -375,17 +377,17 @@ def run_foundation_pipeline(
     verifier = domain_bundle.verifier
     coverage_plan: CoveragePlan | None = None
     coverage_plan_path: Path | None = None
+    coverage_scheduler: CoverageAssignmentScheduler | None = None
     coverage_reference = getattr(run_profile, "coverage_profile", None)
     generate_candidates: Callable[
         [DomainSeed],
         (
             list[CandidateTask]
             | DomainGenerationResult
-            | CoverageAssignmentGenerationResult
         ),
-    ]
+    ] | None = None
     if coverage_reference is not None:
-        if coverage_candidate_generator_factory is None:
+        if coverage_scheduler_factory is None:
             raise ValueError(
                 "coverage-enabled execution requires a coverage assignment generator"
             )
@@ -399,7 +401,7 @@ def run_foundation_pipeline(
             coverage_plan,
         )
         planning = resolve_domain_coverage_planning(run_profile.seed.domain)
-        generate_candidates = coverage_candidate_generator_factory(
+        coverage_scheduler = coverage_scheduler_factory(
             domain_bundle,
             coverage_plan,
             planning.catalog,
@@ -470,6 +472,7 @@ def run_foundation_pipeline(
     tool_proposal_records: list[dict[str, object]] = []
     episode_logs: list[dict[str, object]] = []
     accepted_signatures: frozenset[tuple[str, tuple[str, ...]]] = frozenset()
+    coverage_reconciliation: Mapping[str, object] | None = None
     try:
         _run_foundation_quality_gates(domain_bundle.domain_id, environment, registry)
     except FoundationGateError as exc:
@@ -488,71 +491,101 @@ def run_foundation_pipeline(
         )
         return _pipeline_result(artifacts)
 
-    try:
-        generated = generate_candidates(seed)
-        if isinstance(generated, CoverageAssignmentGenerationResult):
-            raw_tasks = list(generated.candidates)
-            rejections.extend(generated.rejections)
-        elif isinstance(generated, DomainGenerationResult):
-            raw_tasks = list(generated.candidates)
-            run_profile_metadata = dict(run_profile_metadata or {})
-            run_profile_metadata["generation_contract"] = build_generation_contract_evidence(
-                profile=run_profile,
-                spec_metadata=generated.spec_metadata,
-                target_candidate_count=generated.target_candidate_count,
-                generated_candidate_count=generated.generated_candidate_count,
-            )
-        else:
-            raw_tasks = generated
-        raw_tasks = [
-            domain_bundle.candidate_preparer(raw_task)
-            for raw_task in raw_tasks
-        ]
-    except LLMProviderError as exc:
-        rejections.append(assemble_generation_stage_rejection(error=exc))
-        _attach_source_governance_to_rejections(rejections, source_provenance)
-        artifacts = write_dataset_artifacts(
-            output_dir=output_dir,
-            dataset_version=dataset_version,
-            samples=samples,
-            rejections=rejections,
-            parent_artifact_path=parent_artifact_path,
-            review_records=review_records,
-            tool_proposals=tool_proposal_records,
-            source_events=source_event_records,
-            run_profile_metadata=run_profile_metadata,
-        )
-        return _pipeline_result(artifacts)
-
-    base_outcomes = []
-    for sequence_index, raw_task in enumerate(raw_tasks):
-        request = CandidateExecutionRequest(
-            sequence_index=sequence_index,
-            raw_task=raw_task,
-        )
-        outcome = process_candidate_through_gates(
-            request=request,
-            context=_candidate_context_for_request(
-                base_bundle=domain_bundle,
-                base_context=candidate_context,
+    processed_candidate_count = 0
+    if coverage_scheduler is not None:
+        while coverage_scheduler.can_schedule:
+            coverage_wave = coverage_scheduler.generate_wave(seed)
+            rejections.extend(coverage_wave.rejections)
+            wave_tasks = [
+                domain_bundle.candidate_preparer(raw_task)
+                for raw_task in coverage_wave.candidates
+            ]
+            base_merge = _process_candidate_wave(
+                raw_tasks=wave_tasks,
+                start_index=processed_candidate_count,
+                domain_bundle=domain_bundle,
+                candidate_context=candidate_context,
+                candidate_options=candidate_options,
                 output_dir=output_dir,
-                request=request,
                 enable_mcp_adapter=enable_mcp_adapter,
-            ),
-            options=candidate_options,
-        )
-        base_outcomes.append(outcome)
+                accepted_signatures=accepted_signatures,
+                route_reviewable_failures=route_reviewable_failures,
+                coverage_scheduler=coverage_scheduler,
+            )
+            samples.extend(base_merge.samples)
+            rejections.extend(base_merge.rejections)
+            review_records.extend(base_merge.review_records)
+            tool_proposal_records.extend(base_merge.tool_proposal_records)
+            episode_logs.extend(base_merge.episode_logs)
+            accepted_signatures = base_merge.accepted_signatures
+            coverage_scheduler.reconcile_wave(
+                coverage_wave,
+                accepted_candidate_ids=_original_candidate_ids_for_indices(
+                    wave_tasks,
+                    start_index=processed_candidate_count,
+                    sequence_indices=base_merge.accepted_sequence_indices,
+                ),
+                rejected_candidate_ids=_original_candidate_ids_for_indices(
+                    wave_tasks,
+                    start_index=processed_candidate_count,
+                    sequence_indices=base_merge.rejected_sequence_indices,
+                ),
+            )
+            processed_candidate_count += len(wave_tasks)
+        coverage_reconciliation = coverage_scheduler.reconciliation()
+    else:
+        assert generate_candidates is not None
+        try:
+            generation_result = generate_candidates(seed)
+            if isinstance(generation_result, DomainGenerationResult):
+                base_tasks = list(generation_result.candidates)
+                run_profile_metadata = dict(run_profile_metadata or {})
+                run_profile_metadata["generation_contract"] = build_generation_contract_evidence(
+                    profile=run_profile,
+                    spec_metadata=generation_result.spec_metadata,
+                    target_candidate_count=generation_result.target_candidate_count,
+                    generated_candidate_count=generation_result.generated_candidate_count,
+                )
+            else:
+                base_tasks = generation_result
+            base_tasks = [
+                domain_bundle.candidate_preparer(raw_task)
+                for raw_task in base_tasks
+            ]
+        except LLMProviderError as exc:
+            rejections.append(assemble_generation_stage_rejection(error=exc))
+            _attach_source_governance_to_rejections(rejections, source_provenance)
+            artifacts = write_dataset_artifacts(
+                output_dir=output_dir,
+                dataset_version=dataset_version,
+                samples=samples,
+                rejections=rejections,
+                parent_artifact_path=parent_artifact_path,
+                review_records=review_records,
+                tool_proposals=tool_proposal_records,
+                source_events=source_event_records,
+                run_profile_metadata=run_profile_metadata,
+            )
+            return _pipeline_result(artifacts)
 
-    base_merge = merge_candidate_outcomes(
-        tuple(base_outcomes),
-        route_reviewable_failures=route_reviewable_failures,
-    )
-    samples.extend(base_merge.samples)
-    rejections.extend(base_merge.rejections)
-    review_records.extend(base_merge.review_records)
-    tool_proposal_records.extend(base_merge.tool_proposal_records)
-    episode_logs.extend(base_merge.episode_logs)
-    accepted_signatures = base_merge.accepted_signatures
+        base_merge = _process_candidate_wave(
+            raw_tasks=base_tasks,
+            start_index=0,
+            domain_bundle=domain_bundle,
+            candidate_context=candidate_context,
+            candidate_options=candidate_options,
+            output_dir=output_dir,
+            enable_mcp_adapter=enable_mcp_adapter,
+            accepted_signatures=accepted_signatures,
+            route_reviewable_failures=route_reviewable_failures,
+        )
+        samples.extend(base_merge.samples)
+        rejections.extend(base_merge.rejections)
+        review_records.extend(base_merge.review_records)
+        tool_proposal_records.extend(base_merge.tool_proposal_records)
+        episode_logs.extend(base_merge.episode_logs)
+        accepted_signatures = base_merge.accepted_signatures
+        processed_candidate_count = len(base_tasks)
 
     if enable_task_expansion:
         expansion = generate_task_expansion(seed)
@@ -573,7 +606,7 @@ def run_foundation_pipeline(
                 route_reviewable_failures=route_reviewable_failures,
             )
         expanded_outcomes = []
-        start_index = len(raw_tasks)
+        start_index = processed_candidate_count
         for offset, expanded_task in enumerate(expansion.candidates):
             expanded_task = domain_bundle.candidate_preparer(expanded_task)
             request = CandidateExecutionRequest(
@@ -631,6 +664,7 @@ def run_foundation_pipeline(
         artifacts,
         episode_logs_path=episode_logs_path,
         coverage_plan_path=coverage_plan_path,
+        coverage_reconciliation=coverage_reconciliation,
     )
 
 
@@ -639,6 +673,7 @@ def _pipeline_result(
     *,
     episode_logs_path: Path | None = None,
     coverage_plan_path: Path | None = None,
+    coverage_reconciliation: Mapping[str, object] | None = None,
 ) -> PipelineResult:
     if coverage_plan_path is not None:
         attach_coverage_plan_to_manifest(
@@ -660,7 +695,81 @@ def _pipeline_result(
         accepted_count=artifacts.accepted_count,
         rejected_count=artifacts.rejected_count,
         coverage_plan_path=coverage_plan_path,
+        coverage_reconciliation=coverage_reconciliation,
     )
+
+
+def _process_candidate_wave(
+    *,
+    raw_tasks: list[CandidateTask],
+    start_index: int,
+    domain_bundle: DomainPipelineBundle,
+    candidate_context: CandidateProcessingContext,
+    candidate_options: CandidateProcessingOptions,
+    output_dir: Path,
+    enable_mcp_adapter: bool,
+    accepted_signatures: frozenset[tuple[str, tuple[str, ...]]],
+    route_reviewable_failures: bool,
+    coverage_scheduler: CoverageAssignmentScheduler | None = None,
+) -> CandidateMergeResult:
+    outcomes = []
+    for offset, raw_task in enumerate(raw_tasks):
+        request = CandidateExecutionRequest(
+            sequence_index=start_index + offset,
+            raw_task=raw_task,
+        )
+        request_options = candidate_options
+        if coverage_scheduler is not None:
+            request_options = replace(
+                candidate_options,
+                refined_candidate_validator=_coverage_refined_candidate_validator(
+                    coverage_scheduler,
+                    raw_task.candidate_id,
+                ),
+            )
+        outcomes.append(
+            process_candidate_through_gates(
+                request=request,
+                context=_candidate_context_for_request(
+                    base_bundle=domain_bundle,
+                    base_context=candidate_context,
+                    output_dir=output_dir,
+                    request=request,
+                    enable_mcp_adapter=enable_mcp_adapter,
+                ),
+                options=request_options,
+            )
+        )
+    return merge_candidate_outcomes(
+        tuple(outcomes),
+        initial_accepted_signatures=accepted_signatures,
+        route_reviewable_failures=route_reviewable_failures,
+    )
+
+
+def _original_candidate_ids_for_indices(
+    tasks: list[CandidateTask],
+    *,
+    start_index: int,
+    sequence_indices: tuple[int, ...],
+) -> set[str]:
+    return {
+        tasks[sequence_index - start_index].candidate_id
+        for sequence_index in sequence_indices
+    }
+
+
+def _coverage_refined_candidate_validator(
+    scheduler: CoverageAssignmentScheduler,
+    original_candidate_id: str,
+) -> Callable[[CandidateTask], dict[str, object] | None]:
+    def validate(candidate: CandidateTask) -> dict[str, object] | None:
+        return scheduler.validate_refined_candidate(
+            original_candidate_id,
+            candidate,
+        )
+
+    return validate
 
 
 def _candidate_context_for_request(

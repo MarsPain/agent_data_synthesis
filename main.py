@@ -23,7 +23,7 @@ from synthesis.datasets import (
 from synthesis.dataset_release import write_dataset_release_report
 from synthesis.coverage import CoveragePlanValidationError
 from synthesis.coverage_assignments import (
-    build_coverage_assignment_candidate_generator_factory,
+    build_coverage_assignment_scheduler_factory,
 )
 from synthesis.episode_quality import (
     EPISODE_QUALITY_REPORT_FILENAME,
@@ -391,12 +391,12 @@ def main() -> int:
         elif args.write_coverage_plan:
             print(f"Coverage plan written: {args.output_dir / 'coverage_plan.json'}")
         return 0
-    coverage_candidate_generator_factory = None
+    coverage_scheduler_factory = None
     if profile is not None and profile.coverage_profile is not None:
         candidate_generator = None
         candidate_generator_factory = None
-        coverage_candidate_generator_factory = (
-            build_coverage_assignment_candidate_generator_factory(
+        coverage_scheduler_factory = (
+            build_coverage_assignment_scheduler_factory(
                 OpenAICompatibleClient(LLMConfig.from_env())
             )
         )
@@ -424,8 +424,8 @@ def main() -> int:
             dataset_version=args.dataset_version,
             candidate_generator=candidate_generator,
             candidate_generator_factory=candidate_generator_factory,
-            coverage_candidate_generator_factory=(
-                coverage_candidate_generator_factory
+            coverage_scheduler_factory=(
+                coverage_scheduler_factory
             ),
             parent_artifact_path=args.parent_artifact,
             refiner=refiner,

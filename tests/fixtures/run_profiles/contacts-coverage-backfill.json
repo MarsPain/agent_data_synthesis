@@ -1,0 +1,28 @@
+{
+  "schema_version": "run_profile_v4",
+  "profile_id": "contacts_coverage_backfill",
+  "dataset_version": "dataset_contacts_coverage_backfill_v1",
+  "profile_purpose": "diagnostic_probe",
+  "seed": {
+    "seed_id": "seed_contacts_coverage_backfill",
+    "domain": "contacts_fixture",
+    "description": "Exercise bounded contacts coverage backfill.",
+    "task_taxonomy": [
+      "contact_lookup",
+      "contact_followup"
+    ]
+  },
+  "generation": {
+    "mode": "llm",
+    "target_candidate_count": 5
+  },
+  "features": {},
+  "mutation_admission": {
+    "mode": "shadow"
+  },
+  "coverage_profile": {
+    "profile_id": "contacts_smoke",
+    "version": "contacts_smoke_v1",
+    "target_accepted_sample_count": 3
+  }
+}

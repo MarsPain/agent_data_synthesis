@@ -77,8 +77,13 @@ deficits with stable cell-id tie-breaking. Each locally hashed assignment
 projects one task type, its ordered tools, and one grounding unit into the
 existing remote-generation contract. Local membership validation runs before
 candidate processing; conforming candidates reuse the existing mutation
-admission, execution, verification, exact-duplicate, and assembly path.
-Accepted-deficit backfill and coverage fulfillment remain outside this tracer
+admission, execution, verification, exact-duplicate, and assembly path. After
+each processing wave, the scheduler reconciles planned, in-flight, accepted,
+rejected, and remaining counts by cell. Only accepted, locally validated
+assignments reduce the deficit; bounded replacement waves stop at the plan
+ceiling. `PipelineResult.coverage_reconciliation` exposes the deterministic
+non-artifact completion snapshot for orchestration and tests. Hash-bound public
+coverage evidence and representative fulfillment gates remain a later
 contract.
 
 ### Trajectory Execution

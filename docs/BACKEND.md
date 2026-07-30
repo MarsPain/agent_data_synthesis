@@ -23,8 +23,9 @@ The first backend should be a local Python pipeline with explicit modules and du
   domain-owned catalogs, authoritative catalog/profile version registries,
   profile resolution, and capacity projection to the shared compiler without
   adding domain-name branches to that compiler.
-- `synthesis.coverage_assignments`: domain-neutral initial-wave scheduling,
-  stable assignment identities, minimum-grounding prompt projection, local
+- `synthesis.coverage_assignments`: domain-neutral assignment scheduling,
+  per-wave accepted-only reconciliation, bounded deficit backfill, stable
+  assignment identities, minimum-grounding prompt projection, local
   task-contract membership validation, and sanitized assignment lineage.
 - `synthesis.domain_generation`: immutable domain generation specifications,
   complete machine-readable provider output contracts, strict task-contract
@@ -222,8 +223,9 @@ trajectories, exports, or logs.
    optionally write `coverage_plan.json`, then exit before provider
    construction, candidate generation, or execution. A normal
    coverage-enabled LLM run persists the same plan and issues the deterministic
-   initial assignment wave; deficit reconciliation and bounded replacement
-   attempts remain a later boundary.
+   initial assignment wave. After each wave, it reconciles locally validated
+   accepted assignments separately from in-flight and rejected work, then uses
+   only remaining plan capacity for deterministic accepted-deficit backfill.
 4. Build or load an environment version with source provenance, source-policy
    hash metadata, and environment-source admission status. Preserve that
    provenance when rebuilding isolated per-candidate environments.
@@ -252,7 +254,10 @@ trajectories, exports, or logs.
    coverage-score fields. The local validator checks task type, ordered tools,
    state behavior, and exact grounding membership before the candidate enters
    normal processing; mismatches become `coverage_assignment_mismatch` rather
-   than being reclassified.
+   than being reclassified. Candidate-processing and generation rejections
+   leave the assigned cell underfilled. The next bounded wave selects mandatory
+   deficits first, then the largest normalized deficit with cell-id
+   tie-breaking, and stops exactly at the plan attempt ceiling.
 7. If remote generation fails after configuration, write a classified generation
    rejection plus manifest and quality report artifacts. Strict response failures
    retain the public `llm_response_schema_error` cause and exactly one approved

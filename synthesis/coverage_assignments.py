@@ -6,6 +6,7 @@ from typing import Callable, Mapping, cast
 
 from synthesis.coverage import (
     CoverageCatalog,
+    CoverageCell,
     CoveragePlan,
     canonical_coverage_hash,
     canonical_coverage_json,
@@ -32,6 +33,7 @@ from synthesis.tasks import CandidateTask
 COVERAGE_ASSIGNMENT_VERSION = "coverage_assignment_v1"
 COVERAGE_ASSIGNMENT_LINEAGE_VERSION = "coverage_assignment_lineage_v1"
 COVERAGE_SCHEDULER_VERSION = "coverage_scheduler_v1"
+COVERAGE_RECONCILIATION_VERSION = "coverage_reconciliation_v1"
 
 _FORBIDDEN_PROVIDER_FIELDS = {
     "assignment_id",
@@ -112,15 +114,14 @@ class CoverageAssignmentGenerationResult:
     candidates: tuple[CandidateTask, ...]
     rejections: tuple[dict[str, object], ...]
     issued_assignment_count: int
+    assignments: tuple[CoverageAssignment, ...]
+    candidate_assignment_ids: Mapping[str, str]
+    rejected_assignment_ids: tuple[str, ...]
 
 
-CoverageAssignmentCandidateGenerator = Callable[
-    [DomainSeed],
-    CoverageAssignmentGenerationResult,
-]
-CoverageAssignmentCandidateGeneratorFactory = Callable[
+CoverageAssignmentSchedulerFactory = Callable[
     [DomainPipelineBundle, CoveragePlan, CoverageCatalog],
-    CoverageAssignmentCandidateGenerator,
+    "CoverageAssignmentScheduler",
 ]
 
 
@@ -130,33 +131,345 @@ class CoverageAssignmentMismatch(ValueError):
         self.reason = reason
 
 
-def build_coverage_assignment_candidate_generator_factory(
+@dataclass
+class _CoverageCellState:
+    cell_id: str
+    planned: int
+    mandatory_floor: int
+    in_flight: int = 0
+    accepted: int = 0
+    rejected: int = 0
+    issued: int = 0
+
+    @property
+    def remaining(self) -> int:
+        return max(self.planned - self.accepted, 0)
+
+    def canonical(self) -> dict[str, object]:
+        if self.remaining == 0:
+            deficit_reason = None
+        elif self.accepted < self.mandatory_floor:
+            deficit_reason = "mandatory_deficit"
+        else:
+            deficit_reason = "target_deficit"
+        return {
+            "cell_id": self.cell_id,
+            "planned": self.planned,
+            "in_flight": self.in_flight,
+            "accepted": self.accepted,
+            "rejected": self.rejected,
+            "remaining": self.remaining,
+            "deficit_reason": deficit_reason,
+        }
+
+
+@dataclass
+class _CoverageWaveState:
+    wave: int
+    issued: int
+    in_flight_after_generation: int
+    generation_rejected: int
+    accepted: int = 0
+    rejected: int = 0
+
+
+@dataclass(frozen=True)
+class _CoverageDeficit:
+    cell_id: str
+    planned: int
+    mandatory_floor: int
+    reserved: int
+
+
+class CoverageAssignmentScheduler:
+    def __init__(
+        self,
+        *,
+        client: object,
+        spec: DomainGenerationSpec,
+        plan: CoveragePlan,
+        catalog: CoverageCatalog,
+        role_registry: RoleRegistry,
+    ) -> None:
+        validate_domain_generation_spec(spec)
+        if plan.domain_id != catalog.domain_id or plan.domain_id != spec.domain_id:
+            raise ValueError("coverage assignment domains do not match")
+        self._client = client
+        self._spec = spec
+        self._plan = plan
+        self._catalog = catalog
+        self._role_registry = role_registry
+        self._cells = {cell.cell_id: cell for cell in catalog.cells}
+        self._cell_states = {
+            str(item["cell_id"]): _CoverageCellState(
+                cell_id=str(item["cell_id"]),
+                planned=_required_int(item["target_count"], "target_count"),
+                mandatory_floor=_required_int(
+                    item["mandatory_floor"],
+                    "mandatory_floor",
+                ),
+            )
+            for item in plan.target_distribution
+        }
+        selected_features = set(plan.selected_features)
+        for cell_id in self._cell_states:
+            if cell_id not in self._cells:
+                raise ValueError("coverage plan references an unknown catalog cell")
+            unavailable_features = (
+                set(self._cells[cell_id].required_features) - selected_features
+            )
+            if unavailable_features:
+                raise ValueError(
+                    "coverage plan references a cell with unavailable features"
+                )
+        self._issued_count = 0
+        self._wave_states: list[_CoverageWaveState] = []
+        self._wave_results: dict[int, CoverageAssignmentGenerationResult] = {}
+        self._candidate_assignments: dict[str, CoverageAssignment] = {}
+        self._generated_candidates: dict[str, CandidateTask] = {}
+
+    @property
+    def can_schedule(self) -> bool:
+        return (
+            self._issued_count < self._plan.attempt_ceiling
+            and any(state.remaining > 0 for state in self._cell_states.values())
+            and not any(
+                state.in_flight > 0 for state in self._cell_states.values()
+            )
+        )
+
+    def generate_wave(
+        self,
+        seed: DomainSeed,
+    ) -> CoverageAssignmentGenerationResult:
+        if not self.can_schedule:
+            raise ValueError("coverage scheduler has no schedulable deficit")
+        wave_number = len(self._wave_states) + 1
+        wave_limit = (
+            self._plan.target_accepted_sample_count
+            if wave_number == 1
+            else sum(state.remaining for state in self._cell_states.values())
+        )
+        assignments: list[CoverageAssignment] = []
+        while (
+            len(assignments) < wave_limit
+            and self._issued_count < self._plan.attempt_ceiling
+        ):
+            cell_id = _select_next_deficit(
+                tuple(
+                    _CoverageDeficit(
+                        cell_id=state.cell_id,
+                        planned=state.planned,
+                        mandatory_floor=state.mandatory_floor,
+                        reserved=state.accepted + state.in_flight,
+                    )
+                    for state in self._cell_states.values()
+                )
+            )
+            if cell_id is None:
+                break
+            state = self._cell_states[cell_id]
+            assignment = _build_coverage_assignment(
+                plan=self._plan,
+                cell=self._cells[cell_id],
+                assignment_ordinal=self._issued_count,
+                cell_ordinal=state.issued,
+                spec=self._spec,
+            )
+            assignments.append(assignment)
+            state.in_flight += 1
+            state.issued += 1
+            self._issued_count += 1
+        generated = _generate_coverage_assignments(
+            seed=seed,
+            client=self._client,
+            spec=self._spec,
+            assignments=tuple(assignments),
+            role_registry=self._role_registry,
+        )
+        rejected_assignment_ids = set(generated.rejected_assignment_ids)
+        assignments_by_id = {
+            assignment.assignment_id: assignment
+            for assignment in generated.assignments
+        }
+        candidates_by_id = {
+            candidate.candidate_id: candidate
+            for candidate in generated.candidates
+        }
+        for candidate_id, assignment_id in generated.candidate_assignment_ids.items():
+            self._candidate_assignments[candidate_id] = assignments_by_id[
+                assignment_id
+            ]
+            self._generated_candidates[candidate_id] = candidates_by_id[
+                candidate_id
+            ]
+        for assignment in assignments:
+            if assignment.assignment_id in rejected_assignment_ids:
+                state = self._cell_states[assignment.cell_id]
+                state.in_flight -= 1
+                state.rejected += 1
+        wave_state = _CoverageWaveState(
+            wave=wave_number,
+            issued=len(assignments),
+            in_flight_after_generation=sum(
+                state.in_flight for state in self._cell_states.values()
+            ),
+            generation_rejected=len(generated.rejections),
+        )
+        self._wave_states.append(wave_state)
+        self._wave_results[wave_number] = generated
+        return generated
+
+    def validate_refined_candidate(
+        self,
+        original_candidate_id: str,
+        candidate: CandidateTask,
+    ) -> dict[str, object] | None:
+        assignment = self._candidate_assignments[original_candidate_id]
+        original_candidate = self._generated_candidates[original_candidate_id]
+        try:
+            contract = candidate.contract()
+            assignment_spec = _assignment_generation_spec(
+                self._spec,
+                assignment,
+            )
+            _validate_contract_assignment_membership(
+                contract=contract,
+                assignment=assignment,
+                assignment_spec=assignment_spec,
+            )
+            if canonical_coverage_hash(candidate.difficulty) != (
+                canonical_coverage_hash(_assignment_difficulty(assignment))
+            ):
+                raise CoverageAssignmentMismatch("difficulty_mismatch")
+            if candidate.expected_answer != original_candidate.expected_answer:
+                raise CoverageAssignmentMismatch("grounding_scope_mismatch")
+            if canonical_coverage_hash(candidate.constraints) != (
+                canonical_coverage_hash(original_candidate.constraints)
+            ):
+                raise CoverageAssignmentMismatch("constraint_profile_mismatch")
+            recovery = assignment.dimensions["recovery"]
+            if (candidate.branch_plan is None) != (recovery == "none"):
+                raise CoverageAssignmentMismatch("recovery_mismatch")
+            lineage = candidate.generation_lineage
+            lineage_assignment = (
+                lineage.get("coverage_assignment")
+                if isinstance(lineage, Mapping)
+                else None
+            )
+            if (
+                not isinstance(lineage_assignment, Mapping)
+                or lineage_assignment.get("assignment_id")
+                != assignment.assignment_id
+            ):
+                raise CoverageAssignmentMismatch("assignment_lineage_mismatch")
+        except CoverageAssignmentMismatch as exc:
+            return _assignment_mismatch_rejection(
+                assignment=assignment,
+                raw_record=candidate.export(),
+                reason=exc.reason,
+            )
+        except (TypeError, ValueError, KeyError):
+            return _assignment_mismatch_rejection(
+                assignment=assignment,
+                raw_record=candidate.export(),
+                reason="refined_candidate_mismatch",
+            )
+        return None
+
+    def reconcile_wave(
+        self,
+        generated: CoverageAssignmentGenerationResult,
+        *,
+        accepted_candidate_ids: set[str],
+        rejected_candidate_ids: set[str],
+    ) -> None:
+        candidate_ids = set(generated.candidate_assignment_ids)
+        if accepted_candidate_ids & rejected_candidate_ids:
+            raise ValueError("coverage candidate cannot be accepted and rejected")
+        if accepted_candidate_ids | rejected_candidate_ids != candidate_ids:
+            raise ValueError("coverage wave outcomes do not match generated candidates")
+        assignments = {
+            assignment.assignment_id: assignment
+            for assignment in generated.assignments
+        }
+        for candidate_id, assignment_id in generated.candidate_assignment_ids.items():
+            assignment = assignments[assignment_id]
+            state = self._cell_states[assignment.cell_id]
+            if state.in_flight < 1:
+                raise ValueError("coverage assignment is not in flight")
+            state.in_flight -= 1
+            if candidate_id in accepted_candidate_ids:
+                state.accepted += 1
+            else:
+                state.rejected += 1
+        wave_number = next(
+            wave
+            for wave, result in self._wave_results.items()
+            if result is generated
+        )
+        wave_state = self._wave_states[wave_number - 1]
+        wave_state.accepted = len(accepted_candidate_ids)
+        wave_state.rejected = (
+            wave_state.generation_rejected + len(rejected_candidate_ids)
+        )
+
+    def reconciliation(self) -> dict[str, object]:
+        status = (
+            "complete"
+            if all(state.remaining == 0 for state in self._cell_states.values())
+            else "incomplete"
+        )
+        waves: list[dict[str, object]] = []
+        for wave_state in self._wave_states:
+            waves.append(
+                {
+                    "wave": wave_state.wave,
+                    "issued": wave_state.issued,
+                    "in_flight_after_generation": (
+                        wave_state.in_flight_after_generation
+                    ),
+                    "accepted": wave_state.accepted,
+                    "rejected": wave_state.rejected,
+                }
+            )
+        return {
+            "schema_version": COVERAGE_RECONCILIATION_VERSION,
+            "status": status,
+            "attempts": {
+                "ceiling": self._plan.attempt_ceiling,
+                "issued": self._issued_count,
+                "remaining": self._plan.attempt_ceiling - self._issued_count,
+            },
+            "cells": [
+                self._cell_states[cell_id].canonical()
+                for cell_id in sorted(self._cell_states)
+            ],
+            "waves": waves,
+        }
+
+
+def build_coverage_assignment_scheduler_factory(
     client: object,
     *,
     role_registry: RoleRegistry | None = None,
-) -> CoverageAssignmentCandidateGeneratorFactory:
+) -> CoverageAssignmentSchedulerFactory:
     registry = role_registry or default_role_registry()
 
     def factory(
         bundle: DomainPipelineBundle,
         plan: CoveragePlan,
         catalog: CoverageCatalog,
-    ) -> CoverageAssignmentCandidateGenerator:
+    ) -> CoverageAssignmentScheduler:
         if bundle.generation_spec is None:
             raise ValueError("source_backed_remote_context_not_allowed")
-        generation_spec = bundle.generation_spec
-
-        def generate(seed: DomainSeed) -> CoverageAssignmentGenerationResult:
-            return generate_initial_coverage_assignments(
-                seed=seed,
-                client=client,
-                spec=generation_spec,
-                plan=plan,
-                catalog=catalog,
-                role_registry=registry,
-            )
-
-        return generate
+        return CoverageAssignmentScheduler(
+            client=client,
+            spec=bundle.generation_spec,
+            plan=plan,
+            catalog=catalog,
+            role_registry=registry,
+        )
 
     return factory
 
@@ -185,49 +498,77 @@ def issue_initial_coverage_assignments(
             ),
         }
     assigned = {cell_id: 0 for cell_id in targets}
-    grounding_key, grounding_units = _single_grounding_collection(spec)
     assignments: list[CoverageAssignment] = []
     while len(assignments) < plan.target_accepted_sample_count:
-        cell_id = _select_next_cell(targets, assigned)
-        cell = cells[cell_id]
-        cell_ordinal = assigned[cell_id]
-        grounding_index = cell_ordinal % len(grounding_units)
-        grounding_hash = canonical_coverage_hash(grounding_units[grounding_index])
-        assignment_payload = {
-            "schema_version": COVERAGE_ASSIGNMENT_VERSION,
-            "assignment_ordinal": len(assignments),
-            "plan_id": plan.plan_id,
-            "plan_hash": plan.plan_hash,
-            "cell_id": cell_id,
-            "dimensions": _canonical_dimensions(cell.dimensions),
-            "grounding_scope": {
-                "context_key": grounding_key,
-                "unit_index": grounding_index,
-                "grounding_hash": grounding_hash,
-            },
-        }
-        assignment_hash = canonical_coverage_hash(assignment_payload)
-        assignments.append(
-            CoverageAssignment(
-                assignment_id=(
-                    "coverage_assignment_"
-                    + assignment_hash.removeprefix("sha256:")[:16]
-                ),
-                assignment_hash=assignment_hash,
-                assignment_ordinal=len(assignments),
-                plan_id=plan.plan_id,
-                plan_hash=plan.plan_hash,
-                cell_id=cell_id,
-                dimensions=_canonical_dimensions(cell.dimensions),
-                catalog=dict(plan.catalog),
-                coverage_profile=dict(plan.coverage_profile),
-                grounding_context_key=grounding_key,
-                grounding_unit_index=grounding_index,
-                grounding_unit_hash=grounding_hash,
+        selected_cell_id = _select_next_deficit(
+            tuple(
+                _CoverageDeficit(
+                    cell_id=cell_id,
+                    planned=target["target_count"],
+                    mandatory_floor=target["mandatory_floor"],
+                    reserved=assigned[cell_id],
+                )
+                for cell_id, target in targets.items()
             )
         )
-        assigned[cell_id] += 1
+        if selected_cell_id is None:
+            raise ValueError("coverage plan has no remaining assignment deficit")
+        cell_ordinal = assigned[selected_cell_id]
+        assignments.append(
+            _build_coverage_assignment(
+                plan=plan,
+                cell=cells[selected_cell_id],
+                assignment_ordinal=len(assignments),
+                cell_ordinal=cell_ordinal,
+                spec=spec,
+            )
+        )
+        assigned[selected_cell_id] += 1
     return tuple(assignments)
+
+
+def _build_coverage_assignment(
+    *,
+    plan: CoveragePlan,
+    cell: CoverageCell,
+    assignment_ordinal: int,
+    cell_ordinal: int,
+    spec: DomainGenerationSpec,
+) -> CoverageAssignment:
+    grounding_key, grounding_units = _single_grounding_collection(spec)
+    grounding_index = cell_ordinal % len(grounding_units)
+    grounding_hash = canonical_coverage_hash(grounding_units[grounding_index])
+    assignment_payload = {
+        "schema_version": COVERAGE_ASSIGNMENT_VERSION,
+        "assignment_ordinal": assignment_ordinal,
+        "plan_id": plan.plan_id,
+        "plan_hash": plan.plan_hash,
+        "cell_id": cell.cell_id,
+        "dimensions": _canonical_dimensions(cell.dimensions),
+        "grounding_scope": {
+            "context_key": grounding_key,
+            "unit_index": grounding_index,
+            "grounding_hash": grounding_hash,
+        },
+    }
+    assignment_hash = canonical_coverage_hash(assignment_payload)
+    return CoverageAssignment(
+        assignment_id=(
+            "coverage_assignment_"
+            + assignment_hash.removeprefix("sha256:")[:16]
+        ),
+        assignment_hash=assignment_hash,
+        assignment_ordinal=assignment_ordinal,
+        plan_id=plan.plan_id,
+        plan_hash=plan.plan_hash,
+        cell_id=cell.cell_id,
+        dimensions=_canonical_dimensions(cell.dimensions),
+        catalog=dict(plan.catalog),
+        coverage_profile=dict(plan.coverage_profile),
+        grounding_context_key=grounding_key,
+        grounding_unit_index=grounding_index,
+        grounding_unit_hash=grounding_hash,
+    )
 
 
 def generate_initial_coverage_assignments(
@@ -245,8 +586,27 @@ def generate_initial_coverage_assignments(
         catalog=catalog,
         spec=spec,
     )
+    return _generate_coverage_assignments(
+        seed=seed,
+        client=client,
+        spec=spec,
+        assignments=assignments,
+        role_registry=registry,
+    )
+
+
+def _generate_coverage_assignments(
+    *,
+    seed: DomainSeed,
+    client: object,
+    spec: DomainGenerationSpec,
+    assignments: tuple[CoverageAssignment, ...],
+    role_registry: RoleRegistry,
+) -> CoverageAssignmentGenerationResult:
     candidates: list[CandidateTask] = []
     rejections: list[dict[str, object]] = []
+    candidate_assignment_ids: dict[str, str] = {}
+    rejected_assignment_ids: list[str] = []
     for assignment in assignments:
         raw_record: Mapping[str, object] | None = None
         assignment_spec = _assignment_generation_spec(spec, assignment)
@@ -260,7 +620,7 @@ def generate_initial_coverage_assignments(
             batch_context=batch_context,
         )
         try:
-            result = registry.invoke_json(
+            result = role_registry.invoke_json(
                 TASK_GENERATION_ROLE,
                 client,
                 prompt,
@@ -290,8 +650,13 @@ def generate_initial_coverage_assignments(
                 contract,
                 assignment,
             )
-            candidates.append(candidate_from_task_contract(contract))
+            candidate = candidate_from_task_contract(contract)
+            candidates.append(candidate)
+            candidate_assignment_ids[candidate.candidate_id] = (
+                assignment.assignment_id
+            )
         except CoverageAssignmentMismatch as exc:
+            rejected_assignment_ids.append(assignment.assignment_id)
             rejections.append(
                 _assignment_mismatch_rejection(
                     assignment=assignment,
@@ -300,6 +665,7 @@ def generate_initial_coverage_assignments(
                 )
             )
         except DomainGenerationValidationError as exc:
+            rejected_assignment_ids.append(assignment.assignment_id)
             rejections.append(
                 _assignment_generation_rejection(
                     assignment=assignment,
@@ -308,6 +674,7 @@ def generate_initial_coverage_assignments(
                 )
             )
         except LLMProviderError as exc:
+            rejected_assignment_ids.append(assignment.assignment_id)
             rejection = assemble_generation_stage_rejection(error=exc)
             raw_details = rejection.get("details")
             details = (
@@ -322,6 +689,9 @@ def generate_initial_coverage_assignments(
         candidates=tuple(candidates),
         rejections=tuple(rejections),
         issued_assignment_count=len(assignments),
+        assignments=assignments,
+        candidate_assignment_ids=candidate_assignment_ids,
+        rejected_assignment_ids=tuple(rejected_assignment_ids),
     )
 
 
@@ -390,6 +760,29 @@ def _validate_assignment_membership(
     batch_context: DomainGenerationBatchContext,
     generation_lineage: Mapping[str, object],
 ) -> None:
+    _validate_contract_assignment_membership(
+        contract=contract,
+        assignment=assignment,
+        assignment_spec=assignment_spec,
+    )
+    try:
+        task_contract_from_provider_record(
+            raw_record,
+            seed=seed,
+            spec=assignment_spec,
+            candidate_id_prefix=batch_context.candidate_id_prefix,
+            generation_lineage=generation_lineage,
+        )
+    except DomainGenerationValidationError as exc:
+        raise CoverageAssignmentMismatch("grounding_scope_mismatch") from exc
+
+
+def _validate_contract_assignment_membership(
+    *,
+    contract: TaskContract,
+    assignment: CoverageAssignment,
+    assignment_spec: DomainGenerationSpec,
+) -> None:
     if contract.intent.task_type != assignment.dimensions["task_type"]:
         raise CoverageAssignmentMismatch("task_type_mismatch")
     if contract.policy_hint.required_tools != _required_tools_dimension(
@@ -442,26 +835,28 @@ def _validate_assignment_membership(
                 != canonical_coverage_hash(assigned_value)
             ):
                 raise CoverageAssignmentMismatch("grounding_scope_mismatch")
-    try:
-        task_contract_from_provider_record(
-            raw_record,
-            seed=seed,
-            spec=assignment_spec,
-            candidate_id_prefix=batch_context.candidate_id_prefix,
-            generation_lineage=generation_lineage,
-        )
-    except DomainGenerationValidationError as exc:
-        raise CoverageAssignmentMismatch("grounding_scope_mismatch") from exc
 
 
 def _with_locally_derived_difficulty(
     contract: TaskContract,
     assignment: CoverageAssignment,
 ) -> TaskContract:
+    return replace(
+        contract,
+        intent=replace(
+            contract.intent,
+            difficulty=_assignment_difficulty(assignment),
+        ),
+    )
+
+
+def _assignment_difficulty(
+    assignment: CoverageAssignment,
+) -> dict[str, object]:
     required_tools = _required_tools_dimension(assignment.dimensions)
     state_behavior = assignment.dimensions["state_behavior"]
     recovery = assignment.dimensions["recovery"]
-    difficulty = {
+    return {
         "level": str(assignment.dimensions["difficulty"]),
         "tool_count": len(required_tools),
         "constraint_count": 1,
@@ -469,10 +864,6 @@ def _with_locally_derived_difficulty(
         "ambiguity": str(assignment.dimensions["ambiguity"]),
         "recovery_paths": int(recovery != "none"),
     }
-    return replace(
-        contract,
-        intent=replace(contract.intent, difficulty=difficulty),
-    )
 
 
 def _single_provider_record(content: object) -> Mapping[str, object]:
@@ -537,46 +928,39 @@ def _assignment_generation_rejection(
     return rejection
 
 
-def _select_next_cell(
-    targets: Mapping[str, Mapping[str, int]],
-    assigned: Mapping[str, int],
-) -> str:
+def _select_next_deficit(
+    deficits: tuple[_CoverageDeficit, ...],
+) -> str | None:
     available = [
-        cell_id
-        for cell_id in sorted(targets)
-        if assigned[cell_id] < targets[cell_id]["target_count"]
+        deficit
+        for deficit in deficits
+        if deficit.reserved < deficit.planned
     ]
     if not available:
-        raise ValueError("coverage plan has no remaining assignment deficit")
+        return None
     mandatory = [
-        cell_id
-        for cell_id in available
-        if assigned[cell_id] < targets[cell_id]["mandatory_floor"]
+        deficit
+        for deficit in available
+        if deficit.reserved < deficit.mandatory_floor
     ]
     if mandatory:
         return min(
             mandatory,
-            key=lambda cell_id: (
-                -(
-                    targets[cell_id]["mandatory_floor"]
-                    - assigned[cell_id]
-                ),
-                cell_id,
+            key=lambda deficit: (
+                -(deficit.mandatory_floor - deficit.reserved),
+                deficit.cell_id,
             ),
-        )
+        ).cell_id
     return min(
         available,
-        key=lambda cell_id: (
+        key=lambda deficit: (
             -(
-                (
-                    targets[cell_id]["target_count"]
-                    - assigned[cell_id]
-                )
-                / targets[cell_id]["target_count"]
+                (deficit.planned - deficit.reserved)
+                / deficit.planned
             ),
-            cell_id,
+            deficit.cell_id,
         ),
-    )
+    ).cell_id
 
 
 def _single_grounding_collection(

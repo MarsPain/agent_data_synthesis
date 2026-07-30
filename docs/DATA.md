@@ -507,13 +507,17 @@ records, credentials, and host paths are excluded. Fixed inputs produce the
 same bytes. `--preview-coverage-plan` prints those bytes and
 `--write-coverage-plan` writes them under `--output-dir`; both exit before
 candidate generation or execution. Normal coverage-enabled LLM execution also
-persists the plan, issues the deterministic initial assignment wave, and
-retains `coverage_assignment_lineage_v1` on accepted samples and relevant
-rejections. That lineage contains only assignment, plan, cell, catalog,
-profile, scheduler, and grounding-scope identifiers, versions, and hashes.
-Provider prompts, responses, credentials, unrestricted grounding rows, and raw
-source payloads remain excluded. Accepted-deficit backfill and run-level
-fulfillment evidence are not part of this contract yet.
+persists the plan, issues the deterministic initial assignment wave, reconciles
+accepted-only cell coverage, and uses remaining plan capacity for bounded
+deficit backfill. It retains `coverage_assignment_lineage_v1` on accepted
+samples and relevant rejections. That lineage contains only assignment, plan,
+cell, catalog, profile, scheduler, and grounding-scope identifiers, versions,
+and hashes. Provider prompts, responses, credentials, unrestricted grounding
+rows, and raw source payloads remain excluded. The programmatic pipeline result
+exposes a sanitized `coverage_reconciliation_v1` snapshot with planned,
+in-flight, accepted, rejected, remaining, attempt, wave, completion, and
+bounded-deficit fields. Publishing hash-bound run-level coverage evidence and
+fulfillment authority remains outside this contract.
 
 Profile-configured runs also attach a narrow per-record attribution record under
 `lineage.run_profile` for accepted samples and `details.run_profile` for

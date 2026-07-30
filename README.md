@@ -40,8 +40,10 @@ admission artifacts. Canonical design detail lives in [docs/](docs/).
 - Versioned run profiles may opt into contacts coverage planning through a
   named `coverage_profile`. Plan preview remains local and provider-free;
   coverage-enabled LLM runs issue deterministic, cell-bound contacts
-  assignments and route conforming candidates through the existing admission,
-  execution, verification, duplicate, and dataset assembly path.
+  assignments, reconcile accepted-only coverage after each processing wave,
+  and use only the plan's remaining attempt capacity to backfill deficits
+  through the existing admission, execution, verification, duplicate, and
+  dataset assembly path.
 - Remote LLM generation is supported through an OpenAI-compatible API, but local
   LLM serving, distributed workers, external MCP servers, Agentic RL rollout
   collection, and separate `awm_runtime` publishing are intentionally deferred.
