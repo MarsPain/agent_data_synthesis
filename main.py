@@ -22,6 +22,9 @@ from synthesis.datasets import (
 )
 from synthesis.dataset_release import write_dataset_release_report
 from synthesis.coverage import CoveragePlanValidationError
+from synthesis.coverage_assignments import (
+    build_coverage_assignment_candidate_generator_factory,
+)
 from synthesis.episode_quality import (
     EPISODE_QUALITY_REPORT_FILENAME,
     build_episode_quality_report,
@@ -34,7 +37,12 @@ from synthesis.episode_replay import (
     write_episode_replay_report,
 )
 from synthesis.evaluation import write_evaluation_report
-from synthesis.llm import LLMConfigurationError, LLMProviderError
+from synthesis.llm import (
+    LLMConfig,
+    LLMConfigurationError,
+    LLMProviderError,
+    OpenAICompatibleClient,
+)
 from synthesis.pipeline import (
     build_domain_llm_candidate_generator_factory,
     build_llm_candidate_generator,
@@ -293,16 +301,6 @@ def parse_args() -> argparse.Namespace:
             "--preview-coverage-plan and --write-coverage-plan require a run "
             "profile with coverage_profile"
         )
-    if (
-        args.loaded_run_profile is not None
-        and args.loaded_run_profile.coverage_profile is not None
-        and not coverage_preview_requested
-    ):
-        parser.error(
-            "coverage-enabled execution is not available yet; use "
-            "--preview-coverage-plan or --write-coverage-plan"
-        )
-
     if args.enable_network_source:
         if not args.source_url:
             parser.error("--enable-network-source requires --source-url")
@@ -393,10 +391,22 @@ def main() -> int:
         elif args.write_coverage_plan:
             print(f"Coverage plan written: {args.output_dir / 'coverage_plan.json'}")
         return 0
-    candidate_generator, candidate_generator_factory = _profile_candidate_generators(
-        profile,
-        use_llm=args.use_llm,
-    )
+    coverage_candidate_generator_factory = None
+    if profile is not None and profile.coverage_profile is not None:
+        candidate_generator = None
+        candidate_generator_factory = None
+        coverage_candidate_generator_factory = (
+            build_coverage_assignment_candidate_generator_factory(
+                OpenAICompatibleClient(LLMConfig.from_env())
+            )
+        )
+    else:
+        candidate_generator, candidate_generator_factory = (
+            _profile_candidate_generators(
+                profile,
+                use_llm=args.use_llm,
+            )
+        )
     task_expansion_generator = (
         build_llm_task_expansion_generator()
         if args.use_llm and _feature_enabled(args, profile, "enable_task_expansion")
@@ -414,6 +424,9 @@ def main() -> int:
             dataset_version=args.dataset_version,
             candidate_generator=candidate_generator,
             candidate_generator_factory=candidate_generator_factory,
+            coverage_candidate_generator_factory=(
+                coverage_candidate_generator_factory
+            ),
             parent_artifact_path=args.parent_artifact,
             refiner=refiner,
             enable_branching=_feature_enabled(args, profile, "enable_branching"),

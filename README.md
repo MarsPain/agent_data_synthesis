@@ -38,8 +38,10 @@ admission artifacts. Canonical design detail lives in [docs/](docs/).
   `mutation_admission_report.json` and a hash-bound v2 manifest; mutation-safe
   release packs are verified entirely from these retained artifacts.
 - Versioned run profiles may opt into contacts coverage planning through a
-  named `coverage_profile`. Plan preview is local, deterministic, and does not
-  generate or execute candidates.
+  named `coverage_profile`. Plan preview remains local and provider-free;
+  coverage-enabled LLM runs issue deterministic, cell-bound contacts
+  assignments and route conforming candidates through the existing admission,
+  execution, verification, duplicate, and dataset assembly path.
 - Remote LLM generation is supported through an OpenAI-compatible API, but local
   LLM serving, distributed workers, external MCP servers, Agentic RL rollout
   collection, and separate `awm_runtime` publishing are intentionally deferred.
@@ -67,6 +69,7 @@ uv run python main.py --enable-source-governance-fixture --output-dir artifacts/
 # Profile-driven contacts, mobile, and workspace runs
 uv run python main.py --run-profile tests/fixtures/run_profiles/contacts-coverage-smoke.json --preview-coverage-plan
 uv run python main.py --run-profile tests/fixtures/run_profiles/contacts-coverage-smoke.json --write-coverage-plan --output-dir artifacts/contacts-coverage-preview
+uv run python main.py --run-profile tests/fixtures/run_profiles/contacts-coverage-tracer.json --use-llm --output-dir artifacts/contacts-coverage-tracer
 uv run python main.py --run-profile tests/fixtures/run_profiles/foundation-scale-probe-25.json --write-evaluation-report --write-profile-decision-report --output-dir artifacts/foundation-scale-probe
 uv run python main.py --run-profile tests/fixtures/run_profiles/profile-local-contacts.json --output-dir artifacts/profile-local-contacts
 uv run python main.py --run-profile tests/fixtures/run_profiles/profile-local-mobile-messages.json --write-episode-replay-report --write-reward-label-report --output-dir artifacts/profile-local-mobile
@@ -134,6 +137,9 @@ paths, and host paths must not be written to public artifacts.
 
 - Default dataset artifacts: `samples.jsonl`, `rejections.jsonl`,
   `manifest.json`, `quality_report.json`.
+- Coverage planning artifact: `coverage_plan.json`; coverage-enabled execution
+  attaches it to the dataset manifest, while preview-only commands do not write
+  a dataset manifest.
 - Source and sandbox audits: `source_events.jsonl`, `sandbox_audits.jsonl`.
 - Evaluation and release artifacts: `evaluation_report.json`,
   `profile_decision_report.json`, `dataset_release_report.json`,

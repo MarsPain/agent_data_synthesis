@@ -23,6 +23,9 @@ The first backend should be a local Python pipeline with explicit modules and du
   domain-owned catalogs, authoritative catalog/profile version registries,
   profile resolution, and capacity projection to the shared compiler without
   adding domain-name branches to that compiler.
+- `synthesis.coverage_assignments`: domain-neutral initial-wave scheduling,
+  stable assignment identities, minimum-grounding prompt projection, local
+  task-contract membership validation, and sanitized assignment lineage.
 - `synthesis.domain_generation`: immutable domain generation specifications,
   complete machine-readable provider output contracts, strict task-contract
   parsing, replayable grounding arguments paired with observations, explicit
@@ -217,8 +220,10 @@ trajectories, exports, or logs.
    against the profile-derived attempt ceiling. The
    `--preview-coverage-plan` and `--write-coverage-plan` paths compile and
    optionally write `coverage_plan.json`, then exit before provider
-   construction, candidate generation, or execution. Coverage-enabled candidate
-   execution is outside this preview-only boundary.
+   construction, candidate generation, or execution. A normal
+   coverage-enabled LLM run persists the same plan and issues the deterministic
+   initial assignment wave; deficit reconciliation and bounded replacement
+   attempts remain a later boundary.
 4. Build or load an environment version with source provenance, source-policy
    hash metadata, and environment-source admission status. Preserve that
    provenance when rebuilding isolated per-candidate environments.
@@ -239,6 +244,15 @@ trajectories, exports, or logs.
    final answer is derived deterministically from validated expected state.
    Persisted candidate lineage keeps only the exclusion count, never
    instruction text.
+   For a coverage-enabled contacts run, the scheduler chooses mandatory cells
+   before the largest normalized remaining deficit with cell-id tie-breaking.
+   Each provider call receives one cell contract, only that cell's tools, and
+   one assigned grounding unit. Provider records retain the existing exact-key
+   schema and cannot assert plan, assignment, cell, fulfillment, lineage, or
+   coverage-score fields. The local validator checks task type, ordered tools,
+   state behavior, and exact grounding membership before the candidate enters
+   normal processing; mismatches become `coverage_assignment_mismatch` rather
+   than being reclassified.
 7. If remote generation fails after configuration, write a classified generation
    rejection plus manifest and quality report artifacts. Strict response failures
    retain the public `llm_response_schema_error` cause and exactly one approved

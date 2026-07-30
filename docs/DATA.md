@@ -25,6 +25,11 @@
   enabled features, accepted-sample target, admitted aggregate capacity, and
   bounded overrides. The plan records the target distribution and attempt
   ceiling separately.
+- **Coverage Assignment:** locally issued `coverage_assignment_v1` requirement
+  for exactly one planned cell and one bounded grounding unit. Its stable hash
+  binds plan identity, assignment ordinal, cell dimensions, and grounding hash.
+  Providers receive the assignment contract but cannot return locally owned
+  assignment or coverage evidence.
 - **Source Record:** provenance contract for fixture, synthetic, transformed, or
   external/local-file material, including source id, sanitized origin reference,
   content hash, license label, retrieval timestamp when applicable, and
@@ -377,7 +382,9 @@ or episode replay reports.
 `manifest.json` must include artifact references for `samples`, `rejections`, and
 `quality_report`. When tool proposal, parent comparison, or review routing is
 enabled, it also references `tool_proposals`, `parent_comparison`, and
-`review_queue`. When source auditing is enabled, it references
+`review_queue`. Coverage-enabled execution references `coverage_plan`; local
+preview-only coverage commands do not write a dataset manifest. When source
+auditing is enabled, it references
 `source_events`; manifests also include `source_policy_hashes` when samples or
 source-gated rejections carry source provenance. When the generated-code sandbox
 fixture is enabled, the manifest references `sandbox_audits`. When held-out
@@ -499,9 +506,14 @@ derived from that hash. Raw grounding rows, source payloads, prompts, provider
 records, credentials, and host paths are excluded. Fixed inputs produce the
 same bytes. `--preview-coverage-plan` prints those bytes and
 `--write-coverage-plan` writes them under `--output-dir`; both exit before
-candidate generation or execution. Coverage-enabled candidate execution,
-assignments, backfill, and run-level fulfillment evidence are not part of this
-contract yet.
+candidate generation or execution. Normal coverage-enabled LLM execution also
+persists the plan, issues the deterministic initial assignment wave, and
+retains `coverage_assignment_lineage_v1` on accepted samples and relevant
+rejections. That lineage contains only assignment, plan, cell, catalog,
+profile, scheduler, and grounding-scope identifiers, versions, and hashes.
+Provider prompts, responses, credentials, unrestricted grounding rows, and raw
+source payloads remain excluded. Accepted-deficit backfill and run-level
+fulfillment evidence are not part of this contract yet.
 
 Profile-configured runs also attach a narrow per-record attribution record under
 `lineage.run_profile` for accepted samples and `details.run_profile` for

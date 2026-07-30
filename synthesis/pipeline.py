@@ -17,9 +17,14 @@ from synthesis.candidate_processing import (
     process_candidate_through_gates,
 )
 from synthesis.coverage import CoveragePlan, compile_coverage_plan, write_coverage_plan
+from synthesis.coverage_assignments import (
+    CoverageAssignmentCandidateGeneratorFactory,
+    CoverageAssignmentGenerationResult,
+)
 from synthesis.coverage_registry import resolve_domain_coverage_planning
 from synthesis.datasets import (
     DatasetArtifacts,
+    attach_coverage_plan_to_manifest,
     assemble_generation_stage_rejection,
     assemble_pipeline_gate_rejection,
     assemble_source_policy_rejection,
@@ -88,6 +93,7 @@ class PipelineResult:
     episode_logs_path: Path | None
     accepted_count: int
     rejected_count: int
+    coverage_plan_path: Path | None
 
 
 CandidateGenerator = Callable[[DomainSeed], list[CandidateTask] | DomainGenerationResult]
@@ -240,6 +246,9 @@ def run_foundation_pipeline(
     dataset_version: str = "dataset_foundation_v1",
     candidate_generator: CandidateGenerator | None = None,
     candidate_generator_factory: CandidateGeneratorFactory | None = None,
+    coverage_candidate_generator_factory: (
+        CoverageAssignmentCandidateGeneratorFactory | None
+    ) = None,
     policy_generator: PolicyGenerator | None = None,
     parent_artifact_path: Path | None = None,
     route_reviewable_failures: bool = False,
@@ -261,8 +270,16 @@ def run_foundation_pipeline(
     write_episode_logs: bool = False,
     mutation_judge_http_client: httpx.Client | None = None,
 ) -> PipelineResult:
-    if candidate_generator is not None and candidate_generator_factory is not None:
-        raise ValueError("candidate_generator and candidate_generator_factory are mutually exclusive")
+    configured_generator_count = sum(
+        item is not None
+        for item in (
+            candidate_generator,
+            candidate_generator_factory,
+            coverage_candidate_generator_factory,
+        )
+    )
+    if configured_generator_count > 1:
+        raise ValueError("candidate generator configurations are mutually exclusive")
     seed = seed_override or foundation_seed()
     source_event_records: list[dict[str, object]] = list(source_events or [])
     selected_source_bundle = source_bundle or build_domain_fixture_source_bundle(seed.domain)
@@ -356,13 +373,44 @@ def run_foundation_pipeline(
     environment = domain_bundle.environment
     registry = domain_bundle.registry
     verifier = domain_bundle.verifier
-    llm_config = LLMConfig.from_env()
-    if candidate_generator_factory is not None:
+    coverage_plan: CoveragePlan | None = None
+    coverage_plan_path: Path | None = None
+    coverage_reference = getattr(run_profile, "coverage_profile", None)
+    generate_candidates: Callable[
+        [DomainSeed],
+        (
+            list[CandidateTask]
+            | DomainGenerationResult
+            | CoverageAssignmentGenerationResult
+        ),
+    ]
+    if coverage_reference is not None:
+        if coverage_candidate_generator_factory is None:
+            raise ValueError(
+                "coverage-enabled execution requires a coverage assignment generator"
+            )
+        assert isinstance(run_profile, RunProfile)
+        coverage_plan = preview_coverage_plan(
+            run_profile,
+            admitted_environment_input=domain_environment_input,
+        )
+        coverage_plan_path = write_coverage_plan(
+            output_dir / "coverage_plan.json",
+            coverage_plan,
+        )
+        planning = resolve_domain_coverage_planning(run_profile.seed.domain)
+        generate_candidates = coverage_candidate_generator_factory(
+            domain_bundle,
+            coverage_plan,
+            planning.catalog,
+        )
+    elif candidate_generator_factory is not None:
         generate_candidates = candidate_generator_factory(domain_bundle)
     elif candidate_generator is None:
         generate_candidates = domain_bundle.candidate_generator
     else:
         generate_candidates = candidate_generator
+    llm_config = LLMConfig.from_env()
     generate_task_expansion = task_expansion_generator or generate_deterministic_task_expansion
     generate_policy = policy_generator or domain_bundle.policy_generator
     selected_admission_evaluator = admission_evaluator
@@ -442,7 +490,10 @@ def run_foundation_pipeline(
 
     try:
         generated = generate_candidates(seed)
-        if isinstance(generated, DomainGenerationResult):
+        if isinstance(generated, CoverageAssignmentGenerationResult):
+            raw_tasks = list(generated.candidates)
+            rejections.extend(generated.rejections)
+        elif isinstance(generated, DomainGenerationResult):
             raw_tasks = list(generated.candidates)
             run_profile_metadata = dict(run_profile_metadata or {})
             run_profile_metadata["generation_contract"] = build_generation_contract_evidence(
@@ -579,6 +630,7 @@ def run_foundation_pipeline(
     return _pipeline_result(
         artifacts,
         episode_logs_path=episode_logs_path,
+        coverage_plan_path=coverage_plan_path,
     )
 
 
@@ -586,7 +638,13 @@ def _pipeline_result(
     artifacts: DatasetArtifacts,
     *,
     episode_logs_path: Path | None = None,
+    coverage_plan_path: Path | None = None,
 ) -> PipelineResult:
+    if coverage_plan_path is not None:
+        attach_coverage_plan_to_manifest(
+            manifest_path=artifacts.manifest_path,
+            plan_path=coverage_plan_path,
+        )
     return PipelineResult(
         samples_path=artifacts.samples_path,
         manifest_path=artifacts.manifest_path,
@@ -601,6 +659,7 @@ def _pipeline_result(
         episode_logs_path=episode_logs_path,
         accepted_count=artifacts.accepted_count,
         rejected_count=artifacts.rejected_count,
+        coverage_plan_path=coverage_plan_path,
     )
 
 

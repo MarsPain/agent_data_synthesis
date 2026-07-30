@@ -71,7 +71,14 @@ emits a sanitized, hash-bound `coverage_plan_v1` with an accepted-sample
 distribution and that separate attempt ceiling. Contacts provides the first
 catalog and authoritative version registry. Plan preview may write this
 artifact without constructing a provider client or executing a candidate.
-Assignment scheduling and coverage fulfillment are outside this pre-generation
+Coverage-enabled contacts execution schedules the deterministic initial wave
+from that plan, prioritizing mandatory floors and then largest normalized
+deficits with stable cell-id tie-breaking. Each locally hashed assignment
+projects one task type, its ordered tools, and one grounding unit into the
+existing remote-generation contract. Local membership validation runs before
+candidate processing; conforming candidates reuse the existing mutation
+admission, execution, verification, exact-duplicate, and assembly path.
+Accepted-deficit backfill and coverage fulfillment remain outside this tracer
 contract.
 
 ### Trajectory Execution

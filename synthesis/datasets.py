@@ -114,6 +114,18 @@ def attach_evaluation_report_to_manifest(
     )
 
 
+def attach_coverage_plan_to_manifest(
+    *,
+    manifest_path: Path,
+    plan_path: Path,
+) -> None:
+    _attach_artifact_to_manifest(
+        manifest_path=manifest_path,
+        artifact_key="coverage_plan",
+        artifact_path=plan_path,
+    )
+
+
 def attach_episodes_to_manifest(
     *,
     manifest_path: Path,

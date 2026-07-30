@@ -41,6 +41,7 @@ REJECTION_CAUSES = {
     "adapter_contract_rejected",
     "unsafe_generated_code",
     "mutation_admission_failed",
+    "coverage_assignment_mismatch",
 }
 
 LLM_RESPONSE_SCHEMA_REASONS = {
@@ -181,6 +182,7 @@ MANIFEST_ARTIFACT_KEYS = {
     "release_review_queue",
     "review_resolution_report",
     "mutation_admission_report",
+    "coverage_plan",
 }
 EVALUATION_TASK_STATUSES = {"passed", "failed"}
 EVALUATION_DECISION_STATUSES = {"passed", "failed", "insufficient_evidence"}
@@ -3774,6 +3776,7 @@ def _validate_run_profile_metadata(raw: object) -> None:
         "source",
         "generation_contract",
         "mutation_admission",
+        "coverage_profile",
     }
     unexpected = sorted(str(key) for key in profile if key not in allowed_keys)
     if unexpected:
@@ -3820,6 +3823,7 @@ def _validate_run_profile_metadata(raw: object) -> None:
             raise ContractValidationError(
                 f"run_profile.enabled_features.{index} is unsupported"
             )
+    domain: str | None = None
     if "seed" in profile:
         seed = _require_mapping(profile.get("seed"), "run_profile.seed")
         domain = _require_non_empty_string(seed.get("domain"), "run_profile.seed.domain")
@@ -3830,6 +3834,114 @@ def _validate_run_profile_metadata(raw: object) -> None:
             "workspace_tasks_fixture",
         }:
             raise ContractValidationError("run_profile.seed.domain is unsupported")
+    if "coverage_profile" in profile:
+        if domain is None:
+            raise ContractValidationError(
+                "run_profile.coverage_profile requires run_profile.seed.domain"
+            )
+        coverage_profile = _require_mapping(
+            profile.get("coverage_profile"),
+            "run_profile.coverage_profile",
+        )
+        allowed_coverage_keys = {
+            "profile_id",
+            "version",
+            "target_accepted_sample_count",
+            "overrides",
+        }
+        unexpected_coverage_keys = sorted(
+            str(key)
+            for key in coverage_profile
+            if key not in allowed_coverage_keys
+        )
+        if unexpected_coverage_keys:
+            raise ContractValidationError(
+                "run_profile.coverage_profile contains unsupported keys: "
+                + ", ".join(unexpected_coverage_keys)
+            )
+        coverage_profile_id = _require_non_empty_string(
+            coverage_profile.get("profile_id"),
+            "run_profile.coverage_profile.profile_id",
+        )
+        coverage_profile_version = _require_non_empty_string(
+            coverage_profile.get("version"),
+            "run_profile.coverage_profile.version",
+        )
+        from synthesis.coverage import CoveragePlanValidationError
+        from synthesis.coverage_registry import resolve_domain_coverage_planning
+
+        try:
+            resolved_coverage_profile = resolve_domain_coverage_planning(
+                domain
+            ).resolve_profile(
+                coverage_profile_id,
+                coverage_profile_version,
+            )
+        except CoveragePlanValidationError as exc:
+            raise ContractValidationError(
+                "run_profile.coverage_profile is unsupported for its seed domain"
+            ) from exc
+        _require_positive_int(
+            coverage_profile.get("target_accepted_sample_count"),
+            "run_profile.coverage_profile.target_accepted_sample_count",
+        )
+        if "overrides" in coverage_profile:
+            overrides = _require_mapping(
+                coverage_profile.get("overrides"),
+                "run_profile.coverage_profile.overrides",
+            )
+            unexpected_override_keys = sorted(
+                str(key)
+                for key in overrides
+                if key != "balance_weights"
+            )
+            if unexpected_override_keys:
+                raise ContractValidationError(
+                    "run_profile.coverage_profile.overrides contains "
+                    "unsupported keys: "
+                    + ", ".join(unexpected_override_keys)
+                )
+            if "balance_weights" in overrides:
+                balance_weights = _require_mapping(
+                    overrides.get("balance_weights"),
+                    (
+                        "run_profile.coverage_profile.overrides."
+                        "balance_weights"
+                    ),
+                )
+                for cell_id, weight in balance_weights.items():
+                    validated_cell_id = _require_non_empty_string(
+                        cell_id,
+                        (
+                            "run_profile.coverage_profile.overrides."
+                            "balance_weights cell id"
+                        ),
+                    )
+                    validated_weight = _require_positive_int(
+                        weight,
+                        (
+                            "run_profile.coverage_profile.overrides."
+                            f"balance_weights.{cell_id}"
+                        ),
+                    )
+                    if (
+                        validated_cell_id
+                        not in resolved_coverage_profile.balance_weights
+                    ):
+                        raise ContractValidationError(
+                            "run_profile.coverage_profile.overrides."
+                            f"balance_weights.{validated_cell_id} is not "
+                            "selected by the named coverage profile"
+                        )
+                    if (
+                        validated_weight
+                        > resolved_coverage_profile.max_balance_weight_override
+                    ):
+                        raise ContractValidationError(
+                            "run_profile.coverage_profile.overrides."
+                            f"balance_weights.{validated_cell_id} exceeds the "
+                            "named coverage profile bound"
+                        )
     if "source" in profile:
         if schema_version != "run_profile_v2":
             raise ContractValidationError("run_profile.source requires run_profile_v2")

@@ -209,7 +209,7 @@ class CoveragePlan:
         }
 
     def to_bytes(self) -> bytes:
-        return (_canonical_json(self.canonical()) + "\n").encode("utf-8")
+        return (canonical_coverage_json(self.canonical()) + "\n").encode("utf-8")
 
 
 def write_coverage_plan(path: Path, plan: CoveragePlan) -> Path:
@@ -319,9 +319,9 @@ def compile_coverage_plan(
         )
         target_counts[selected_cell_id] = target_counts.get(selected_cell_id, 0) + 1
 
-    catalog_hash = _canonical_hash(catalog.canonical())
-    profile_hash = _canonical_hash(coverage_profile.canonical())
-    capacity_hash = _canonical_hash(admitted_capacity.canonical())
+    catalog_hash = canonical_coverage_hash(catalog.canonical())
+    profile_hash = canonical_coverage_hash(coverage_profile.canonical())
+    capacity_hash = canonical_coverage_hash(admitted_capacity.canonical())
     payload: dict[str, object] = {
         "schema_version": COVERAGE_PLAN_VERSION,
         "domain_id": catalog.domain_id,
@@ -383,7 +383,7 @@ def compile_coverage_plan(
             "grounding_units": admitted_capacity.canonical()["grounding_units"],
         },
     }
-    plan_hash = _canonical_hash(payload)
+    plan_hash = canonical_coverage_hash(payload)
     catalog_record = payload["catalog"]
     profile_record = payload["coverage_profile"]
     target_distribution = payload["target_distribution"]
@@ -504,7 +504,7 @@ def _validate_compilation_inputs(
                 feature,
                 f"coverage cell {cell.cell_id} required feature",
             )
-        signature = _canonical_json(cell.canonical()["dimensions"])
+        signature = canonical_coverage_json(cell.canonical()["dimensions"])
         if signature in cell_signatures:
             raise CoveragePlanValidationError(
                 f"duplicate coverage cell dimensions: {cell.cell_id}"
@@ -654,11 +654,14 @@ def _can_increment(
     )
 
 
-def _canonical_hash(value: object) -> str:
-    return f"sha256:{hashlib.sha256(_canonical_json(value).encode('utf-8')).hexdigest()}"
+def canonical_coverage_hash(value: object) -> str:
+    return (
+        "sha256:"
+        + hashlib.sha256(canonical_coverage_json(value).encode("utf-8")).hexdigest()
+    )
 
 
-def _canonical_json(value: object) -> str:
+def canonical_coverage_json(value: object) -> str:
     return json.dumps(
         value,
         ensure_ascii=False,

@@ -7,7 +7,7 @@ triggers, and technical debt. Tracker configuration lives in
 
 ## Open
 
-- [Coverage-Driven Representative Synthesis](coverage-driven-representative-synthesis/README.md) — ticketed; deterministic plan compilation is complete and the contacts assignment tracer is the current implementation frontier
+- [Coverage-Driven Representative Synthesis](coverage-driven-representative-synthesis/README.md) — ticketed; contacts assignment tracing is complete and bounded accepted-deficit backfill is the current implementation frontier
 - [Semantic Mutation Admission](semantic-mutation-admission/README.md) — ticketed;
   runtime enforcement, release-artifact auditing, and calibration-corpus work
   are complete; activation evaluation is complete and the representative gate
