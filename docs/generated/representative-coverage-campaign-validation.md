@@ -1,9 +1,72 @@
-# Representative Coverage Campaign Preflight
+# Representative Coverage Campaign Validation
 
 Updated on 2026-07-31 for
 [coverage campaign ticket 06](../../.scratch/coverage-driven-representative-synthesis/issues/06-representative-coverage-campaign.md)
-after completing
-[structural catalog ticket 07](../../.scratch/coverage-driven-representative-synthesis/issues/07-expand-representative-structural-catalogs.md).
+after the authorized three-domain provider pilot.
+
+## Provider Pilot Decision
+
+**`ready-for-authorized-campaign`**
+
+The synthesis operator authorized `api.deepseek.com`, model
+`deepseek-v4-flash`, and the configured `AGENT_DATA_API_KEY` for a serial pilot
+bounded to 72 provider calls. Contacts, mobile messages, and workspace tasks
+each accepted 12 of 12 generated candidates after issuing 12 of their 24
+allowed assignment attempts. The three runs used 36 logical generation calls
+and five bounded transport retries, for 41 HTTP attempts in total. No
+thirty-per-domain campaign was authorized or run.
+
+All three coverage plans were fulfilled without rejection. Each domain
+fulfilled 12 cells, used 10 distinct stable groundings with at most two
+accepted samples per grounding, achieved a 1.0 executable rate, and passed its
+held-out verification suite at 1.0. The common structural taxonomy also shows
+more families and less concentration than the larger prior provider baseline:
+
+| Domain | Baseline / pilot accepted | Fulfilled pilot cells | Common-taxonomy families | Largest family share | Pilot groundings / max reuse |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Contacts | 27 / 12 | 12 | 2 → 7 | 0.556 → 0.417 | 10 / 2 |
+| Mobile messages | 28 / 12 | 12 | 3 → 11 | 0.357 → 0.167 | 10 / 2 |
+| Workspace tasks | 30 / 12 | 12 | 4 → 8 | 0.333 → 0.250 | 10 / 2 |
+
+The family comparison is like-for-like because both sides use
+`representative_structural_taxonomy_v1`; its features exclude instruction text,
+provider identity, coverage cell ids, and assignment metadata. The pilot's
+growth therefore comes from tool, selector, state, binding, and recovery
+structure rather than instruction-only variation.
+
+## Quality And Provider Use
+
+| Domain | Baseline → pilot executable rate | Baseline → pilot rejection causes | Baseline → pilot tokens | Pilot logical calls / retries |
+| --- | ---: | --- | ---: | ---: |
+| Contacts | 1.000 → 1.000 | 3 duplicates → none | 102,260 → 33,176 | 12 / 2 |
+| Mobile messages | 0.933 → 1.000 | 2 runtime errors → none | 116,464 → 38,921 | 12 / 2 |
+| Workspace tasks | 1.000 → 1.000 | none → none | 105,816 → 37,180 | 12 / 1 |
+
+The pilot used 109,277 total tokens: 57,452 prompt tokens and 51,825
+completion tokens. Provider lineage returned no price metadata, so the evidence
+uses token counts rather than asserting a dollar cost. All 36 candidates were
+executable, locally verified, and accepted. The pilot difficulty distribution
+was 3 basic, 2 constrained, 5 intermediate, 3 recovery, and 23
+selector-recovery samples. The legacy baseline predates locally normalized
+coverage difficulty and grounding-reuse evidence, so those two fields are not
+claimed as like-for-like baseline comparisons.
+
+No pilot deficit required classification. The scheduler issued only the first
+12 attempts per domain, retained 12 unused attempts per domain, and stopped
+after fulfillment. Deterministic tests continue to cover the bounded
+catalog-capacity, provider-contract, execution, verification, safety,
+duplicate, and attempt-exhaustion outcomes. A retained-material scan of all 77
+pilot files found no provider-secret fields, authorization headers, configured
+credential value, or local absolute path.
+
+The generic representative-scale consumer classifies these v4 shadow-mode
+pilot artifacts as `insufficient_evidence` and recommends
+`expand_representative_evidence`. That is expected: the pilot is diagnostic and
+cannot establish representative or release eligibility. The narrower pilot
+gate supports requesting separate authorization for the thirty-per-domain
+campaign, where growth from 12 to 30 accepted targets must still be observed.
+If structural coverage does not grow at that scale, ticket 06 cannot conclude
+success even if accepted counts remain high.
 
 ## Deterministic Decision
 
@@ -15,9 +78,10 @@ distinct cells at target 12 and all thirteen at target 30. This evidence
 supports requesting separate authorization for the provider pilot governed by
 ticket 06.
 
-This decision does not authorize a provider, credentials, model, or budget. No
-paid call was made, no dataset was promoted, and no release or downstream-value
-claim follows from this preflight.
+This preflight decision did not itself authorize a provider, credentials,
+model, or budget. The later, separately authorized pilot above made the only
+paid calls recorded by this report. No dataset was promoted, and no release or
+downstream-value claim follows from either stage.
 
 ## Expanded Catalog Evidence
 
@@ -101,6 +165,9 @@ the v3 catalogs and common taxonomy rather than weakening the reuse policy.
 
 ## Work-State Boundary
 
-This report retains deterministic evidence only. Current authorization,
-blocking state, assignment, and activation conditions remain exclusively in
-the [local issue tracker](../../.scratch/coverage-driven-representative-synthesis/README.md).
+The runtime evidence remains under
+`artifacts/coverage-campaign-provider-pilot-v1/`, including per-domain coverage
+evidence, quality and evaluation reports, common-taxonomy comparisons, and the
+three-domain representative-scale diagnostic. Current authorization, blocking
+state, assignment, and activation conditions remain exclusively in the
+[local issue tracker](../../.scratch/coverage-driven-representative-synthesis/README.md).

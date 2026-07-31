@@ -17,10 +17,10 @@ representative baseline.
 ## Acceptance criteria
 
 - [x] All deterministic tests, documentation validation, and fake-provider three-domain probes pass before paid calls are requested.
-- [ ] The synthesis operator explicitly authorizes the provider, model, credentials, and bounded campaign budget before any paid call.
-- [ ] A serial pilot of approximately ten to twelve target candidates per domain completes within its declared attempt ceiling.
-- [ ] The pilot demonstrates growth in fulfilled structural cells, bounded family concentration, and non-degenerate grounding use rather than instruction-only variation.
-- [ ] Pilot failures are classified as catalog-capacity, provider-contract, execution, verification, safety, duplicate, or attempt-exhaustion deficits with no unbounded retry.
+- [x] The synthesis operator explicitly authorizes the provider, model, credentials, and bounded campaign budget before any paid call.
+- [x] A serial pilot of approximately ten to twelve target candidates per domain completes within its declared attempt ceiling.
+- [x] The pilot demonstrates growth in fulfilled structural cells, bounded family concentration, and non-degenerate grounding use rather than instruction-only variation.
+- [x] Pilot failures are classified as catalog-capacity, provider-contract, execution, verification, safety, duplicate, or attempt-exhaustion deficits with no unbounded retry.
 - [x] The thirty-per-domain campaign runs only when pilot evidence supports continuing.
 - [ ] Final evidence compares structural-cell coverage, largest family share, grounding reuse, difficulty distribution, rejection causes, token or cost usage, executable rate, and verification rate against the prior representative baseline.
 - [x] The result records an evidence-backed proceed, revise-catalog, revise-scheduler, expand-environment, or stop decision without automatically promoting a dataset release.
@@ -29,15 +29,29 @@ representative baseline.
 
 ## Preflight result
 
-The expanded deterministic fake-provider preflight now grows from twelve to
+The expanded deterministic fake-provider preflight grows from twelve to
 thirteen fulfilled cells between targets 12 and 30 in all three domains, with
-grounding reuse capped at two. Its gate decision is
-`ready-for-authorized-pilot`. This is not the required provider pilot: no paid
-authorization was requested, no paid provider call was made, and no dataset
-release was promoted. The ticket remains externally blocked until the
-synthesis operator explicitly authorizes the provider, model, credentials, and
-bounded campaign budget. See the
+grounding reuse capped at two. Its gate decision was
+`ready-for-authorized-pilot`; the separately authorized pilot below has now
+cleared that gate. See the
 [preflight report](../../../docs/generated/representative-coverage-campaign-validation.md).
+
+## Pilot authorization
+
+On 2026-07-31, the synthesis operator authorized a serial provider pilot using
+`api.deepseek.com`, model `deepseek-v4-flash`, and the currently configured
+`AGENT_DATA_API_KEY`, bounded to at most 72 provider calls across the three
+domains. The authorization does not include the thirty-per-domain campaign.
+
+## Pilot result
+
+The pilot fulfilled its bounded coverage and quality gate. Its evidence-backed
+decision is `ready-for-authorized-campaign`; detailed measurements and baseline
+comparisons are retained in the
+[validation report](../../../docs/generated/representative-coverage-campaign-validation.md).
+The ticket is externally blocked because the synthesis operator explicitly
+withheld authorization for the thirty-per-domain campaign. No campaign call or
+dataset promotion occurred.
 
 ## Scope guard
 
