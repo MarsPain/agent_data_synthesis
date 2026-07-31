@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
@@ -108,6 +109,26 @@ class CoverageCompatibilityConstraint:
         }
 
 
+def compatibility_constraint_for_cell(
+    cell: CoverageCell,
+) -> CoverageCompatibilityConstraint:
+    required_tools = cell.dimensions["required_tools"]
+    if not isinstance(required_tools, tuple):
+        raise CoveragePlanValidationError(
+            f"coverage cell {cell.cell_id} required tools must be a tuple"
+        )
+    return CoverageCompatibilityConstraint(
+        task_type=str(cell.dimensions["task_type"]),
+        required_tools=required_tools,
+        state_behavior=str(cell.dimensions["state_behavior"]),
+        grounding_pattern=str(cell.dimensions["grounding_pattern"]),
+        constraint_profile=str(cell.dimensions["constraint_profile"]),
+        difficulty=str(cell.dimensions["difficulty"]),
+        ambiguity=str(cell.dimensions["ambiguity"]),
+        recovery=str(cell.dimensions["recovery"]),
+    )
+
+
 @dataclass(frozen=True)
 class CoverageDifficultySemantics:
     difficulty: str
@@ -139,9 +160,10 @@ class CoverageCatalog:
     cells: tuple[CoverageCell, ...]
     compatibility_constraints: tuple[CoverageCompatibilityConstraint, ...]
     difficulty_semantics: tuple[CoverageDifficultySemantics, ...]
+    validate_grounding_identities: bool = False
 
     def canonical(self) -> dict[str, object]:
-        return {
+        record: dict[str, object] = {
             "schema_version": self.schema_version,
             "catalog_id": self.catalog_id,
             "version": self.version,
@@ -176,6 +198,9 @@ class CoverageCatalog:
                 for cell in sorted(self.cells, key=lambda item: item.cell_id)
             ],
         }
+        if self.validate_grounding_identities:
+            record["validate_grounding_identities"] = True
+        return record
 
 
 @dataclass(frozen=True)
@@ -1102,6 +1127,11 @@ def validate_coverage_catalog_reachability(
         raise CoveragePlanValidationError(
             "coverage catalog grounding collection must be a list"
         )
+    if catalog.validate_grounding_identities:
+        validate_coverage_catalog_grounding_identities(
+            catalog,
+            generation_spec,
+        )
     for cell in catalog.cells:
         task_type = task_types.get(str(cell.dimensions["task_type"]))
         required_tools = _dimension_tools(cell)
@@ -1149,6 +1179,67 @@ def validate_coverage_catalog_reachability(
             raise CoveragePlanValidationError(
                 f"unreachable coverage cell {cell.cell_id}"
             )
+
+
+def validate_coverage_catalog_grounding_identities(
+    catalog: CoverageCatalog,
+    generation_spec: object,
+) -> None:
+    from synthesis.domain_generation import DomainGenerationSpec
+
+    if not isinstance(generation_spec, DomainGenerationSpec):
+        raise CoveragePlanValidationError(
+            "coverage grounding identity validation requires a domain "
+            "generation specification"
+        )
+    if catalog.domain_id != generation_spec.domain_id:
+        raise CoveragePlanValidationError(
+            "coverage catalog domain does not match generation specification"
+        )
+    if len(generation_spec.grounding_context) != 1:
+        raise CoveragePlanValidationError(
+            "coverage catalog requires one grounding collection"
+        )
+    grounding_units = next(iter(generation_spec.grounding_context.values()))
+    if not isinstance(grounding_units, list):
+        raise CoveragePlanValidationError(
+            "coverage catalog grounding collection must be a list"
+        )
+
+    for cell in catalog.cells:
+        for grounding_index, declared_identity in zip(
+            cell.grounding_unit_indices,
+            cell.grounding_unit_ids,
+            strict=True,
+        ):
+            if grounding_index >= len(grounding_units):
+                raise CoveragePlanValidationError(
+                    f"grounding identity mismatch for {cell.cell_id}"
+                )
+            grounding_unit = grounding_units[grounding_index]
+            observation = (
+                grounding_unit.get("observation")
+                if isinstance(grounding_unit, Mapping)
+                else None
+            )
+            observed_identity = _observed_grounding_identity(observation)
+            if observed_identity != declared_identity:
+                raise CoveragePlanValidationError(
+                    f"grounding identity mismatch for {cell.cell_id}"
+                )
+
+
+def _observed_grounding_identity(observation: object) -> str | None:
+    if not isinstance(observation, Mapping):
+        return None
+    for field_name in ("message_id", "item_id"):
+        value = observation.get(field_name)
+        if isinstance(value, str) and value:
+            return value
+    name = observation.get("name")
+    if not isinstance(name, str) or not name:
+        return None
+    return re.sub(r"[^a-z0-9]+", "_", name.casefold()).strip("_")
 
 
 def _branch_plan_tools(branch_plan: Mapping[str, object]) -> set[str]:

@@ -7,6 +7,7 @@ from synthesis.contacts_coverage import (
     build_contacts_coverage_capacity,
     contacts_coverage_catalog,
     contacts_representative_coverage_catalog,
+    contacts_structural_coverage_catalog,
     contacts_coverage_version_registry,
     resolve_contacts_coverage_profile,
 )
@@ -26,6 +27,7 @@ from synthesis.mobile_coverage import (
     build_mobile_coverage_capacity,
     mobile_coverage_catalog,
     mobile_representative_coverage_catalog,
+    mobile_structural_coverage_catalog,
     mobile_coverage_version_registry,
     resolve_mobile_coverage_profile,
 )
@@ -39,6 +41,7 @@ from synthesis.workspace_coverage import (
     resolve_workspace_coverage_profile,
     workspace_coverage_catalog,
     workspace_representative_coverage_catalog,
+    workspace_structural_coverage_catalog,
     workspace_coverage_version_registry,
 )
 from synthesis.workspace_environment import WorkspaceEnvironmentInput
@@ -188,6 +191,13 @@ _CONTACTS_PLANNING = DomainCoveragePlanningDefinition(
             ),
             use_representative_fixture=True,
         ),
+        DomainCoveragePlanningVariant(
+            catalog=contacts_structural_coverage_catalog(),
+            synthetic_capacity=build_contacts_coverage_capacity(
+                contact_count=len(CONTACT_REPRESENTATIVE_FIXTURE_ROWS)
+            ),
+            use_representative_fixture=True,
+        ),
     ),
 )
 _MOBILE_PLANNING = DomainCoveragePlanningDefinition(
@@ -209,6 +219,13 @@ _MOBILE_PLANNING = DomainCoveragePlanningDefinition(
             ),
             use_representative_fixture=True,
         ),
+        DomainCoveragePlanningVariant(
+            catalog=mobile_structural_coverage_catalog(),
+            synthetic_capacity=build_mobile_coverage_capacity(
+                message_count=len(MOBILE_REPRESENTATIVE_GROUNDING_ARGUMENTS)
+            ),
+            use_representative_fixture=True,
+        ),
     ),
 )
 _WORKSPACE_PLANNING = DomainCoveragePlanningDefinition(
@@ -225,6 +242,15 @@ _WORKSPACE_PLANNING = DomainCoveragePlanningDefinition(
     additional_variants=(
         DomainCoveragePlanningVariant(
             catalog=workspace_representative_coverage_catalog(),
+            synthetic_capacity=build_workspace_coverage_capacity(
+                workspace_item_count=len(
+                    WORKSPACE_REPRESENTATIVE_ITEM_GROUNDING_ARGUMENTS
+                )
+            ),
+            use_representative_fixture=True,
+        ),
+        DomainCoveragePlanningVariant(
+            catalog=workspace_structural_coverage_catalog(),
             synthetic_capacity=build_workspace_coverage_capacity(
                 workspace_item_count=len(
                     WORKSPACE_REPRESENTATIVE_ITEM_GROUNDING_ARGUMENTS

@@ -749,6 +749,152 @@ class ThreeDomainCoverageCatalogTest(unittest.TestCase):
                     self.assertEqual(len(assignments), target)
                     self.assertLessEqual(max(reuse_counts.values()), 2)
 
+    def test_v3_representative_catalogs_grow_structural_coverage_after_twelve(
+        self,
+    ) -> None:
+        from synthesis.coverage import (
+            compile_coverage_plan,
+            validate_coverage_catalog_reachability,
+        )
+        from synthesis.coverage_assignments import issue_initial_coverage_assignments
+        from synthesis.coverage_registry import resolve_domain_coverage_planning
+        from synthesis.domain_pipeline import build_domain_pipeline_bundle
+        from synthesis.seeds import DomainSeed
+
+        cases = (
+            (
+                "contacts_fixture",
+                "contacts_representative",
+                "contacts_representative_v3",
+                "contacts_coverage_v3",
+            ),
+            (
+                "mobile_messages_fixture",
+                "mobile_messages_representative",
+                "mobile_messages_representative_v3",
+                "mobile_messages_coverage_v3",
+            ),
+            (
+                "workspace_tasks_fixture",
+                "workspace_tasks_representative",
+                "workspace_tasks_representative_v3",
+                "workspace_tasks_coverage_v3",
+            ),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            for domain_id, profile_id, profile_version, catalog_version in cases:
+                with self.subTest(domain_id=domain_id):
+                    planning = resolve_domain_coverage_planning(domain_id)
+                    profile = planning.resolve_profile(
+                        profile_id,
+                        profile_version,
+                    )
+                    catalog = planning.resolve_catalog(catalog_version)
+                    variant = planning.resolve_variant(catalog_version)
+                    bundle = build_domain_pipeline_bundle(
+                        DomainSeed(
+                            seed_id=f"seed_{domain_id}_structural_growth",
+                            domain=domain_id,
+                            description="Probe representative structural growth.",
+                            task_taxonomy=(),
+                        ),
+                        Path(tmp) / domain_id,
+                        representative_fixture=variant.use_representative_fixture,
+                    )
+                    assert bundle.generation_spec is not None
+                    validate_coverage_catalog_reachability(
+                        catalog,
+                        bundle.generation_spec,
+                        execute_tool=bundle.registry.execute,
+                    )
+
+                    distinct_counts = []
+                    for target in (12, 30):
+                        plan = compile_coverage_plan(
+                            catalog=catalog,
+                            coverage_profile=profile,
+                            version_registry=planning.version_registry,
+                            selected_features=("enable_branching",),
+                            target_accepted_sample_count=target,
+                            target_candidate_count=target * 2,
+                            admitted_capacity=planning.resolve_capacity_for_catalog(
+                                catalog,
+                                None,
+                            ),
+                        )
+                        assignments = issue_initial_coverage_assignments(
+                            plan=plan,
+                            catalog=catalog,
+                            spec=bundle.generation_spec,
+                        )
+                        distinct_counts.append(
+                            sum(
+                                int(cell["target_count"] > 0)
+                                for cell in plan.target_distribution
+                            )
+                        )
+                        cells_by_id = {
+                            cell.cell_id: cell
+                            for cell in catalog.cells
+                        }
+                        reuse_counts: dict[str, int] = {}
+                        for assignment in assignments:
+                            cell = cells_by_id[assignment.cell_id]
+                            unit_id = next(
+                                unit_id
+                                for index, unit_id in zip(
+                                    cell.grounding_unit_indices,
+                                    cell.grounding_unit_ids,
+                                    strict=True,
+                                )
+                                if index == assignment.grounding_unit_index
+                            )
+                            reuse_counts[unit_id] = reuse_counts.get(unit_id, 0) + 1
+                        self.assertLessEqual(max(reuse_counts.values()), 2)
+                        self.assertEqual(
+                            plan.policies["grounding_reuse"][
+                                "max_accepted_samples_per_grounding_unit"
+                            ],
+                            2,
+                        )
+
+                    self.assertGreater(distinct_counts[1], distinct_counts[0])
+
+    def test_legacy_catalog_hashes_remain_stable(self) -> None:
+        from synthesis.contacts_coverage import (
+            contacts_coverage_catalog,
+            contacts_representative_coverage_catalog,
+        )
+        from synthesis.coverage import canonical_coverage_hash
+        from synthesis.mobile_coverage import (
+            mobile_coverage_catalog,
+            mobile_representative_coverage_catalog,
+        )
+        from synthesis.workspace_coverage import (
+            workspace_coverage_catalog,
+            workspace_representative_coverage_catalog,
+        )
+
+        catalogs = (
+            contacts_coverage_catalog(),
+            contacts_representative_coverage_catalog(),
+            mobile_coverage_catalog(),
+            mobile_representative_coverage_catalog(),
+            workspace_coverage_catalog(),
+            workspace_representative_coverage_catalog(),
+        )
+        self.assertEqual(
+            tuple(canonical_coverage_hash(catalog.canonical()) for catalog in catalogs),
+            (
+                "sha256:30f174680178c17f1922866407b1577fdd6606e5df8033a15f9f0029c1cddfba",
+                "sha256:d7584bc58f60aaf6ac4762d9bd2d2b403b0542d1eb1451ac69a4d1c011583ceb",
+                "sha256:ac1d28a7619630e3c7693cf36c9b911a0fc9cc3e68ef41e11dfed5dfda811d75",
+                "sha256:05342e4fb98471b9b6e2e4ff52375f9839c17f376f69dd86aafc923b57bd6e4d",
+                "sha256:49a54b85c868bd4a24bae7dbf97a618359bf2237b3a168dd8390e5c4a9fb49ef",
+                "sha256:a91f77b4b58cdc6772d38c942e2fe14b19a1ddd612605e1d7e2ea327f11ed67c",
+            ),
+        )
+
     def test_workspace_representative_catalog_ids_match_executed_grounding(
         self,
     ) -> None:
@@ -793,6 +939,66 @@ class ThreeDomainCoverageCatalogTest(unittest.TestCase):
                         grounding_unit_id,
                         cell.cell_id,
                     )
+
+    def test_catalog_grounding_identities_are_validated_against_observations(
+        self,
+    ) -> None:
+        from synthesis.coverage import (
+            CoveragePlanValidationError,
+            validate_coverage_catalog_grounding_identities,
+        )
+        from synthesis.coverage_registry import resolve_domain_coverage_planning
+        from synthesis.domain_pipeline import build_domain_pipeline_bundle
+        from synthesis.seeds import DomainSeed
+
+        cases = (
+            ("contacts_fixture", "contacts_coverage_v2"),
+            ("mobile_messages_fixture", "mobile_messages_coverage_v2"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            for domain_id, catalog_version in cases:
+                with self.subTest(domain_id=domain_id):
+                    planning = resolve_domain_coverage_planning(domain_id)
+                    variant = planning.resolve_variant(catalog_version)
+                    bundle = build_domain_pipeline_bundle(
+                        DomainSeed(
+                            seed_id=f"seed_{domain_id}_grounding_identity",
+                            domain=domain_id,
+                            description="Validate observed grounding identities.",
+                            task_taxonomy=(),
+                        ),
+                        Path(tmp) / domain_id,
+                        representative_fixture=variant.use_representative_fixture,
+                    )
+                    assert bundle.generation_spec is not None
+
+                    validate_coverage_catalog_grounding_identities(
+                        variant.catalog,
+                        bundle.generation_spec,
+                    )
+
+                    first = variant.catalog.cells[0]
+                    mismatched = replace(
+                        first,
+                        grounding_unit_ids=(
+                            "not_the_observed_identity",
+                            *first.grounding_unit_ids[1:],
+                        ),
+                    )
+                    with self.assertRaisesRegex(
+                        CoveragePlanValidationError,
+                        f"grounding identity mismatch for {first.cell_id}",
+                    ):
+                        validate_coverage_catalog_grounding_identities(
+                            replace(
+                                variant.catalog,
+                                cells=(
+                                    mismatched,
+                                    *variant.catalog.cells[1:],
+                                ),
+                            ),
+                            bundle.generation_spec,
+                        )
 
     def test_campaign_run_profiles_preview_bounded_versioned_plans(self) -> None:
         from synthesis.pipeline import preview_coverage_plan
@@ -974,6 +1180,91 @@ class ThreeDomainCoverageCatalogTest(unittest.TestCase):
                         campaign["distributions"]["structural_families"][
                             "distinct_count"
                         ],
+                    )
+
+    def test_expanded_fake_campaign_fulfills_more_cells_than_pilot(
+        self,
+    ) -> None:
+        from synthesis.coverage_assignments import (
+            build_coverage_assignment_scheduler_factory,
+        )
+        from synthesis.pipeline import run_foundation_pipeline
+        from synthesis.run_profiles import load_run_profile
+
+        fixture_pairs = (
+            (
+                "contacts-coverage-structural-pilot-12.json",
+                "contacts-coverage-structural-campaign-30.json",
+                15,
+            ),
+            (
+                "mobile-messages-coverage-structural-pilot-12.json",
+                "mobile-messages-coverage-structural-campaign-30.json",
+                15,
+            ),
+            (
+                "workspace-tasks-coverage-structural-pilot-12.json",
+                "workspace-tasks-coverage-structural-campaign-30.json",
+                16,
+            ),
+        )
+        fixture_root = Path("tests/fixtures/run_profiles")
+        with tempfile.TemporaryDirectory() as tmp:
+            for pilot_name, campaign_name, grounding_count in fixture_pairs:
+                with self.subTest(campaign=campaign_name):
+                    evidence_records = []
+                    for fixture_name in (pilot_name, campaign_name):
+                        profile = load_run_profile(
+                            fixture_root / fixture_name
+                        )
+                        result = run_foundation_pipeline(
+                            Path(tmp) / profile.profile_id,
+                            dataset_version=profile.dataset_version,
+                            coverage_scheduler_factory=(
+                                build_coverage_assignment_scheduler_factory(
+                                    ThreeDomainCoverageFakeProvider()
+                                )
+                            ),
+                            seed_override=profile.seed,
+                            run_profile_metadata=profile.sanitized_metadata(),
+                            run_profile=profile,
+                        )
+                        self.assertEqual(result.rejected_count, 0)
+                        assert result.coverage_evidence_path is not None
+                        evidence_records.append(
+                            json.loads(
+                                result.coverage_evidence_path.read_text(
+                                    encoding="utf-8"
+                                )
+                            )
+                        )
+
+                    pilot, campaign = evidence_records
+                    self.assertEqual(pilot["counts"]["accepted"], 12)
+                    self.assertEqual(campaign["counts"]["accepted"], 30)
+                    self.assertEqual(
+                        campaign["fulfillment"]["status"],
+                        "fulfilled",
+                    )
+                    self.assertGreater(
+                        campaign["distributions"]["structural_families"][
+                            "distinct_count"
+                        ],
+                        pilot["distributions"]["structural_families"][
+                            "distinct_count"
+                        ],
+                    )
+                    self.assertLessEqual(
+                        campaign["distributions"]["grounding_reuse"][
+                            "max_accepted_per_grounding"
+                        ],
+                        2,
+                    )
+                    self.assertEqual(
+                        campaign["distributions"]["grounding_reuse"][
+                            "distinct_grounding_count"
+                        ],
+                        grounding_count,
                     )
 
 

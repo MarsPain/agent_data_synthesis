@@ -16,17 +16,20 @@ from synthesis.coverage import (
     CoveragePlanValidationError,
     CoverageProfile,
     CoverageVersionRegistry,
+    compatibility_constraint_for_cell,
 )
 
 
 CONTACTS_COVERAGE_CATALOG_ID = "contacts_coverage"
 CONTACTS_COVERAGE_CATALOG_VERSION = "contacts_coverage_v1"
 CONTACTS_COVERAGE_CATALOG_VERSION_V2 = "contacts_coverage_v2"
+CONTACTS_COVERAGE_CATALOG_VERSION_V3 = "contacts_coverage_v3"
 CONTACTS_SMOKE_PROFILE_ID = "contacts_smoke"
 CONTACTS_SMOKE_PROFILE_VERSION = "contacts_smoke_v1"
 CONTACTS_REPRESENTATIVE_PROFILE_ID = "contacts_representative"
 CONTACTS_REPRESENTATIVE_PROFILE_VERSION = "contacts_representative_v1"
 CONTACTS_REPRESENTATIVE_PROFILE_VERSION_V2 = "contacts_representative_v2"
+CONTACTS_REPRESENTATIVE_PROFILE_VERSION_V3 = "contacts_representative_v3"
 
 _EXPANDED_CONTACT_GROUNDING_UNIT_IDS = (
     "alice_zhang",
@@ -258,6 +261,138 @@ def contacts_representative_coverage_catalog() -> CoverageCatalog:
     )
 
 
+def contacts_structural_coverage_catalog() -> CoverageCatalog:
+    base = contacts_representative_coverage_catalog()
+    recovery_cells = tuple(
+        _contact_recovery_cell(
+            grounding_index=index,
+            scenario=scenario,
+        )
+        for index, scenario in enumerate(
+            (
+                "first_name_only",
+                "last_name_only",
+                "reversed_full_name",
+                "email_used_as_name",
+                "misspelled_given_name",
+                "missing_whitespace",
+                "inserted_middle_initial",
+                "honorific_prefixed",
+                "punctuation_joined",
+                "unrelated_alias",
+            ),
+            start=1,
+        )
+    )
+    return replace(
+        base,
+        version=CONTACTS_COVERAGE_CATALOG_VERSION_V3,
+        cells=(*base.cells, *recovery_cells),
+        compatibility_constraints=(
+            *base.compatibility_constraints,
+            *(compatibility_constraint_for_cell(cell) for cell in recovery_cells),
+        ),
+        difficulty_semantics=(
+            *base.difficulty_semantics,
+            CoverageDifficultySemantics(
+                "selector_recovery",
+                1,
+                2,
+                0,
+                "invalid_exact_selector",
+                1,
+            ),
+        ),
+        validate_grounding_identities=True,
+    )
+
+
+def _contact_recovery_cell(
+    *,
+    grounding_index: int,
+    scenario: str,
+) -> CoverageCell:
+    exact_name = (
+        _EXPANDED_CONTACT_GROUNDING_UNIT_IDS[grounding_index]
+        .replace("_", " ")
+        .title()
+    )
+    direct_name = _invalid_contact_selector(exact_name, scenario)
+    return CoverageCell(
+        cell_id=f"contacts.recover_{scenario}",
+        dimensions={
+            "task_type": "contact_lookup",
+            "required_tools": ("lookup_contact_email",),
+            "state_behavior": "read_only",
+            "grounding_pattern": f"{scenario}_then_exact_name",
+            "constraint_profile": "observed_failure_then_exact_selector",
+            "difficulty": "selector_recovery",
+            "ambiguity": "invalid_exact_selector",
+            "recovery": f"replace_{scenario}",
+        },
+        grounding_capacity_key="contacts",
+        grounding_unit_indices=(grounding_index,),
+        grounding_unit_ids=(
+            _EXPANDED_CONTACT_GROUNDING_UNIT_IDS[grounding_index],
+        ),
+        required_features=("enable_branching",),
+        branch_plan={
+            "schema_version": "branch_plan_v1",
+            "plan_id": f"branch_plan_contacts_{scenario}",
+            "max_depth": 2,
+            "branches": [
+                {
+                    "branch_id": "invalid_selector",
+                    "node_type": "attempt",
+                    "parent_id": None,
+                    "condition": f"Try the {scenario} selector first.",
+                    "steps": [
+                        {
+                            "tool_name": "lookup_contact_email",
+                            "arguments": {"name": direct_name},
+                        }
+                    ],
+                    "final_response_template": "{name}'s email is {email}.",
+                    "terminal_outcome": "fallback_on_failure",
+                },
+                {
+                    "branch_id": "exact_name_lookup",
+                    "node_type": "fallback",
+                    "parent_id": "invalid_selector",
+                    "condition": "Use the observed exact full name after failure.",
+                    "steps": [
+                        {
+                            "tool_name": "lookup_contact_email",
+                            "arguments": {"name": exact_name},
+                        }
+                    ],
+                    "final_response_template": "{name}'s email is {email}.",
+                    "terminal_outcome": "accept_on_success",
+                },
+            ],
+        },
+    )
+
+
+def _invalid_contact_selector(exact_name: str, scenario: str) -> str:
+    first_name, last_name = exact_name.split(" ", maxsplit=1)
+    selectors = {
+        "first_name_only": first_name,
+        "last_name_only": last_name,
+        "reversed_full_name": f"{last_name} {first_name}",
+        "email_used_as_name": (
+            exact_name.casefold().replace(" ", ".") + "@example.test"
+        ),
+        "misspelled_given_name": f"{first_name[:-1]}x {last_name}",
+        "missing_whitespace": exact_name.replace(" ", ""),
+        "inserted_middle_initial": f"{first_name} Q. {last_name}",
+        "honorific_prefixed": f"Dr. {exact_name}",
+        "punctuation_joined": exact_name.replace(" ", ", "),
+        "unrelated_alias": "Unknown Person",
+    }
+    return selectors[scenario]
+
+
 def contacts_coverage_version_registry() -> CoverageVersionRegistry:
     return CoverageVersionRegistry(
         schema_version=COVERAGE_VERSION_REGISTRY_VERSION,
@@ -270,6 +405,10 @@ def contacts_coverage_version_registry() -> CoverageVersionRegistry:
                 CONTACTS_COVERAGE_CATALOG_ID,
                 CONTACTS_COVERAGE_CATALOG_VERSION_V2,
             ),
+            (
+                CONTACTS_COVERAGE_CATALOG_ID,
+                CONTACTS_COVERAGE_CATALOG_VERSION_V3,
+            ),
         ),
         profile_versions=(
             (CONTACTS_SMOKE_PROFILE_ID, CONTACTS_SMOKE_PROFILE_VERSION),
@@ -280,6 +419,10 @@ def contacts_coverage_version_registry() -> CoverageVersionRegistry:
             (
                 CONTACTS_REPRESENTATIVE_PROFILE_ID,
                 CONTACTS_REPRESENTATIVE_PROFILE_VERSION_V2,
+            ),
+            (
+                CONTACTS_REPRESENTATIVE_PROFILE_ID,
+                CONTACTS_REPRESENTATIVE_PROFILE_VERSION_V3,
             ),
         ),
     )
@@ -358,6 +501,32 @@ def resolve_contacts_coverage_profile(
                 "contacts.lookup_by_name": 1,
                 "contacts.followup_after_lookup": 1,
                 "contacts.lookup_with_recovery": 1,
+            },
+            max_accepted_samples_per_grounding_unit=2,
+            attempt_policy=CoverageAttemptPolicy(
+                policy_version="bounded_attempt_ratio_v1",
+                multiplier_numerator=2,
+                multiplier_denominator=1,
+            ),
+            max_balance_weight_override=4,
+        ),
+        (
+            CONTACTS_REPRESENTATIVE_PROFILE_ID,
+            CONTACTS_REPRESENTATIVE_PROFILE_VERSION_V3,
+        ): CoverageProfile(
+            schema_version=COVERAGE_PROFILE_SCHEMA_VERSION,
+            profile_id=CONTACTS_REPRESENTATIVE_PROFILE_ID,
+            version=CONTACTS_REPRESENTATIVE_PROFILE_VERSION_V3,
+            catalog_id=CONTACTS_COVERAGE_CATALOG_ID,
+            catalog_version=CONTACTS_COVERAGE_CATALOG_VERSION_V3,
+            mandatory_floors={
+                "contacts.lookup_by_name": 1,
+                "contacts.followup_after_lookup": 1,
+                "contacts.lookup_with_recovery": 1,
+            },
+            balance_weights={
+                cell.cell_id: 1
+                for cell in contacts_structural_coverage_catalog().cells
             },
             max_accepted_samples_per_grounding_unit=2,
             attempt_policy=CoverageAttemptPolicy(

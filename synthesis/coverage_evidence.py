@@ -801,7 +801,7 @@ def _grounding_hash(
         else None
     )
     value = (
-        grounding.get("grounding_hash")
+        grounding.get("unit_id", grounding.get("grounding_hash"))
         if isinstance(grounding, Mapping)
         else None
     )

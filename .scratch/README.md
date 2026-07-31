@@ -7,7 +7,7 @@ triggers, and technical debt. Tracker configuration lives in
 
 ## Open
 
-- [Coverage-Driven Representative Synthesis](coverage-driven-representative-synthesis/README.md) — campaign validation is blocked after deterministic preflight; structural catalog expansion and a common baseline taxonomy are next, and no paid campaign or release promotion occurred
+- [Coverage-Driven Representative Synthesis](coverage-driven-representative-synthesis/README.md) — v3 structural catalogs and the common taxonomy pass deterministic gates; the bounded provider pilot remains externally blocked on explicit authorization, and no paid campaign or release promotion occurred
 - [Semantic Mutation Admission](semantic-mutation-admission/README.md) — ticketed;
   runtime enforcement, release-artifact auditing, and calibration-corpus work
   are complete; activation evaluation is complete and the representative gate

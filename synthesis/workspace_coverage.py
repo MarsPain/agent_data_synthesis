@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Mapping
 
 from synthesis.coverage import (
     COVERAGE_CAPACITY_VERSION,
@@ -16,17 +17,20 @@ from synthesis.coverage import (
     CoveragePlanValidationError,
     CoverageProfile,
     CoverageVersionRegistry,
+    compatibility_constraint_for_cell,
 )
 
 
 WORKSPACE_COVERAGE_CATALOG_ID = "workspace_tasks_coverage"
 WORKSPACE_COVERAGE_CATALOG_VERSION = "workspace_tasks_coverage_v1"
 WORKSPACE_COVERAGE_CATALOG_VERSION_V2 = "workspace_tasks_coverage_v2"
+WORKSPACE_COVERAGE_CATALOG_VERSION_V3 = "workspace_tasks_coverage_v3"
 WORKSPACE_SMOKE_PROFILE_ID = "workspace_tasks_smoke"
 WORKSPACE_SMOKE_PROFILE_VERSION = "workspace_tasks_smoke_v1"
 WORKSPACE_REPRESENTATIVE_PROFILE_ID = "workspace_tasks_representative"
 WORKSPACE_REPRESENTATIVE_PROFILE_VERSION = "workspace_tasks_representative_v1"
 WORKSPACE_REPRESENTATIVE_PROFILE_VERSION_V2 = "workspace_tasks_representative_v2"
+WORKSPACE_REPRESENTATIVE_PROFILE_VERSION_V3 = "workspace_tasks_representative_v3"
 
 _EXPANDED_WORKSPACE_GROUNDING_UNIT_IDS = (
     "project_alpha",
@@ -336,6 +340,154 @@ def workspace_representative_coverage_catalog() -> CoverageCatalog:
     )
 
 
+def workspace_structural_coverage_catalog() -> CoverageCatalog:
+    base = workspace_representative_coverage_catalog()
+    scenarios = (
+        (7, "correct_item_kind"),
+        (8, "correct_query"),
+        (9, "replace_item_id_query"),
+        (10, "remove_extra_query_term"),
+        (11, "restore_query_token_order"),
+        (12, "remove_literal_quotes"),
+        (13, "correct_kind_and_query"),
+        (15, "restore_document_kind"),
+    )
+    recovery_cells = tuple(
+        _workspace_recovery_cell(
+            grounding_index=index,
+            scenario=scenario,
+        )
+        for index, scenario in scenarios
+    )
+    return replace(
+        base,
+        version=WORKSPACE_COVERAGE_CATALOG_VERSION_V3,
+        cells=(*base.cells, *recovery_cells),
+        compatibility_constraints=(
+            *base.compatibility_constraints,
+            *(compatibility_constraint_for_cell(cell) for cell in recovery_cells),
+        ),
+        difficulty_semantics=(
+            *base.difficulty_semantics,
+            CoverageDifficultySemantics(
+                "selector_recovery",
+                1,
+                2,
+                0,
+                "invalid_workspace_selector",
+                1,
+            ),
+        ),
+        validate_grounding_identities=True,
+    )
+
+
+def _workspace_recovery_cell(
+    *,
+    grounding_index: int,
+    scenario: str,
+) -> CoverageCell:
+    from synthesis.workspace_tasks import (
+        WORKSPACE_REPRESENTATIVE_ITEM_GROUNDING_ARGUMENTS,
+    )
+
+    fallback_arguments: dict[str, object] = dict(
+        WORKSPACE_REPRESENTATIVE_ITEM_GROUNDING_ARGUMENTS[grounding_index]
+    )
+    grounding_unit_id = _EXPANDED_WORKSPACE_GROUNDING_UNIT_IDS[grounding_index]
+    direct_arguments = _invalid_workspace_selector(
+        fallback_arguments,
+        grounding_unit_id,
+        scenario,
+    )
+    return CoverageCell(
+        cell_id=f"workspace.recover_{scenario}",
+        dimensions={
+            "task_type": "workspace_item_search",
+            "required_tools": ("search_workspace_items",),
+            "state_behavior": "read_only",
+            "grounding_pattern": f"{scenario}_then_observed_selector",
+            "constraint_profile": "observed_failure_then_exact_selector",
+            "difficulty": "selector_recovery",
+            "ambiguity": "invalid_workspace_selector",
+            "recovery": scenario,
+        },
+        grounding_capacity_key="workspace_items",
+        grounding_unit_indices=(grounding_index,),
+        grounding_unit_ids=(grounding_unit_id,),
+        required_features=("enable_branching",),
+        branch_plan={
+            "schema_version": "branch_plan_v1",
+            "plan_id": f"branch_plan_workspace_{scenario}",
+            "max_depth": 2,
+            "branches": [
+                {
+                    "branch_id": "invalid_selector",
+                    "node_type": "attempt",
+                    "parent_id": None,
+                    "condition": f"Try the {scenario} selector first.",
+                    "steps": [
+                        {
+                            "tool_name": "search_workspace_items",
+                            "arguments": direct_arguments,
+                        }
+                    ],
+                    "final_response_template": (
+                        "Workspace item {item_id}: {summary}"
+                    ),
+                    "terminal_outcome": "fallback_on_failure",
+                },
+                {
+                    "branch_id": "observed_selector",
+                    "node_type": "fallback",
+                    "parent_id": "invalid_selector",
+                    "condition": "Use the observed selector after failure.",
+                    "steps": [
+                        {
+                            "tool_name": "search_workspace_items",
+                            "arguments": fallback_arguments,
+                        }
+                    ],
+                    "final_response_template": (
+                        "Workspace item {item_id}: {summary}"
+                    ),
+                    "terminal_outcome": "accept_on_success",
+                },
+            ],
+        },
+    )
+
+
+def _invalid_workspace_selector(
+    fallback: Mapping[str, object],
+    grounding_unit_id: str,
+    scenario: str,
+) -> dict[str, object]:
+    query = str(fallback["query"])
+    kind = str(fallback["kind"])
+    wrong_kind = "task" if kind != "task" else "document"
+    selectors: dict[str, dict[str, object]] = {
+        "correct_item_kind": {"query": query, "kind": wrong_kind},
+        "correct_query": {"query": "missing workspace phrase", "kind": kind},
+        "replace_item_id_query": {"query": grounding_unit_id, "kind": kind},
+        "remove_extra_query_term": {
+            "query": query + " nonexistent",
+            "kind": kind,
+        },
+        "restore_query_token_order": {
+            "query": " ".join(reversed(query.split())),
+            "kind": kind,
+        },
+        "remove_literal_quotes": {"query": f'"{query}"', "kind": kind},
+        "correct_kind_and_query": {
+            "query": "missing workspace phrase",
+            "kind": wrong_kind,
+        },
+        "restore_document_kind": {"query": query, "kind": "task"},
+    }
+    return selectors[scenario]
+
+
 def workspace_coverage_version_registry() -> CoverageVersionRegistry:
     return CoverageVersionRegistry(
         schema_version=COVERAGE_VERSION_REGISTRY_VERSION,
@@ -344,6 +496,10 @@ def workspace_coverage_version_registry() -> CoverageVersionRegistry:
             (
                 WORKSPACE_COVERAGE_CATALOG_ID,
                 WORKSPACE_COVERAGE_CATALOG_VERSION_V2,
+            ),
+            (
+                WORKSPACE_COVERAGE_CATALOG_ID,
+                WORKSPACE_COVERAGE_CATALOG_VERSION_V3,
             ),
         ),
         profile_versions=(
@@ -355,6 +511,10 @@ def workspace_coverage_version_registry() -> CoverageVersionRegistry:
             (
                 WORKSPACE_REPRESENTATIVE_PROFILE_ID,
                 WORKSPACE_REPRESENTATIVE_PROFILE_VERSION_V2,
+            ),
+            (
+                WORKSPACE_REPRESENTATIVE_PROFILE_ID,
+                WORKSPACE_REPRESENTATIVE_PROFILE_VERSION_V3,
             ),
         ),
     )
@@ -424,6 +584,34 @@ def resolve_workspace_coverage_profile(
             catalog_version=WORKSPACE_COVERAGE_CATALOG_VERSION_V2,
             mandatory_floors=common,
             balance_weights=common,
+            max_accepted_samples_per_grounding_unit=2,
+            attempt_policy=CoverageAttemptPolicy(
+                "bounded_attempt_ratio_v1",
+                2,
+                1,
+            ),
+            max_balance_weight_override=4,
+        ),
+        (
+            WORKSPACE_REPRESENTATIVE_PROFILE_ID,
+            WORKSPACE_REPRESENTATIVE_PROFILE_VERSION_V3,
+        ): CoverageProfile(
+            schema_version=COVERAGE_PROFILE_SCHEMA_VERSION,
+            profile_id=WORKSPACE_REPRESENTATIVE_PROFILE_ID,
+            version=WORKSPACE_REPRESENTATIVE_PROFILE_VERSION_V3,
+            catalog_id=WORKSPACE_COVERAGE_CATALOG_ID,
+            catalog_version=WORKSPACE_COVERAGE_CATALOG_VERSION_V3,
+            mandatory_floors={
+                "workspace.search_exact_kind": 1,
+                "workspace.search_deterministic_multi_kind": 1,
+                "workspace.create_task_in_project": 1,
+                "workspace.comment_on_task": 1,
+                "workspace.search_with_kind_fallback": 1,
+            },
+            balance_weights={
+                cell.cell_id: 1
+                for cell in workspace_structural_coverage_catalog().cells
+            },
             max_accepted_samples_per_grounding_unit=2,
             attempt_policy=CoverageAttemptPolicy(
                 "bounded_attempt_ratio_v1",

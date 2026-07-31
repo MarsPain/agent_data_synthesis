@@ -1,105 +1,106 @@
 # Representative Coverage Campaign Preflight
 
-Generated on 2026-07-31 for
-[coverage campaign ticket 06](../../.scratch/coverage-driven-representative-synthesis/issues/06-representative-coverage-campaign.md).
+Updated on 2026-07-31 for
+[coverage campaign ticket 06](../../.scratch/coverage-driven-representative-synthesis/issues/06-representative-coverage-campaign.md)
+after completing
+[structural catalog ticket 07](../../.scratch/coverage-driven-representative-synthesis/issues/07-expand-representative-structural-catalogs.md).
 
-## Preflight Gate
+## Deterministic Decision
 
-**`revise-catalog`**
+**`ready-for-authorized-pilot`**
 
-The deterministic fake-provider probe is not the ticket's required provider
-pilot. It found that the thirty-target plans contain the same distinct
-structural cells as the twelve-target plans. Increasing the target would
-therefore add repetitions within existing cells rather than new structural
-coverage. The ticket's growth rule prevents proceeding to paid evidence, so no
-provider authorization was requested and no paid pilot or campaign was run.
+The deterministic catalog blocker is resolved. Versioned v3 catalogs contain
+thirteen executable cells per domain, and deterministic runs fulfill twelve
+distinct cells at target 12 and all thirteen at target 30. This evidence
+supports requesting separate authorization for the provider pilot governed by
+ticket 06.
 
-This is diagnostic evidence only. It does not promote a profile, admit a
-dataset release, establish downstream training value, or complete ticket 06.
+This decision does not authorize a provider, credentials, model, or budget. No
+paid call was made, no dataset was promoted, and no release or downstream-value
+claim follows from this preflight.
 
-## Preflight
+## Expanded Catalog Evidence
 
-- The representative v1 pilot profiles compile twelve accepted targets per
-  domain with a twenty-four-attempt ceiling.
-- Versioned v2 catalogs and fixtures make thirty accepted targets statically
-  reachable with a sixty-attempt ceiling without raising the grounding-reuse
-  limit above two.
-- A serial deterministic fake provider fulfilled all three twelve-target
-  probes: 36 accepted, zero rejected, 36 attempts, and a combined ceiling of
-  72.
-- A deterministic thirty-target probe then fulfilled 90 accepted samples with
-  zero rejections and 90 of 180 allowed attempts. It confirmed that accepted
-  counts grow while distinct structural-cell counts do not.
-- The campaign CLI previews LLM-backed coverage plans without `--use-llm`,
-  provider configuration, credentials, or network calls.
-- Focused coverage, assignment, and CLI tests pass. The repository-wide test
-  and documentation checks are recorded in the implementation commit.
+The v3 catalog identities are:
 
-## Baseline Context and Comparability
+| Domain | Catalog | Cells | Catalog hash |
+| --- | --- | ---: | --- |
+| Contacts | `contacts_coverage_v3` | 13 | `sha256:545d3e1549f09d1aab483e971eff028ddaf8f7f274f05d86ad9bcaa1094e07d5` |
+| Mobile messages | `mobile_messages_coverage_v3` | 13 | `sha256:e8bae0758752d1f94802d89e999b20db4cb87874b5f6e3ed0fd419c6976edc1e` |
+| Workspace tasks | `workspace_tasks_coverage_v3` | 13 | `sha256:7941dd93f4372bbc485f6ea5b2ad6cd611b421c7061fdd3d35eba78f617a814d` |
 
-The prior baseline is `artifacts/representative-campaign-30-v5`. The fake probe
-is the deterministic diagnostic output under
-`artifacts/coverage-campaign-fake-pilot`. Runtime paths are not persisted in
-dataset artifacts.
+Each added cell contains an executable failed-selector branch and an observed,
+successful fallback. Catalog validation executes both paths locally and checks
+each declared stable grounding ID against the returned contact, message, or
+workspace-item observation.
 
-The legacy baseline groups structural families by required-tool sequence. The
-coverage evidence groups them by coverage cell, splitting some identical tool
-sequences into exact, ambiguity, and recovery cells. Those family counts and
-largest-share values are not like-for-like and must not be shown as
-improvements. A versioned common classifier with explicit unclassifiable
-counts is required before ticket 06 can make the final structural comparison.
+The deterministic fake provider produced the following evidence under
+`artifacts/coverage-campaign-fake-structural/`:
 
-| Domain | Legacy grouping | Legacy groups / largest share | Fake-probe grouping | Fake-probe groups / largest share |
-| --- | --- | ---: | --- | ---: |
-| Contacts | required-tool sequence | 2 / 0.556 | coverage cell | 3 / 0.417 |
-| Mobile messages | required-tool sequence | 3 / 0.357 | coverage cell | 5 / 0.250 |
-| Workspace tasks | required-tool sequence | 3 / 0.333 | coverage cell | 5 / 0.250 |
+| Domain | Accepted at 12 / 30 | Fulfilled cells at 12 / 30 | Stable groundings at 30 | Max reuse | Attempts at 12 / 30 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Contacts | 12 / 30 | 12 / 13 | 15 | 2 | 12 / 30 |
+| Mobile messages | 12 / 30 | 12 / 13 | 15 | 2 | 12 / 30 |
+| Workspace tasks | 12 / 30 | 12 / 13 | 16 | 2 | 12 / 30 |
 
-The remaining operational metrics are retained as context, not as a completed
-campaign comparison. The run sizes and providers differ.
+All six runs fulfilled their plans with zero rejection and stayed within the
+existing two-samples-per-grounding limit and the declared 24- or 60-attempt
+ceiling. Growth comes from executed recovery structures, not instruction
+paraphrases or increased grounding reuse.
 
-| Domain | Baseline accepted/rejected | Fake probe accepted/rejected | Distinct grounding | Max grounding reuse | Executable rate | Verification rate |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Contacts | 27 / 3 | 12 / 0 | 6 → 6 | 6 → 2 | 1.000 → 1.000 | 0.900 → 1.000 |
-| Mobile messages | 28 / 2 | 12 / 0 | 3 → 7 | 10 → 2 | 0.933 → 1.000 | 1.000 → 1.000 |
-| Workspace tasks | 30 / 0 | 12 / 0 | 3 → 7 | 10 → 2 | 1.000 → 1.000 | 1.000 → 1.000 |
+## Common Structural Taxonomy
 
-The baseline rejection causes were three exact duplicates for contacts, two
-tool runtime errors for mobile messages, and none for workspace tasks. The
-fake-provider probe had no rejection causes. Its difficulty distributions
-were:
+The versioned
+[`representative_structural_taxonomy_v1`](../design-docs/representative-structural-taxonomy.md)
+classifies both the prior baseline and coverage-driven samples from task
+constraints, ordered tool use, primary-selector fields, state behavior,
+cross-step observation bindings, and recovery transitions. It excludes
+instruction wording and coverage assignment or cell identity.
 
-- contacts: 5 basic, 5 intermediate, 2 recovery;
-- mobile messages: 3 basic, 1 constrained, 6 intermediate, 2 recovery; and
-- workspace tasks: 3 basic, 1 constrained, 6 intermediate, 2 recovery.
+The classifier hash is
+`sha256:59cdf375ed46482bcd426f73d27844639e67be7e23aaa6ca3bde58809b95e028`.
+Applied to `artifacts/representative-campaign-30-v5` and the deterministic v3
+thirty-target runs, it reports:
 
-The legacy baseline did not persist difficulty under the coverage profile's
-versioned taxonomy, so a like-for-like difficulty comparison is also pending.
-The fake provider consumed zero remote tokens and zero provider cost. The
-baseline recorded 102,260 contacts tokens, 116,464 mobile-message tokens, and
-105,816 workspace-task tokens; its provider cost fields were empty.
+| Domain | Baseline classified / unclassifiable | V3 fake classified / unclassifiable | Distinct families | Largest family share |
+| --- | ---: | ---: | ---: | ---: |
+| Contacts | 27 / 0 | 30 / 0 | 2 → 7 | 0.556 → 0.333 |
+| Mobile messages | 28 / 0 | 30 / 0 | 3 → 12 | 0.357 → 0.133 |
+| Workspace tasks | 30 / 0 | 30 / 0 | 4 → 9 | 0.333 → 0.200 |
 
-## Thirty-Target Gate
+These are like-for-like structural measurements because both sides use the same
+classifier. They are not an overall quality comparison: the baseline used a
+paid provider, while the new campaign is deterministic fake-provider evidence.
 
-The thirty-target plans compile and retain bounded sixty-attempt ceilings, but
-their projected distinct structural-cell counts remain:
+The reusable comparison command is:
 
-- contacts: 3 at target 12 and 3 at target 30;
-- mobile messages: 5 at target 12 and 5 at target 30; and
-- workspace tasks: 5 at target 12 and 5 at target 30.
+```bash
+uv run python scripts/write_structural_taxonomy_comparison.py \
+  --comparison-id contacts \
+  --baseline-samples artifacts/representative-campaign-30-v5/contacts/samples.jsonl \
+  --campaign-samples artifacts/coverage-campaign-fake-structural/contacts_coverage_structural_campaign_30/samples.jsonl \
+  --output artifacts/coverage-campaign-fake-structural/contacts_structural_taxonomy_comparison.json
+```
 
-The initial static inability to compile target 30 was classified as a
-`catalog-capacity` deficit and corrected by versioned, executable fixture
-capacity. The remaining failure is also catalog-side: the current structural
-taxonomy saturates before target 12. There were no provider-contract,
-execution, verification, safety, duplicate, or attempt-exhaustion failures in
-the fake probe.
+## Compatibility
 
-The next work item is
-[ticket 07](../../.scratch/coverage-driven-representative-synthesis/issues/07-expand-representative-structural-catalogs.md).
-It must add independently executable and verifiable cells that represent new
-ambiguity, cross-step constraints, and recovery behavior, plus a common
-baseline classifier. It must not manufacture growth through instruction
-paraphrases or higher grounding reuse. Only after that deterministic gate
-passes should ticket 06 request explicit authorization for a bounded provider
-pilot.
+The v1 and v2 catalogs and profiles remain registered and unchanged. Regression
+tests pin all six legacy catalog hashes, including the original workspace v1
+declaration whose historical grounding identity is not retroactively changed.
+The v3 catalogs opt into observation-backed identity validation. Existing
+default fixtures, non-coverage profiles, release thresholds, and representative
+thresholds are unchanged.
+
+## Prior Blocker
+
+The earlier preflight decision was `revise-catalog`: v1 twelve-target and v2
+thirty-target plans could accept more samples but exposed only three contacts
+cells and five mobile or workspace cells. The v2 fixture expansion solved
+aggregate capacity without solving structural saturation. Ticket 07 introduced
+the v3 catalogs and common taxonomy rather than weakening the reuse policy.
+
+## Work-State Boundary
+
+This report retains deterministic evidence only. Current authorization,
+blocking state, assignment, and activation conditions remain exclusively in
+the [local issue tracker](../../.scratch/coverage-driven-representative-synthesis/README.md).

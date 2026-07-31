@@ -64,6 +64,7 @@ class CoverageAssignment:
     grounding_context_key: str
     grounding_unit_index: int
     grounding_unit_hash: str
+    grounding_unit_id: str | None
     difficulty_semantics: Mapping[str, object]
     branch_plan: Mapping[str, object] | None
 
@@ -91,6 +92,13 @@ class CoverageAssignment:
         }
 
     def lineage(self) -> dict[str, object]:
+        grounding_scope: dict[str, object] = {
+            "context_key": self.grounding_context_key,
+            "unit_index": self.grounding_unit_index,
+            "grounding_hash": self.grounding_unit_hash,
+        }
+        if self.grounding_unit_id is not None:
+            grounding_scope["unit_id"] = self.grounding_unit_id
         return {
             "schema_version": COVERAGE_ASSIGNMENT_LINEAGE_VERSION,
             "assignment_id": self.assignment_id,
@@ -106,11 +114,7 @@ class CoverageAssignment:
                 "selection_policy": "mandatory_then_largest_normalized_deficit_v1",
                 "tie_break": "cell_id_ascending",
             },
-            "grounding_scope": {
-                "context_key": self.grounding_context_key,
-                "unit_index": self.grounding_unit_index,
-                "grounding_hash": self.grounding_unit_hash,
-            },
+            "grounding_scope": grounding_scope,
         }
 
 
@@ -613,6 +617,18 @@ def _build_coverage_assignment(
 ) -> CoverageAssignment:
     grounding_key, grounding_units = _single_grounding_collection(spec)
     grounding_hash = canonical_coverage_hash(grounding_units[grounding_index])
+    grounding_unit_id = (
+        _grounding_unit_id(cell, grounding_index)
+        if catalog.validate_grounding_identities
+        else None
+    )
+    grounding_scope: dict[str, object] = {
+        "context_key": grounding_key,
+        "unit_index": grounding_index,
+        "grounding_hash": grounding_hash,
+    }
+    if grounding_unit_id is not None:
+        grounding_scope["unit_id"] = grounding_unit_id
     difficulty_semantics = next(
         semantics.canonical()
         for semantics in catalog.difficulty_semantics
@@ -631,11 +647,7 @@ def _build_coverage_assignment(
             if cell.branch_plan is not None
             else None
         ),
-        "grounding_scope": {
-            "context_key": grounding_key,
-            "unit_index": grounding_index,
-            "grounding_hash": grounding_hash,
-        },
+        "grounding_scope": grounding_scope,
     }
     assignment_hash = canonical_coverage_hash(assignment_payload)
     return CoverageAssignment(
@@ -654,12 +666,28 @@ def _build_coverage_assignment(
         grounding_context_key=grounding_key,
         grounding_unit_index=grounding_index,
         grounding_unit_hash=grounding_hash,
+        grounding_unit_id=grounding_unit_id,
         difficulty_semantics=difficulty_semantics,
         branch_plan=(
             dict(cell.branch_plan)
             if cell.branch_plan is not None
             else None
         ),
+    )
+
+
+def _grounding_unit_id(
+    cell: CoverageCell,
+    grounding_index: int,
+) -> str:
+    return next(
+        unit_id
+        for index, unit_id in zip(
+            cell.grounding_unit_indices,
+            cell.grounding_unit_ids,
+            strict=True,
+        )
+        if index == grounding_index
     )
 
 

@@ -1,0 +1,32 @@
+{
+  "schema_version": "run_profile_v4",
+  "profile_id": "workspace_tasks_coverage_structural_campaign_30",
+  "dataset_version": "dataset_workspace_tasks_coverage_structural_campaign_30_v1",
+  "profile_purpose": "benchmark",
+  "seed": {
+    "seed_id": "seed_workspace_tasks_coverage_structural_campaign_30",
+    "domain": "workspace_tasks_fixture",
+    "description": "Run the expanded workspace tasks structural coverage campaign.",
+    "task_taxonomy": [
+      "workspace_item_search",
+      "workspace_task_creation",
+      "workspace_comment_update"
+    ]
+  },
+  "generation": {
+    "mode": "llm",
+    "target_candidate_count": 60,
+    "context_policy": "synthetic_fixture"
+  },
+  "features": {
+    "enable_branching": true
+  },
+  "mutation_admission": {
+    "mode": "shadow"
+  },
+  "coverage_profile": {
+    "profile_id": "workspace_tasks_representative",
+    "version": "workspace_tasks_representative_v3",
+    "target_accepted_sample_count": 30
+  }
+}

@@ -6,9 +6,7 @@ with a three-domain campaign of thirty target candidates per domain. Compare
 coverage, concentration, quality, and provider usage with the previous
 representative baseline.
 
-**Blocked by:** [05 — Publish and Gate Coverage Evidence](05-coverage-evidence-and-gates.md);
-now blocked on
-[07 — Expand Representative Structural Catalogs](07-expand-representative-structural-catalogs.md)
+**Blocked by:** None
 
 **Status:** blocked
 
@@ -31,13 +29,14 @@ now blocked on
 
 ## Preflight result
 
-The deterministic fake-provider preflight passed, but its structural-cell
-counts saturate by target 12 and cannot grow at target 30. Its gate decision is
-`revise-catalog`. This is not the required provider pilot: no paid
+The expanded deterministic fake-provider preflight now grows from twelve to
+thirteen fulfilled cells between targets 12 and 30 in all three domains, with
+grounding reuse capped at two. Its gate decision is
+`ready-for-authorized-pilot`. This is not the required provider pilot: no paid
 authorization was requested, no paid provider call was made, and no dataset
-release was promoted. The operational ticket remains blocked until the
-catalog-expansion follow-up is complete and the operator explicitly authorizes
-the provider pilot. See the
+release was promoted. The ticket remains externally blocked until the
+synthesis operator explicitly authorizes the provider, model, credentials, and
+bounded campaign budget. See the
 [preflight report](../../../docs/generated/representative-coverage-campaign-validation.md).
 
 ## Scope guard

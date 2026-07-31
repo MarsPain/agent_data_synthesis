@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Mapping
 
 from synthesis.coverage import (
     COVERAGE_CAPACITY_VERSION,
@@ -16,17 +17,20 @@ from synthesis.coverage import (
     CoveragePlanValidationError,
     CoverageProfile,
     CoverageVersionRegistry,
+    compatibility_constraint_for_cell,
 )
 
 
 MOBILE_COVERAGE_CATALOG_ID = "mobile_messages_coverage"
 MOBILE_COVERAGE_CATALOG_VERSION = "mobile_messages_coverage_v1"
 MOBILE_COVERAGE_CATALOG_VERSION_V2 = "mobile_messages_coverage_v2"
+MOBILE_COVERAGE_CATALOG_VERSION_V3 = "mobile_messages_coverage_v3"
 MOBILE_SMOKE_PROFILE_ID = "mobile_messages_smoke"
 MOBILE_SMOKE_PROFILE_VERSION = "mobile_messages_smoke_v1"
 MOBILE_REPRESENTATIVE_PROFILE_ID = "mobile_messages_representative"
 MOBILE_REPRESENTATIVE_PROFILE_VERSION = "mobile_messages_representative_v1"
 MOBILE_REPRESENTATIVE_PROFILE_VERSION_V2 = "mobile_messages_representative_v2"
+MOBILE_REPRESENTATIVE_PROFILE_VERSION_V3 = "mobile_messages_representative_v3"
 
 _EXPANDED_MESSAGE_GROUNDING_UNIT_IDS = (
     "msg_maya_project_update",
@@ -348,6 +352,167 @@ def mobile_representative_coverage_catalog() -> CoverageCatalog:
     )
 
 
+def mobile_structural_coverage_catalog() -> CoverageCatalog:
+    base = mobile_representative_coverage_catalog()
+    scenarios = (
+        (4, "drop_incorrect_participant"),
+        (5, "correct_participant"),
+        (6, "correct_query"),
+        (7, "remove_extra_query_term"),
+        (8, "remove_sender_from_query"),
+        (9, "replace_message_id_query"),
+        (10, "remove_literal_quotes"),
+        (11, "restore_query_token_order"),
+    )
+    recovery_cells = tuple(
+        _mobile_recovery_cell(
+            grounding_index=index,
+            scenario=scenario,
+        )
+        for index, scenario in scenarios
+    )
+    return replace(
+        base,
+        version=MOBILE_COVERAGE_CATALOG_VERSION_V3,
+        cells=(*base.cells, *recovery_cells),
+        compatibility_constraints=(
+            *base.compatibility_constraints,
+            *(compatibility_constraint_for_cell(cell) for cell in recovery_cells),
+        ),
+        difficulty_semantics=(
+            *base.difficulty_semantics,
+            CoverageDifficultySemantics(
+                "selector_recovery",
+                1,
+                2,
+                0,
+                "invalid_message_selector",
+                1,
+            ),
+        ),
+        validate_grounding_identities=True,
+    )
+
+
+def _mobile_recovery_cell(
+    *,
+    grounding_index: int,
+    scenario: str,
+) -> CoverageCell:
+    from synthesis.mobile_tasks import MOBILE_REPRESENTATIVE_GROUNDING_ARGUMENTS
+
+    fallback_arguments: dict[str, object] = dict(
+        MOBILE_REPRESENTATIVE_GROUNDING_ARGUMENTS[grounding_index]
+    )
+    direct_arguments = _invalid_message_selector(
+        fallback_arguments,
+        _EXPANDED_MESSAGE_GROUNDING_UNIT_IDS[grounding_index],
+        scenario,
+    )
+    return CoverageCell(
+        cell_id=f"mobile.recover_{scenario}",
+        dimensions={
+            "task_type": "mobile_message_search",
+            "required_tools": ("search_phone_messages",),
+            "state_behavior": "read_only",
+            "grounding_pattern": f"{scenario}_then_observed_selector",
+            "constraint_profile": "observed_failure_then_exact_selector",
+            "difficulty": "selector_recovery",
+            "ambiguity": "invalid_message_selector",
+            "recovery": scenario,
+        },
+        grounding_capacity_key="messages",
+        grounding_unit_indices=(grounding_index,),
+        grounding_unit_ids=(
+            _EXPANDED_MESSAGE_GROUNDING_UNIT_IDS[grounding_index],
+        ),
+        required_features=("enable_branching",),
+        branch_plan={
+            "schema_version": "branch_plan_v1",
+            "plan_id": f"branch_plan_mobile_{scenario}",
+            "max_depth": 2,
+            "branches": [
+                {
+                    "branch_id": "invalid_selector",
+                    "node_type": "attempt",
+                    "parent_id": None,
+                    "condition": f"Try the {scenario} selector first.",
+                    "steps": [
+                        {
+                            "tool_name": "search_phone_messages",
+                            "arguments": direct_arguments,
+                        }
+                    ],
+                    "final_response_template": (
+                        "Message {message_id}: {snippet}"
+                    ),
+                    "terminal_outcome": "fallback_on_failure",
+                },
+                {
+                    "branch_id": "observed_selector",
+                    "node_type": "fallback",
+                    "parent_id": "invalid_selector",
+                    "condition": "Use the observed selector after failure.",
+                    "steps": [
+                        {
+                            "tool_name": "search_phone_messages",
+                            "arguments": fallback_arguments,
+                        }
+                    ],
+                    "final_response_template": (
+                        "Message {message_id}: {snippet}"
+                    ),
+                    "terminal_outcome": "accept_on_success",
+                },
+            ],
+        },
+    )
+
+
+def _invalid_message_selector(
+    fallback: Mapping[str, object],
+    message_id: str,
+    scenario: str,
+) -> dict[str, object]:
+    query = str(fallback["query"])
+    participant = str(fallback["participant"])
+    selectors: dict[str, dict[str, object]] = {
+        "drop_incorrect_participant": {
+            "query": query,
+            "participant": "Unknown Sender",
+        },
+        "correct_participant": {
+            "query": query,
+            "participant": participant + "x",
+        },
+        "correct_query": {
+            "query": "missing phrase",
+            "participant": participant,
+        },
+        "remove_extra_query_term": {
+            "query": query + " nonexistent",
+            "participant": participant,
+        },
+        "remove_sender_from_query": {
+            "query": f"{participant} {query}",
+            "participant": participant,
+        },
+        "replace_message_id_query": {
+            "query": message_id,
+            "participant": participant,
+        },
+        "remove_literal_quotes": {
+            "query": f'"{query}"',
+            "participant": participant,
+        },
+        "restore_query_token_order": {
+            "query": " ".join(reversed(query.split())),
+            "participant": participant,
+        },
+    }
+    return selectors[scenario]
+
+
 def mobile_coverage_version_registry() -> CoverageVersionRegistry:
     return CoverageVersionRegistry(
         schema_version=COVERAGE_VERSION_REGISTRY_VERSION,
@@ -356,6 +521,10 @@ def mobile_coverage_version_registry() -> CoverageVersionRegistry:
             (
                 MOBILE_COVERAGE_CATALOG_ID,
                 MOBILE_COVERAGE_CATALOG_VERSION_V2,
+            ),
+            (
+                MOBILE_COVERAGE_CATALOG_ID,
+                MOBILE_COVERAGE_CATALOG_VERSION_V3,
             ),
         ),
         profile_versions=(
@@ -367,6 +536,10 @@ def mobile_coverage_version_registry() -> CoverageVersionRegistry:
             (
                 MOBILE_REPRESENTATIVE_PROFILE_ID,
                 MOBILE_REPRESENTATIVE_PROFILE_VERSION_V2,
+            ),
+            (
+                MOBILE_REPRESENTATIVE_PROFILE_ID,
+                MOBILE_REPRESENTATIVE_PROFILE_VERSION_V3,
             ),
         ),
     )
@@ -433,6 +606,34 @@ def resolve_mobile_coverage_profile(
             catalog_version=MOBILE_COVERAGE_CATALOG_VERSION_V2,
             mandatory_floors=common,
             balance_weights=common,
+            max_accepted_samples_per_grounding_unit=2,
+            attempt_policy=CoverageAttemptPolicy(
+                "bounded_attempt_ratio_v1",
+                2,
+                1,
+            ),
+            max_balance_weight_override=4,
+        ),
+        (
+            MOBILE_REPRESENTATIVE_PROFILE_ID,
+            MOBILE_REPRESENTATIVE_PROFILE_VERSION_V3,
+        ): CoverageProfile(
+            schema_version=COVERAGE_PROFILE_SCHEMA_VERSION,
+            profile_id=MOBILE_REPRESENTATIVE_PROFILE_ID,
+            version=MOBILE_REPRESENTATIVE_PROFILE_VERSION_V3,
+            catalog_id=MOBILE_COVERAGE_CATALOG_ID,
+            catalog_version=MOBILE_COVERAGE_CATALOG_VERSION_V3,
+            mandatory_floors={
+                "mobile.search_exact_participant": 1,
+                "mobile.search_deterministic_multi_result": 1,
+                "mobile.reminder_from_message": 1,
+                "mobile.draft_reply_to_thread": 1,
+                "mobile.search_with_sender_fallback": 1,
+            },
+            balance_weights={
+                cell.cell_id: 1
+                for cell in mobile_structural_coverage_catalog().cells
+            },
             max_accepted_samples_per_grounding_unit=2,
             attempt_policy=CoverageAttemptPolicy(
                 "bounded_attempt_ratio_v1",
