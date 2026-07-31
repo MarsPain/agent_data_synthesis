@@ -125,10 +125,10 @@ uv run python main.py --run-profile tests/fixtures/run_profiles/workspace-tasks-
 ```
 
 The campaign previews above never construct a provider client and do not
-require `--use-llm` or credentials. The current validation decision is
-`revise-catalog`; do not turn those previews into paid runs without a new
-evidence-backed gate and explicit provider, model, credential, and budget
-authorization.
+require `--use-llm` or credentials. The deterministic preflight decision is
+`revise-catalog`; it does not complete the required provider pilot. Do not turn
+those previews into paid runs without a new evidence-backed gate and explicit
+provider, model, credential, and budget authorization.
 
 ## Optional LLM Configuration
 

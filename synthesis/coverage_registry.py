@@ -11,14 +11,17 @@ from synthesis.contacts_coverage import (
     resolve_contacts_coverage_profile,
 )
 from synthesis.coverage import (
-    COVERAGE_CAPACITY_VERSION,
     AdmittedCoverageCapacity,
     CoverageCatalog,
     CoveragePlanValidationError,
     CoverageProfile,
     CoverageVersionRegistry,
 )
-from synthesis.environments import ContactEnvironment, ContactsEnvironmentInput
+from synthesis.environments import (
+    CONTACT_FIXTURE_ROWS,
+    CONTACT_REPRESENTATIVE_FIXTURE_ROWS,
+    ContactsEnvironmentInput,
+)
 from synthesis.mobile_coverage import (
     build_mobile_coverage_capacity,
     mobile_coverage_catalog,
@@ -26,9 +29,10 @@ from synthesis.mobile_coverage import (
     mobile_coverage_version_registry,
     resolve_mobile_coverage_profile,
 )
-from synthesis.mobile_environment import (
-    MobileMessagesEnvironment,
-    MobileMessagesEnvironmentInput,
+from synthesis.mobile_environment import MobileMessagesEnvironmentInput
+from synthesis.mobile_tasks import (
+    MOBILE_MESSAGE_GROUNDING_ARGUMENTS,
+    MOBILE_REPRESENTATIVE_GROUNDING_ARGUMENTS,
 )
 from synthesis.workspace_coverage import (
     build_workspace_coverage_capacity,
@@ -38,7 +42,10 @@ from synthesis.workspace_coverage import (
     workspace_coverage_version_registry,
 )
 from synthesis.workspace_environment import WorkspaceEnvironmentInput
-from synthesis.workspace_tasks import WORKSPACE_ITEM_GROUNDING_ARGUMENTS
+from synthesis.workspace_tasks import (
+    WORKSPACE_ITEM_GROUNDING_ARGUMENTS,
+    WORKSPACE_REPRESENTATIVE_ITEM_GROUNDING_ARGUMENTS,
+)
 
 
 CoverageProfileResolver = Callable[[str, str], CoverageProfile]
@@ -46,20 +53,34 @@ CoverageCapacityResolver = Callable[[object | None], AdmittedCoverageCapacity]
 
 
 @dataclass(frozen=True)
-class DomainCoveragePlanningDefinition:
+class DomainCoveragePlanningVariant:
     catalog: CoverageCatalog
+    synthetic_capacity: AdmittedCoverageCapacity
+    use_representative_fixture: bool
+
+
+@dataclass(frozen=True)
+class DomainCoveragePlanningDefinition:
+    default_variant: DomainCoveragePlanningVariant
     version_registry: CoverageVersionRegistry
     resolve_profile: CoverageProfileResolver
     _resolve_capacity: CoverageCapacityResolver
-    additional_catalogs: tuple[CoverageCatalog, ...] = ()
+    additional_variants: tuple[DomainCoveragePlanningVariant, ...] = ()
 
-    def resolve_catalog(self, version: str) -> CoverageCatalog:
-        for catalog in (self.catalog, *self.additional_catalogs):
-            if catalog.version == version:
-                return catalog
+    @property
+    def catalog(self) -> CoverageCatalog:
+        return self.default_variant.catalog
+
+    def resolve_variant(self, version: str) -> DomainCoveragePlanningVariant:
+        for variant in (self.default_variant, *self.additional_variants):
+            if variant.catalog.version == version:
+                return variant
         raise CoveragePlanValidationError(
             f"unknown coverage catalog version: {version}"
         )
+
+    def resolve_catalog(self, version: str) -> CoverageCatalog:
+        return self.resolve_variant(version).catalog
 
     def resolve_capacity(
         self,
@@ -75,12 +96,9 @@ class DomainCoveragePlanningDefinition:
         catalog: CoverageCatalog,
         admitted_environment_input: object | None,
     ) -> AdmittedCoverageCapacity:
+        variant = self.resolve_variant(catalog.version)
         if admitted_environment_input is None:
-            return AdmittedCoverageCapacity(
-                schema_version=COVERAGE_CAPACITY_VERSION,
-                domain_id=catalog.domain_id,
-                grounding_units=dict(catalog.grounding_context_sizes),
-            )
+            return variant.synthetic_capacity
         capacity = self._resolve_capacity(admitted_environment_input)
         return AdmittedCoverageCapacity(
             schema_version=capacity.schema_version,
@@ -109,9 +127,7 @@ def resolve_domain_coverage_planning(
 def _contacts_capacity(
     admitted_environment_input: object | None,
 ) -> AdmittedCoverageCapacity:
-    if admitted_environment_input is None:
-        contact_count = len(ContactEnvironment.fixture_contact_names())
-    elif isinstance(admitted_environment_input, ContactsEnvironmentInput):
+    if isinstance(admitted_environment_input, ContactsEnvironmentInput):
         contact_count = len(admitted_environment_input.contacts)
     else:
         raise CoveragePlanValidationError(
@@ -123,13 +139,7 @@ def _contacts_capacity(
 def _mobile_capacity(
     admitted_environment_input: object | None,
 ) -> AdmittedCoverageCapacity:
-    if admitted_environment_input is None:
-        message_count = len(
-            MobileMessagesEnvironment.fixture_message_binding_values(
-                "message_id"
-            )
-        )
-    elif isinstance(admitted_environment_input, MobileMessagesEnvironmentInput):
+    if isinstance(admitted_environment_input, MobileMessagesEnvironmentInput):
         message_count = len(admitted_environment_input.messages)
     else:
         raise CoveragePlanValidationError(
@@ -141,9 +151,7 @@ def _mobile_capacity(
 def _workspace_capacity(
     admitted_environment_input: object | None,
 ) -> AdmittedCoverageCapacity:
-    if admitted_environment_input is None:
-        workspace_item_count = len(WORKSPACE_ITEM_GROUNDING_ARGUMENTS)
-    elif isinstance(admitted_environment_input, WorkspaceEnvironmentInput):
+    if isinstance(admitted_environment_input, WorkspaceEnvironmentInput):
         workspace_item_count = sum(
             (
                 len(admitted_environment_input.projects),
@@ -162,25 +170,69 @@ def _workspace_capacity(
 
 
 _CONTACTS_PLANNING = DomainCoveragePlanningDefinition(
-    catalog=contacts_coverage_catalog(),
+    default_variant=DomainCoveragePlanningVariant(
+        catalog=contacts_coverage_catalog(),
+        synthetic_capacity=build_contacts_coverage_capacity(
+            contact_count=len(CONTACT_FIXTURE_ROWS)
+        ),
+        use_representative_fixture=False,
+    ),
     version_registry=contacts_coverage_version_registry(),
     resolve_profile=resolve_contacts_coverage_profile,
     _resolve_capacity=_contacts_capacity,
-    additional_catalogs=(contacts_representative_coverage_catalog(),),
+    additional_variants=(
+        DomainCoveragePlanningVariant(
+            catalog=contacts_representative_coverage_catalog(),
+            synthetic_capacity=build_contacts_coverage_capacity(
+                contact_count=len(CONTACT_REPRESENTATIVE_FIXTURE_ROWS)
+            ),
+            use_representative_fixture=True,
+        ),
+    ),
 )
 _MOBILE_PLANNING = DomainCoveragePlanningDefinition(
-    catalog=mobile_coverage_catalog(),
+    default_variant=DomainCoveragePlanningVariant(
+        catalog=mobile_coverage_catalog(),
+        synthetic_capacity=build_mobile_coverage_capacity(
+            message_count=len(MOBILE_MESSAGE_GROUNDING_ARGUMENTS)
+        ),
+        use_representative_fixture=False,
+    ),
     version_registry=mobile_coverage_version_registry(),
     resolve_profile=resolve_mobile_coverage_profile,
     _resolve_capacity=_mobile_capacity,
-    additional_catalogs=(mobile_representative_coverage_catalog(),),
+    additional_variants=(
+        DomainCoveragePlanningVariant(
+            catalog=mobile_representative_coverage_catalog(),
+            synthetic_capacity=build_mobile_coverage_capacity(
+                message_count=len(MOBILE_REPRESENTATIVE_GROUNDING_ARGUMENTS)
+            ),
+            use_representative_fixture=True,
+        ),
+    ),
 )
 _WORKSPACE_PLANNING = DomainCoveragePlanningDefinition(
-    catalog=workspace_coverage_catalog(),
+    default_variant=DomainCoveragePlanningVariant(
+        catalog=workspace_coverage_catalog(),
+        synthetic_capacity=build_workspace_coverage_capacity(
+            workspace_item_count=len(WORKSPACE_ITEM_GROUNDING_ARGUMENTS)
+        ),
+        use_representative_fixture=False,
+    ),
     version_registry=workspace_coverage_version_registry(),
     resolve_profile=resolve_workspace_coverage_profile,
     _resolve_capacity=_workspace_capacity,
-    additional_catalogs=(workspace_representative_coverage_catalog(),),
+    additional_variants=(
+        DomainCoveragePlanningVariant(
+            catalog=workspace_representative_coverage_catalog(),
+            synthetic_capacity=build_workspace_coverage_capacity(
+                workspace_item_count=len(
+                    WORKSPACE_REPRESENTATIVE_ITEM_GROUNDING_ARGUMENTS
+                )
+            ),
+            use_representative_fixture=True,
+        ),
+    ),
 )
 _DOMAIN_COVERAGE_PLANNING = {
     "contacts": _CONTACTS_PLANNING,

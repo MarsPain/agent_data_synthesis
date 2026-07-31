@@ -22,7 +22,10 @@ from synthesis.coverage_assignments import (
     CoverageAssignmentScheduler,
     CoverageAssignmentSchedulerFactory,
 )
-from synthesis.coverage_registry import resolve_domain_coverage_planning
+from synthesis.coverage_registry import (
+    DomainCoveragePlanningVariant,
+    resolve_domain_coverage_planning,
+)
 from synthesis.datasets import (
     DatasetArtifacts,
     attach_coverage_plan_to_manifest,
@@ -292,11 +295,11 @@ def run_foundation_pipeline(
     if configured_generator_count > 1:
         raise ValueError("candidate generator configurations are mutually exclusive")
     seed = seed_override or foundation_seed()
-    coverage_catalog_version = _selected_coverage_catalog_version(run_profile)
+    coverage_variant = _selected_coverage_planning_variant(run_profile)
     representative_fixture = (
         domain_environment_input is None
-        and coverage_catalog_version is not None
-        and coverage_catalog_version.endswith("_v2")
+        and coverage_variant is not None
+        and coverage_variant.use_representative_fixture
     )
     source_event_records: list[dict[str, object]] = list(source_events or [])
     selected_source_bundle = source_bundle or build_domain_fixture_source_bundle(seed.domain)
@@ -690,19 +693,20 @@ def run_foundation_pipeline(
     )
 
 
-def _selected_coverage_catalog_version(
+def _selected_coverage_planning_variant(
     run_profile: object | None,
-) -> str | None:
+) -> DomainCoveragePlanningVariant | None:
     if not isinstance(run_profile, RunProfile):
         return None
     coverage_reference = run_profile.coverage_profile
     if coverage_reference is None:
         return None
     planning = resolve_domain_coverage_planning(run_profile.seed.domain)
-    return planning.resolve_profile(
+    coverage_profile = planning.resolve_profile(
         coverage_reference.profile_id,
         coverage_reference.version,
-    ).catalog_version
+    )
+    return planning.resolve_variant(coverage_profile.catalog_version)
 
 
 def _authoritative_run_profile_metadata(

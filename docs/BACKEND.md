@@ -30,8 +30,9 @@ The first backend should be a local Python pipeline with explicit modules and du
   workspace-item capacity projection.
 - `synthesis.coverage_registry`: domain planning registration. It connects
   domain-owned catalogs, authoritative catalog/profile version registries,
-  profile resolution, and capacity projection to the shared compiler without
-  adding domain-name branches to that compiler.
+  profile resolution, typed synthetic-fixture variants, and executable
+  capacity projection to the shared compiler without adding domain-name
+  branches to that compiler.
 - `synthesis.coverage_assignments`: domain-neutral assignment scheduling,
   per-wave accepted-only reconciliation, bounded deficit backfill, stable
   assignment identities, overlap-aware stable-grounding allocation,

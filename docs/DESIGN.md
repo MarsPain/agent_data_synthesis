@@ -114,11 +114,14 @@ safety, release, and generation-contract gate. Missing or drifted coverage
 inputs remain insufficient evidence; diagnostic runs may keep valid partial
 samples.
 
-The first three-domain campaign validation stopped before paid calls with a
-`revise-catalog` decision: v2 makes target 30 statically reachable, but the
-distinct structural-cell count is already saturated by target 12. Higher target
-counts cannot establish representative success until later catalog versions
-add new executable and verifiable structural cells.
+The first three-domain deterministic preflight stopped before the required
+provider pilot with a `revise-catalog` decision: v2 makes target 30 statically
+reachable, but the distinct structural-cell count is already saturated by
+target 12. Its coverage-cell family taxonomy is not directly comparable with
+the legacy baseline's required-tool-sequence grouping. Higher target counts
+cannot establish representative success until later catalog versions add new
+executable and verifiable structural cells and a common versioned classifier
+supports like-for-like baseline comparison.
 
 ### Trajectory Execution
 

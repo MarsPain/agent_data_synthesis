@@ -1,6 +1,6 @@
 # Coverage-Driven Representative Synthesis
 
-- **Status:** Campaign validation completed; catalog revision indicated
+- **Status:** Campaign validation blocked after deterministic preflight
 - **Canonical spec:** [Coverage-Driven Representative Synthesis](../../docs/product-specs/coverage-driven-representative-synthesis.md)
 - **Architecture context:** [Domain-Aware Representative Generation](../../docs/design-docs/domain-aware-representative-generation.md)
 - **Current phase:** Representative catalog revision
@@ -17,7 +17,8 @@ live only in the tickets under `issues/`.
 3. [Backfill accepted-coverage deficits](issues/03-bounded-coverage-backfill.md) — completed
 4. [Add mobile and workspace coverage catalogs](issues/04-three-domain-coverage-catalogs.md) — completed
 5. [Publish and gate coverage evidence](issues/05-coverage-evidence-and-gates.md) — completed
-6. [Validate representative coverage campaigns](issues/06-representative-coverage-campaign.md) — completed with `revise-catalog`
+6. [Validate representative coverage campaigns](issues/06-representative-coverage-campaign.md) — blocked after fake-provider preflight
+7. [Expand representative structural catalogs](issues/07-expand-representative-structural-catalogs.md) — ready for agent
 
 Ticket 01 establishes the pure plan-compilation contract. Ticket 02 is the
 smallest end-to-end tracer bullet through the existing generation and candidate
@@ -30,8 +31,10 @@ complete.
 
 ## Outcome
 
-Ticket 06's deterministic pilot improved on the prior representative baseline,
-but the current catalogs saturate before target 12. The thirty-target paid
-campaign was gated out and the evidence-backed decision is `revise-catalog`.
-The detailed diagnostic result is retained in
-[the generated campaign report](../../docs/generated/representative-coverage-campaign-validation.md).
+Ticket 06's deterministic fake-provider preflight shows that the current
+catalogs saturate before target 12. It does not substitute for the required
+provider pilot, and the legacy baseline uses a different structural-family
+taxonomy. Ticket 07 must add new structural cells and a common comparison
+taxonomy before the operator is asked to authorize paid calls. The detailed
+diagnostic result is retained in
+[the generated preflight report](../../docs/generated/representative-coverage-campaign-validation.md).

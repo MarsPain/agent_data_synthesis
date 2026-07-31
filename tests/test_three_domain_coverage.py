@@ -715,9 +715,9 @@ class ThreeDomainCoverageCatalogTest(unittest.TestCase):
                     bundle = build_domain_pipeline_bundle(
                         seed,
                         Path(tmp) / domain_id,
-                        representative_fixture=(
-                            catalog.version.endswith("_v2")
-                        ),
+                        representative_fixture=planning.resolve_variant(
+                            catalog.version
+                        ).use_representative_fixture,
                     )
                     assert bundle.generation_spec is not None
                     assignments = issue_initial_coverage_assignments(
@@ -748,6 +748,51 @@ class ThreeDomainCoverageCatalogTest(unittest.TestCase):
                     self.assertEqual(plan.attempt_ceiling, target * 2)
                     self.assertEqual(len(assignments), target)
                     self.assertLessEqual(max(reuse_counts.values()), 2)
+
+    def test_workspace_representative_catalog_ids_match_executed_grounding(
+        self,
+    ) -> None:
+        from synthesis.coverage_registry import resolve_domain_coverage_planning
+        from synthesis.domain_pipeline import build_domain_pipeline_bundle
+        from synthesis.seeds import DomainSeed
+
+        planning = resolve_domain_coverage_planning("workspace_tasks_fixture")
+        variant = planning.resolve_variant("workspace_tasks_coverage_v2")
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = build_domain_pipeline_bundle(
+                DomainSeed(
+                    seed_id="seed_workspace_representative_grounding_identity",
+                    domain="workspace_tasks_fixture",
+                    description="Validate representative grounding identities.",
+                    task_taxonomy=(),
+                ),
+                Path(tmp),
+                representative_fixture=variant.use_representative_fixture,
+            )
+            assert bundle.generation_spec is not None
+            grounding = bundle.generation_spec.grounding_context[
+                "workspace_items"
+            ]
+            self.assertIsInstance(grounding, list)
+            assert isinstance(grounding, list)
+
+            for cell in variant.catalog.cells:
+                for index, grounding_unit_id in zip(
+                    cell.grounding_unit_indices,
+                    cell.grounding_unit_ids,
+                    strict=True,
+                ):
+                    entry = grounding[index]
+                    self.assertIsInstance(entry, dict)
+                    assert isinstance(entry, dict)
+                    observation = entry["observation"]
+                    self.assertIsInstance(observation, dict)
+                    assert isinstance(observation, dict)
+                    self.assertEqual(
+                        observation["item_id"],
+                        grounding_unit_id,
+                        cell.cell_id,
+                    )
 
     def test_campaign_run_profiles_preview_bounded_versioned_plans(self) -> None:
         from synthesis.pipeline import preview_coverage_plan

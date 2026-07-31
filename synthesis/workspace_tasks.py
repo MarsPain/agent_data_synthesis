@@ -90,7 +90,9 @@ WORKSPACE_ITEM_GROUNDING_ARGUMENTS = (
     {"query": "checklist owner", "kind": "comment"},
 )
 WORKSPACE_REPRESENTATIVE_ITEM_GROUNDING_ARGUMENTS = (
-    *WORKSPACE_ITEM_GROUNDING_ARGUMENTS,
+    *WORKSPACE_ITEM_GROUNDING_ARGUMENTS[:3],
+    {"query": "launch brief", "kind": "document"},
+    *WORKSPACE_ITEM_GROUNDING_ARGUMENTS[4:],
     {"query": "Gamma Migration", "kind": "project"},
     {"query": "Delta Compliance", "kind": "project"},
     {"query": "Epsilon Hiring", "kind": "project"},
