@@ -773,7 +773,14 @@ def _validate_profile_cli_combinations(
     profile: RunProfile,
     args: argparse.Namespace,
 ) -> None:
-    if profile.generation.mode == "llm" and not args.use_llm:
+    coverage_preview_requested = (
+        args.preview_coverage_plan or args.write_coverage_plan
+    )
+    if (
+        profile.generation.mode == "llm"
+        and not args.use_llm
+        and not coverage_preview_requested
+    ):
         parser.error('run profile generation.mode="llm" requires --use-llm')
     if profile.generation.mode != "llm" and args.use_llm:
         parser.error("--use-llm requires run profile generation.mode=\"llm\"")

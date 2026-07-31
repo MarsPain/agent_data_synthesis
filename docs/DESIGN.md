@@ -75,6 +75,11 @@ exact allowed compatibility tuples, domain-owned difficulty semantics,
 declared grounding-context sizes, stable grounding-unit identities and
 eligibility, overlap-aware usable capacity, and reachability against the
 domain generation specification.
+The v1 catalogs remain resolvable for the twelve-target pilot. Separate v2
+representative catalogs add executable grounding capacity for thirty-target
+plan compilation without changing v1 hashes or raising the per-grounding reuse
+limit. Catalog resolution follows the selected profile version, and admitted
+capacity is bounded to that catalog's declared context.
 Feature-gated recovery cells are additionally probed through the read-only
 domain registry so the declared failing branch must fail and the successful
 fallback must reproduce the assigned grounding evidence. Plan preview may
@@ -108,6 +113,12 @@ mandatory coverage in addition to every existing quality, held-out, mutation,
 safety, release, and generation-contract gate. Missing or drifted coverage
 inputs remain insufficient evidence; diagnostic runs may keep valid partial
 samples.
+
+The first three-domain campaign validation stopped before paid calls with a
+`revise-catalog` decision: v2 makes target 30 statically reachable, but the
+distinct structural-cell count is already saturated by target 12. Higher target
+counts cannot establish representative success until later catalog versions
+add new executable and verifiable structural cells.
 
 ### Trajectory Execution
 

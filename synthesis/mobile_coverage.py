@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from synthesis.coverage import (
     COVERAGE_CAPACITY_VERSION,
     COVERAGE_CATALOG_VERSION,
@@ -19,10 +21,31 @@ from synthesis.coverage import (
 
 MOBILE_COVERAGE_CATALOG_ID = "mobile_messages_coverage"
 MOBILE_COVERAGE_CATALOG_VERSION = "mobile_messages_coverage_v1"
+MOBILE_COVERAGE_CATALOG_VERSION_V2 = "mobile_messages_coverage_v2"
 MOBILE_SMOKE_PROFILE_ID = "mobile_messages_smoke"
 MOBILE_SMOKE_PROFILE_VERSION = "mobile_messages_smoke_v1"
 MOBILE_REPRESENTATIVE_PROFILE_ID = "mobile_messages_representative"
 MOBILE_REPRESENTATIVE_PROFILE_VERSION = "mobile_messages_representative_v1"
+MOBILE_REPRESENTATIVE_PROFILE_VERSION_V2 = "mobile_messages_representative_v2"
+
+_EXPANDED_MESSAGE_GROUNDING_UNIT_IDS = (
+    "msg_maya_project_update",
+    "msg_alex_late_reply",
+    "msg_delivery_pickup_code",
+    "msg_maya_project_update",
+    "msg_priya_design_review",
+    "msg_morgan_finance_review",
+    "msg_jordan_quarterly_planning",
+    "msg_riley_budget_approval",
+    "msg_sam_customer_interview",
+    "msg_taylor_incident_review",
+    "msg_uma_travel_itinerary",
+    "msg_victor_contract_renewal",
+    "msg_wendy_hiring_plan",
+    "msg_xavier_security_audit",
+    "msg_yasmin_launch_checklist",
+    "msg_zoe_team_offsite",
+)
 
 _DIMENSIONS = (
     "task_type",
@@ -277,17 +300,73 @@ def mobile_coverage_catalog() -> CoverageCatalog:
     )
 
 
+def mobile_representative_coverage_catalog() -> CoverageCatalog:
+    base = mobile_coverage_catalog()
+    exact, multi_result, reminder, draft_reply, recovery = base.cells
+    expanded_indices = tuple(
+        index
+        for index in range(len(_EXPANDED_MESSAGE_GROUNDING_UNIT_IDS))
+        if index != 3
+    )
+    expanded_ids = tuple(
+        _EXPANDED_MESSAGE_GROUNDING_UNIT_IDS[index]
+        for index in expanded_indices
+    )
+    reminder_indices = tuple(
+        index
+        for index in expanded_indices
+        if index != 1
+    )
+    return replace(
+        base,
+        version=MOBILE_COVERAGE_CATALOG_VERSION_V2,
+        grounding_context_sizes={
+            "messages": len(_EXPANDED_MESSAGE_GROUNDING_UNIT_IDS)
+        },
+        cells=(
+            replace(
+                exact,
+                grounding_unit_indices=expanded_indices,
+                grounding_unit_ids=expanded_ids,
+            ),
+            multi_result,
+            replace(
+                reminder,
+                grounding_unit_indices=reminder_indices,
+                grounding_unit_ids=tuple(
+                    _EXPANDED_MESSAGE_GROUNDING_UNIT_IDS[index]
+                    for index in reminder_indices
+                ),
+            ),
+            replace(
+                draft_reply,
+                grounding_unit_indices=expanded_indices,
+                grounding_unit_ids=expanded_ids,
+            ),
+            recovery,
+        ),
+    )
+
+
 def mobile_coverage_version_registry() -> CoverageVersionRegistry:
     return CoverageVersionRegistry(
         schema_version=COVERAGE_VERSION_REGISTRY_VERSION,
         catalog_versions=(
             (MOBILE_COVERAGE_CATALOG_ID, MOBILE_COVERAGE_CATALOG_VERSION),
+            (
+                MOBILE_COVERAGE_CATALOG_ID,
+                MOBILE_COVERAGE_CATALOG_VERSION_V2,
+            ),
         ),
         profile_versions=(
             (MOBILE_SMOKE_PROFILE_ID, MOBILE_SMOKE_PROFILE_VERSION),
             (
                 MOBILE_REPRESENTATIVE_PROFILE_ID,
                 MOBILE_REPRESENTATIVE_PROFILE_VERSION,
+            ),
+            (
+                MOBILE_REPRESENTATIVE_PROFILE_ID,
+                MOBILE_REPRESENTATIVE_PROFILE_VERSION_V2,
             ),
         ),
     )
@@ -333,6 +412,25 @@ def resolve_mobile_coverage_profile(
             version=MOBILE_REPRESENTATIVE_PROFILE_VERSION,
             catalog_id=MOBILE_COVERAGE_CATALOG_ID,
             catalog_version=MOBILE_COVERAGE_CATALOG_VERSION,
+            mandatory_floors=common,
+            balance_weights=common,
+            max_accepted_samples_per_grounding_unit=2,
+            attempt_policy=CoverageAttemptPolicy(
+                "bounded_attempt_ratio_v1",
+                2,
+                1,
+            ),
+            max_balance_weight_override=4,
+        ),
+        (
+            MOBILE_REPRESENTATIVE_PROFILE_ID,
+            MOBILE_REPRESENTATIVE_PROFILE_VERSION_V2,
+        ): CoverageProfile(
+            schema_version=COVERAGE_PROFILE_SCHEMA_VERSION,
+            profile_id=MOBILE_REPRESENTATIVE_PROFILE_ID,
+            version=MOBILE_REPRESENTATIVE_PROFILE_VERSION_V2,
+            catalog_id=MOBILE_COVERAGE_CATALOG_ID,
+            catalog_version=MOBILE_COVERAGE_CATALOG_VERSION_V2,
             mandatory_floors=common,
             balance_weights=common,
             max_accepted_samples_per_grounding_unit=2,

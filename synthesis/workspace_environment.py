@@ -110,17 +110,29 @@ class WorkspaceTasksEnvironment:
         output_dir: Path,
         *,
         source_provenance: dict[str, object] | None = None,
+        representative: bool = False,
     ) -> "WorkspaceTasksEnvironment":
         output_dir.mkdir(parents=True, exist_ok=True)
         database_path = output_dir / "workspace_tasks.sqlite3"
         if database_path.exists():
             database_path.unlink()
 
-        environment = cls(database_path, source_provenance=source_provenance)
+        environment = cls(
+            database_path,
+            source_provenance=source_provenance,
+            representative_fixture=representative,
+        )
         with closing(environment.connect()) as connection:
             with connection:
                 _create_schema(connection)
-                _insert_workspace_input(connection, _fixture_input())
+                _insert_workspace_input(
+                    connection,
+                    (
+                        _representative_fixture_input()
+                        if representative
+                        else _fixture_input()
+                    ),
+                )
         return environment
 
     @classmethod
@@ -153,10 +165,14 @@ class WorkspaceTasksEnvironment:
         *,
         source_provenance: dict[str, object] | None = None,
         source_input: WorkspaceEnvironmentInput | None = None,
+        representative_fixture: bool = False,
     ) -> None:
         self.database_path = database_path
         self.source_provenance = source_provenance
         self.source_input = source_input
+        self.representative_fixture = representative_fixture
+        if representative_fixture:
+            self.version = "env_workspace_tasks_representative_v2"
 
     def connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.database_path)
@@ -177,6 +193,7 @@ class WorkspaceTasksEnvironment:
         return type(self).create_fixture(
             output_dir,
             source_provenance=self.source_provenance,
+            representative=self.representative_fixture,
         )
 
     def search_workspace_items(
@@ -506,10 +523,24 @@ def _insert_workspace_input(
 
 
 def _fixture_input() -> WorkspaceEnvironmentInput:
+    representative = _representative_fixture_input()
+    return WorkspaceEnvironmentInput(
+        projects=representative.projects[:2],
+        tasks=representative.tasks[:3],
+        documents=representative.documents[:2],
+        comments=representative.comments,
+    )
+
+
+def _representative_fixture_input() -> WorkspaceEnvironmentInput:
     return WorkspaceEnvironmentInput(
         projects=(
             WorkspaceProjectRecord("project_alpha", "Alpha Launch", "active"),
             WorkspaceProjectRecord("project_beta", "Beta Research", "active"),
+            WorkspaceProjectRecord("project_gamma", "Gamma Migration", "active"),
+            WorkspaceProjectRecord("project_delta", "Delta Compliance", "active"),
+            WorkspaceProjectRecord("project_epsilon", "Epsilon Hiring", "active"),
+            WorkspaceProjectRecord("project_zeta", "Zeta Security", "active"),
         ),
         tasks=(
             WorkspaceTaskRecord(
@@ -533,6 +564,34 @@ def _fixture_input() -> WorkspaceEnvironmentInput:
                 "medium",
                 "later",
             ),
+            WorkspaceTaskRecord(
+                "task_migration_checklist",
+                "project_gamma",
+                "Complete migration checklist",
+                "high",
+                "this_week",
+            ),
+            WorkspaceTaskRecord(
+                "task_compliance_audit",
+                "project_delta",
+                "Prepare compliance audit",
+                "high",
+                "next_week",
+            ),
+            WorkspaceTaskRecord(
+                "task_hiring_scorecard",
+                "project_epsilon",
+                "Review hiring scorecard",
+                "medium",
+                "this_week",
+            ),
+            WorkspaceTaskRecord(
+                "task_security_review",
+                "project_zeta",
+                "Schedule security review",
+                "high",
+                "tomorrow",
+            ),
         ),
         documents=(
             WorkspaceDocumentRecord(
@@ -546,6 +605,12 @@ def _fixture_input() -> WorkspaceEnvironmentInput:
                 "project_beta",
                 "Research Summary",
                 "Customer feedback themes and open questions.",
+            ),
+            WorkspaceDocumentRecord(
+                "doc_vendor_plan",
+                "project_delta",
+                "Vendor Plan",
+                "Vendor milestones, owners, and approval checkpoints.",
             ),
         ),
         comments=(

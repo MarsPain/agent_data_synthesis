@@ -1,0 +1,32 @@
+{
+  "schema_version": "run_profile_v4",
+  "profile_id": "mobile_messages_coverage_pilot_12",
+  "dataset_version": "dataset_mobile_messages_coverage_pilot_12_v1",
+  "profile_purpose": "benchmark",
+  "seed": {
+    "seed_id": "seed_mobile_messages_coverage_pilot_12",
+    "domain": "mobile_messages_fixture",
+    "description": "Run the bounded mobile messages representative coverage pilot.",
+    "task_taxonomy": [
+      "mobile_message_search",
+      "mobile_reminder_creation",
+      "mobile_draft_reply"
+    ]
+  },
+  "generation": {
+    "mode": "llm",
+    "target_candidate_count": 24,
+    "context_policy": "synthetic_fixture"
+  },
+  "features": {
+    "enable_branching": true
+  },
+  "mutation_admission": {
+    "mode": "shadow"
+  },
+  "coverage_profile": {
+    "profile_id": "mobile_messages_representative",
+    "version": "mobile_messages_representative_v1",
+    "target_accepted_sample_count": 12
+  }
+}

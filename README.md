@@ -75,6 +75,9 @@ uv run python main.py --run-profile tests/fixtures/run_profiles/contacts-coverag
 uv run python main.py --run-profile tests/fixtures/run_profiles/contacts-coverage-tracer.json --use-llm --output-dir artifacts/contacts-coverage-tracer
 uv run python main.py --run-profile tests/fixtures/run_profiles/mobile-coverage-catalog-probe.json --preview-coverage-plan
 uv run python main.py --run-profile tests/fixtures/run_profiles/workspace-coverage-catalog-probe.json --preview-coverage-plan
+uv run python main.py --run-profile tests/fixtures/run_profiles/contacts-coverage-campaign-30.json --preview-coverage-plan
+uv run python main.py --run-profile tests/fixtures/run_profiles/mobile-messages-coverage-campaign-30.json --preview-coverage-plan
+uv run python main.py --run-profile tests/fixtures/run_profiles/workspace-tasks-coverage-campaign-30.json --preview-coverage-plan
 uv run python main.py --run-profile tests/fixtures/run_profiles/foundation-scale-probe-25.json --write-evaluation-report --write-profile-decision-report --output-dir artifacts/foundation-scale-probe
 uv run python main.py --run-profile tests/fixtures/run_profiles/profile-local-contacts.json --output-dir artifacts/profile-local-contacts
 uv run python main.py --run-profile tests/fixtures/run_profiles/profile-local-mobile-messages.json --write-episode-replay-report --write-reward-label-report --output-dir artifacts/profile-local-mobile
@@ -120,6 +123,12 @@ uv run python main.py --run-profile tests/fixtures/run_profiles/contacts-represe
 uv run python main.py --run-profile tests/fixtures/run_profiles/mobile-messages-representative-llm-100.json --use-llm --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --write-release-quality-audit --output-dir artifacts/representative-mobile
 uv run python main.py --run-profile tests/fixtures/run_profiles/workspace-tasks-representative-llm-100.json --use-llm --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --write-release-quality-audit --output-dir artifacts/representative-workspace
 ```
+
+The campaign previews above never construct a provider client and do not
+require `--use-llm` or credentials. The current validation decision is
+`revise-catalog`; do not turn those previews into paid runs without a new
+evidence-backed gate and explicit provider, model, credential, and budget
+authorization.
 
 ## Optional LLM Configuration
 

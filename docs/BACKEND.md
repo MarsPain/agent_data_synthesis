@@ -16,15 +16,18 @@ The first backend should be a local Python pipeline with explicit modules and du
 - `synthesis.coverage`: domain-neutral coverage catalog, profile, capacity, and
   plan contracts plus deterministic validation, target-distribution
   compilation, hashing, and canonical plan writing.
-- `synthesis.contacts_coverage`: the contacts-owned `contacts_coverage_v1`
-  reachable-cell catalog, named smoke and representative profiles, and
-  aggregate admitted-capacity projection.
+- `synthesis.contacts_coverage`: the contacts-owned `contacts_coverage_v1` and
+  expanded representative `contacts_coverage_v2` reachable-cell catalogs,
+  named smoke and representative profiles, and aggregate admitted-capacity
+  projection.
 - `synthesis.mobile_coverage`: the mobile-owned
-  `mobile_messages_coverage_v1` catalog, profiles, compatibility and difficulty
-  declarations, recovery plan, and message-capacity projection.
+  `mobile_messages_coverage_v1` and expanded representative v2 catalogs,
+  profiles, compatibility and difficulty declarations, recovery plan, and
+  message-capacity projection.
 - `synthesis.workspace_coverage`: the workspace-owned
-  `workspace_tasks_coverage_v1` catalog, profiles, compatibility and difficulty
-  declarations, recovery plan, and workspace-item capacity projection.
+  `workspace_tasks_coverage_v1` and expanded representative v2 catalogs,
+  profiles, compatibility and difficulty declarations, recovery plan, and
+  workspace-item capacity projection.
 - `synthesis.coverage_registry`: domain planning registration. It connects
   domain-owned catalogs, authoritative catalog/profile version registries,
   profile resolution, and capacity projection to the shared compiler without

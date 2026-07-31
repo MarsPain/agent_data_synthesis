@@ -61,19 +61,23 @@
   outcome.
 - **Contacts Environment Input:** typed contacts rows and optional follow-up rows
   derived from an admitted source bundle, plus source bundle id, source policy
-  hash, and validation errors. The deterministic default fixture carries six
-  rows: the original two rows are verbatim-preserved and four rows were added
-  additively, all under the `example.test` domain.
+  hash, and validation errors. The deterministic default fixture retains six
+  rows, while the opt-in representative v2 fixture carries fifteen
+  independently selectable rows under the `example.test` domain.
 - **Mobile Messages Environment:** deterministic synthetic phone-like fixture
   with message threads, messages, reminders, and draft replies. It uses
   `environment.id: mobile_messages_fixture` and supports checkpoint/restore and
-  candidate-local rebuilds without real mobile OS access.
+  candidate-local rebuilds without real mobile OS access. Its expanded
+  representative fixture provides sixteen bounded grounding selections,
+  including one deterministic multi-result selection.
 - **Workspace Tasks Environment:** deterministic synthetic workspace fixture
   with projects, task records, lightweight documents, and comments. It uses
   `environment.id: workspace_tasks_fixture`, stores local SQLite state, supports
   checkpoint/restore and candidate-local rebuilds, may be built from a governed
   profile-local workspace JSON input, and does not read browser profiles,
-  credentials, network resources, or real workspace data.
+  credentials, network resources, or real workspace data. Its representative
+  grounding surface provides sixteen bounded project, task, document, and
+  comment selections.
 - **Seed Transformation:** bounded expansion record that maps a source seed to a
   target taxonomy node, capability target, and intended difficulty movement.
 - **Environment:** executable stateful world with reset/checkpoint behavior.

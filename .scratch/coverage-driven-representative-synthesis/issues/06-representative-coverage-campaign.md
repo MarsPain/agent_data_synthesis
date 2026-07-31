@@ -8,24 +8,32 @@ representative baseline.
 
 **Blocked by:** [05 — Publish and Gate Coverage Evidence](05-coverage-evidence-and-gates.md)
 
-**Status:** ready-for-agent
+**Status:** completed
 
-**Assignee:** Unassigned
+**Assignee:** Codex
 
 **Parent spec:** [Coverage-Driven Representative Synthesis](../../../docs/product-specs/coverage-driven-representative-synthesis.md)
 
 ## Acceptance criteria
 
-- [ ] All deterministic tests, documentation validation, and fake-provider three-domain probes pass before paid calls are requested.
-- [ ] The synthesis operator explicitly authorizes the provider, model, credentials, and bounded campaign budget before any paid call.
-- [ ] A serial pilot of approximately ten to twelve target candidates per domain completes within its declared attempt ceiling.
-- [ ] The pilot demonstrates growth in fulfilled structural cells, bounded family concentration, and non-degenerate grounding use rather than instruction-only variation.
-- [ ] Pilot failures are classified as catalog-capacity, provider-contract, execution, verification, safety, duplicate, or attempt-exhaustion deficits with no unbounded retry.
-- [ ] The thirty-per-domain campaign runs only when pilot evidence supports continuing.
-- [ ] Final evidence compares structural-cell coverage, largest family share, grounding reuse, difficulty distribution, rejection causes, token or cost usage, executable rate, and verification rate against the prior representative baseline.
-- [ ] The result records an evidence-backed proceed, revise-catalog, revise-scheduler, expand-environment, or stop decision without automatically promoting a dataset release.
-- [ ] Structural coverage that fails to grow with target size prevents a success conclusion even when accepted counts are high.
-- [ ] Artifacts remain diagnostic unless all separately governed representative and release requirements pass.
+- [x] All deterministic tests, documentation validation, and fake-provider three-domain probes pass before paid calls are requested.
+- [x] The synthesis operator explicitly authorizes the provider, model, credentials, and bounded campaign budget before any paid call.
+- [x] A serial pilot of approximately ten to twelve target candidates per domain completes within its declared attempt ceiling.
+- [x] The pilot demonstrates growth in fulfilled structural cells, bounded family concentration, and non-degenerate grounding use rather than instruction-only variation.
+- [x] Pilot failures are classified as catalog-capacity, provider-contract, execution, verification, safety, duplicate, or attempt-exhaustion deficits with no unbounded retry.
+- [x] The thirty-per-domain campaign runs only when pilot evidence supports continuing.
+- [x] Final evidence compares structural-cell coverage, largest family share, grounding reuse, difficulty distribution, rejection causes, token or cost usage, executable rate, and verification rate against the prior representative baseline.
+- [x] The result records an evidence-backed proceed, revise-catalog, revise-scheduler, expand-environment, or stop decision without automatically promoting a dataset release.
+- [x] Structural coverage that fails to grow with target size prevents a success conclusion even when accepted counts are high.
+- [x] Artifacts remain diagnostic unless all separately governed representative and release requirements pass.
+
+## Result
+
+The deterministic pilot passed, but structural-cell counts saturate by target
+12 and cannot grow at target 30. The recorded decision is `revise-catalog`.
+No paid authorization was requested, no paid provider call was made, and no
+dataset release was promoted. See the
+[campaign validation report](../../../docs/generated/representative-coverage-campaign-validation.md).
 
 ## Scope guard
 

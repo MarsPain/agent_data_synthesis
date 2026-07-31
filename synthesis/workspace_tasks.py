@@ -89,11 +89,25 @@ WORKSPACE_ITEM_GROUNDING_ARGUMENTS = (
     {"query": "research notes", "kind": "task"},
     {"query": "checklist owner", "kind": "comment"},
 )
+WORKSPACE_REPRESENTATIVE_ITEM_GROUNDING_ARGUMENTS = (
+    *WORKSPACE_ITEM_GROUNDING_ARGUMENTS,
+    {"query": "Gamma Migration", "kind": "project"},
+    {"query": "Delta Compliance", "kind": "project"},
+    {"query": "Epsilon Hiring", "kind": "project"},
+    {"query": "Zeta Security", "kind": "project"},
+    {"query": "migration checklist", "kind": "task"},
+    {"query": "compliance audit", "kind": "task"},
+    {"query": "hiring scorecard", "kind": "task"},
+    {"query": "security review", "kind": "task"},
+    {"query": "vendor plan", "kind": "document"},
+)
 
 
 def build_workspace_generation_spec(
     environment: WorkspaceGenerationEnvironment,
     registry: WorkspaceToolExporter,
+    *,
+    representative: bool = False,
 ):
     from synthesis.domain_generation import (
         DOMAIN_GENERATION_SPEC_VERSION,
@@ -105,9 +119,14 @@ def build_workspace_generation_spec(
 
     if getattr(environment, "source_input", None) is not None:
         raise ValueError("source_backed_remote_context_not_allowed")
+    grounding_arguments = (
+        WORKSPACE_REPRESENTATIVE_ITEM_GROUNDING_ARGUMENTS
+        if representative
+        else WORKSPACE_ITEM_GROUNDING_ARGUMENTS
+    )
     item_arguments = [
         dict(arguments)
-        for arguments in WORKSPACE_ITEM_GROUNDING_ARGUMENTS
+        for arguments in grounding_arguments
     ]
     items = [
         {

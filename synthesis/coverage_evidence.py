@@ -1044,11 +1044,15 @@ def _validate_plan_identity(
         raise ValueError("coverage evidence identity mismatch")
     planning = resolve_domain_coverage_planning(domain_id)
     catalog = _mapping(plan.get("catalog"))
+    catalog_version = catalog.get("version")
+    if not isinstance(catalog_version, str):
+        raise ValueError("coverage evidence identity mismatch")
+    resolved_catalog = planning.resolve_catalog(catalog_version)
     if (
-        catalog.get("catalog_id") != planning.catalog.catalog_id
-        or catalog.get("version") != planning.catalog.version
+        catalog.get("catalog_id") != resolved_catalog.catalog_id
+        or catalog.get("version") != resolved_catalog.version
         or catalog.get("catalog_hash")
-        != canonical_coverage_hash(planning.catalog.canonical())
+        != canonical_coverage_hash(resolved_catalog.canonical())
     ):
         raise ValueError("coverage evidence identity mismatch")
     coverage_profile = _mapping(plan.get("coverage_profile"))

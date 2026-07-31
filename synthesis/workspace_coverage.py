@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from synthesis.coverage import (
     COVERAGE_CAPACITY_VERSION,
     COVERAGE_CATALOG_VERSION,
@@ -19,10 +21,31 @@ from synthesis.coverage import (
 
 WORKSPACE_COVERAGE_CATALOG_ID = "workspace_tasks_coverage"
 WORKSPACE_COVERAGE_CATALOG_VERSION = "workspace_tasks_coverage_v1"
+WORKSPACE_COVERAGE_CATALOG_VERSION_V2 = "workspace_tasks_coverage_v2"
 WORKSPACE_SMOKE_PROFILE_ID = "workspace_tasks_smoke"
 WORKSPACE_SMOKE_PROFILE_VERSION = "workspace_tasks_smoke_v1"
 WORKSPACE_REPRESENTATIVE_PROFILE_ID = "workspace_tasks_representative"
 WORKSPACE_REPRESENTATIVE_PROFILE_VERSION = "workspace_tasks_representative_v1"
+WORKSPACE_REPRESENTATIVE_PROFILE_VERSION_V2 = "workspace_tasks_representative_v2"
+
+_EXPANDED_WORKSPACE_GROUNDING_UNIT_IDS = (
+    "project_alpha",
+    "task_launch_plan",
+    "task_metrics_review",
+    "doc_launch_brief",
+    "project_beta",
+    "task_research_notes",
+    "comment_task_launch_plan_owner",
+    "project_gamma",
+    "project_delta",
+    "project_epsilon",
+    "project_zeta",
+    "task_migration_checklist",
+    "task_compliance_audit",
+    "task_hiring_scorecard",
+    "task_security_review",
+    "doc_vendor_plan",
+)
 
 _DIMENSIONS = (
     "task_type",
@@ -267,17 +290,71 @@ def workspace_coverage_catalog() -> CoverageCatalog:
     )
 
 
+def workspace_representative_coverage_catalog() -> CoverageCatalog:
+    base = workspace_coverage_catalog()
+    exact, multi_result, create_task, add_comment, recovery = base.cells
+    expanded_exact_indices = (
+        *exact.grounding_unit_indices,
+        *range(7, len(_EXPANDED_WORKSPACE_GROUNDING_UNIT_IDS)),
+    )
+    expanded_project_indices = (*create_task.grounding_unit_indices, 7, 8, 9, 10)
+    expanded_task_indices = (*add_comment.grounding_unit_indices, 11, 12, 13, 14)
+    return replace(
+        base,
+        version=WORKSPACE_COVERAGE_CATALOG_VERSION_V2,
+        grounding_context_sizes={
+            "workspace_items": len(_EXPANDED_WORKSPACE_GROUNDING_UNIT_IDS)
+        },
+        cells=(
+            replace(
+                exact,
+                grounding_unit_indices=expanded_exact_indices,
+                grounding_unit_ids=tuple(
+                    _EXPANDED_WORKSPACE_GROUNDING_UNIT_IDS[index]
+                    for index in expanded_exact_indices
+                ),
+            ),
+            multi_result,
+            replace(
+                create_task,
+                grounding_unit_indices=expanded_project_indices,
+                grounding_unit_ids=tuple(
+                    _EXPANDED_WORKSPACE_GROUNDING_UNIT_IDS[index]
+                    for index in expanded_project_indices
+                ),
+            ),
+            replace(
+                add_comment,
+                grounding_unit_indices=expanded_task_indices,
+                grounding_unit_ids=tuple(
+                    _EXPANDED_WORKSPACE_GROUNDING_UNIT_IDS[index]
+                    for index in expanded_task_indices
+                ),
+            ),
+            recovery,
+        ),
+    )
+
+
 def workspace_coverage_version_registry() -> CoverageVersionRegistry:
     return CoverageVersionRegistry(
         schema_version=COVERAGE_VERSION_REGISTRY_VERSION,
         catalog_versions=(
             (WORKSPACE_COVERAGE_CATALOG_ID, WORKSPACE_COVERAGE_CATALOG_VERSION),
+            (
+                WORKSPACE_COVERAGE_CATALOG_ID,
+                WORKSPACE_COVERAGE_CATALOG_VERSION_V2,
+            ),
         ),
         profile_versions=(
             (WORKSPACE_SMOKE_PROFILE_ID, WORKSPACE_SMOKE_PROFILE_VERSION),
             (
                 WORKSPACE_REPRESENTATIVE_PROFILE_ID,
                 WORKSPACE_REPRESENTATIVE_PROFILE_VERSION,
+            ),
+            (
+                WORKSPACE_REPRESENTATIVE_PROFILE_ID,
+                WORKSPACE_REPRESENTATIVE_PROFILE_VERSION_V2,
             ),
         ),
     )
@@ -326,6 +403,25 @@ def resolve_workspace_coverage_profile(
             version=WORKSPACE_REPRESENTATIVE_PROFILE_VERSION,
             catalog_id=WORKSPACE_COVERAGE_CATALOG_ID,
             catalog_version=WORKSPACE_COVERAGE_CATALOG_VERSION,
+            mandatory_floors=common,
+            balance_weights=common,
+            max_accepted_samples_per_grounding_unit=2,
+            attempt_policy=CoverageAttemptPolicy(
+                "bounded_attempt_ratio_v1",
+                2,
+                1,
+            ),
+            max_balance_weight_override=4,
+        ),
+        (
+            WORKSPACE_REPRESENTATIVE_PROFILE_ID,
+            WORKSPACE_REPRESENTATIVE_PROFILE_VERSION_V2,
+        ): CoverageProfile(
+            schema_version=COVERAGE_PROFILE_SCHEMA_VERSION,
+            profile_id=WORKSPACE_REPRESENTATIVE_PROFILE_ID,
+            version=WORKSPACE_REPRESENTATIVE_PROFILE_VERSION_V2,
+            catalog_id=WORKSPACE_COVERAGE_CATALOG_ID,
+            catalog_version=WORKSPACE_COVERAGE_CATALOG_VERSION_V2,
             mandatory_floors=common,
             balance_weights=common,
             max_accepted_samples_per_grounding_unit=2,

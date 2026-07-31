@@ -156,17 +156,29 @@ class ThreeDomainCoverageFakeProvider:
             )
         if assignment["recovery"] != "none":
             return (
-                "Find the assigned result; if the direct lookup fails, use the "
-                "declared fallback.",
+                f"Run assigned recovery case {ordinal}; if the direct lookup "
+                "fails, use the declared fallback.",
                 [],
             )
         if assignment["ambiguity"] == "deterministic_multi_result":
             return (
-                "Search broadly for the assigned query and return the "
+                f"Run assigned multi-result case {ordinal} and return the "
                 "deterministic first result.",
                 [],
             )
-        return ("Find the assigned grounded result using its exact selector.", [])
+        grounding_label = next(
+            (
+                str(observation[key])
+                for key in ("name", "message_id", "item_id")
+                if key in observation
+            ),
+            f"case {ordinal}",
+        )
+        return (
+            f"Run assigned exact-selector case {ordinal} for grounded result "
+            f"{grounding_label}.",
+            [],
+        )
 
 
 class ThreeDomainCoverageCatalogTest(unittest.TestCase):
@@ -580,7 +592,10 @@ class ThreeDomainCoverageCatalogTest(unittest.TestCase):
                         selected_features=(),
                         target_accepted_sample_count=2,
                         target_candidate_count=3,
-                        admitted_capacity=planning.resolve_capacity(None),
+                        admitted_capacity=planning.resolve_capacity_for_catalog(
+                            catalog,
+                            None,
+                        ),
                     )
 
     def test_plan_rejects_overlapping_grounding_reuse_even_with_aggregate_capacity(
@@ -621,7 +636,9 @@ class ThreeDomainCoverageCatalogTest(unittest.TestCase):
                 admitted_capacity=planning.resolve_capacity(None),
             )
 
-    def test_representative_profiles_declare_twelve_sample_capacity(self) -> None:
+    def test_representative_profiles_declare_pilot_and_campaign_capacity(
+        self,
+    ) -> None:
         from synthesis.coverage import compile_coverage_plan
         from synthesis.coverage_assignments import issue_initial_coverage_assignments
         from synthesis.coverage_registry import resolve_domain_coverage_planning
@@ -633,33 +650,61 @@ class ThreeDomainCoverageCatalogTest(unittest.TestCase):
                 "contacts_fixture",
                 "contacts_representative",
                 "contacts_representative_v1",
+                12,
             ),
             (
                 "mobile_messages_fixture",
                 "mobile_messages_representative",
                 "mobile_messages_representative_v1",
+                12,
             ),
             (
                 "workspace_tasks_fixture",
                 "workspace_tasks_representative",
                 "workspace_tasks_representative_v1",
+                12,
+            ),
+            (
+                "contacts_fixture",
+                "contacts_representative",
+                "contacts_representative_v2",
+                30,
+            ),
+            (
+                "mobile_messages_fixture",
+                "mobile_messages_representative",
+                "mobile_messages_representative_v2",
+                30,
+            ),
+            (
+                "workspace_tasks_fixture",
+                "workspace_tasks_representative",
+                "workspace_tasks_representative_v2",
+                30,
             ),
         )
         with tempfile.TemporaryDirectory() as tmp:
-            for domain_id, profile_id, version in profiles:
-                with self.subTest(domain_id=domain_id):
+            for domain_id, profile_id, version, target in profiles:
+                with self.subTest(domain_id=domain_id, target=target):
                     planning = resolve_domain_coverage_planning(domain_id)
+                    coverage_profile = planning.resolve_profile(
+                        profile_id,
+                        version,
+                    )
+                    catalog = planning.resolve_catalog(
+                        coverage_profile.catalog_version
+                    )
                     plan = compile_coverage_plan(
-                        catalog=planning.catalog,
-                        coverage_profile=planning.resolve_profile(
-                            profile_id,
-                            version,
-                        ),
+                        catalog=catalog,
+                        coverage_profile=coverage_profile,
                         version_registry=planning.version_registry,
                         selected_features=("enable_branching",),
-                        target_accepted_sample_count=12,
-                        target_candidate_count=24,
-                        admitted_capacity=planning.resolve_capacity(None),
+                        target_accepted_sample_count=target,
+                        target_candidate_count=target * 2,
+                        admitted_capacity=planning.resolve_capacity_for_catalog(
+                            catalog,
+                            None,
+                        ),
                     )
                     seed = DomainSeed(
                         seed_id=f"seed_{domain_id}_capacity",
@@ -670,17 +715,20 @@ class ThreeDomainCoverageCatalogTest(unittest.TestCase):
                     bundle = build_domain_pipeline_bundle(
                         seed,
                         Path(tmp) / domain_id,
+                        representative_fixture=(
+                            catalog.version.endswith("_v2")
+                        ),
                     )
                     assert bundle.generation_spec is not None
                     assignments = issue_initial_coverage_assignments(
                         plan=plan,
-                        catalog=planning.catalog,
+                        catalog=catalog,
                         spec=bundle.generation_spec,
                     )
                     reuse_counts: dict[str, int] = {}
                     cells_by_id = {
                         cell.cell_id: cell
-                        for cell in planning.catalog.cells
+                        for cell in catalog.cells
                     }
                     for assignment in assignments:
                         cell = cells_by_id[assignment.cell_id]
@@ -696,9 +744,192 @@ class ThreeDomainCoverageCatalogTest(unittest.TestCase):
                             reuse_counts.get(grounding_unit_id, 0) + 1
                         )
 
-                    self.assertEqual(plan.target_accepted_sample_count, 12)
-                    self.assertEqual(len(assignments), 12)
+                    self.assertEqual(plan.target_accepted_sample_count, target)
+                    self.assertEqual(plan.attempt_ceiling, target * 2)
+                    self.assertEqual(len(assignments), target)
                     self.assertLessEqual(max(reuse_counts.values()), 2)
+
+    def test_campaign_run_profiles_preview_bounded_versioned_plans(self) -> None:
+        from synthesis.pipeline import preview_coverage_plan
+        from synthesis.run_profiles import load_run_profile
+
+        fixtures = (
+            ("contacts-coverage-pilot-12.json", 12, "contacts_coverage_v1"),
+            (
+                "mobile-messages-coverage-pilot-12.json",
+                12,
+                "mobile_messages_coverage_v1",
+            ),
+            (
+                "workspace-tasks-coverage-pilot-12.json",
+                12,
+                "workspace_tasks_coverage_v1",
+            ),
+            ("contacts-coverage-campaign-30.json", 30, "contacts_coverage_v2"),
+            (
+                "mobile-messages-coverage-campaign-30.json",
+                30,
+                "mobile_messages_coverage_v2",
+            ),
+            (
+                "workspace-tasks-coverage-campaign-30.json",
+                30,
+                "workspace_tasks_coverage_v2",
+            ),
+        )
+        fixture_root = Path("tests/fixtures/run_profiles")
+        for fixture_name, target, catalog_version in fixtures:
+            with self.subTest(fixture=fixture_name):
+                profile = load_run_profile(fixture_root / fixture_name)
+                plan = preview_coverage_plan(profile)
+
+                self.assertEqual(plan.target_accepted_sample_count, target)
+                self.assertEqual(plan.target_candidate_count, target * 2)
+                self.assertEqual(plan.attempt_ceiling, target * 2)
+                self.assertEqual(plan.catalog["version"], catalog_version)
+                self.assertEqual(
+                    sum(
+                        int(cell["target_count"])
+                        for cell in plan.target_distribution
+                    ),
+                    target,
+                )
+
+    def test_fake_provider_three_domain_pilots_are_structurally_non_degenerate(
+        self,
+    ) -> None:
+        from synthesis.coverage_assignments import (
+            build_coverage_assignment_scheduler_factory,
+        )
+        from synthesis.pipeline import run_foundation_pipeline
+        from synthesis.run_profiles import load_run_profile
+
+        fixture_names = (
+            "contacts-coverage-pilot-12.json",
+            "mobile-messages-coverage-pilot-12.json",
+            "workspace-tasks-coverage-pilot-12.json",
+        )
+        fixture_root = Path("tests/fixtures/run_profiles")
+        with tempfile.TemporaryDirectory() as tmp:
+            for fixture_name in fixture_names:
+                with self.subTest(fixture=fixture_name):
+                    profile = load_run_profile(fixture_root / fixture_name)
+                    provider = ThreeDomainCoverageFakeProvider()
+                    result = run_foundation_pipeline(
+                        Path(tmp) / profile.profile_id,
+                        dataset_version=profile.dataset_version,
+                        coverage_scheduler_factory=(
+                            build_coverage_assignment_scheduler_factory(provider)
+                        ),
+                        seed_override=profile.seed,
+                        run_profile_metadata=profile.sanitized_metadata(),
+                        run_profile=profile,
+                    )
+
+                    self.assertEqual(result.accepted_count, 12)
+                    self.assertEqual(result.rejected_count, 0)
+                    assert result.coverage_evidence_path is not None
+                    evidence = json.loads(
+                        result.coverage_evidence_path.read_text(
+                            encoding="utf-8"
+                        )
+                    )
+                    self.assertEqual(
+                        evidence["fulfillment"]["status"],
+                        "fulfilled",
+                    )
+                    self.assertLess(
+                        evidence["distributions"]["structural_families"][
+                            "largest_family_share"
+                        ],
+                        0.5,
+                    )
+                    self.assertGreaterEqual(
+                        evidence["distributions"]["grounding_reuse"][
+                            "distinct_grounding_count"
+                        ],
+                        6,
+                    )
+                    self.assertEqual(
+                        evidence["counts"]["attempted"],
+                        12,
+                    )
+                    self.assertEqual(
+                        evidence["counts"]["attempt_ceiling"],
+                        24,
+                    )
+
+    def test_fake_campaign_confirms_structural_cells_saturate_by_pilot(
+        self,
+    ) -> None:
+        from synthesis.coverage_assignments import (
+            build_coverage_assignment_scheduler_factory,
+        )
+        from synthesis.pipeline import run_foundation_pipeline
+        from synthesis.run_profiles import load_run_profile
+
+        fixture_pairs = (
+            (
+                "contacts-coverage-pilot-12.json",
+                "contacts-coverage-campaign-30.json",
+            ),
+            (
+                "mobile-messages-coverage-pilot-12.json",
+                "mobile-messages-coverage-campaign-30.json",
+            ),
+            (
+                "workspace-tasks-coverage-pilot-12.json",
+                "workspace-tasks-coverage-campaign-30.json",
+            ),
+        )
+        fixture_root = Path("tests/fixtures/run_profiles")
+        with tempfile.TemporaryDirectory() as tmp:
+            for pilot_name, campaign_name in fixture_pairs:
+                with self.subTest(campaign=campaign_name):
+                    evidence_records = []
+                    for fixture_name in (pilot_name, campaign_name):
+                        profile = load_run_profile(
+                            fixture_root / fixture_name
+                        )
+                        result = run_foundation_pipeline(
+                            Path(tmp) / profile.profile_id,
+                            dataset_version=profile.dataset_version,
+                            coverage_scheduler_factory=(
+                                build_coverage_assignment_scheduler_factory(
+                                    ThreeDomainCoverageFakeProvider()
+                                )
+                            ),
+                            seed_override=profile.seed,
+                            run_profile_metadata=profile.sanitized_metadata(),
+                            run_profile=profile,
+                        )
+                        self.assertEqual(result.rejected_count, 0)
+                        assert result.coverage_evidence_path is not None
+                        evidence_records.append(
+                            json.loads(
+                                result.coverage_evidence_path.read_text(
+                                    encoding="utf-8"
+                                )
+                            )
+                        )
+
+                    pilot, campaign = evidence_records
+                    self.assertEqual(pilot["counts"]["accepted"], 12)
+                    self.assertEqual(campaign["counts"]["accepted"], 30)
+                    self.assertEqual(campaign["counts"]["attempted"], 30)
+                    self.assertEqual(campaign["counts"]["attempt_ceiling"], 60)
+                    self.assertEqual(
+                        campaign["fulfillment"]["status"],
+                        "fulfilled",
+                    )
+                    self.assertEqual(
+                        pilot["distributions"]["structural_families"][
+                            "distinct_count"
+                        ],
+                        campaign["distributions"]["structural_families"][
+                            "distinct_count"
+                        ],
+                    )
 
 
 if __name__ == "__main__":

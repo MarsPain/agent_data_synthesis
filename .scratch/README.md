@@ -7,7 +7,7 @@ triggers, and technical debt. Tracker configuration lives in
 
 ## Open
 
-- [Coverage-Driven Representative Synthesis](coverage-driven-representative-synthesis/README.md) — ticketed; coverage evidence and gates are complete and representative coverage campaigns are the current implementation frontier
+- [Coverage-Driven Representative Synthesis](coverage-driven-representative-synthesis/README.md) — campaign validation completed with a `revise-catalog` decision; no paid campaign or release promotion occurred
 - [Semantic Mutation Admission](semantic-mutation-admission/README.md) — ticketed;
   runtime enforcement, release-artifact auditing, and calibration-corpus work
   are complete; activation evaluation is complete and the representative gate

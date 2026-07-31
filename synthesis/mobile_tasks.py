@@ -20,6 +20,18 @@ MOBILE_MESSAGE_GROUNDING_ARGUMENTS = (
     {"query": "finance review", "participant": "Morgan"},
     {"query": "quarterly planning", "participant": "Jordan"},
 )
+MOBILE_REPRESENTATIVE_GROUNDING_ARGUMENTS = (
+    *MOBILE_MESSAGE_GROUNDING_ARGUMENTS,
+    {"query": "budget approval", "participant": "Riley"},
+    {"query": "customer interview", "participant": "Sam"},
+    {"query": "incident review", "participant": "Taylor"},
+    {"query": "travel itinerary", "participant": "Uma"},
+    {"query": "contract renewal", "participant": "Victor"},
+    {"query": "hiring plan", "participant": "Wendy"},
+    {"query": "security audit", "participant": "Xavier"},
+    {"query": "launch checklist", "participant": "Yasmin"},
+    {"query": "team offsite", "participant": "Zoe"},
+)
 MOBILE_MUTATION_GROUNDING_ARGUMENTS = tuple(
     arguments
     for arguments in MOBILE_MESSAGE_GROUNDING_ARGUMENTS
@@ -45,6 +57,8 @@ class MobileToolExporter(Protocol):
 def build_mobile_generation_spec(
     environment: MobileGenerationEnvironment,
     registry: MobileToolExporter,
+    *,
+    representative: bool = False,
 ):
     from synthesis.domain_generation import (
         DOMAIN_GENERATION_SPEC_VERSION,
@@ -56,12 +70,17 @@ def build_mobile_generation_spec(
 
     if getattr(environment, "source_input", None) is not None:
         raise ValueError("source_backed_remote_context_not_allowed")
+    grounding_arguments = (
+        MOBILE_REPRESENTATIVE_GROUNDING_ARGUMENTS
+        if representative
+        else MOBILE_MESSAGE_GROUNDING_ARGUMENTS
+    )
     messages = [
         {
             "primary_arguments": arguments,
             "observation": environment.search_messages(**arguments),
         }
-        for arguments in MOBILE_MESSAGE_GROUNDING_ARGUMENTS
+        for arguments in grounding_arguments
     ]
     spec = DomainGenerationSpec(
         schema_version=DOMAIN_GENERATION_SPEC_VERSION,

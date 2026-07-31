@@ -97,6 +97,7 @@ def build_domain_pipeline_bundle(
     domain_environment_input: object | None = None,
     enable_mcp_adapter: bool = False,
     include_branching: bool = False,
+    representative_fixture: bool = False,
 ) -> DomainPipelineBundle:
     if seed.domain in {"contacts", "contacts_fixture"}:
         return _build_contacts_bundle(
@@ -105,6 +106,7 @@ def build_domain_pipeline_bundle(
             domain_environment_input=domain_environment_input,
             enable_mcp_adapter=enable_mcp_adapter,
             include_branching=include_branching,
+            representative_fixture=representative_fixture,
         )
     if seed.domain == "mobile_messages_fixture":
         if (
@@ -119,6 +121,7 @@ def build_domain_pipeline_bundle(
             source_provenance=source_provenance,
             mobile_environment_input=domain_environment_input,
             enable_mcp_adapter=enable_mcp_adapter,
+            representative_fixture=representative_fixture,
         )
     if seed.domain == "workspace_tasks_fixture":
         if (
@@ -133,6 +136,7 @@ def build_domain_pipeline_bundle(
             source_provenance=source_provenance,
             workspace_environment_input=domain_environment_input,
             enable_mcp_adapter=enable_mcp_adapter,
+            representative_fixture=representative_fixture,
         )
     raise ValueError(f"Unsupported seed domain: {seed.domain}")
 
@@ -177,6 +181,7 @@ def _build_contacts_bundle(
     domain_environment_input: object | None,
     enable_mcp_adapter: bool,
     include_branching: bool,
+    representative_fixture: bool,
 ) -> DomainPipelineBundle:
     if (
         domain_environment_input is not None
@@ -193,6 +198,7 @@ def _build_contacts_bundle(
         environment = ContactEnvironment.create_fixture(
             output_dir,
             source_provenance=source_provenance,
+            representative=representative_fixture,
         )
     registry = build_contact_tool_registry(environment)
     session = RuntimeSession(
@@ -237,6 +243,7 @@ def _build_mobile_bundle(
     source_provenance: dict[str, object] | None,
     mobile_environment_input: object | None,
     enable_mcp_adapter: bool,
+    representative_fixture: bool,
 ) -> DomainPipelineBundle:
     if mobile_environment_input is not None:
         assert isinstance(mobile_environment_input, MobileMessagesEnvironmentInput)
@@ -249,6 +256,7 @@ def _build_mobile_bundle(
         environment = MobileMessagesEnvironment.create_fixture(
             output_dir,
             source_provenance=source_provenance,
+            representative=representative_fixture,
         )
     registry = build_mobile_tool_registry(environment)
     session = RuntimeSession(
@@ -270,7 +278,11 @@ def _build_mobile_bundle(
         policy_generator=scripted_mobile_solution_policy,
         registry_builder=build_mobile_tool_registry,
         generation_spec=(
-            build_mobile_generation_spec(environment, registry)
+            build_mobile_generation_spec(
+                environment,
+                registry,
+                representative=representative_fixture,
+            )
             if mobile_environment_input is None
             else None
         ),
@@ -287,6 +299,7 @@ def _build_workspace_bundle(
     source_provenance: dict[str, object] | None,
     workspace_environment_input: object | None,
     enable_mcp_adapter: bool,
+    representative_fixture: bool,
 ) -> DomainPipelineBundle:
     if workspace_environment_input is not None:
         assert isinstance(workspace_environment_input, WorkspaceEnvironmentInput)
@@ -299,6 +312,7 @@ def _build_workspace_bundle(
         environment = WorkspaceTasksEnvironment.create_fixture(
             output_dir,
             source_provenance=source_provenance,
+            representative=representative_fixture,
         )
     registry = build_workspace_tool_registry(environment)
     session = RuntimeSession(
@@ -320,7 +334,11 @@ def _build_workspace_bundle(
         policy_generator=scripted_workspace_solution_policy,
         registry_builder=build_workspace_tool_registry,
         generation_spec=(
-            build_workspace_generation_spec(environment, registry)
+            build_workspace_generation_spec(
+                environment,
+                registry,
+                representative=representative_fixture,
+            )
             if workspace_environment_input is None
             else None
         ),

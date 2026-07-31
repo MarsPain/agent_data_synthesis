@@ -993,6 +993,53 @@ class FoundationCliTest(unittest.TestCase):
             self.assertFalse((write_output / "samples.jsonl").exists())
             self.assertFalse((write_output / "manifest.json").exists())
 
+    def test_llm_campaign_plan_preview_does_not_require_provider_opt_in(
+        self,
+    ) -> None:
+        profile_path = (
+            "tests/fixtures/run_profiles/contacts-coverage-campaign-30.json"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "preview-output"
+            preview = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    profile_path,
+                    "--preview-coverage-plan",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env={
+                    key: value
+                    for key, value in os.environ.items()
+                    if key
+                    not in {
+                        "AGENT_DATA_LLM_BASE_URL",
+                        "AGENT_DATA_API_KEY",
+                        "AGENT_DATA_LLM_MODEL",
+                    }
+                },
+            )
+
+            self.assertEqual(
+                preview.returncode,
+                0,
+                preview.stdout + preview.stderr,
+            )
+            plan = json.loads(preview.stdout)
+            self.assertEqual(plan["target_accepted_sample_count"], 30)
+            self.assertEqual(plan["attempt_ceiling"], 60)
+            self.assertEqual(
+                plan["catalog"]["version"],
+                "contacts_coverage_v2",
+            )
+            self.assertFalse(output_dir.exists())
+
     def test_main_can_run_profile_local_contacts_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "foundation-profile-local"

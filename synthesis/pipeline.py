@@ -127,8 +127,9 @@ def preview_coverage_plan(
         coverage_reference.profile_id,
         coverage_reference.version,
     )
+    catalog = planning.resolve_catalog(coverage_profile.catalog_version)
     plan = compile_coverage_plan(
-        catalog=planning.catalog,
+        catalog=catalog,
         coverage_profile=coverage_profile,
         version_registry=planning.version_registry,
         selected_features=tuple(run_profile.features.enabled_feature_names()),
@@ -136,7 +137,10 @@ def preview_coverage_plan(
             coverage_reference.target_accepted_sample_count
         ),
         target_candidate_count=target_candidate_count,
-        admitted_capacity=planning.resolve_capacity(admitted_environment_input),
+        admitted_capacity=planning.resolve_capacity_for_catalog(
+            catalog,
+            admitted_environment_input,
+        ),
         balance_weight_overrides=coverage_reference.balance_weight_overrides,
     )
     if output_path is not None:
@@ -288,6 +292,12 @@ def run_foundation_pipeline(
     if configured_generator_count > 1:
         raise ValueError("candidate generator configurations are mutually exclusive")
     seed = seed_override or foundation_seed()
+    coverage_catalog_version = _selected_coverage_catalog_version(run_profile)
+    representative_fixture = (
+        domain_environment_input is None
+        and coverage_catalog_version is not None
+        and coverage_catalog_version.endswith("_v2")
+    )
     source_event_records: list[dict[str, object]] = list(source_events or [])
     selected_source_bundle = source_bundle or build_domain_fixture_source_bundle(seed.domain)
     try:
@@ -327,6 +337,7 @@ def run_foundation_pipeline(
                 domain_environment_input=domain_environment_input,
                 enable_mcp_adapter=enable_mcp_adapter,
                 include_branching=enable_branching,
+                representative_fixture=representative_fixture,
             )
         except Exception as exc:
             rejected_provenance = dict(source_result.provenance)
@@ -376,6 +387,7 @@ def run_foundation_pipeline(
             source_provenance=source_provenance,
             enable_mcp_adapter=enable_mcp_adapter,
             include_branching=enable_branching,
+            representative_fixture=representative_fixture,
         )
     environment = domain_bundle.environment
     registry = domain_bundle.registry
@@ -406,10 +418,13 @@ def run_foundation_pipeline(
             coverage_plan,
         )
         planning = resolve_domain_coverage_planning(run_profile.seed.domain)
+        catalog = planning.resolve_catalog(
+            str(coverage_plan.catalog["version"])
+        )
         coverage_scheduler = coverage_scheduler_factory(
             domain_bundle,
             coverage_plan,
-            planning.catalog,
+            catalog,
         )
     elif candidate_generator_factory is not None:
         generate_candidates = candidate_generator_factory(domain_bundle)
@@ -673,6 +688,21 @@ def run_foundation_pipeline(
         coverage_plan_path=coverage_plan_path,
         coverage_reconciliation=coverage_reconciliation,
     )
+
+
+def _selected_coverage_catalog_version(
+    run_profile: object | None,
+) -> str | None:
+    if not isinstance(run_profile, RunProfile):
+        return None
+    coverage_reference = run_profile.coverage_profile
+    if coverage_reference is None:
+        return None
+    planning = resolve_domain_coverage_planning(run_profile.seed.domain)
+    return planning.resolve_profile(
+        coverage_reference.profile_id,
+        coverage_reference.version,
+    ).catalog_version
 
 
 def _authoritative_run_profile_metadata(

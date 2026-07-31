@@ -102,17 +102,29 @@ class MobileMessagesEnvironment:
         output_dir: Path,
         *,
         source_provenance: dict[str, object] | None = None,
+        representative: bool = False,
     ) -> "MobileMessagesEnvironment":
         output_dir.mkdir(parents=True, exist_ok=True)
         database_path = output_dir / "mobile_messages.sqlite3"
         if database_path.exists():
             database_path.unlink()
 
-        environment = cls(database_path, source_provenance=source_provenance)
+        environment = cls(
+            database_path,
+            source_provenance=source_provenance,
+            representative_fixture=representative,
+        )
         with closing(environment.connect()) as connection:
             with connection:
                 _create_schema(connection)
-                _insert_mobile_input(connection, _fixture_input())
+                _insert_mobile_input(
+                    connection,
+                    (
+                        _representative_fixture_input()
+                        if representative
+                        else _fixture_input()
+                    ),
+                )
         return environment
 
     @classmethod
@@ -145,10 +157,14 @@ class MobileMessagesEnvironment:
         *,
         source_provenance: dict[str, object] | None = None,
         source_input: MobileMessagesEnvironmentInput | None = None,
+        representative_fixture: bool = False,
     ) -> None:
         self.database_path = database_path
         self.source_provenance = source_provenance
         self.source_input = source_input
+        self.representative_fixture = representative_fixture
+        if representative_fixture:
+            self.version = "env_mobile_messages_representative_v2"
 
     def connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.database_path)
@@ -181,6 +197,7 @@ class MobileMessagesEnvironment:
         return type(self).create_fixture(
             output_dir,
             source_provenance=self.source_provenance,
+            representative=self.representative_fixture,
         )
 
     def search_messages(
@@ -481,6 +498,14 @@ def _insert_mobile_input(
 
 
 def _fixture_input() -> MobileMessagesEnvironmentInput:
+    representative = _representative_fixture_input()
+    return MobileMessagesEnvironmentInput(
+        threads=representative.threads[:6],
+        messages=representative.messages[:6],
+    )
+
+
+def _representative_fixture_input() -> MobileMessagesEnvironmentInput:
     return MobileMessagesEnvironmentInput(
         threads=(
             MessageThreadRecord("thread_maya", "Maya"),
@@ -489,6 +514,15 @@ def _fixture_input() -> MobileMessagesEnvironmentInput:
             MessageThreadRecord("thread_priya", "Priya"),
             MessageThreadRecord("thread_morgan", "Morgan"),
             MessageThreadRecord("thread_jordan", "Jordan"),
+            MessageThreadRecord("thread_riley", "Riley"),
+            MessageThreadRecord("thread_sam", "Sam"),
+            MessageThreadRecord("thread_taylor", "Taylor"),
+            MessageThreadRecord("thread_uma", "Uma"),
+            MessageThreadRecord("thread_victor", "Victor"),
+            MessageThreadRecord("thread_wendy", "Wendy"),
+            MessageThreadRecord("thread_xavier", "Xavier"),
+            MessageThreadRecord("thread_yasmin", "Yasmin"),
+            MessageThreadRecord("thread_zoe", "Zoe"),
         ),
         messages=(
             MessageRecord(
@@ -532,6 +566,69 @@ def _fixture_input() -> MobileMessagesEnvironmentInput:
                 sender="Jordan",
                 body="The quarterly planning notes are ready for review.",
                 received_at="2026-06-12T08:25:00Z",
+            ),
+            MessageRecord(
+                message_id="msg_riley_budget_approval",
+                thread_id="thread_riley",
+                sender="Riley",
+                body="The budget approval packet is ready for sign-off.",
+                received_at="2026-06-12T08:30:00Z",
+            ),
+            MessageRecord(
+                message_id="msg_sam_customer_interview",
+                thread_id="thread_sam",
+                sender="Sam",
+                body="The customer interview notes need a follow-up tomorrow.",
+                received_at="2026-06-12T08:35:00Z",
+            ),
+            MessageRecord(
+                message_id="msg_taylor_incident_review",
+                thread_id="thread_taylor",
+                sender="Taylor",
+                body="The incident review is scheduled for Monday morning.",
+                received_at="2026-06-12T08:40:00Z",
+            ),
+            MessageRecord(
+                message_id="msg_uma_travel_itinerary",
+                thread_id="thread_uma",
+                sender="Uma",
+                body="The travel itinerary needs confirmation by Friday.",
+                received_at="2026-06-12T08:45:00Z",
+            ),
+            MessageRecord(
+                message_id="msg_victor_contract_renewal",
+                thread_id="thread_victor",
+                sender="Victor",
+                body="The contract renewal draft is ready for review.",
+                received_at="2026-06-12T08:50:00Z",
+            ),
+            MessageRecord(
+                message_id="msg_wendy_hiring_plan",
+                thread_id="thread_wendy",
+                sender="Wendy",
+                body="The hiring plan should be shared with finance next week.",
+                received_at="2026-06-12T08:55:00Z",
+            ),
+            MessageRecord(
+                message_id="msg_xavier_security_audit",
+                thread_id="thread_xavier",
+                sender="Xavier",
+                body="The security audit checklist is due tomorrow.",
+                received_at="2026-06-12T09:00:00Z",
+            ),
+            MessageRecord(
+                message_id="msg_yasmin_launch_checklist",
+                thread_id="thread_yasmin",
+                sender="Yasmin",
+                body="The launch checklist still needs an owner.",
+                received_at="2026-06-12T09:05:00Z",
+            ),
+            MessageRecord(
+                message_id="msg_zoe_team_offsite",
+                thread_id="thread_zoe",
+                sender="Zoe",
+                body="The team offsite agenda is ready for comments.",
+                received_at="2026-06-12T09:10:00Z",
             ),
         ),
     )

@@ -17,6 +17,17 @@ CONTACT_FIXTURE_ROWS = (
     ("Elena Petrova", "elena.petrova@example.test"),
     ("Frank Osei", "frank.osei@example.test"),
 )
+CONTACT_REPRESENTATIVE_FIXTURE_ROWS = CONTACT_FIXTURE_ROWS + (
+    ("Grace Liu", "grace.liu@example.test"),
+    ("Hassan Rahman", "hassan.rahman@example.test"),
+    ("Ingrid Novak", "ingrid.novak@example.test"),
+    ("Jamal Thompson", "jamal.thompson@example.test"),
+    ("Keiko Sato", "keiko.sato@example.test"),
+    ("Luis Moreno", "luis.moreno@example.test"),
+    ("Nadia Ahmed", "nadia.ahmed@example.test"),
+    ("Owen Brooks", "owen.brooks@example.test"),
+    ("Priyanka Shah", "priyanka.shah@example.test"),
+)
 
 
 @dataclass(frozen=True)
@@ -79,13 +90,18 @@ class ContactEnvironment:
         output_dir: Path,
         *,
         source_provenance: dict[str, object] | None = None,
+        representative: bool = False,
     ) -> "ContactEnvironment":
         output_dir.mkdir(parents=True, exist_ok=True)
         database_path = output_dir / "contacts.sqlite3"
         if database_path.exists():
             database_path.unlink()
 
-        environment = cls(database_path, source_provenance=source_provenance)
+        environment = cls(
+            database_path,
+            source_provenance=source_provenance,
+            representative_fixture=representative,
+        )
         with closing(environment.connect()) as connection:
             with connection:
                 connection.execute(
@@ -98,7 +114,11 @@ class ContactEnvironment:
                 )
                 connection.executemany(
                     "INSERT INTO contacts(name, email) VALUES (?, ?)",
-                    CONTACT_FIXTURE_ROWS,
+                    (
+                        CONTACT_REPRESENTATIVE_FIXTURE_ROWS
+                        if representative
+                        else CONTACT_FIXTURE_ROWS
+                    ),
                 )
                 connection.execute(
                     """
@@ -178,10 +198,14 @@ class ContactEnvironment:
         *,
         source_provenance: dict[str, object] | None = None,
         source_input: ContactsEnvironmentInput | None = None,
+        representative_fixture: bool = False,
     ) -> None:
         self.database_path = database_path
         self.source_provenance = source_provenance
         self.source_input = source_input
+        self.representative_fixture = representative_fixture
+        if representative_fixture:
+            self.version = "env_contacts_representative_v3"
 
     def connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.database_path)
@@ -202,6 +226,7 @@ class ContactEnvironment:
         return type(self).create_fixture(
             output_dir,
             source_provenance=self.source_provenance,
+            representative=self.representative_fixture,
         )
 
     def lookup_email(self, name: str) -> dict[str, str]:

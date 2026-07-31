@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from synthesis.coverage import (
     COVERAGE_CAPACITY_VERSION,
     COVERAGE_CATALOG_VERSION,
@@ -19,10 +21,30 @@ from synthesis.coverage import (
 
 CONTACTS_COVERAGE_CATALOG_ID = "contacts_coverage"
 CONTACTS_COVERAGE_CATALOG_VERSION = "contacts_coverage_v1"
+CONTACTS_COVERAGE_CATALOG_VERSION_V2 = "contacts_coverage_v2"
 CONTACTS_SMOKE_PROFILE_ID = "contacts_smoke"
 CONTACTS_SMOKE_PROFILE_VERSION = "contacts_smoke_v1"
 CONTACTS_REPRESENTATIVE_PROFILE_ID = "contacts_representative"
 CONTACTS_REPRESENTATIVE_PROFILE_VERSION = "contacts_representative_v1"
+CONTACTS_REPRESENTATIVE_PROFILE_VERSION_V2 = "contacts_representative_v2"
+
+_EXPANDED_CONTACT_GROUNDING_UNIT_IDS = (
+    "alice_zhang",
+    "ben_carter",
+    "carla_diaz",
+    "david_kim",
+    "elena_petrova",
+    "frank_osei",
+    "grace_liu",
+    "hassan_rahman",
+    "ingrid_novak",
+    "jamal_thompson",
+    "keiko_sato",
+    "luis_moreno",
+    "nadia_ahmed",
+    "owen_brooks",
+    "priyanka_shah",
+)
 
 
 def contacts_coverage_catalog() -> CoverageCatalog:
@@ -210,6 +232,32 @@ def contacts_coverage_catalog() -> CoverageCatalog:
     )
 
 
+def contacts_representative_coverage_catalog() -> CoverageCatalog:
+    base = contacts_coverage_catalog()
+    lookup, followup, recovery = base.cells
+    expanded_indices = tuple(range(len(_EXPANDED_CONTACT_GROUNDING_UNIT_IDS)))
+    return replace(
+        base,
+        version=CONTACTS_COVERAGE_CATALOG_VERSION_V2,
+        grounding_context_sizes={
+            "contacts": len(_EXPANDED_CONTACT_GROUNDING_UNIT_IDS)
+        },
+        cells=(
+            replace(
+                lookup,
+                grounding_unit_indices=expanded_indices,
+                grounding_unit_ids=_EXPANDED_CONTACT_GROUNDING_UNIT_IDS,
+            ),
+            replace(
+                followup,
+                grounding_unit_indices=expanded_indices,
+                grounding_unit_ids=_EXPANDED_CONTACT_GROUNDING_UNIT_IDS,
+            ),
+            recovery,
+        ),
+    )
+
+
 def contacts_coverage_version_registry() -> CoverageVersionRegistry:
     return CoverageVersionRegistry(
         schema_version=COVERAGE_VERSION_REGISTRY_VERSION,
@@ -218,12 +266,20 @@ def contacts_coverage_version_registry() -> CoverageVersionRegistry:
                 CONTACTS_COVERAGE_CATALOG_ID,
                 CONTACTS_COVERAGE_CATALOG_VERSION,
             ),
+            (
+                CONTACTS_COVERAGE_CATALOG_ID,
+                CONTACTS_COVERAGE_CATALOG_VERSION_V2,
+            ),
         ),
         profile_versions=(
             (CONTACTS_SMOKE_PROFILE_ID, CONTACTS_SMOKE_PROFILE_VERSION),
             (
                 CONTACTS_REPRESENTATIVE_PROFILE_ID,
                 CONTACTS_REPRESENTATIVE_PROFILE_VERSION,
+            ),
+            (
+                CONTACTS_REPRESENTATIVE_PROFILE_ID,
+                CONTACTS_REPRESENTATIVE_PROFILE_VERSION_V2,
             ),
         ),
     )
@@ -266,6 +322,33 @@ def resolve_contacts_coverage_profile(
             version=CONTACTS_REPRESENTATIVE_PROFILE_VERSION,
             catalog_id=CONTACTS_COVERAGE_CATALOG_ID,
             catalog_version=CONTACTS_COVERAGE_CATALOG_VERSION,
+            mandatory_floors={
+                "contacts.lookup_by_name": 2,
+                "contacts.followup_after_lookup": 2,
+                "contacts.lookup_with_recovery": 1,
+            },
+            balance_weights={
+                "contacts.lookup_by_name": 1,
+                "contacts.followup_after_lookup": 1,
+                "contacts.lookup_with_recovery": 1,
+            },
+            max_accepted_samples_per_grounding_unit=2,
+            attempt_policy=CoverageAttemptPolicy(
+                policy_version="bounded_attempt_ratio_v1",
+                multiplier_numerator=2,
+                multiplier_denominator=1,
+            ),
+            max_balance_weight_override=4,
+        ),
+        (
+            CONTACTS_REPRESENTATIVE_PROFILE_ID,
+            CONTACTS_REPRESENTATIVE_PROFILE_VERSION_V2,
+        ): CoverageProfile(
+            schema_version=COVERAGE_PROFILE_SCHEMA_VERSION,
+            profile_id=CONTACTS_REPRESENTATIVE_PROFILE_ID,
+            version=CONTACTS_REPRESENTATIVE_PROFILE_VERSION_V2,
+            catalog_id=CONTACTS_COVERAGE_CATALOG_ID,
+            catalog_version=CONTACTS_COVERAGE_CATALOG_VERSION_V2,
             mandatory_floors={
                 "contacts.lookup_by_name": 2,
                 "contacts.followup_after_lookup": 2,
