@@ -17,4 +17,4 @@ Use `uv run python main.py --use-llm --output-dir artifacts/foundation-llm` to e
 - [Mobile domain pipeline pressure](mobile-domain-pipeline-pressure.md): second-domain evidence from the synthetic phone messages/reminders/draft-reply probe.
 - [Domain pack third domain pressure](domain-pack-third-domain-pressure.md): third-domain evidence from the deterministic workspace tasks fixture and domain-pack contract scan.
 - [AWM runtime extraction readiness](awm-runtime-extraction-readiness.md): Phase E evidence-backed extraction decision for the internal runtime kernel.
-- [Representative coverage campaign preflight](representative-coverage-campaign-validation.md): v3 structural-catalog growth, like-for-like taxonomy evidence, comparison limitations, and the gate to an explicitly authorized provider pilot.
+- [Representative coverage campaign validation](representative-coverage-campaign-validation.md): v3 catalog growth, authorized pilot and target-30 provider evidence, like-for-like taxonomy and quality comparisons, provider usage, and diagnostic release boundaries.

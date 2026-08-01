@@ -7,15 +7,16 @@ triggers, and technical debt. Tracker configuration lives in
 
 ## Open
 
-- [Coverage-Driven Representative Synthesis](coverage-driven-representative-synthesis/README.md) — the authorized three-domain provider pilot passed its coverage and quality gate; the thirty-per-domain campaign remains externally blocked on separate authorization, and no release promotion occurred
 - [Semantic Mutation Admission](semantic-mutation-admission/README.md) — ticketed;
   runtime enforcement, release-artifact auditing, and calibration-corpus work
   are complete; activation evaluation is complete and the representative gate
   remains externally blocked
-- [ISSUE-0001: Async local orchestration](ISSUE-0001-async-local-orchestration.md)
+- [ISSUE-0001: Async local orchestration](ISSUE-0001-async-local-orchestration.md) — activation threshold observed in the target-30 provider campaign; ready for agent
 - [ISSUE-0002: Semantic duplicate detection](ISSUE-0002-semantic-duplicate-detection.md)
 
 ## Closed
 
-No closed issues have been recorded in the local tracker yet. Historical
-completed work remains under [docs/exec-plans/completed/](../docs/exec-plans/completed/README.md).
+- [Coverage-Driven Representative Synthesis](coverage-driven-representative-synthesis/README.md) — the authorized pilot and thirty-per-domain campaign completed with decision `revise-catalog` after contacts structural-family saturation; evidence remains diagnostic and no release was promoted
+
+Historical completed work remains under
+[docs/exec-plans/completed/](../docs/exec-plans/completed/README.md).

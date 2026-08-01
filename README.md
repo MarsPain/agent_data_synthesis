@@ -124,11 +124,11 @@ uv run python main.py --run-profile tests/fixtures/run_profiles/mobile-messages-
 uv run python main.py --run-profile tests/fixtures/run_profiles/workspace-tasks-representative-llm-100.json --use-llm --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --write-release-quality-audit --output-dir artifacts/representative-workspace
 ```
 
-The campaign previews above never construct a provider client and do not
-require `--use-llm` or credentials. The deterministic preflight decision is
-`revise-catalog`; it does not complete the required provider pilot. Do not turn
-those previews into paid runs without a new evidence-backed gate and explicit
-provider, model, credential, and budget authorization.
+The previews above do not construct a provider client or require credentials.
+The completed preflight, pilot, and target-30 campaign are recorded in the
+[campaign validation](docs/generated/representative-coverage-campaign-validation.md).
+Those runs are diagnostic. New paid runs require a fresh evidence gate and
+explicit provider, model, credential, and budget authorization.
 
 ## Optional LLM Configuration
 

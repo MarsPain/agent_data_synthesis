@@ -8,7 +8,7 @@ representative baseline.
 
 **Blocked by:** None
 
-**Status:** blocked
+**Status:** completed
 
 **Assignee:** Codex
 
@@ -22,7 +22,7 @@ representative baseline.
 - [x] The pilot demonstrates growth in fulfilled structural cells, bounded family concentration, and non-degenerate grounding use rather than instruction-only variation.
 - [x] Pilot failures are classified as catalog-capacity, provider-contract, execution, verification, safety, duplicate, or attempt-exhaustion deficits with no unbounded retry.
 - [x] The thirty-per-domain campaign runs only when pilot evidence supports continuing.
-- [ ] Final evidence compares structural-cell coverage, largest family share, grounding reuse, difficulty distribution, rejection causes, token or cost usage, executable rate, and verification rate against the prior representative baseline.
+- [x] Final evidence compares structural-cell coverage, largest family share, grounding reuse, difficulty distribution, rejection causes, token or cost usage, executable rate, and verification rate against the prior representative baseline.
 - [x] The result records an evidence-backed proceed, revise-catalog, revise-scheduler, expand-environment, or stop decision without automatically promoting a dataset release.
 - [x] Structural coverage that fails to grow with target size prevents a success conclusion even when accepted counts are high.
 - [x] Artifacts remain diagnostic unless all separately governed representative and release requirements pass.
@@ -49,9 +49,28 @@ The pilot fulfilled its bounded coverage and quality gate. Its evidence-backed
 decision is `ready-for-authorized-campaign`; detailed measurements and baseline
 comparisons are retained in the
 [validation report](../../../docs/generated/representative-coverage-campaign-validation.md).
-The ticket is externally blocked because the synthesis operator explicitly
-withheld authorization for the thirty-per-domain campaign. No campaign call or
-dataset promotion occurred.
+At that point the ticket remained externally blocked because the synthesis
+operator had not yet authorized the thirty-per-domain campaign. No campaign
+call or dataset promotion occurred during the pilot stage.
+
+## Campaign authorization
+
+On 2026-07-31, the synthesis operator separately authorized the
+thirty-per-domain campaign using `api.deepseek.com`, model
+`deepseek-v4-flash`, and the currently configured `AGENT_DATA_API_KEY`. The
+campaign is bounded to at most 180 logical generation calls across the three
+serial domain runs and permits the provider client's existing bounded
+transport retries.
+
+## Campaign result
+
+The serial campaign fulfilled target 30 and all 13 v3 cells in each domain
+within the 180-call authorization. Contacts' common-taxonomy family count did
+not grow between pilot and campaign, so the evidence-backed decision is
+`revise-catalog` rather than a success conclusion. Detailed measurements,
+baseline availability gaps, and release boundaries are in the
+[validation report](../../../docs/generated/representative-coverage-campaign-validation.md).
+The artifacts remain diagnostic, and no dataset release was promoted.
 
 ## Scope guard
 

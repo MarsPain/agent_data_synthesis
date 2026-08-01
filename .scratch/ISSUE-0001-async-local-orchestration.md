@@ -1,10 +1,9 @@
 # ISSUE-0001: Async Local Orchestration
 
-- **Status:** Deferred
+- **Status:** ready-for-agent
 - **Assignee:** Unassigned
 - **Parent spec:** [Async Local Orchestration](../docs/product-specs/async-local-orchestration.md)
-- **Dependencies:** None currently blocking design; implementation depends on an
-  observed activation trigger.
+- **Dependencies:** None; the runtime activation trigger has been observed.
 - **Legacy record:** [Plan 0014](../docs/exec-plans/deferred/0014-async-local-orchestration-with-durable-queues.md)
 
 ## Activation Trigger
@@ -19,6 +18,9 @@ Start implementation when at least one condition is observed:
 
 ## Current Disposition
 
-Keep the default runner synchronous and preserve the candidate-processing seam.
-The repository has not recorded evidence that the additional queue, resumption,
-cancellation, and concurrency complexity is warranted yet.
+The target-30 representative coverage campaign recorded contacts runtime of
+738.273 seconds and mobile-messages runtime of 662.632 seconds, exceeding the
+rough ten-minute activation threshold. The scale evidence also emitted the
+`async_orchestration` signal. Implementation is now ready to be assigned, but
+remains outside coverage campaign ticket 06. Keep the default runner
+synchronous until the opt-in orchestration path is implemented and validated.

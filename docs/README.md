@@ -53,7 +53,7 @@ the configured issue tracker.
 
 - [generated/README.md](generated/README.md): index for future generated schemas, diagrams, reports, and benchmark outputs.
 - [generated/awm-runtime-extraction-readiness.md](generated/awm-runtime-extraction-readiness.md): Phase E extraction readiness decision for the internal AWM runtime kernel.
-- [generated/representative-coverage-campaign-validation.md](generated/representative-coverage-campaign-validation.md): deterministic v3 structural-catalog growth, common-taxonomy comparison, and the gate to an explicitly authorized provider pilot.
+- [generated/representative-coverage-campaign-validation.md](generated/representative-coverage-campaign-validation.md): deterministic preflight, authorized pilot and target-30 provider evidence, like-for-like structural comparison, provider usage, and diagnostic release boundaries.
 
 ## Historical Execution Records
 

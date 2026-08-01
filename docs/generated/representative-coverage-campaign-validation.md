@@ -2,7 +2,96 @@
 
 Updated on 2026-07-31 for
 [coverage campaign ticket 06](../../.scratch/coverage-driven-representative-synthesis/issues/06-representative-coverage-campaign.md)
-after the authorized three-domain provider pilot.
+after the authorized three-domain, thirty-per-domain provider campaign.
+
+## Final Campaign Decision
+
+**`revise-catalog`**
+
+The separately authorized campaign used `api.deepseek.com`, model
+`deepseek-v4-flash`, and the configured `AGENT_DATA_API_KEY`. It accepted 30
+samples in each domain and fulfilled all thirteen v3 coverage cells per domain.
+Contacts issued 36 of 60 allowed logical calls, mobile messages issued 30 of
+60, and workspace tasks issued 31 of 60. The campaign therefore used 97 of its
+180-call budget plus 24 bounded transport retries, for 121 HTTP attempts.
+
+Structural-cell coverage grew from 12 cells in every pilot to 13 cells in every
+campaign run. Grounding reuse remained bounded at two: contacts and mobile
+messages each used 15 distinct groundings, while workspace tasks used 16. The
+common taxonomy provides the like-for-like baseline comparison:
+
+| Domain | Baseline / campaign accepted | Fulfilled cells, pilot → campaign | Common families, baseline → pilot → campaign | Largest share, baseline → pilot → campaign | Campaign groundings / max reuse |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Contacts | 27 / 30 | 12 → 13 | 2 → 7 → 7 | 0.556 → 0.417 → 0.333 | 15 / 2 |
+| Mobile messages | 28 / 30 | 12 → 13 | 3 → 11 → 12 | 0.357 → 0.167 → 0.133 | 15 / 2 |
+| Workspace tasks | 30 / 30 | 12 → 13 | 4 → 8 → 9 | 0.333 → 0.250 → 0.200 | 16 / 2 |
+
+The campaign completes operationally but does not satisfy the cross-scale
+structural-growth hypothesis. Mobile messages and workspace tasks add one
+independently classified common family between pilot and campaign, while
+contacts remains at seven. Treating contacts' extra locally named cell as
+independent structural growth would contradict the common taxonomy and the
+ticket's fail-closed growth gate. The result therefore rejects a success
+conclusion and selects `revise-catalog`.
+
+Bounded backfill still filled every target deficit, all accepted assignments
+executed and verified, grounding reuse did not increase, and concentration
+stayed below the prior baseline. Those quality results do not override the
+growth failure. All catalogs are also exhausted at thirteen cells, and
+contacts and mobile consume their available grounding capacity at the reuse
+limit. A revised contacts catalog should add a taxonomy-distinct executable
+family and may require expanded environment capacity before another scale
+claim is attempted.
+
+## Final Quality And Provider Comparison
+
+| Domain | Baseline → campaign executable rate | Baseline → campaign rejection causes | Baseline → campaign tokens | Baseline → campaign logical calls | Campaign retries |
+| --- | ---: | --- | ---: | ---: | ---: |
+| Contacts | 1.000 → 0.944 | 3 duplicates → 4 duplicates, 2 provider errors | 102,260 → 111,649 | 6 → 36 | 7 |
+| Mobile messages | 0.933 → 1.000 | 2 runtime errors → none | 116,464 → 107,304 | 15 → 30 | 7 |
+| Workspace tasks | 1.000 → 0.968 | none → 1 provider error | 105,816 → 90,142 | 15 → 31 | 10 |
+
+Across the campaign, 94 of 97 attempts generated executable candidates, 90
+were accepted, and all 90 accepted samples passed local verification. All 15
+held-out tasks also passed. The seven bounded rejections comprise four exact
+duplicates and three exhausted provider errors; no execution, verification, or
+safety rejection occurred. The campaign used 309,095 tokens: 151,330 prompt
+tokens and 157,765 completion tokens. Provider lineage returned no price
+metadata, so no dollar-cost claim is made.
+
+The campaign's locally normalized difficulty distribution is 10 basic, 2
+constrained, 20 intermediate, 6 recovery, and 52 selector-recovery samples.
+The final comparison records both comparable values and legacy evidence gaps:
+
+| Metric | Prior baseline | Campaign | Comparison status |
+| --- | --- | --- | --- |
+| Structural-cell coverage | Not emitted by pre-coverage runs | 13 fulfilled cells per domain | No baseline comparison; pilot provides 12 → 13 scale evidence |
+| Largest family share | 0.556 / 0.357 / 0.333 | 0.333 / 0.133 / 0.200 | Like-for-like under the common taxonomy |
+| Grounding reuse | Not emitted | 15 / 15 / 16 groundings; max reuse 2 | Baseline unavailable |
+| Difficulty distribution | Provider-shaped, not locally normalized | 10 basic, 2 constrained, 20 intermediate, 6 recovery, 52 selector-recovery | Baseline unavailable |
+| Rejection causes | 3 duplicates, 2 runtime errors | 4 duplicates, 3 provider errors | Like-for-like bounded causes |
+| Token usage | 324,540 | 309,095 | Like-for-like provider usage |
+| Executable rate | 88 / 90, or 0.978 | 94 / 97, or 0.969 | Like-for-like quality evidence |
+| Accepted-sample verification | 85 / 85, or 1.000 | 90 / 90, or 1.000 | Like-for-like local verification |
+| Held-out verification | 15 / 15, or 1.000 | 15 / 15, or 1.000 | Like-for-like evaluation suites |
+
+Unavailable legacy fields are not reconstructed from instructions. The
+explicit gaps prevent an overstated like-for-like claim while preserving the
+complete comparison required for a revise decision.
+
+The generic representative-scale consumer correctly classifies all three v4
+shadow-mode runs as `insufficient_evidence` and recommends
+`expand_representative_evidence`. The campaign therefore validates the
+campaign's bounded execution path but not the structural-growth hypothesis,
+release eligibility, or full representative eligibility. The scale evidence
+records contacts and mobile runtimes above 600 seconds; the resulting current
+activation disposition lives in the
+[local async-orchestration issue](../../.scratch/ISSUE-0001-async-local-orchestration.md).
+This campaign does not implement that out-of-scope work. Dataset release
+reports remain ineligible, release-quality audits remain `watch`, and no
+dataset was promoted. A scan of all 138 campaign files found no provider-secret
+fields, authorization headers, configured credential value, or local absolute
+path.
 
 ## Provider Pilot Decision
 
@@ -14,7 +103,7 @@ bounded to 72 provider calls. Contacts, mobile messages, and workspace tasks
 each accepted 12 of 12 generated candidates after issuing 12 of their 24
 allowed assignment attempts. The three runs used 36 logical generation calls
 and five bounded transport retries, for 41 HTTP attempts in total. No
-thirty-per-domain campaign was authorized or run.
+thirty-per-domain campaign had been authorized or run at that stage.
 
 All three coverage plans were fulfilled without rejection. Each domain
 fulfilled 12 cells, used 10 distinct stable groundings with at most two
@@ -63,10 +152,8 @@ The generic representative-scale consumer classifies these v4 shadow-mode
 pilot artifacts as `insufficient_evidence` and recommends
 `expand_representative_evidence`. That is expected: the pilot is diagnostic and
 cannot establish representative or release eligibility. The narrower pilot
-gate supports requesting separate authorization for the thirty-per-domain
-campaign, where growth from 12 to 30 accepted targets must still be observed.
-If structural coverage does not grow at that scale, ticket 06 cannot conclude
-success even if accepted counts remain high.
+gate supported requesting separate authorization for the thirty-per-domain
+campaign; the final campaign result is recorded above.
 
 ## Deterministic Decision
 
@@ -79,9 +166,9 @@ supports requesting separate authorization for the provider pilot governed by
 ticket 06.
 
 This preflight decision did not itself authorize a provider, credentials,
-model, or budget. The later, separately authorized pilot above made the only
-paid calls recorded by this report. No dataset was promoted, and no release or
-downstream-value claim follows from either stage.
+model, or budget. The later provider pilot and campaign above each received
+separate authorization. No dataset was promoted, and no release or
+downstream-value claim follows from any stage.
 
 ## Expanded Catalog Evidence
 
@@ -165,9 +252,10 @@ the v3 catalogs and common taxonomy rather than weakening the reuse policy.
 
 ## Work-State Boundary
 
-The runtime evidence remains under
-`artifacts/coverage-campaign-provider-pilot-v1/`, including per-domain coverage
-evidence, quality and evaluation reports, common-taxonomy comparisons, and the
-three-domain representative-scale diagnostic. Current authorization, blocking
-state, assignment, and activation conditions remain exclusively in the
+Pilot runtime evidence remains under
+`artifacts/coverage-campaign-provider-pilot-v1/`; final campaign evidence is
+under `artifacts/coverage-campaign-provider-30-v1/`. Both retain per-domain
+coverage, quality, evaluation, taxonomy-comparison, and three-domain diagnostic
+evidence. Current authorization, status, assignment, and activation conditions
+remain exclusively in the
 [local issue tracker](../../.scratch/coverage-driven-representative-synthesis/README.md).
