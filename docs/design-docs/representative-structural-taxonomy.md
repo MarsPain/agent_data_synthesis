@@ -32,6 +32,32 @@ Instruction text, provider identity, coverage assignment identity, and coverage
 cell identity are excluded. A coverage-driven sample therefore receives the
 same family as a legacy sample with the same executed structure.
 
+## Catalog Authoring Implications
+
+Catalog authors should expand the reachable executable state-action graph, not
+manufacture additional labels for an unchanged graph. Ordered tool topology,
+read-only versus state-changing behavior, observation-to-action bindings, and
+recovery transitions are the strongest reusable sources of structural
+variation because they change what an agent must execute and what a verifier
+can observe.
+
+A meaningful state-changing sequence is especially high leverage: one task may
+combine a new tool sequence, a durable state transition, values bound from
+earlier observations, and independent final-state verification. It is neither
+required nor sufficient for a new family. The mutation must be requested and
+admitted, its arguments must have valid provenance, and the resulting state
+must be independently verified. Adding a redundant mutation or padding a
+trajectory with unnecessary tools is not valid structural diversity.
+
+Likewise, additional coverage cells do not prove additional families. New
+groundings, selector values, instructions, or cell identities may legitimately
+increase sample variety while remaining in an existing structural family.
+Cross-scale evidence must therefore classify executed samples under the same
+taxonomy and fail closed when the distinct-family count does not grow. The
+[target-30 provider campaign](../generated/representative-coverage-campaign-validation.md)
+demonstrates this distinction: contacts fulfilled an additional locally named
+cell without adding a common structural family.
+
 ## Fail-Closed Classification
 
 A sample is unclassifiable when the classifier cannot obtain valid task

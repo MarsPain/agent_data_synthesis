@@ -1,9 +1,9 @@
 # Coverage-Driven Representative Synthesis
 
-- **Status:** Completed
+- **Status:** Follow-up ticketed
 - **Canonical spec:** [Coverage-Driven Representative Synthesis](../../docs/product-specs/coverage-driven-representative-synthesis.md)
 - **Architecture context:** [Domain-Aware Representative Generation](../../docs/design-docs/domain-aware-representative-generation.md)
-- **Current phase:** Provider campaign validated at target 30
+- **Current phase:** Contacts v4 structural-capacity expansion
 
 This directory is the feature-level aggregation point for delivery state. The
 canonical desired behavior and accepted implementation and testing decisions
@@ -19,6 +19,7 @@ live only in the tickets under `issues/`.
 5. [Publish and gate coverage evidence](issues/05-coverage-evidence-and-gates.md) — completed
 6. [Validate representative coverage campaigns](issues/06-representative-coverage-campaign.md) — completed
 7. [Expand representative structural catalogs](issues/07-expand-representative-structural-catalogs.md) — completed
+8. [Add taxonomy-distinct contacts v4 structures](issues/08-contacts-v4-taxonomy-distinct-structures.md) — ready for agent
 
 Ticket 01 establishes the pure plan-compilation contract. Ticket 02 is the
 smallest end-to-end tracer bullet through the existing generation and candidate
@@ -27,7 +28,9 @@ Ticket 04 proves the interfaces across all current domain packs. Ticket 05
 makes planned-versus-accepted coverage observable and authoritative for
 coverage-driven representative claims. Ticket 06 gathers small-pilot and
 three-domain campaign evidence only after the deterministic behavior is
-complete.
+complete. Ticket 08 is the evidence-driven follow-up: it adds contacts
+state-action structure that remains distinct under the common taxonomy rather
+than adding more selector or instruction variants.
 
 ## Outcome
 
@@ -48,3 +51,8 @@ taxonomy-distinct executable structure, potentially with expanded environment
 capacity. The artifacts remain diagnostic and no dataset was promoted. The
 detailed result is retained in the
 [generated validation report](../../docs/generated/representative-coverage-campaign-validation.md).
+
+## Frontier
+
+Ticket 08 is the current implementation frontier. It must pass deterministic
+cross-scale family-growth evidence before a new paid pilot can be requested.

@@ -16,18 +16,18 @@ The first backend should be a local Python pipeline with explicit modules and du
 - `synthesis.coverage`: domain-neutral coverage catalog, profile, capacity, and
   plan contracts plus deterministic validation, target-distribution
   compilation, hashing, and canonical plan writing.
-- `synthesis.contacts_coverage`: the contacts-owned `contacts_coverage_v1` and
-  expanded representative `contacts_coverage_v2` reachable-cell catalogs,
-  named smoke and representative profiles, and aggregate admitted-capacity
-  projection.
+- `synthesis.contacts_coverage`: the contacts-owned v1 through v3 reachable-cell
+  catalogs, named smoke and representative profiles, expanded grounding
+  capacity, executable selector-recovery structures, observation-backed
+  grounding identity validation, and aggregate admitted-capacity projection.
 - `synthesis.mobile_coverage`: the mobile-owned
-  `mobile_messages_coverage_v1` and expanded representative v2 catalogs,
-  profiles, compatibility and difficulty declarations, recovery plan, and
-  message-capacity projection.
+  `mobile_messages_coverage_v1` through v3 catalogs, profiles, compatibility
+  and difficulty declarations, recovery structures, observation-backed
+  grounding identity validation, and message-capacity projection.
 - `synthesis.workspace_coverage`: the workspace-owned
-  `workspace_tasks_coverage_v1` and expanded representative v2 catalogs,
-  profiles, compatibility and difficulty declarations, recovery plan, and
-  workspace-item capacity projection.
+  `workspace_tasks_coverage_v1` through v3 catalogs, profiles, compatibility
+  and difficulty declarations, recovery structures, observation-backed
+  grounding identity validation, and workspace-item capacity projection.
 - `synthesis.coverage_registry`: domain planning registration. It connects
   domain-owned catalogs, authoritative catalog/profile version registries,
   profile resolution, typed synthetic-fixture variants, and executable
@@ -38,6 +38,11 @@ The first backend should be a local Python pipeline with explicit modules and du
   assignment identities, overlap-aware stable-grounding allocation,
   minimum-grounding prompt projection, local
   task-contract membership validation, and sanitized assignment lineage.
+- `synthesis.structural_taxonomy`: the versioned common classifier and
+  like-for-like comparison contract for executed task type, ordered tool
+  sequence, selector-field shape, state behavior, cross-step bindings, and
+  recovery transitions. It excludes instruction text, provider identity, and
+  coverage metadata so cell proliferation cannot manufacture family growth.
 - `synthesis.domain_generation`: immutable domain generation specifications,
   complete machine-readable provider output contracts, strict task-contract
   parsing, replayable grounding arguments paired with observations, explicit

@@ -324,6 +324,16 @@ not manually orchestrate the coverage matrix.
   multi-result or zero-result conditions, ambiguity, cross-step bindings, and
   recovery opportunities; it must not add arbitrary rows solely to inflate
   lexical variety.
+- Treat structural-family growth under one versioned common taxonomy as the
+  cross-scale diversity authority. More accepted samples or locally distinct
+  coverage cells do not establish structural growth when they classify into
+  families already fulfilled at the smaller target.
+- Treat meaningful state-changing sequences as a high-leverage but optional
+  source of structural diversity. Such a sequence counts only when its tool
+  topology or bindings are structurally distinct, mutation authorization and
+  argument provenance pass the configured admission policy, and an independent
+  verifier confirms the resulting state. Redundant mutations and unnecessary
+  tool calls do not create valid coverage.
 - Do not create a new ADR for the initial implementation. The decision is a
   reversible extension of the existing domain-owned generation specification
   and shared generation kernel. Revisit the ADR threshold only if later work
@@ -368,6 +378,16 @@ not manually orchestrate the coverage matrix.
   tasks through the same plan and assignment contracts. Each domain proves more
   than lexical variation by producing accepted samples in distinct structural
   cells.
+- Versioned taxonomy tests classify each newly declared structural cell through
+  executed sample evidence, pin its expected family features, require zero
+  unclassifiable samples, and prove that the larger representative target adds
+  at least one family not fulfilled by the smaller target. Cell-count growth
+  alone fails this gate.
+- Stateful structural-cell tests prove that the synthetic requester authorized
+  the mutation, requester-controlled arguments have valid provenance, earlier
+  observations bind the intended later arguments, and the verifier observes
+  the declared final state. A longer trajectory without those facts is not a
+  diversity success.
 - Evidence tests validate exact keys, hashes, aggregate counts, cell
   concentration, grounding reuse, difficulty distribution, bounded reasons,
   redaction, and planned-versus-accepted reconciliation.

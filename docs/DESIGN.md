@@ -75,11 +75,13 @@ exact allowed compatibility tuples, domain-owned difficulty semantics,
 declared grounding-context sizes, stable grounding-unit identities and
 eligibility, overlap-aware usable capacity, and reachability against the
 domain generation specification.
-The v1 catalogs remain resolvable for the twelve-target pilot. Separate v2
-representative catalogs add executable grounding capacity for thirty-target
-plan compilation without changing v1 hashes or raising the per-grounding reuse
-limit. Catalog resolution follows the selected profile version, and admitted
-capacity is bounded to that catalog's declared context.
+The v1 catalogs remain resolvable for the original twelve-target path. Separate
+v2 representative catalogs add grounding capacity for thirty-target plan
+compilation, while v3 catalogs add executable recovery structures and
+observation-backed grounding identity validation without changing earlier
+hashes or raising the per-grounding reuse limit. Catalog resolution follows the
+selected profile version, and admitted capacity is bounded to that catalog's
+declared context.
 Feature-gated recovery cells are additionally probed through the read-only
 domain registry so the declared failing branch must fail and the successful
 fallback must reproduce the assigned grounding evidence. Plan preview may
@@ -114,14 +116,23 @@ safety, release, and generation-contract gate. Missing or drifted coverage
 inputs remain insufficient evidence; diagnostic runs may keep valid partial
 samples.
 
-The first three-domain deterministic preflight stopped before the required
-provider pilot with a `revise-catalog` decision: v2 makes target 30 statically
-reachable, but the distinct structural-cell count is already saturated by
-target 12. Its coverage-cell family taxonomy is not directly comparable with
-the legacy baseline's required-tool-sequence grouping. Higher target counts
-cannot establish representative success until later catalog versions add new
-executable and verifiable structural cells and a common versioned classifier
-supports like-for-like baseline comparison.
+The versioned common structural taxonomy classifies legacy and coverage-driven
+samples by task type, ordered tool sequence, selector fields, state behavior,
+cross-step bindings, and recovery transitions while excluding instructions and
+coverage metadata. Under that like-for-like classifier, the v3 target-30
+provider campaign fulfilled thirteen cells per domain, but contacts remained
+at seven families from pilot to campaign while mobile and workspace each added
+one. Cell-count growth is therefore not authoritative structural growth.
+
+Catalog authors should prefer new executable state-action topology over
+selector or wording proliferation. Meaningful state-changing sequences are a
+high-leverage option because they can combine a distinct tool sequence,
+observation binding, durable state transition, and independent final-state
+verification. State change alone is not sufficient: mutation admission,
+argument provenance, and verification remain mandatory, and redundant tools
+do not create a family. Detailed classifier behavior and authoring implications
+live in the
+[representative structural taxonomy](design-docs/representative-structural-taxonomy.md).
 
 ### Trajectory Execution
 

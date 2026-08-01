@@ -29,7 +29,7 @@ the configured issue tracker.
 - [design-docs/representative-scale-and-downstream-evidence.md](design-docs/representative-scale-and-downstream-evidence.md): approved evidence boundary for representative three-domain runs and external downstream benchmark result exchange.
 - [design-docs/domain-aware-representative-generation.md](design-docs/domain-aware-representative-generation.md): approved domain-owned generation-spec and representative-eligibility boundary for Plan 0043.
 - [design-docs/representative-provider-schema-hardening.md](design-docs/representative-provider-schema-hardening.md): approved repair for strict real-provider schema failures and truthful zero-accepted reporting.
-- [design-docs/representative-structural-taxonomy.md](design-docs/representative-structural-taxonomy.md): versioned like-for-like classifier for legacy and coverage-driven representative samples.
+- [design-docs/representative-structural-taxonomy.md](design-docs/representative-structural-taxonomy.md): versioned like-for-like classifier plus catalog-authoring guidance for executable structural diversity.
 
 ## Product Specs
 

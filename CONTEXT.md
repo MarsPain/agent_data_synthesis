@@ -77,6 +77,18 @@ terms, not package structure, implementation plans, or work status. See
   training experiences, such as task type, tool sequence, state behavior,
   grounding pattern, constraint profile, difficulty, ambiguity, or recovery
   behavior.
+- **Structural family:** An equivalence class of executed samples under one
+  versioned structural taxonomy. A family may distinguish task type, ordered
+  tool sequence, selector-field shape, state behavior, cross-step observation
+  bindings, and recovery transitions; instruction wording, provider identity,
+  coverage assignment, and coverage-cell identity do not define a family.
+- **Structural diversity:** The distribution of accepted samples across
+  independently executable and verifiable structural families. A meaningful
+  state-changing sequence can be a high-leverage source because it combines
+  tool topology, state transition, cross-step binding, and final-state
+  verification. State change alone is not sufficient: redundant tool calls,
+  extra cell names, grounding substitutions, and instruction paraphrases do
+  not establish structural diversity.
 - **Coverage cell:** One stable, reachable combination of coverage-dimension
   values that a domain pack can generate, execute, and verify.
 - **Coverage catalog:** A versioned domain-pack declaration of reachable

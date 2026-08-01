@@ -7,6 +7,7 @@ triggers, and technical debt. Tracker configuration lives in
 
 ## Open
 
+- [Coverage-Driven Representative Synthesis](coverage-driven-representative-synthesis/README.md) — contacts v4 structural-capacity follow-up is ready for agent after the target-30 campaign selected `revise-catalog`
 - [Semantic Mutation Admission](semantic-mutation-admission/README.md) — ticketed;
   runtime enforcement, release-artifact auditing, and calibration-corpus work
   are complete; activation evaluation is complete and the representative gate
@@ -16,7 +17,5 @@ triggers, and technical debt. Tracker configuration lives in
 
 ## Closed
 
-- [Coverage-Driven Representative Synthesis](coverage-driven-representative-synthesis/README.md) — the authorized pilot and thirty-per-domain campaign completed with decision `revise-catalog` after contacts structural-family saturation; evidence remains diagnostic and no release was promoted
-
-Historical completed work remains under
+No feature group is currently closed. Historical completed work remains under
 [docs/exec-plans/completed/](../docs/exec-plans/completed/README.md).

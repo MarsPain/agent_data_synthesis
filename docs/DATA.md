@@ -39,6 +39,17 @@
   grounding-reuse, difficulty, exact-duplicate, and fulfillment summaries.
   Partial diagnostic output remains valid with `fulfillment.status:
   incomplete`.
+- **Structural Family:** one deterministic equivalence class emitted by
+  `representative_structural_taxonomy_v1` from executed task type, ordered
+  required-tool sequence, selector-field shape, state behavior, cross-step
+  bindings, and recovery signature. Instruction text, provider identity,
+  coverage assignment, and coverage-cell identity are excluded.
+- **Structural Taxonomy Comparison:** sanitized
+  `structural_taxonomy_comparison_v1` evidence that binds one taxonomy identity
+  and hash to classified, unclassifiable, distinct-family, largest-family, and
+  concentration counts for two sample sets. It is the like-for-like
+  cross-scale structural comparison; it does not replace execution,
+  verification, safety, release, or downstream evidence.
 - **Source Record:** provenance contract for fixture, synthetic, transformed, or
   external/local-file material, including source id, sanitized origin reference,
   content hash, license label, retrieval timestamp when applicable, and
@@ -512,19 +523,21 @@ persisted candidate lineage carries only the integer
 Evaluation, profile-decision, release, and release-pack artifacts preserve the
 same validated mapping so campaign evidence can reject metadata drift.
 
-Coverage-enabled profile preview does not write a dataset manifest.
-`contacts_coverage_v1`, `mobile_messages_coverage_v1`, and
-`workspace_tasks_coverage_v1` declare explicit reachable cells using the same
-dimension vocabulary. Their domain-owned declarations include task/tool/state
-compatibility tuples, stable grounding-unit identities and eligibility,
-declared grounding-context sizes, feature requirements, optional deterministic
-branch plans, and exact difficulty semantics. The
-catalogs cover read-only selection, state-changing cross-step bindings,
-deterministic multi-result selection, constrained mutation arguments, and
-feature-gated recovery where the domain runtime can execute and independently
-verify the outcome. Each domain provides named smoke and representative
-profiles with mandatory floors, balance weights, grounding reuse, an attempt
-ratio, and an override bound. The shared compiler and reachability validator
+Coverage-enabled profile preview does not write a dataset manifest. Each
+domain's v1 catalog declares its original reachable cells, v2 expands
+representative grounding capacity, and v3 adds executable structural-recovery
+cells plus observation-backed grounding identity validation without changing
+earlier identities. The domain-owned declarations use one dimension vocabulary
+and include task/tool/state compatibility tuples, stable grounding-unit
+identities and eligibility, declared grounding-context sizes, feature
+requirements, optional deterministic branch plans, and exact difficulty
+semantics. The catalogs cover read-only selection, state-changing cross-step
+bindings, deterministic multi-result selection, constrained mutation
+arguments, and feature-gated recovery where the domain runtime can execute and
+independently verify the outcome. Each domain provides named smoke and
+representative profiles with mandatory floors, balance weights, grounding
+reuse, an attempt ratio, and an override bound. The shared compiler and
+reachability validator
 reject unknown contract or profile versions, unknown dimensions, duplicate or
 unreachable cells, contradictory compatibility or difficulty declarations,
 missing mandatory features, invalid overrides, insufficient admitted or usable
