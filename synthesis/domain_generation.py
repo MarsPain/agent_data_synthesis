@@ -5,7 +5,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import PurePath
-from typing import Mapping
+from typing import Mapping, Protocol
 
 from synthesis.contracts import LLM_RESPONSE_SCHEMA_DETAILS, LLM_RESPONSE_SCHEMA_REASONS
 from synthesis.llm import LLMProviderError
@@ -98,6 +98,41 @@ class DomainGenerationResult:
 class DomainGenerationBatchContext:
     batch_index: int
     candidate_id_prefix: str
+
+
+class DomainGenerationAttemptObserver(Protocol):
+    def before_provider_call(
+        self,
+        *,
+        batch_context: DomainGenerationBatchContext,
+        requested_candidate_count: int,
+        prompt_hash: str,
+    ) -> None: ...
+
+    def provider_response_received(
+        self,
+        *,
+        batch_context: DomainGenerationBatchContext,
+        requested_candidate_count: int,
+        lineage: Mapping[str, object],
+    ) -> None: ...
+
+    def provider_attempt_failed(
+        self,
+        *,
+        batch_context: DomainGenerationBatchContext,
+        requested_candidate_count: int,
+        error: BaseException,
+    ) -> None: ...
+
+    def validated_contracts_checkpointed(
+        self,
+        *,
+        batch_context: DomainGenerationBatchContext,
+        requested_candidate_count: int,
+        contracts: tuple[TaskContract, ...],
+        lineage: Mapping[str, object],
+    ) -> None: ...
 
 
 _PROVIDER_RECORD_KEYS = {
@@ -1110,6 +1145,9 @@ def generate_domain_llm_candidates(
     spec: DomainGenerationSpec,
     target_candidate_count: int,
     role_registry: RoleRegistry | None = None,
+    initial_contracts: tuple[TaskContract, ...] = (),
+    starting_batch_index: int = 1,
+    attempt_observer: DomainGenerationAttemptObserver | None = None,
 ) -> DomainGenerationResult:
     validate_domain_generation_spec(spec)
     if (
@@ -1118,10 +1156,25 @@ def generate_domain_llm_candidates(
         or target_candidate_count <= 0
     ):
         raise ValueError("target_candidate_count must be positive")
+    if (
+        not isinstance(starting_batch_index, int)
+        or isinstance(starting_batch_index, bool)
+        or starting_batch_index <= 0
+    ):
+        raise ValueError("starting_batch_index must be positive")
     registry = role_registry or default_role_registry()
     candidates: list[CandidateTask] = []
     candidate_ids: set[str] = set()
-    provider_call_count = 0
+    for contract in initial_contracts:
+        validate_task_contract(contract)
+        candidate_id = contract.intent.candidate_id
+        if candidate_id in candidate_ids:
+            raise ValueError("initial task contracts contain duplicate candidate ids")
+        candidate_ids.add(candidate_id)
+        candidates.append(candidate_from_task_contract(contract))
+    if len(candidates) > target_candidate_count:
+        raise ValueError("initial task contracts exceed target candidate count")
+    provider_call_count = starting_batch_index - 1
     while len(candidates) < target_candidate_count:
         requested = min(spec.max_candidates_per_call, target_candidate_count - len(candidates))
         batch_context = build_generation_batch_context(
@@ -1132,32 +1185,61 @@ def generate_domain_llm_candidates(
             candidate.instruction
             for candidate in candidates[-MAX_EXCLUDED_INSTRUCTIONS:]
         )
+        prompt = build_domain_generation_prompt(
+            spec,
+            requested_candidate_count=requested,
+            batch_context=batch_context,
+            excluded_instructions=excluded_instructions,
+        )
+        if attempt_observer is not None:
+            attempt_observer.before_provider_call(
+                batch_context=batch_context,
+                requested_candidate_count=requested,
+                prompt_hash=hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            )
         try:
             result = registry.invoke_json(
                 TASK_GENERATION_ROLE,
                 client,
-                build_domain_generation_prompt(
-                    spec,
-                    requested_candidate_count=requested,
-                    batch_context=batch_context,
-                    excluded_instructions=excluded_instructions,
-                ),
+                prompt,
             )
         except LLMProviderError as exc:
+            if attempt_observer is not None:
+                attempt_observer.provider_attempt_failed(
+                    batch_context=batch_context,
+                    requested_candidate_count=requested,
+                    error=exc,
+                )
             raise LLMProviderError(
                 cause=exc.cause,
                 error_class=exc.error_class,
                 retryable=exc.retryable,
                 retry_count=exc.retry_count,
                 lineage={
-                    **exc.lineage,
+                    **_sanitized_generation_lineage(exc.lineage),
                     "batch_index": batch_context.batch_index,
                     "requested_candidate_count": requested,
                 },
                 schema_reason=exc.schema_reason,
                 schema_detail=exc.schema_detail,
+                ambiguous=bool(getattr(exc, "ambiguous", False)),
             ) from exc
+        except Exception as exc:
+            if attempt_observer is not None:
+                attempt_observer.provider_attempt_failed(
+                    batch_context=batch_context,
+                    requested_candidate_count=requested,
+                    error=exc,
+                )
+            raise
         provider_call_count += 1
+        safe_generation_lineage = _sanitized_generation_lineage(result.lineage)
+        if attempt_observer is not None:
+            attempt_observer.provider_response_received(
+                batch_context=batch_context,
+                requested_candidate_count=requested,
+                lineage=result.lineage,
+            )
         try:
             raw_records = (
                 result.content.get("task_contracts")
@@ -1182,7 +1264,7 @@ def generate_domain_llm_candidates(
                 spec=spec,
                 batch_context=batch_context,
                 generation_lineage={
-                    **result.lineage,
+                    **safe_generation_lineage,
                     "excluded_instruction_count": len(excluded_instructions),
                 },
             )
@@ -1196,13 +1278,20 @@ def generate_domain_llm_candidates(
                 retryable=False,
                 retry_count=_retry_count(result.lineage),
                 lineage={
-                    **result.lineage,
+                    **safe_generation_lineage,
                     "batch_index": batch_context.batch_index,
                     "requested_candidate_count": requested,
                 },
                 schema_reason=exc.reason,
                 schema_detail=exc.detail,
             ) from exc
+        if attempt_observer is not None:
+            attempt_observer.validated_contracts_checkpointed(
+                batch_context=batch_context,
+                requested_candidate_count=requested,
+                contracts=tuple(contracts),
+                lineage=safe_generation_lineage,
+            )
         candidate_ids.update(batch_ids)
         candidates.extend(candidate_from_task_contract(contract) for contract in contracts)
     ordered = order_candidates_by_curriculum(candidates)
@@ -1227,6 +1316,56 @@ def _string_tuple(value: object, path: str) -> tuple[str, ...]:
 def _retry_count(lineage: Mapping[str, object]) -> int:
     value = lineage.get("retry_count", 0)
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _sanitized_generation_lineage(
+    lineage: Mapping[str, object],
+) -> dict[str, object]:
+    """Keep only bounded provider lineage fields safe for task contracts."""
+
+    allowed = {
+        "role",
+        "role_version",
+        "output_type",
+        "owner_module",
+        "retry_policy",
+        "provider_host",
+        "model",
+        "config_hash",
+        "prompt_hash",
+        "retry_count",
+        "tokens",
+        "error_class",
+    }
+    sanitized: dict[str, object] = {}
+    for key in allowed:
+        value = lineage.get(key)
+        if key == "tokens":
+            if isinstance(value, Mapping):
+                tokens = {}
+                for token_key in (
+                    "prompt_tokens",
+                    "completion_tokens",
+                    "total_tokens",
+                    "input_tokens",
+                    "output_tokens",
+                    "cached_tokens",
+                ):
+                    token_value = value.get(token_key)
+                    if (
+                        isinstance(token_value, int)
+                        and not isinstance(token_value, bool)
+                        and token_value >= 0
+                    ):
+                        tokens[token_key] = token_value
+                if tokens:
+                    sanitized[key] = tokens
+            continue
+        if isinstance(value, str) and value.strip():
+            sanitized[key] = value
+        elif isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            sanitized[key] = value
+    return sanitized
 
 
 def _sha256_mapping(value: object) -> str:

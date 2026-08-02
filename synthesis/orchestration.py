@@ -15,7 +15,7 @@ import os
 import re
 import secrets
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -30,8 +30,13 @@ from synthesis.candidate_processing import (
     PolicyGenerator,
     ProvisionalCandidateOutcome,
 )
+from synthesis.domain_generation import (
+    generate_domain_llm_candidates,
+)
+from synthesis.llm import LLMProviderAmbiguousError, LLMProviderError
 from synthesis.pipeline import (
     CandidateGenerator,
+    CandidateGeneratorFactory,
     PipelineResult,
     run_foundation_pipeline,
 )
@@ -53,6 +58,7 @@ from synthesis.task_contracts import (
     TaskContract,
     TaskIntent,
     candidate_from_task_contract,
+    validate_task_contract,
 )
 from synthesis.tasks import CandidateTask, generate_scale_probe_candidates
 
@@ -65,12 +71,16 @@ CANDIDATE_CHECKPOINT_SCHEMA_VERSION = "orchestration_candidate_checkpoint_v1"
 INVALID_CANDIDATE_CHECKPOINT_SCHEMA_VERSION = "orchestration_invalid_candidate_v1"
 CONFIGURATION_IDENTITY_SCHEMA_VERSION = "orchestration_configuration_identity_v1"
 LOCK_SCHEMA_VERSION = "orchestration_lock_v1"
+PROVIDER_ATTEMPT_SCHEMA_VERSION = "orchestration_provider_attempt_v1"
+PROVIDER_USAGE_SCHEMA_VERSION = "orchestration_provider_usage_v1"
 
 JOB_STATUSES = {"pending", "running", "failed", "completed"}
 WORK_ITEM_STATUSES = {"pending", "running", "completed"}
 WORK_ITEM_RESULT_KINDS = {"accepted", "rejected"}
 _JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_HEX_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_PROVIDER_ALIAS_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 
 class OrchestrationError(RuntimeError):
@@ -79,6 +89,10 @@ class OrchestrationError(RuntimeError):
 
 class JobConfigurationError(OrchestrationError, ValueError):
     """Raised when a job configuration is unsupported or drifts on resume."""
+
+
+class LogicalCallBudgetExceeded(JobConfigurationError):
+    """Raised before a provider action could exceed cumulative authorization."""
 
 
 class JournalCorruptionError(OrchestrationError, ValueError):
@@ -105,6 +119,12 @@ class StaleJobLockError(JobLockError):
     """Raised when recovering an orphaned lock was not explicitly requested."""
 
 
+# Public names make deterministic fake providers easy to write without exposing
+# provider-specific transport or credential details.
+ProviderAttemptAmbiguous = LLMProviderAmbiguousError
+ProviderResponseLost = LLMProviderAmbiguousError
+
+
 @dataclass(frozen=True)
 class SerialJobResult:
     """Observable result of one create, resume, or idempotent inspect operation."""
@@ -116,6 +136,9 @@ class SerialJobResult:
     job_path: Path
     work_items_path: Path
     events_path: Path
+    provider_usage_path: Path | None = None
+    provider_attempts: tuple[Mapping[str, object], ...] = ()
+    provider_usage: Mapping[str, object] = field(default_factory=dict)
 
     @property
     def status(self) -> str:
@@ -134,6 +157,7 @@ class SerialJobResult:
 
 SerialJobInterruptionHook = Callable[[Mapping[str, object]], None]
 TimestampFactory = Callable[[], str]
+ProviderFactory = Callable[[], object]
 
 
 @dataclass(frozen=True)
@@ -151,6 +175,7 @@ def run_serial_job(
     run_profile: RunProfile,
     resume: bool = False,
     candidate_generator: CandidateGenerator | None = None,
+    candidate_generator_factory: CandidateGeneratorFactory | None = None,
     policy_generator: PolicyGenerator | None = None,
     source_bundle: SourceBundle | None = None,
     domain_environment_input: object | None = None,
@@ -164,15 +189,41 @@ def run_serial_job(
     timestamp_factory: TimestampFactory | None = None,
     authorization_limits: Mapping[str, object] | None = None,
     recover_stale_lock: bool = False,
+    provider: object | None = None,
+    provider_factory: ProviderFactory | None = None,
+    provider_alias: str | None = None,
+    model_alias: str | None = None,
 ) -> SerialJobResult:
-    """Run or resume one deterministic local job under an exclusive lock."""
+    """Run or resume one local job under an exclusive lock.
 
+    Deterministic fixture jobs retain their original candidate-generator path.
+    An explicit provider opts a representative ``llm`` profile into durable
+    generation-attempt journaling. Provider aliases are identity only; provider
+    objects and credentials are never written.
+    """
+
+    provider_identity = _normalize_provider_identity(
+        provider_present=(provider is not None or provider_factory is not None),
+        generation_mode=(
+            run_profile.generation.mode
+            if isinstance(run_profile, RunProfile)
+            else None
+        ),
+        provider_alias=provider_alias,
+        model_alias=model_alias,
+    )
+    normalized_limits = _normalize_authorization_limits(authorization_limits)
     _validate_serial_configuration(
         job_id=job_id,
         run_profile=run_profile,
         interrupt_after=interrupt_after,
+        provider_identity=provider_identity,
+        authorization_limits=normalized_limits,
+        provider=provider,
+        provider_factory=provider_factory,
+        candidate_generator=candidate_generator,
+        candidate_generator_factory=candidate_generator_factory,
     )
-    normalized_limits = _normalize_authorization_limits(authorization_limits)
     now = timestamp_factory or _utc_timestamp
     output_dir = Path(output_dir)
     orchestration_dir = output_dir / "orchestration" / job_id
@@ -194,6 +245,7 @@ def run_serial_job(
             run_profile=run_profile,
             resume=resume,
             candidate_generator=candidate_generator,
+            candidate_generator_factory=candidate_generator_factory,
             policy_generator=policy_generator,
             source_bundle=source_bundle,
             domain_environment_input=domain_environment_input,
@@ -206,6 +258,9 @@ def run_serial_job(
             interruption_hook=interruption_hook,
             timestamp_factory=now,
             authorization_limits=normalized_limits,
+            provider=provider,
+            provider_factory=provider_factory,
+            provider_identity=provider_identity,
             store=store,
             lock=lock,
         )
@@ -218,6 +273,7 @@ def _run_serial_job_locked(
     run_profile: RunProfile,
     resume: bool = False,
     candidate_generator: CandidateGenerator | None = None,
+    candidate_generator_factory: CandidateGeneratorFactory | None = None,
     policy_generator: PolicyGenerator | None = None,
     source_bundle: SourceBundle | None = None,
     domain_environment_input: object | None = None,
@@ -230,6 +286,9 @@ def _run_serial_job_locked(
     interruption_hook: SerialJobInterruptionHook | None = None,
     timestamp_factory: TimestampFactory | None = None,
     authorization_limits: Mapping[str, object] | None = None,
+    provider: object | None = None,
+    provider_factory: ProviderFactory | None = None,
+    provider_identity: Mapping[str, str] | None = None,
     store: _LocalJobStore | None = None,
     lock: _LocalJobLock | None = None,
 ) -> SerialJobResult:
@@ -249,6 +308,23 @@ def _run_serial_job_locked(
     if store is None:
         orchestration_dir = output_dir / "orchestration" / job_id
         store = _LocalJobStore(orchestration_dir, timestamp_factory=now)
+    provider_mode = provider_identity is not None
+    provider_holder = [provider]
+
+    def resolve_provider() -> object:
+        if provider_holder[0] is None:
+            if provider_factory is None:
+                raise JobConfigurationError(
+                    "provider or provider_factory is required for llm serial jobs"
+                )
+            provider_holder[0] = provider_factory()
+        client = provider_holder[0]
+        if client is None or not callable(getattr(client, "generate_json", None)):
+            raise JobConfigurationError(
+                "provider must expose generate_json(prompt, role=...)"
+            )
+        return client
+
     if resume:
         if not store.exists:
             raise JobConfigurationError(
@@ -260,6 +336,7 @@ def _run_serial_job_locked(
             run_profile,
             authorization_limits,
             output_dir=output_dir,
+            provider_identity=provider_identity,
         )
     resolved_inputs = _resolve_profile_source_inputs(
         run_profile,
@@ -299,9 +376,7 @@ def _run_serial_job_locked(
             _candidate_from_record(item["candidate"])
             for item in store.work_items
         )
-        effective_candidate_generator: CandidateGenerator | None = (
-            lambda _seed: list(stored_tasks)
-        )
+        effective_candidate_generator: CandidateGenerator | None = None
     else:
         if store.exists:
             raise JobConfigurationError(
@@ -313,10 +388,53 @@ def _run_serial_job_locked(
             execution_config_hash=execution_config_hash,
             output_dir=output_dir,
             authorization_limits=authorization_limits,
+            provider_identity=provider_identity,
         )
+        effective_candidate_generator = candidate_generator
+
+    effective_candidate_generator_factory: CandidateGeneratorFactory | None = None
+    if provider_mode:
+        def provider_generator_factory(bundle):
+            generation_spec = getattr(bundle, "generation_spec", None)
+            if generation_spec is None:
+                raise JobConfigurationError(
+                    "provider-backed serial generation requires a fixture generation spec"
+                )
+            target_candidate_count = run_profile.generation.target_candidate_count
+            if target_candidate_count is None:
+                raise JobConfigurationError(
+                    "provider-backed serial generation requires a target candidate count"
+                )
+
+            def generate(seed):
+                observer = _ProviderAttemptObserver(
+                    store,
+                    provider_identity=provider_identity,
+                    interruption_hook=interruption_hook,
+                )
+                return generate_domain_llm_candidates(
+                    seed,
+                    resolve_provider(),
+                    spec=generation_spec,
+                    target_candidate_count=target_candidate_count,
+                    initial_contracts=store.provider_checkpoint_contracts,
+                    starting_batch_index=store.next_provider_batch_index,
+                    attempt_observer=observer,
+                )
+
+            return generate
+
+        if resume and store.candidate_set_hash is not None:
+            effective_candidate_generator = lambda _seed: list(stored_tasks)
+        else:
+            effective_candidate_generator_factory = provider_generator_factory
+    elif resume:
+        effective_candidate_generator = lambda _seed: list(stored_tasks)
+    else:
         effective_candidate_generator = candidate_generator or _default_deterministic_generator(
             run_profile
         )
+        effective_candidate_generator_factory = candidate_generator_factory
 
     completed_outcomes = {
         _sequence_index(item): _outcome_from_record(item["outcome"])
@@ -363,7 +481,12 @@ def _run_serial_job_locked(
         store.start_item(request.sequence_index, request.raw_task.candidate_id)
         if interruption_hook is not None:
             try:
-                interruption_hook(store.item_for_sequence(request.sequence_index))
+                interruption_hook(
+                    {
+                        "event_type": "work_item_started",
+                        **store.item_for_sequence(request.sequence_index),
+                    }
+                )
             except JobInterruption:
                 raise
             except Exception as exc:
@@ -379,12 +502,26 @@ def _run_serial_job_locked(
             outcome,
             include_episode_log=write_episode_logs,
         )
+        if interruption_hook is not None:
+            try:
+                interruption_hook(
+                    {
+                        "event_type": "work_item_completed",
+                        **store.item_for_sequence(request.sequence_index),
+                    }
+                )
+            except JobInterruption:
+                raise
+            except Exception as exc:
+                store.interrupted(reason=type(exc).__name__)
+                raise
 
     try:
         pipeline_result = run_foundation_pipeline(
             output_dir,
             dataset_version=run_profile.dataset_version,
             candidate_generator=effective_candidate_generator,
+            candidate_generator_factory=effective_candidate_generator_factory,
             candidate_set_callback=bind_candidate_set,
             candidate_start_callback=start_candidate,
             candidate_outcome_callback=complete_candidate,
@@ -410,6 +547,12 @@ def _run_serial_job_locked(
             write_episode_logs=write_episode_logs,
         )
     except JobInterruption:
+        raise
+    except LLMProviderError as exc:
+        if getattr(exc, "ambiguous", False):
+            store.interrupted(reason="provider_attempt_ambiguous")
+            raise
+        store.failed(error_class=type(exc).__name__)
         raise
     except Exception as exc:
         store.failed(error_class=type(exc).__name__)
@@ -835,6 +978,112 @@ def _lock_metadata_pid_is_alive(metadata: Mapping[str, object]) -> bool:
     return True
 
 
+class _ProviderAttemptObserver:
+    """Bridge domain generation callbacks to the durable provider journal."""
+
+    def __init__(
+        self,
+        store: "_LocalJobStore",
+        *,
+        provider_identity: Mapping[str, str] | None,
+        interruption_hook: SerialJobInterruptionHook | None,
+    ) -> None:
+        if provider_identity is None:
+            raise JobConfigurationError("provider identity is required")
+        self._store = store
+        self._provider_identity = provider_identity
+        self._interruption_hook = interruption_hook
+        self._attempt_id: str | None = None
+
+    def before_provider_call(
+        self,
+        *,
+        batch_context,
+        requested_candidate_count: int,
+        prompt_hash: str,
+    ) -> None:
+        self._attempt_id = self._store.prepare_provider_attempt(
+            role="task_generation",
+            provider_identity=self._provider_identity,
+            batch_index=batch_context.batch_index,
+            requested_candidate_count=requested_candidate_count,
+            prompt_hash=prompt_hash,
+        )
+        self._call_hook(
+            {
+                "event_type": "provider_attempt_intent",
+                "attempt_id": self._attempt_id,
+                "batch_index": batch_context.batch_index,
+            }
+        )
+        self._store.issue_provider_attempt(self._attempt_id)
+        self._call_hook(
+            {
+                "event_type": "provider_attempt_issued",
+                "attempt_id": self._attempt_id,
+                "batch_index": batch_context.batch_index,
+            }
+        )
+
+    def provider_response_received(
+        self,
+        *,
+        batch_context,
+        requested_candidate_count: int,
+        lineage: Mapping[str, object],
+    ) -> None:
+        _ = batch_context, requested_candidate_count
+        if self._attempt_id is None:
+            raise InvalidTransitionError("provider response has no durable attempt")
+        self._store.complete_provider_attempt(
+            self._attempt_id,
+            lineage=lineage,
+        )
+
+    def provider_attempt_failed(
+        self,
+        *,
+        batch_context,
+        requested_candidate_count: int,
+        error: BaseException,
+    ) -> None:
+        _ = batch_context, requested_candidate_count
+        if self._attempt_id is None:
+            raise InvalidTransitionError("provider failure has no durable attempt")
+        self._store.fail_provider_attempt(self._attempt_id, error=error)
+
+    def validated_contracts_checkpointed(
+        self,
+        *,
+        batch_context,
+        requested_candidate_count: int,
+        contracts: tuple[TaskContract, ...],
+        lineage: Mapping[str, object],
+    ) -> None:
+        _ = requested_candidate_count, lineage
+        if self._attempt_id is None:
+            raise InvalidTransitionError(
+                "validated provider response has no durable attempt"
+            )
+        self._store.checkpoint_provider_contracts(
+            self._attempt_id,
+            batch_index=batch_context.batch_index,
+            contracts=contracts,
+        )
+        self._call_hook(
+            {
+                "event_type": "provider_contract_checkpointed",
+                "attempt_id": self._attempt_id,
+                "batch_index": batch_context.batch_index,
+                "contract_count": len(contracts),
+            }
+        )
+
+    def _call_hook(self, event: Mapping[str, object]) -> None:
+        if self._interruption_hook is not None:
+            self._interruption_hook(event)
+
+
 class _LocalJobStore:
     def __init__(
         self,
@@ -846,10 +1095,13 @@ class _LocalJobStore:
         self.job_path = orchestration_dir / "job.json"
         self.work_items_path = orchestration_dir / "work_items.jsonl"
         self.events_path = orchestration_dir / "events.jsonl"
+        self.provider_usage_path = orchestration_dir / "provider_usage.json"
         self._timestamp_factory = timestamp_factory
         self._job: dict[str, object] | None = None
         self._items: dict[str, dict[str, object]] = {}
         self._events: list[dict[str, object]] = []
+        self._provider_attempts: dict[str, dict[str, object]] = {}
+        self._provider_checkpoints: list[dict[str, object]] = []
         self._last_integrity_hash: str | None = None
         self._recovered_tail_bytes = 0
         self._recovered_tail_prefix: bytes | None = None
@@ -901,6 +1153,119 @@ class _LocalJobStore:
             "job.completed_work_item_count",
         )
 
+    @property
+    def provider_attempts(self) -> tuple[dict[str, object], ...]:
+        return tuple(
+            dict(self._provider_attempts[attempt_id])
+            for attempt_id in sorted(
+                self._provider_attempts,
+                key=lambda attempt_id: _integer_value(
+                    self._provider_attempts[attempt_id]["attempt_sequence"],
+                    "provider_attempt.attempt_sequence",
+                ),
+            )
+        )
+
+    @property
+    def provider_checkpoint_contracts(self) -> tuple[TaskContract, ...]:
+        contracts: list[TaskContract] = []
+        for checkpoint in self._provider_checkpoints:
+            records = checkpoint["contracts"]
+            if not isinstance(records, list):
+                raise JournalCorruptionError(
+                    "provider contract checkpoint records are malformed"
+                )
+            for record in records:
+                if not isinstance(record, Mapping):
+                    raise JournalCorruptionError(
+                        "provider contract checkpoint item is malformed"
+                    )
+                try:
+                    contracts.append(_task_contract_from_record(record))
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise JournalCorruptionError(
+                        "provider contract checkpoint item is invalid"
+                    ) from exc
+        return tuple(contracts)
+
+    @property
+    def next_provider_batch_index(self) -> int:
+        checkpoint_batches = [
+            _integer_value(item["batch_index"], "provider_checkpoint.batch_index")
+            for item in self._provider_checkpoints
+        ]
+        unfinished_batches = [
+            _integer_value(item["batch_index"], "provider_attempt.batch_index")
+            for item in self.provider_attempts
+            if item["status"] not in {"checkpointed"}
+        ]
+        if unfinished_batches:
+            return max(1, max(unfinished_batches))
+        if checkpoint_batches:
+            return max(checkpoint_batches) + 1
+        return 1
+
+    @property
+    def issued_logical_call_count(self) -> int:
+        return sum(
+            attempt["status"] != "intent"
+            for attempt in self.provider_attempts
+        )
+
+    @property
+    def provider_usage(self) -> dict[str, object]:
+        identity = _provider_identity_from_job(self.job)
+        budget = _logical_call_budget_from_limits(
+            self.job.get("authorization_limits"),
+            required=False,
+        )
+        attempts = []
+        retry_count = 0
+        for attempt in self.provider_attempts:
+            summary = {
+                "schema_version": PROVIDER_ATTEMPT_SCHEMA_VERSION,
+                "attempt_id": attempt["attempt_id"],
+                "attempt_sequence": attempt["attempt_sequence"],
+                "role": attempt["role"],
+                "provider_alias": attempt["provider_alias"],
+                "model_alias": attempt["model_alias"],
+                "batch_index": attempt["batch_index"],
+                "status": attempt["status"],
+                "issued": attempt["status"] != "intent",
+                "logical_call_number": attempt.get("logical_call_number"),
+                "retry_count": attempt.get("retry_count", 0),
+                "token_usage": _json_copy(attempt.get("token_usage", {})),
+                "price_metadata": _json_copy(attempt.get("price_metadata")),
+            }
+            if attempt.get("error_class") is not None:
+                summary["error_class"] = attempt["error_class"]
+            if attempt.get("cause") is not None:
+                summary["cause"] = attempt["cause"]
+            attempts.append(summary)
+            retry_count += _integer_value(
+                attempt.get("retry_count", 0),
+                "provider_attempt.retry_count",
+            )
+        usage: dict[str, object] = {
+            "schema_version": PROVIDER_USAGE_SCHEMA_VERSION,
+            "provider_alias": identity.get("provider_alias") if identity else None,
+            "model_alias": identity.get("model_alias") if identity else None,
+            "logical_call_budget": budget,
+            "issued_logical_calls": self.issued_logical_call_count,
+            "known_attempts": sum(
+                attempt["status"] in {"known", "failed", "checkpointed"}
+                for attempt in self.provider_attempts
+            ),
+            "ambiguous_attempts": sum(
+                attempt["status"] == "ambiguous"
+                for attempt in self.provider_attempts
+            ),
+            "transport_retry_count": retry_count,
+            "attempts": attempts,
+        }
+        _assert_safe_orchestration_value(usage)
+        return usage
+
     def create(
         self,
         *,
@@ -909,6 +1274,7 @@ class _LocalJobStore:
         execution_config_hash: str,
         output_dir: Path,
         authorization_limits: Mapping[str, object],
+        provider_identity: Mapping[str, str] | None,
     ) -> None:
         self.orchestration_dir.mkdir(parents=True, exist_ok=False)
         initial_job: dict[str, object] = {
@@ -920,10 +1286,12 @@ class _LocalJobStore:
             "configuration_identity": _normalized_configuration_identity(
                 run_profile,
                 authorization_limits,
+                provider_identity=provider_identity,
             ),
             "configuration_identity_hash": _configuration_identity_hash(
                 run_profile,
                 authorization_limits,
+                provider_identity=provider_identity,
             ),
             "authorization_limits": _json_copy(authorization_limits),
             "output_ownership_hash": _output_ownership_hash(output_dir, job_id),
@@ -1016,6 +1384,7 @@ class _LocalJobStore:
         authorization_limits: Mapping[str, object],
         *,
         output_dir: Path,
+        provider_identity: Mapping[str, str] | None,
     ) -> None:
         if self.job["job_id"] != self.orchestration_dir.name:
             raise JobConfigurationError("durable job identity does not match its directory")
@@ -1032,6 +1401,7 @@ class _LocalJobStore:
         expected_identity = _normalized_configuration_identity(
             run_profile,
             authorization_limits,
+            provider_identity=provider_identity,
         )
         expected_hash = _hash_json(expected_identity)
         if self.job["configuration_identity_hash"] != expected_hash:
@@ -1057,6 +1427,7 @@ class _LocalJobStore:
     def resume(self) -> None:
         if self.status != "running":
             raise InvalidTransitionError("only a running serial job can be resumed")
+        self.recover_inflight_provider_attempts()
         self._append("job_resumed", {})
         for item in self.work_items:
             if item["status"] == "running":
@@ -1065,6 +1436,169 @@ class _LocalJobStore:
                     {"reason": "interrupted"},
                     work_item_id=str(item["item_id"]),
                 )
+
+    def recover_inflight_provider_attempts(self) -> None:
+        for attempt in self.provider_attempts:
+            if attempt["status"] != "issued":
+                continue
+            self._append(
+                "provider_attempt_ambiguous",
+                {
+                    "attempt_id": attempt["attempt_id"],
+                    "reason": "process_interrupted_after_issue",
+                    "error_class": "ProviderResponseLost",
+                },
+            )
+
+    def prepare_provider_attempt(
+        self,
+        *,
+        role: str,
+        provider_identity: Mapping[str, str],
+        batch_index: int,
+        requested_candidate_count: int,
+        prompt_hash: str,
+    ) -> str:
+        self._ensure_provider_budget()
+        for attempt in self.provider_attempts:
+            if (
+                attempt["status"] == "intent"
+                and attempt["role"] == role
+                and attempt["batch_index"] == batch_index
+                and attempt["requested_candidate_count"]
+                == requested_candidate_count
+            ):
+                if attempt["prompt_hash"] != prompt_hash:
+                    raise JobConfigurationError(
+                        "provider attempt prompt identity does not match durable intent"
+                    )
+                return str(attempt["attempt_id"])
+        attempt_sequence = max(
+            [
+                _integer_value(
+                    attempt["attempt_sequence"],
+                    "provider_attempt.attempt_sequence",
+                )
+                for attempt in self.provider_attempts
+            ],
+            default=0,
+        ) + 1
+        attempt_id = _provider_attempt_id(str(self.job["job_id"]), attempt_sequence)
+        self._append(
+            "provider_work_intent",
+            {
+                "attempt_id": attempt_id,
+                "attempt_sequence": attempt_sequence,
+                "role": role,
+                "provider_alias": provider_identity["provider_alias"],
+                "model_alias": provider_identity["model_alias"],
+                "batch_index": batch_index,
+                "requested_candidate_count": requested_candidate_count,
+                "prompt_hash": prompt_hash,
+            },
+        )
+        return attempt_id
+
+    def issue_provider_attempt(self, attempt_id: str) -> None:
+        attempt = self._provider_attempt(attempt_id)
+        if attempt["status"] != "intent":
+            raise InvalidTransitionError(
+                "provider attempt is not waiting to be issued"
+            )
+        self._ensure_provider_budget()
+        self._append(
+            "provider_attempt_issued",
+            {
+                "attempt_id": attempt_id,
+                "logical_call_number": self.issued_logical_call_count + 1,
+            },
+        )
+
+    def complete_provider_attempt(
+        self,
+        attempt_id: str,
+        *,
+        lineage: Mapping[str, object],
+    ) -> None:
+        attempt = self._provider_attempt(attempt_id)
+        if attempt["status"] != "issued":
+            raise InvalidTransitionError(
+                "only an issued provider attempt can receive a response"
+            )
+        sanitized = _sanitize_provider_lineage(lineage)
+        self._append(
+            "provider_attempt_known",
+            {
+                "attempt_id": attempt_id,
+                "retry_count": sanitized["retry_count"],
+                "token_usage": sanitized["token_usage"],
+                "price_metadata": sanitized["price_metadata"],
+            },
+        )
+
+    def fail_provider_attempt(
+        self,
+        attempt_id: str,
+        *,
+        error: BaseException,
+    ) -> None:
+        attempt = self._provider_attempt(attempt_id)
+        if attempt["status"] != "issued":
+            raise InvalidTransitionError(
+                "only an issued provider attempt can fail"
+            )
+        if bool(getattr(error, "ambiguous", False)):
+            self._append(
+                "provider_attempt_ambiguous",
+                {
+                    "attempt_id": attempt_id,
+                    "reason": "provider_accepted_response_lost",
+                    "error_class": _safe_error_class(type(error).__name__),
+                },
+            )
+            return
+        lineage = _sanitize_provider_lineage(
+            getattr(error, "lineage", {})
+            if isinstance(getattr(error, "lineage", {}), Mapping)
+            else {}
+        )
+        self._append(
+            "provider_attempt_failed",
+            {
+                "attempt_id": attempt_id,
+                "cause": _safe_error_class(str(getattr(error, "cause", "provider_error"))),
+                "error_class": _safe_error_class(type(error).__name__),
+                "retry_count": _safe_retry_count(getattr(error, "retry_count", 0)),
+                "token_usage": lineage["token_usage"],
+                "price_metadata": lineage["price_metadata"],
+            },
+        )
+
+    def checkpoint_provider_contracts(
+        self,
+        attempt_id: str,
+        *,
+        batch_index: int,
+        contracts: tuple[TaskContract, ...],
+    ) -> None:
+        attempt = self._provider_attempt(attempt_id)
+        if attempt["status"] != "known":
+            raise InvalidTransitionError(
+                "only a known provider response can be checkpointed"
+            )
+        records = [_task_contract_to_record(contract) for contract in contracts]
+        if not records:
+            raise InvalidTransitionError(
+                "provider contract checkpoint must contain at least one contract"
+            )
+        self._append(
+            "provider_contract_checkpointed",
+            {
+                "attempt_id": attempt_id,
+                "batch_index": batch_index,
+                "contracts": records,
+            },
+        )
 
     def bind_candidate_set(
         self,
@@ -1204,6 +1738,11 @@ class _LocalJobStore:
             job_path=self.job_path,
             work_items_path=self.work_items_path,
             events_path=self.events_path,
+            provider_usage_path=(
+                self.provider_usage_path if self._provider_attempts else None
+            ),
+            provider_attempts=self.provider_attempts,
+            provider_usage=self.provider_usage,
         )
 
     def _item_for_sequence(self, sequence_index: int) -> dict[str, object]:
@@ -1213,6 +1752,25 @@ class _LocalJobStore:
         raise InvalidTransitionError(
             f"serial job has no work item at sequence index {sequence_index}"
         )
+
+    def _provider_attempt(self, attempt_id: str) -> dict[str, object]:
+        try:
+            return self._provider_attempts[attempt_id]
+        except KeyError as exc:
+            raise InvalidTransitionError(
+                "provider event references an unknown attempt"
+            ) from exc
+
+    def _ensure_provider_budget(self) -> None:
+        budget = _logical_call_budget_from_limits(
+            self.job.get("authorization_limits"),
+            required=True,
+        )
+        assert budget is not None
+        if self.issued_logical_call_count >= budget:
+            raise LogicalCallBudgetExceeded(
+                "cumulative logical-call authorization is exhausted"
+            )
 
     def _append(
         self,
@@ -1353,14 +1911,69 @@ class _LocalJobStore:
         if self._job["candidate_set_hash"] is None:
             if items:
                 raise JournalCorruptionError("work items exist before candidate set binding")
-            return
-        records = tuple(item["candidate"] for item in items)
-        if self._job["candidate_set_hash"] != _hash_json(records):
-            raise JournalCorruptionError("durable candidate set hash is invalid")
-        if self._job["target_candidate_count"] != len(records):
-            raise JournalCorruptionError("durable candidate target does not match work items")
-        if tuple(item["sequence_index"] for item in items) != tuple(range(len(items))):
-            raise JournalCorruptionError("work-item sequence indexes are not contiguous")
+        else:
+            records = tuple(item["candidate"] for item in items)
+            if self._job["candidate_set_hash"] != _hash_json(records):
+                raise JournalCorruptionError("durable candidate set hash is invalid")
+            if self._job["target_candidate_count"] != len(records):
+                raise JournalCorruptionError(
+                    "durable candidate target does not match work items"
+                )
+            if tuple(item["sequence_index"] for item in items) != tuple(range(len(items))):
+                raise JournalCorruptionError("work-item sequence indexes are not contiguous")
+        budget = _logical_call_budget_from_limits(
+            self._job.get("authorization_limits"),
+            required=False,
+        )
+        if budget is not None and self.issued_logical_call_count > budget:
+            raise JournalCorruptionError(
+                "provider logical-call usage exceeds durable authorization"
+            )
+        checkpoint_ids = {
+            str(checkpoint["attempt_id"])
+            for checkpoint in self._provider_checkpoints
+        }
+        checkpoint_batches: set[int] = set()
+        checkpoint_candidate_ids: set[str] = set()
+        for checkpoint in self._provider_checkpoints:
+            batch_index = _integer_value(
+                checkpoint["batch_index"],
+                "provider_checkpoint.batch_index",
+            )
+            if batch_index in checkpoint_batches:
+                raise JournalCorruptionError(
+                    "provider checkpoint batch identity is duplicated"
+                )
+            checkpoint_batches.add(batch_index)
+            checkpoint_records = checkpoint.get("contracts")
+            if not isinstance(checkpoint_records, list):
+                raise JournalCorruptionError(
+                    "provider checkpoint contracts are malformed"
+                )
+            for record in checkpoint_records:
+                if not isinstance(record, Mapping):
+                    raise JournalCorruptionError(
+                        "provider checkpoint contract is malformed"
+                    )
+                try:
+                    candidate_id = _task_contract_from_record(record).intent.candidate_id
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise JournalCorruptionError(
+                        "provider checkpoint contract is invalid"
+                    ) from exc
+                if candidate_id in checkpoint_candidate_ids:
+                    raise JournalCorruptionError(
+                        "provider checkpoint candidate identity is duplicated"
+                    )
+                checkpoint_candidate_ids.add(candidate_id)
+        if any(
+            attempt["status"] == "checkpointed"
+            and str(attempt["attempt_id"]) not in checkpoint_ids
+            for attempt in self.provider_attempts
+        ):
+            raise JournalCorruptionError(
+                "provider checkpoint state is inconsistent with attempts"
+            )
 
     def _validate_snapshots(self) -> None:
         if not self.job_path.exists() or not self.work_items_path.exists():
@@ -1397,6 +2010,25 @@ class _LocalJobStore:
             _stable_snapshot_record(item) for item in self.work_items
         ]:
             self._snapshots_need_rebuild = True
+        if not self.provider_usage_path.exists():
+            self._snapshots_need_rebuild = True
+        else:
+            try:
+                snapshot_usage = json.loads(
+                    self.provider_usage_path.read_text(encoding="utf-8")
+                )
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise JournalCorruptionError(
+                    "provider usage snapshot is malformed"
+                ) from exc
+            if not isinstance(snapshot_usage, Mapping):
+                raise JournalCorruptionError(
+                    "provider usage snapshot must be an object"
+                )
+            if _stable_snapshot_record(snapshot_usage) != _stable_snapshot_record(
+                self.provider_usage
+            ):
+                self._snapshots_need_rebuild = True
 
     def _apply_event(self, event: Mapping[str, object]) -> None:
         event_type = str(event["event_type"])
@@ -1508,6 +2140,201 @@ class _LocalJobStore:
             item["completed_at"] = self._timestamp_factory()
             item["result_kind"] = result_kind
             item["outcome"] = dict(outcome)
+        elif event_type == "provider_work_intent":
+            _require_payload_keys(
+                payload,
+                {
+                    "attempt_id",
+                    "attempt_sequence",
+                    "role",
+                    "provider_alias",
+                    "model_alias",
+                    "batch_index",
+                    "requested_candidate_count",
+                    "prompt_hash",
+                },
+            )
+            self._require_no_work_item(work_item_id)
+            self._require_job_status("running")
+            attempt_id = payload.get("attempt_id")
+            attempt_sequence = payload.get("attempt_sequence")
+            if not isinstance(attempt_id, str) or attempt_id != _provider_attempt_id(
+                str(self.job["job_id"]), attempt_sequence
+            ):
+                raise InvalidTransitionError("provider attempt identity is invalid")
+            if attempt_id in self._provider_attempts:
+                raise InvalidTransitionError("provider attempt identity is duplicated")
+            if (
+                not isinstance(attempt_sequence, int)
+                or isinstance(attempt_sequence, bool)
+                or attempt_sequence <= 0
+            ):
+                raise InvalidTransitionError("provider attempt sequence is invalid")
+            if attempt_sequence != len(self._provider_attempts) + 1:
+                raise InvalidTransitionError("provider attempt sequence is not contiguous")
+            role = payload.get("role")
+            provider_alias = payload.get("provider_alias")
+            model_alias = payload.get("model_alias")
+            _validate_provider_alias(role, "provider_attempt.role")
+            _validate_provider_alias(provider_alias, "provider_attempt.provider_alias")
+            _validate_provider_alias(model_alias, "provider_attempt.model_alias")
+            configured_identity = _provider_identity_from_job(self.job)
+            if configured_identity != {
+                "provider_alias": provider_alias,
+                "model_alias": model_alias,
+            }:
+                raise InvalidTransitionError(
+                    "provider attempt aliases drift from durable job identity"
+                )
+            batch_index = payload.get("batch_index")
+            requested = payload.get("requested_candidate_count")
+            if (
+                not isinstance(batch_index, int)
+                or isinstance(batch_index, bool)
+                or batch_index <= 0
+                or not isinstance(requested, int)
+                or isinstance(requested, bool)
+                or requested <= 0
+            ):
+                raise InvalidTransitionError("provider attempt batch shape is invalid")
+            prompt_hash = payload.get("prompt_hash")
+            if not isinstance(prompt_hash, str) or _HEX_SHA256_RE.fullmatch(prompt_hash) is None:
+                raise InvalidTransitionError("provider attempt prompt hash is invalid")
+            self._provider_attempts[attempt_id] = {
+                "schema_version": PROVIDER_ATTEMPT_SCHEMA_VERSION,
+                "attempt_id": attempt_id,
+                "attempt_sequence": attempt_sequence,
+                "role": role,
+                "provider_alias": provider_alias,
+                "model_alias": model_alias,
+                "batch_index": batch_index,
+                "requested_candidate_count": requested,
+                "prompt_hash": prompt_hash,
+                "status": "intent",
+                "logical_call_number": None,
+                "retry_count": 0,
+                "token_usage": {},
+                "price_metadata": None,
+                "error_class": None,
+                "cause": None,
+                "contracts": None,
+            }
+        elif event_type == "provider_attempt_issued":
+            _require_payload_keys(payload, {"attempt_id", "logical_call_number"})
+            self._require_no_work_item(work_item_id)
+            self._require_job_status("running")
+            attempt = self._provider_attempt(str(payload.get("attempt_id")))
+            if attempt["status"] != "intent":
+                raise InvalidTransitionError("provider attempt was already issued")
+            logical_call_number = payload.get("logical_call_number")
+            if (
+                not isinstance(logical_call_number, int)
+                or isinstance(logical_call_number, bool)
+                or logical_call_number != self.issued_logical_call_count + 1
+            ):
+                raise InvalidTransitionError("provider logical call number is invalid")
+            budget = _logical_call_budget_from_limits(
+                self.job.get("authorization_limits"),
+                required=True,
+            )
+            assert budget is not None
+            if logical_call_number > budget:
+                raise InvalidTransitionError("provider logical call budget was exceeded")
+            attempt["status"] = "issued"
+            attempt["logical_call_number"] = logical_call_number
+        elif event_type == "provider_attempt_known":
+            _require_payload_keys(
+                payload,
+                {"attempt_id", "retry_count", "token_usage", "price_metadata"},
+            )
+            self._require_no_work_item(work_item_id)
+            self._require_job_status("running")
+            attempt = self._provider_attempt(str(payload.get("attempt_id")))
+            if attempt["status"] != "issued":
+                raise InvalidTransitionError("provider attempt cannot become known")
+            _validate_provider_usage_payload(payload)
+            attempt["status"] = "known"
+            attempt["retry_count"] = payload["retry_count"]
+            attempt["token_usage"] = dict(payload["token_usage"])
+            attempt["price_metadata"] = _json_copy(payload["price_metadata"])
+        elif event_type == "provider_attempt_ambiguous":
+            _require_payload_keys(payload, {"attempt_id", "reason", "error_class"})
+            self._require_no_work_item(work_item_id)
+            self._require_job_status("running")
+            attempt = self._provider_attempt(str(payload.get("attempt_id")))
+            if attempt["status"] != "issued":
+                raise InvalidTransitionError("provider attempt cannot become ambiguous")
+            _require_non_empty_string(payload.get("reason"), "provider_attempt.reason")
+            _validate_provider_alias(payload.get("error_class"), "provider_attempt.error_class")
+            attempt["status"] = "ambiguous"
+            attempt["error_class"] = payload["error_class"]
+            attempt["cause"] = "llm_provider_ambiguous"
+        elif event_type == "provider_attempt_failed":
+            _require_payload_keys(
+                payload,
+                {
+                    "attempt_id",
+                    "cause",
+                    "error_class",
+                    "retry_count",
+                    "token_usage",
+                    "price_metadata",
+                },
+            )
+            self._require_no_work_item(work_item_id)
+            self._require_job_status("running")
+            attempt = self._provider_attempt(str(payload.get("attempt_id")))
+            if attempt["status"] != "issued":
+                raise InvalidTransitionError("provider attempt cannot fail twice")
+            _validate_provider_usage_payload(payload)
+            _require_non_empty_string(payload.get("cause"), "provider_attempt.cause")
+            _validate_provider_alias(payload.get("error_class"), "provider_attempt.error_class")
+            attempt["status"] = "failed"
+            attempt["cause"] = payload["cause"]
+            attempt["error_class"] = payload["error_class"]
+            attempt["retry_count"] = payload["retry_count"]
+            attempt["token_usage"] = dict(payload["token_usage"])
+            attempt["price_metadata"] = _json_copy(payload["price_metadata"])
+        elif event_type == "provider_contract_checkpointed":
+            _require_payload_keys(payload, {"attempt_id", "batch_index", "contracts"})
+            self._require_no_work_item(work_item_id)
+            self._require_job_status("running")
+            attempt = self._provider_attempt(str(payload.get("attempt_id")))
+            if attempt["status"] != "known":
+                raise InvalidTransitionError(
+                    "provider contract checkpoint requires a known response"
+                )
+            batch_index = payload.get("batch_index")
+            if batch_index != attempt["batch_index"]:
+                raise InvalidTransitionError("provider checkpoint batch drifts from attempt")
+            contracts = payload.get("contracts")
+            if not isinstance(contracts, list) or not contracts:
+                raise InvalidTransitionError("provider checkpoint contracts are invalid")
+            candidate_ids: set[str] = set()
+            for record in contracts:
+                if not isinstance(record, Mapping):
+                    raise InvalidTransitionError("provider checkpoint contract is not an object")
+                try:
+                    contract = _task_contract_from_record(record)
+                    candidate_id = contract.intent.candidate_id
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise InvalidTransitionError(
+                        "provider checkpoint contract is malformed"
+                    ) from exc
+                if candidate_id in candidate_ids:
+                    raise InvalidTransitionError(
+                        "provider checkpoint contains duplicate candidate ids"
+                    )
+                candidate_ids.add(candidate_id)
+            attempt["status"] = "checkpointed"
+            attempt["contracts"] = _json_copy(contracts)
+            self._provider_checkpoints.append(
+                {
+                    "attempt_id": attempt["attempt_id"],
+                    "batch_index": batch_index,
+                    "contracts": _json_copy(contracts),
+                }
+            )
         elif event_type == "job_interrupted":
             _require_payload_keys(payload, {"reason"})
             _require_non_empty_string(payload.get("reason"), "job_interrupted.reason")
@@ -1603,6 +2430,7 @@ class _LocalJobStore:
             for item in self.work_items
         )
         _atomic_write_text(self.work_items_path, content)
+        _atomic_write_json(self.provider_usage_path, self.provider_usage)
 
 
 def _validate_serial_configuration(
@@ -1610,13 +2438,39 @@ def _validate_serial_configuration(
     job_id: str,
     run_profile: RunProfile,
     interrupt_after: int | None,
+    provider_identity: Mapping[str, str] | None,
+    authorization_limits: Mapping[str, object],
+    provider: object | None,
+    provider_factory: ProviderFactory | None,
+    candidate_generator: CandidateGenerator | None,
+    candidate_generator_factory: CandidateGeneratorFactory | None,
 ) -> None:
     _validate_job_id(job_id)
     if not isinstance(run_profile, RunProfile):
         raise JobConfigurationError("run_profile must be a validated RunProfile")
-    if run_profile.generation.mode == "llm":
+    if run_profile.generation.mode == "llm" and provider_identity is None:
         raise JobConfigurationError(
-            "serial deterministic orchestration does not support llm generation"
+            "llm serial orchestration requires an explicit provider"
+        )
+    if run_profile.generation.mode != "llm" and provider_identity is not None:
+        raise JobConfigurationError(
+            "provider-backed serial orchestration requires llm generation mode"
+        )
+    if provider_identity is not None:
+        _logical_call_budget_from_limits(authorization_limits, required=True)
+    if provider is not None and provider_factory is not None:
+        raise JobConfigurationError("provider and provider_factory are mutually exclusive")
+    if provider_factory is not None and not callable(provider_factory):
+        raise JobConfigurationError("provider_factory must be callable")
+    if provider is not None and not callable(getattr(provider, "generate_json", None)):
+        raise JobConfigurationError(
+            "provider must expose generate_json(prompt, role=...)"
+        )
+    if provider_identity is not None and (
+        candidate_generator is not None or candidate_generator_factory is not None
+    ):
+        raise JobConfigurationError(
+            "provider-backed orchestration owns the candidate generator"
         )
     if run_profile.coverage_profile is not None:
         raise JobConfigurationError(
@@ -1659,9 +2513,158 @@ def _normalize_authorization_limits(
     return normalized
 
 
+def _normalize_provider_identity(
+    *,
+    provider_present: bool,
+    generation_mode: str | None,
+    provider_alias: str | None,
+    model_alias: str | None,
+) -> dict[str, str] | None:
+    aliases_present = provider_alias is not None or model_alias is not None
+    if not provider_present and aliases_present:
+        raise JobConfigurationError(
+            "provider aliases require an explicit provider or provider_factory"
+        )
+    if not provider_present:
+        if generation_mode == "llm":
+            raise JobConfigurationError(
+                "llm serial orchestration requires an explicit provider"
+            )
+        return None
+    _validate_provider_alias(provider_alias, "provider_alias")
+    _validate_provider_alias(model_alias, "model_alias")
+    return {
+        "provider_alias": str(provider_alias),
+        "model_alias": str(model_alias),
+    }
+
+
+def _validate_provider_alias(value: object, field_name: str) -> None:
+    if not isinstance(value, str) or _PROVIDER_ALIAS_RE.fullmatch(value) is None:
+        raise JobConfigurationError(
+            f"{field_name} must be a safe non-empty provider/model alias"
+        )
+
+
+def _logical_call_budget_from_limits(
+    limits: object,
+    *,
+    required: bool,
+) -> int | None:
+    if not isinstance(limits, Mapping):
+        if required:
+            raise JobConfigurationError(
+                "authorization_limits.logical_call_budget is required"
+            )
+        return None
+    value = limits.get("logical_call_budget")
+    if value is None:
+        if required:
+            raise JobConfigurationError(
+                "authorization_limits.logical_call_budget is required"
+            )
+        return None
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise JobConfigurationError(
+            "authorization_limits.logical_call_budget must be a positive integer"
+        )
+    return value
+
+
+def _provider_identity_from_job(
+    job: Mapping[str, object],
+) -> dict[str, str] | None:
+    identity = job.get("configuration_identity")
+    if not isinstance(identity, Mapping):
+        return None
+    provider = identity.get("provider")
+    if provider is None:
+        return None
+    if not isinstance(provider, Mapping):
+        raise JournalCorruptionError("durable provider identity is malformed")
+    provider_alias = provider.get("provider_alias")
+    model_alias = provider.get("model_alias")
+    _validate_provider_alias(provider_alias, "provider.provider_alias")
+    _validate_provider_alias(model_alias, "provider.model_alias")
+    return {
+        "provider_alias": str(provider_alias),
+        "model_alias": str(model_alias),
+    }
+
+
+def _provider_attempt_id(job_id: str, attempt_sequence: object) -> str:
+    if not isinstance(attempt_sequence, int) or isinstance(attempt_sequence, bool):
+        raise ValueError("provider attempt sequence must be an integer")
+    return f"{job_id}:provider:{attempt_sequence:06d}"
+
+
+def _safe_retry_count(value: object) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        return 0
+    return min(value, 1000)
+
+
+def _sanitize_provider_lineage(lineage: Mapping[str, object]) -> dict[str, object]:
+    if not isinstance(lineage, Mapping):
+        lineage = {}
+    token_usage: dict[str, int] = {}
+    raw_tokens = lineage.get("tokens", {})
+    if isinstance(raw_tokens, Mapping):
+        for key in (
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+            "input_tokens",
+            "output_tokens",
+            "cached_tokens",
+        ):
+            value = raw_tokens.get(key)
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                token_usage[key] = value
+    price_metadata = lineage.get("price_metadata")
+    if isinstance(price_metadata, Mapping):
+        sanitized_price: dict[str, object] = {}
+        for key in ("input", "output", "total", "currency"):
+            value = price_metadata.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                sanitized_price[key] = value
+            elif key == "currency" and isinstance(value, str) and value.isalpha():
+                sanitized_price[key] = value[:12]
+        price_metadata_value: dict[str, object] | None = sanitized_price or None
+    else:
+        price_metadata_value = None
+    return {
+        "retry_count": _safe_retry_count(lineage.get("retry_count", 0)),
+        "token_usage": token_usage,
+        "price_metadata": price_metadata_value,
+    }
+
+
+def _validate_provider_usage_payload(payload: Mapping[str, object]) -> None:
+    retry_count = payload.get("retry_count")
+    if not isinstance(retry_count, int) or isinstance(retry_count, bool) or retry_count < 0:
+        raise InvalidTransitionError("provider retry count is invalid")
+    token_usage = payload.get("token_usage")
+    if not isinstance(token_usage, Mapping):
+        raise InvalidTransitionError("provider token usage is invalid")
+    for key, value in token_usage.items():
+        if (
+            not isinstance(key, str)
+            or not isinstance(value, int)
+            or isinstance(value, bool)
+            or value < 0
+        ):
+            raise InvalidTransitionError("provider token usage contains invalid fields")
+    price_metadata = payload.get("price_metadata")
+    if price_metadata is not None and not isinstance(price_metadata, Mapping):
+        raise InvalidTransitionError("provider price metadata is invalid")
+
+
 def _normalized_configuration_identity(
     run_profile: RunProfile,
     authorization_limits: Mapping[str, object],
+    *,
+    provider_identity: Mapping[str, str] | None = None,
 ) -> dict[str, object]:
     source: dict[str, object] | None = None
     if run_profile.source is not None:
@@ -1696,6 +2699,11 @@ def _normalized_configuration_identity(
         ),
         "authorization_limits": _json_copy(dict(authorization_limits)),
     }
+    if provider_identity is not None:
+        identity["provider"] = {
+            "provider_alias": provider_identity["provider_alias"],
+            "model_alias": provider_identity["model_alias"],
+        }
     _assert_safe_orchestration_value(identity)
     return identity
 
@@ -1703,8 +2711,16 @@ def _normalized_configuration_identity(
 def _configuration_identity_hash(
     run_profile: RunProfile,
     authorization_limits: Mapping[str, object],
+    *,
+    provider_identity: Mapping[str, str] | None = None,
 ) -> str:
-    return _hash_json(_normalized_configuration_identity(run_profile, authorization_limits))
+    return _hash_json(
+        _normalized_configuration_identity(
+            run_profile,
+            authorization_limits,
+            provider_identity=provider_identity,
+        )
+    )
 
 
 def _output_ownership_hash(output_dir: Path, job_id: str) -> str:
@@ -1983,7 +2999,11 @@ def _task_contract_to_record(contract: TaskContract) -> dict[str, object]:
 
 
 def _task_contract_from_record(record: Mapping[str, object]) -> TaskContract:
+    if record.get("schema_version") != CANDIDATE_CHECKPOINT_SCHEMA_VERSION:
+        raise ValueError("task contract checkpoint schema is unsupported")
     intent = _mapping_value(record["intent"], "intent")
+    if record.get("candidate_id") != intent.get("candidate_id"):
+        raise ValueError("task contract checkpoint candidate identity is inconsistent")
     policy_hint = _mapping_value(record["policy_hint"], "policy_hint")
     expected_outcome = _mapping_value(record["expected_outcome"], "expected_outcome")
     expected_state = record["expected_state"]
@@ -2004,7 +3024,7 @@ def _task_contract_from_record(record: Mapping[str, object]) -> TaskContract:
                 expected=dict(_mapping_value(check["expected"], "expected state")),
             )
         )
-    return TaskContract(
+    contract = TaskContract(
         intent=TaskIntent(
             candidate_id=str(intent["candidate_id"]),
             instruction=str(intent["instruction"]),
@@ -2036,6 +3056,7 @@ def _task_contract_from_record(record: Mapping[str, object]) -> TaskContract:
             record.get("mutation_authorization")
         ),
     )
+    return validate_task_contract(contract)
 
 
 def _task_contract_checkpoint_from_record(
@@ -2454,7 +3475,12 @@ __all__ = [
     "JobLockError",
     "JournalCorruptionError",
     "LOCK_SCHEMA_VERSION",
+    "LogicalCallBudgetExceeded",
     "OrchestrationError",
+    "PROVIDER_ATTEMPT_SCHEMA_VERSION",
+    "PROVIDER_USAGE_SCHEMA_VERSION",
+    "ProviderAttemptAmbiguous",
+    "ProviderResponseLost",
     "SerialJobResult",
     "StaleJobLockError",
     "WORK_ITEM_SCHEMA_VERSION",

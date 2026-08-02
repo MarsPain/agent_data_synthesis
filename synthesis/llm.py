@@ -113,6 +113,7 @@ class LLMProviderError(RuntimeError):
         lineage: dict[str, object] | None = None,
         schema_reason: str | None = None,
         schema_detail: str | None = None,
+        ambiguous: bool = False,
     ) -> None:
         super().__init__(f"Remote LLM generation failed: {error_class}")
         self.cause = cause
@@ -122,6 +123,27 @@ class LLMProviderError(RuntimeError):
         self.lineage = dict(lineage) if lineage else {}
         self.schema_reason = schema_reason
         self.schema_detail = schema_detail
+        self.ambiguous = ambiguous
+
+
+class LLMProviderAmbiguousError(LLMProviderError):
+    """A provider accepted a logical call but its response was not observed."""
+
+    def __init__(
+        self,
+        *,
+        error_class: str = "ProviderResponseLost",
+        retry_count: int = 0,
+        lineage: dict[str, object] | None = None,
+    ) -> None:
+        super().__init__(
+            cause="llm_provider_ambiguous",
+            error_class=error_class,
+            retryable=False,
+            retry_count=retry_count,
+            lineage=lineage,
+            ambiguous=True,
+        )
 
 
 class OpenAICompatibleClient:
@@ -209,6 +231,7 @@ class OpenAICompatibleClient:
                         error_class=type(exc).__name__,
                         retry_count=attempt,
                     ),
+                    ambiguous=True,
                 ) from exc
             except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
                 raise LLMProviderError(

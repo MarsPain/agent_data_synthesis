@@ -606,6 +606,8 @@ def run_foundation_pipeline(
                 for raw_task in base_tasks
             ]
         except LLMProviderError as exc:
+            if getattr(exc, "ambiguous", False):
+                raise
             rejections.append(assemble_generation_stage_rejection(error=exc))
             _attach_source_governance_to_rejections(rejections, source_provenance)
             artifacts = write_dataset_artifacts(

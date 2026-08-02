@@ -14,6 +14,98 @@ from synthesis.run_profiles import load_run_profile
 from synthesis.tasks import CandidateTask, generate_foundation_candidates
 
 
+class ResumableFakeProvider:
+    def __init__(self, *, ambiguous_on_call: int | None = None) -> None:
+        self.calls: list[dict[str, object]] = []
+        self.ambiguous_on_call = ambiguous_on_call
+
+    def generate_json(self, prompt: str, *, role: str):
+        from synthesis.domain_generation import DERIVED_FINAL_ANSWER_SENTINEL
+        from synthesis.llm import LLMGenerationResult
+
+        payload = json.loads(prompt)
+        self.calls.append(
+            {
+                "batch_index": payload["batch_context"]["batch_index"],
+                "requested_candidate_count": payload["requested_candidate_count"],
+            }
+        )
+        if self.ambiguous_on_call == len(self.calls):
+            from synthesis.llm import LLMProviderAmbiguousError
+
+            raise LLMProviderAmbiguousError()
+        count = payload["requested_candidate_count"]
+        prefix = payload["batch_context"]["candidate_id_prefix"]
+        task_type = payload["task_types"][0]
+        answer_contract = task_type["final_answer"]
+        state_contract = payload["output_contract"]["task_type_contracts"][0][
+            "expected_state"
+        ]
+        entries = next(iter(payload["grounding_context"].values()))
+        records = []
+        for index in range(count):
+            candidate_id = f"{prefix}task_{index:02d}"
+            entry = entries[index % len(entries)]
+            if answer_contract.get("value_contract") == "sentinel":
+                final_answer = DERIVED_FINAL_ANSWER_SENTINEL
+            else:
+                final_answer = entry["observation"][answer_contract["allowed_fields"][0]]
+            expected_state = []
+            if state_contract["mode"] == "required":
+                reference_fields = state_contract.get("reference_fields", {})
+                for item in state_contract["exact_items"]:
+                    expected = {}
+                    for field_name in item["expected_schema"]["properties"]:
+                        if field_name in reference_fields:
+                            expected[field_name] = entry["observation"][
+                                reference_fields[field_name]
+                            ]
+                        else:
+                            expected[field_name] = f"{field_name}_{candidate_id}"
+                    expected_state.append(
+                        {
+                            "check_type": item["check_type"],
+                            "expected": expected,
+                        }
+                    )
+            records.append(
+                {
+                    "candidate_id": candidate_id,
+                    "instruction": f"Execute grounded task {candidate_id}.",
+                    "task_type": task_type["task_type"],
+                    "difficulty": {
+                        "level": "easy",
+                        "tool_count": 1,
+                        "constraint_count": 1,
+                        "state_changes": 0,
+                        "ambiguity": "none",
+                        "recovery_paths": 0,
+                    },
+                    "required_capabilities": task_type["required_capabilities"],
+                    "required_tools": task_type["required_tools"],
+                    "primary_tool": task_type["required_tools"][0],
+                    "primary_arguments": dict(entry["primary_arguments"]),
+                    "final_answer_contains": final_answer,
+                    "expected_state": expected_state,
+                }
+            )
+        return LLMGenerationResult(
+            content={"task_contracts": records},
+            lineage={
+                "role": role,
+                "provider_host": "fake.example.test",
+                "model": "fake-model",
+                "config_hash": "fake-config-hash",
+                "prompt_hash": "fake-prompt-hash",
+                "retry_count": 0,
+                "tokens": {"total_tokens": 17},
+                "raw_prompt": "RAW_PROMPT_MARKER",
+                "raw_response": "RAW_RESPONSE_MARKER",
+                "provider_error_body": "RAW_ERROR_BODY_MARKER",
+            },
+        )
+
+
 class SerialOrchestrationTest(unittest.TestCase):
     PROFILE_PATH = Path("tests/fixtures/run_profiles/foundation-fixture.json")
 
@@ -34,6 +126,18 @@ class SerialOrchestrationTest(unittest.TestCase):
                 "quality_report.json",
             )
         }
+
+    def _llm_profile(self, root: Path, *, target: int) -> object:
+        raw = json.loads(
+            Path("tests/fixtures/run_profiles/contacts-representative-llm-100.json")
+            .read_text(encoding="utf-8")
+        )
+        raw["schema_version"] = "run_profile_v3"
+        raw.pop("mutation_admission", None)
+        raw["generation"]["target_candidate_count"] = target
+        profile_path = root / "llm-profile.json"
+        profile_path.write_text(json.dumps(raw), encoding="utf-8")
+        return load_run_profile(profile_path)
 
     def test_serial_job_persists_intent_and_returns_terminal_result(self) -> None:
         from synthesis.orchestration import run_serial_job
@@ -85,6 +189,370 @@ class SerialOrchestrationTest(unittest.TestCase):
                 result.job_path.read_text() + result.events_path.read_text(),
             )
             self.assertNotIn(str(Path(tmpdir)), result.work_items_path.read_text())
+
+    def test_provider_checkpoint_resume_only_calls_remaining_generation_batch(self) -> None:
+        from synthesis.orchestration import JobInterruption, run_serial_job
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile = self._llm_profile(root, target=7)
+            interrupted_provider = ResumableFakeProvider()
+
+            def interrupt_after_first_checkpoint(event):
+                if (
+                    event.get("event_type") == "provider_contract_checkpointed"
+                    and event.get("batch_index") == 1
+                ):
+                    raise JobInterruption("provider-checkpoint")
+
+            with self.assertRaises(JobInterruption):
+                run_serial_job(
+                    root,
+                    job_id="provider-checkpoint",
+                    run_profile=profile,
+                    provider=interrupted_provider,
+                    provider_alias="fake-provider",
+                    model_alias="fake-model",
+                    authorization_limits={"logical_call_budget": 2},
+                    interruption_hook=interrupt_after_first_checkpoint,
+                )
+
+            self.assertEqual(
+                [call["batch_index"] for call in interrupted_provider.calls],
+                [1],
+            )
+            state_dir = root / "orchestration" / "provider-checkpoint"
+            events = self._read_jsonl(state_dir / "events.jsonl")
+            checkpoints = [
+                event
+                for event in events
+                if event["event_type"] == "provider_contract_checkpointed"
+            ]
+            self.assertEqual(len(checkpoints), 1)
+            self.assertNotIn("raw_prompt", json.dumps(events).lower())
+            self.assertNotIn("raw_response", json.dumps(events).lower())
+
+            resumed_provider = ResumableFakeProvider()
+            resumed = run_serial_job(
+                root,
+                job_id="provider-checkpoint",
+                run_profile=profile,
+                resume=True,
+                provider=resumed_provider,
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 2},
+            )
+
+            self.assertEqual(resumed.status, "completed")
+            self.assertEqual(
+                [call["batch_index"] for call in resumed_provider.calls],
+                [2],
+            )
+            self.assertEqual(resumed.job_record["work_item_count"], 7)
+            events = self._read_jsonl(resumed.events_path)
+            self.assertEqual(
+                len(
+                    [
+                        event
+                        for event in events
+                        if event["event_type"] == "provider_contract_checkpointed"
+                    ]
+                ),
+                2,
+            )
+            for path in root.rglob("*"):
+                if path.is_file():
+                    serialized = path.read_bytes()
+                    for marker in (
+                        b"RAW_PROMPT_MARKER",
+                        b"RAW_RESPONSE_MARKER",
+                        b"RAW_ERROR_BODY_MARKER",
+                    ):
+                        self.assertNotIn(marker, serialized)
+
+            uninterrupted_root = root / "uninterrupted"
+            uninterrupted_root.mkdir()
+            uninterrupted_profile = self._llm_profile(uninterrupted_root, target=7)
+            uninterrupted = run_serial_job(
+                uninterrupted_root,
+                job_id="provider-checkpoint-full",
+                run_profile=uninterrupted_profile,
+                provider=ResumableFakeProvider(),
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 2},
+            )
+            self.assertEqual(uninterrupted.status, "completed")
+            self.assertEqual(self._core_artifacts(root), self._core_artifacts(uninterrupted_root))
+
+    def test_provider_phase_interruptions_resume_from_the_earliest_incomplete_phase(self) -> None:
+        from synthesis.orchestration import JobInterruption, run_serial_job
+
+        phases = {
+            "before-provider": "provider_attempt_intent",
+            "during-candidate": "work_item_started",
+            "after-terminal-outcome": "work_item_completed",
+        }
+        for phase, event_type in phases.items():
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                profile = self._llm_profile(root, target=3)
+                first_provider = ResumableFakeProvider()
+                seen = 0
+
+                def interrupt(event):
+                    nonlocal seen
+                    if event.get("event_type") != event_type:
+                        return
+                    seen += 1
+                    if seen == 1:
+                        raise JobInterruption(phase)
+
+                with self.assertRaises(JobInterruption):
+                    run_serial_job(
+                        root,
+                        job_id=f"provider-{phase}",
+                        run_profile=profile,
+                        provider=first_provider,
+                        provider_alias="fake-provider",
+                        model_alias="fake-model",
+                        authorization_limits={"logical_call_budget": 2},
+                        interruption_hook=interrupt,
+                    )
+
+                resumed_provider = ResumableFakeProvider()
+                resumed = run_serial_job(
+                    root,
+                    job_id=f"provider-{phase}",
+                    run_profile=profile,
+                    resume=True,
+                    provider=resumed_provider,
+                    provider_alias="fake-provider",
+                    model_alias="fake-model",
+                    authorization_limits={"logical_call_budget": 2},
+                )
+                self.assertEqual(resumed.status, "completed")
+                self.assertEqual(
+                    len(resumed_provider.calls),
+                    1 if phase == "before-provider" else 0,
+                )
+                self.assertEqual(len(resumed.work_items), 3)
+                self.assertEqual(
+                    len(
+                        {
+                            item["candidate_id"] for item in resumed.work_items
+                        }
+                    ),
+                    3,
+                )
+
+    def test_unresolved_issued_provider_attempt_is_recovered_as_ambiguous(self) -> None:
+        from synthesis.orchestration import JobInterruption, run_serial_job
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile = self._llm_profile(root, target=3)
+            first_provider = ResumableFakeProvider()
+
+            def interrupt_after_issue(event):
+                if event.get("event_type") == "provider_attempt_issued":
+                    raise JobInterruption("provider-issued")
+
+            with self.assertRaises(JobInterruption):
+                run_serial_job(
+                    root,
+                    job_id="provider-issued-recovery",
+                    run_profile=profile,
+                    provider=first_provider,
+                    provider_alias="fake-provider",
+                    model_alias="fake-model",
+                    authorization_limits={"logical_call_budget": 2},
+                    interruption_hook=interrupt_after_issue,
+                )
+
+            self.assertEqual(first_provider.calls, [])
+            resumed_provider = ResumableFakeProvider()
+            resumed = run_serial_job(
+                root,
+                job_id="provider-issued-recovery",
+                run_profile=profile,
+                resume=True,
+                provider=resumed_provider,
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 2},
+            )
+
+            self.assertEqual(resumed.status, "completed")
+            self.assertEqual(len(resumed_provider.calls), 1)
+            self.assertEqual(resumed.provider_usage["issued_logical_calls"], 2)
+            self.assertEqual(resumed.provider_usage["ambiguous_attempts"], 1)
+            events = self._read_jsonl(
+                root / "orchestration" / "provider-issued-recovery" / "events.jsonl"
+            )
+            self.assertEqual(
+                len(
+                    [
+                        event
+                        for event in events
+                        if event["event_type"] == "provider_attempt_ambiguous"
+                    ]
+                ),
+                1,
+            )
+
+    def test_ambiguous_provider_attempt_is_explicit_and_resumes_with_cumulative_budget(self) -> None:
+        from synthesis.llm import LLMProviderError
+        from synthesis.orchestration import run_serial_job
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile = self._llm_profile(root, target=3)
+            lost_response_provider = ResumableFakeProvider(ambiguous_on_call=1)
+
+            with self.assertRaises(LLMProviderError) as raised:
+                run_serial_job(
+                    root,
+                    job_id="provider-ambiguity",
+                    run_profile=profile,
+                    provider=lost_response_provider,
+                    provider_alias="fake-provider",
+                    model_alias="fake-model",
+                    authorization_limits={"logical_call_budget": 2},
+                )
+            self.assertTrue(raised.exception.ambiguous)
+
+            state_dir = root / "orchestration" / "provider-ambiguity"
+            events = self._read_jsonl(state_dir / "events.jsonl")
+            ambiguous = [
+                event
+                for event in events
+                if event["event_type"] == "provider_attempt_ambiguous"
+            ]
+            self.assertEqual(len(ambiguous), 1)
+            self.assertEqual(
+                json.loads((state_dir / "provider_usage.json").read_text())[
+                    "ambiguous_attempts"
+                ],
+                1,
+            )
+
+            resumed_provider = ResumableFakeProvider()
+            resumed = run_serial_job(
+                root,
+                job_id="provider-ambiguity",
+                run_profile=profile,
+                resume=True,
+                provider=resumed_provider,
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 2},
+            )
+            self.assertEqual(resumed.status, "completed")
+            self.assertEqual(len(resumed_provider.calls), 1)
+            self.assertEqual(resumed.provider_usage["issued_logical_calls"], 2)
+            self.assertEqual(resumed.provider_usage["ambiguous_attempts"], 1)
+
+    def test_budget_exhaustion_stops_before_a_second_provider_action(self) -> None:
+        from synthesis.orchestration import (
+            JobInterruption,
+            LogicalCallBudgetExceeded,
+            run_serial_job,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile = self._llm_profile(root, target=7)
+
+            def interrupt_after_first_checkpoint(event):
+                if (
+                    event.get("event_type") == "provider_contract_checkpointed"
+                    and event.get("batch_index") == 1
+                ):
+                    raise JobInterruption("budget")
+
+            first_provider = ResumableFakeProvider()
+            with self.assertRaises(JobInterruption):
+                run_serial_job(
+                    root,
+                    job_id="provider-budget",
+                    run_profile=profile,
+                    provider=first_provider,
+                    provider_alias="fake-provider",
+                    model_alias="fake-model",
+                    authorization_limits={"logical_call_budget": 1},
+                    interruption_hook=interrupt_after_first_checkpoint,
+                )
+
+            second_provider = ResumableFakeProvider()
+            with self.assertRaises(LogicalCallBudgetExceeded):
+                run_serial_job(
+                    root,
+                    job_id="provider-budget",
+                    run_profile=profile,
+                    resume=True,
+                    provider=second_provider,
+                    provider_alias="fake-provider",
+                    model_alias="fake-model",
+                    authorization_limits={"logical_call_budget": 1},
+                )
+            self.assertEqual(second_provider.calls, [])
+            events = self._read_jsonl(
+                root / "orchestration" / "provider-budget" / "events.jsonl"
+            )
+            self.assertEqual(
+                len(
+                    [
+                        event
+                        for event in events
+                        if event["event_type"] == "provider_attempt_issued"
+                    ]
+                ),
+                1,
+            )
+
+    def test_provider_alias_mismatch_is_rejected_before_lazy_provider_construction(self) -> None:
+        from synthesis.orchestration import JobConfigurationError, JobInterruption, run_serial_job
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile = self._llm_profile(root, target=3)
+
+            def interrupt_on_intent(event):
+                if event.get("event_type") == "provider_attempt_intent":
+                    raise JobInterruption("alias")
+
+            with self.assertRaises(JobInterruption):
+                run_serial_job(
+                    root,
+                    job_id="provider-alias",
+                    run_profile=profile,
+                    provider=ResumableFakeProvider(),
+                    provider_alias="fake-provider",
+                    model_alias="fake-model",
+                    authorization_limits={"logical_call_budget": 2},
+                    interruption_hook=interrupt_on_intent,
+                )
+
+            constructed = []
+
+            def factory():
+                constructed.append(True)
+                return ResumableFakeProvider()
+
+            with self.assertRaises(JobConfigurationError):
+                run_serial_job(
+                    root,
+                    job_id="provider-alias",
+                    run_profile=profile,
+                    resume=True,
+                    provider_factory=factory,
+                    provider_alias="different-provider",
+                    model_alias="fake-model",
+                    authorization_limits={"logical_call_budget": 2},
+                )
+            self.assertEqual(constructed, [])
 
     def test_interrupted_serial_job_resumes_without_reprocessing_completed_work(self) -> None:
         from synthesis.orchestration import (

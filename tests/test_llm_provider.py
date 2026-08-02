@@ -492,6 +492,34 @@ class OpenAICompatibleProviderTest(unittest.TestCase):
         self.assertIn("prompt_hash", error.lineage)
         self.assertNotIn("secret-test-key", json.dumps(error.lineage))
 
+    def test_exhausted_transport_retry_is_explicitly_ambiguous(self) -> None:
+        from synthesis.llm import LLMConfig, LLMProviderError, OpenAICompatibleClient
+
+        request_count = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal request_count
+            request_count += 1
+            raise httpx.ReadTimeout("provider response timed out", request=request)
+
+        client = OpenAICompatibleClient(
+            LLMConfig(
+                base_url="https://llm.example.test/v1",
+                api_key="secret-test-key",
+                model="test-generator",
+            ),
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+            max_retries=1,
+            sleeper=lambda _: None,
+        )
+
+        with self.assertRaises(LLMProviderError) as raised:
+            client.generate_json("Generate candidate tasks.", role="task_generation")
+
+        self.assertEqual(request_count, 2)
+        self.assertTrue(raised.exception.ambiguous)
+        self.assertEqual(raised.exception.retry_count, 1)
+
     def test_malformed_chat_completion_content_is_response_schema_error(self) -> None:
         from synthesis.llm import LLMConfig, LLMProviderError, OpenAICompatibleClient
 
