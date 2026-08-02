@@ -87,6 +87,11 @@ class RoleRegistry:
     def enabled_roles(self) -> list[RoleDefinition]:
         return [role for role in self._roles.values() if role.enabled]
 
+    def roles(self) -> list[RoleDefinition]:
+        """Return every registered role in deterministic name order."""
+
+        return list(self._roles.values())
+
     def invoke_json(self, name: str, client: Any, prompt: str) -> Any:
         role = self.require_enabled(name)
         try:

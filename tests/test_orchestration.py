@@ -16,9 +16,25 @@ from synthesis.tasks import CandidateTask, generate_foundation_candidates
 
 
 class ResumableFakeProvider:
-    def __init__(self, *, ambiguous_on_call: int | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        ambiguous_on_call: int | None = None,
+        ambiguous_tokens: dict[str, int] | None = None,
+        ambiguous_lineage_overrides: dict[str, object] | None = None,
+        failure_on_call: int | None = None,
+        retry_count: int = 0,
+        price_metadata: dict[str, object] | None = None,
+        lineage_overrides: dict[str, object] | None = None,
+    ) -> None:
         self.calls: list[dict[str, object]] = []
         self.ambiguous_on_call = ambiguous_on_call
+        self.ambiguous_tokens = ambiguous_tokens
+        self.ambiguous_lineage_overrides = ambiguous_lineage_overrides or {}
+        self.failure_on_call = failure_on_call
+        self.retry_count = retry_count
+        self.price_metadata = price_metadata
+        self.lineage_overrides = lineage_overrides or {}
 
     def generate_json(self, prompt: str, *, role: str):
         from synthesis.domain_generation import DERIVED_FINAL_ANSWER_SENTINEL
@@ -31,10 +47,25 @@ class ResumableFakeProvider:
                 "requested_candidate_count": payload["requested_candidate_count"],
             }
         )
+        if self.failure_on_call == len(self.calls):
+            from synthesis.llm import LLMProviderError
+
+            raise LLMProviderError(retry_count=self.retry_count)
         if self.ambiguous_on_call == len(self.calls):
             from synthesis.llm import LLMProviderAmbiguousError
 
-            raise LLMProviderAmbiguousError()
+            ambiguous_lineage = {
+                "role": role,
+                "retry_count": self.retry_count,
+                "tokens": self.ambiguous_tokens or {},
+            }
+            if self.price_metadata is not None:
+                ambiguous_lineage["price_metadata"] = self.price_metadata
+            ambiguous_lineage.update(self.ambiguous_lineage_overrides)
+            raise LLMProviderAmbiguousError(
+                retry_count=self.retry_count,
+                lineage=ambiguous_lineage,
+            )
         count = payload["requested_candidate_count"]
         prefix = payload["batch_context"]["candidate_id_prefix"]
         task_type = payload["task_types"][0]
@@ -90,20 +121,24 @@ class ResumableFakeProvider:
                     "expected_state": expected_state,
                 }
             )
+        lineage = {
+            "role": role,
+            "provider_host": "fake.example.test",
+            "model": "fake-model",
+            "config_hash": "fake-config-hash",
+            "prompt_hash": "fake-prompt-hash",
+            "retry_count": self.retry_count,
+            "tokens": {"total_tokens": 17},
+            "raw_prompt": "RAW_PROMPT_MARKER",
+            "raw_response": "RAW_RESPONSE_MARKER",
+            "provider_error_body": "RAW_ERROR_BODY_MARKER",
+        }
+        if self.price_metadata is not None:
+            lineage["price_metadata"] = self.price_metadata
+        lineage.update(self.lineage_overrides)
         return LLMGenerationResult(
             content={"task_contracts": records},
-            lineage={
-                "role": role,
-                "provider_host": "fake.example.test",
-                "model": "fake-model",
-                "config_hash": "fake-config-hash",
-                "prompt_hash": "fake-prompt-hash",
-                "retry_count": 0,
-                "tokens": {"total_tokens": 17},
-                "raw_prompt": "RAW_PROMPT_MARKER",
-                "raw_response": "RAW_RESPONSE_MARKER",
-                "provider_error_body": "RAW_ERROR_BODY_MARKER",
-            },
+            lineage=lineage,
         )
 
 
@@ -1246,6 +1281,403 @@ class SerialOrchestrationTest(unittest.TestCase):
             self.assertEqual(len(resumed_provider.calls), 1)
             self.assertEqual(resumed.provider_usage["issued_logical_calls"], 2)
             self.assertEqual(resumed.provider_usage["ambiguous_attempts"], 1)
+
+    def test_ambiguous_provider_usage_preserves_sanitized_metadata(self) -> None:
+        from synthesis.llm import LLMProviderError
+        from synthesis.orchestration import run_serial_job
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile = self._llm_profile(root, target=3)
+            with self.assertRaises(LLMProviderError):
+                run_serial_job(
+                    root,
+                    job_id="provider-ambiguity-metadata",
+                    run_profile=profile,
+                    provider=ResumableFakeProvider(
+                        ambiguous_on_call=1,
+                        ambiguous_tokens={"total_tokens": 5},
+                        retry_count=2,
+                        price_metadata={"total": 0.05, "currency": "USD"},
+                    ),
+                    provider_alias="fake-provider",
+                    model_alias="fake-model",
+                    authorization_limits={"logical_call_budget": 2},
+                )
+
+            resumed = run_serial_job(
+                root,
+                job_id="provider-ambiguity-metadata",
+                run_profile=profile,
+                resume=True,
+                provider=ResumableFakeProvider(),
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 2},
+            )
+            generation = next(
+                summary
+                for summary in resumed.provider_usage["role_summaries"]
+                if summary["role"] == "task_generation"
+            )
+            self.assertEqual(generation["ambiguous_attempts"], 1)
+            self.assertEqual(generation["adapter_retry_count"], 2)
+            self.assertEqual(
+                generation["token_usage"],
+                {"total_tokens": 22},
+            )
+            self.assertEqual(generation["price_metadata_status"], "mixed")
+            self.assertEqual(
+                generation["price_metadata"][0]["metadata"],
+                {"total": 0.05, "currency": "USD"},
+            )
+
+    def test_provider_usage_aggregates_role_calls_retries_tokens_and_reported_price(self) -> None:
+        from synthesis.orchestration import run_serial_job
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile = self._llm_profile(root, target=3)
+            result = run_serial_job(
+                root,
+                job_id="provider-usage-reported-price",
+                run_profile=profile,
+                provider=ResumableFakeProvider(
+                    retry_count=2,
+                    price_metadata={
+                        "input": 0.01,
+                        "output": 0.02,
+                        "total": 0.03,
+                        "currency": "USD",
+                    },
+                ),
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 1},
+            )
+
+            usage = result.provider_usage
+            self.assertEqual(usage["schema_version"], "orchestration_provider_usage_v2")
+            self.assertEqual(usage["call_count"], 1)
+            self.assertEqual(usage["issued_logical_calls"], 1)
+            self.assertEqual(usage["known_attempts"], 1)
+            self.assertEqual(usage["ambiguous_attempts"], 0)
+            self.assertEqual(usage["adapter_retry_count"], 2)
+            self.assertEqual(usage["price_metadata_status"], "reported")
+
+            summaries = {
+                summary["role"]: summary
+                for summary in usage["role_summaries"]
+            }
+            generation = summaries["task_generation"]
+            self.assertEqual(generation["call_count"], 1)
+            self.assertEqual(generation["known_attempts"], 1)
+            self.assertEqual(generation["adapter_retry_count"], 2)
+            self.assertEqual(generation["token_usage"], {"total_tokens": 17})
+            self.assertEqual(generation["price_metadata_status"], "reported")
+            self.assertEqual(
+                generation["price_metadata"][0]["metadata"],
+                {
+                    "input": 0.01,
+                    "output": 0.02,
+                    "total": 0.03,
+                    "currency": "USD",
+                },
+            )
+
+            # Every registered role is represented even when this run did not
+            # call it, without fabricating usage or a price.
+            solution_policy = summaries["solution_policy"]
+            self.assertEqual(solution_policy["call_count"], 0)
+            self.assertEqual(solution_policy["token_usage"], {})
+            self.assertEqual(solution_policy["price_metadata_status"], "unavailable")
+
+            persisted_usage = self._read_json(result.provider_usage_path)
+            self.assertEqual(persisted_usage, usage)
+
+    def test_predecessor_provider_usage_snapshot_is_rebuilt_on_resume(self) -> None:
+        from synthesis.orchestration import run_serial_job
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile = self._llm_profile(root, target=3)
+            result = run_serial_job(
+                root,
+                job_id="provider-usage-legacy-snapshot",
+                run_profile=profile,
+                provider=ResumableFakeProvider(),
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 1},
+            )
+            usage = result.provider_usage
+            legacy_attempts = [
+                {
+                    key: value
+                    for key, value in attempt.items()
+                    if key != "role_version"
+                }
+                for attempt in usage["attempts"]
+            ]
+            legacy_usage = {
+                "schema_version": "orchestration_provider_usage_v1",
+                "provider_alias": usage["provider_alias"],
+                "model_alias": usage["model_alias"],
+                "logical_call_budget": usage["logical_call_budget"],
+                "issued_logical_calls": usage["issued_logical_calls"],
+                "known_attempts": usage["known_attempts"],
+                "ambiguous_attempts": usage["ambiguous_attempts"],
+                "transport_retry_count": usage["transport_retry_count"],
+                "attempts": legacy_attempts,
+            }
+            result.provider_usage_path.write_text(
+                json.dumps(legacy_usage),
+                encoding="utf-8",
+            )
+
+            inspected = run_serial_job(
+                root,
+                job_id="provider-usage-legacy-snapshot",
+                run_profile=profile,
+                resume=True,
+                provider=ResumableFakeProvider(),
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 1},
+            )
+            self.assertEqual(
+                inspected.provider_usage["schema_version"],
+                "orchestration_provider_usage_v2",
+            )
+            self.assertEqual(
+                self._read_json(inspected.provider_usage_path),
+                inspected.provider_usage,
+            )
+
+    def test_provider_usage_aggregates_remote_terminal_role_lineage_without_generation_double_count(self) -> None:
+        from synthesis.orchestration import run_serial_job
+
+        def remote_policy(task: CandidateTask):
+            policy = scripted_solution_policy(task)
+            return replace(
+                policy,
+                lineage={
+                    "role": "solution_policy",
+                    "role_version": "role_solution_policy_v1",
+                    "output_type": "solution_policy",
+                    "owner_module": "synthesis.execution",
+                    "retry_policy": "bounded_remote_json",
+                    "provider_host": "fake.example.test",
+                    "model": "fake-model",
+                    "config_hash": "fake-config-hash",
+                    "retry_count": 1,
+                    "tokens": {
+                        "prompt_tokens": 2,
+                        "completion_tokens": 1,
+                        "total_tokens": 3,
+                    },
+                    "price_metadata": {"total": 0.01, "currency": "USD"},
+                },
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile = self._llm_profile(root, target=3)
+            result = run_serial_job(
+                root,
+                job_id="provider-usage-multi-role",
+                run_profile=profile,
+                provider=ResumableFakeProvider(),
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 1},
+                policy_generator=remote_policy,
+            )
+
+            usage = result.provider_usage
+            summaries = {
+                summary["role"]: summary
+                for summary in usage["role_summaries"]
+            }
+            self.assertEqual(summaries["task_generation"]["call_count"], 1)
+            self.assertEqual(summaries["solution_policy"]["call_count"], 3)
+            self.assertEqual(summaries["solution_policy"]["known_attempts"], 3)
+            self.assertEqual(summaries["solution_policy"]["adapter_retry_count"], 3)
+            self.assertEqual(
+                summaries["solution_policy"]["token_usage"],
+                {
+                    "prompt_tokens": 6,
+                    "completion_tokens": 3,
+                    "total_tokens": 9,
+                },
+            )
+            self.assertEqual(usage["call_count"], 4)
+            self.assertEqual(usage["issued_logical_calls"], 1)
+
+    def test_provider_usage_price_absence_and_ambiguous_zero_token_failure_are_explicit(self) -> None:
+        from synthesis.llm import LLMProviderError
+        from synthesis.orchestration import run_serial_job
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile = self._llm_profile(root, target=3)
+            first = ResumableFakeProvider(ambiguous_on_call=1)
+            with self.assertRaises(LLMProviderError):
+                run_serial_job(
+                    root,
+                    job_id="provider-usage-price-absence",
+                    run_profile=profile,
+                    provider=first,
+                    provider_alias="fake-provider",
+                    model_alias="fake-model",
+                    authorization_limits={"logical_call_budget": 2},
+                )
+
+            resumed = run_serial_job(
+                root,
+                job_id="provider-usage-price-absence",
+                run_profile=profile,
+                resume=True,
+                provider=ResumableFakeProvider(),
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 2},
+            )
+            generation = next(
+                summary
+                for summary in resumed.provider_usage["role_summaries"]
+                if summary["role"] == "task_generation"
+            )
+            self.assertEqual(generation["call_count"], 2)
+            self.assertEqual(generation["known_attempts"], 1)
+            self.assertEqual(generation["ambiguous_attempts"], 1)
+            self.assertEqual(generation["token_usage"], {"total_tokens": 17})
+            self.assertEqual(generation["price_metadata_status"], "unavailable")
+            self.assertEqual(resumed.provider_usage["price_metadata"], [])
+
+    def test_provider_usage_zero_token_provider_failure_is_explicit(self) -> None:
+        from synthesis.orchestration import run_serial_job
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile = self._llm_profile(root, target=3)
+            result = run_serial_job(
+                root,
+                job_id="provider-usage-zero-token-failure",
+                run_profile=profile,
+                provider=ResumableFakeProvider(
+                    failure_on_call=1,
+                    retry_count=2,
+                ),
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 1},
+            )
+            self.assertEqual(result.status, "completed")
+
+            usage = self._read_json(
+                root
+                / "orchestration"
+                / "provider-usage-zero-token-failure"
+                / "provider_usage.json"
+            )
+            generation = next(
+                summary
+                for summary in usage["role_summaries"]
+                if summary["role"] == "task_generation"
+            )
+            self.assertEqual(generation["call_count"], 1)
+            self.assertEqual(generation["known_attempts"], 1)
+            self.assertEqual(generation["failed_attempts"], 1)
+            self.assertEqual(generation["adapter_retry_count"], 2)
+            self.assertEqual(generation["token_usage"], {})
+            self.assertEqual(generation["price_metadata_status"], "unavailable")
+
+    def test_provider_usage_validation_rejects_unknown_schema_role_totals_and_identity(self) -> None:
+        from synthesis.orchestration import (
+            validate_provider_usage_record,
+            run_serial_job,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile = self._llm_profile(root, target=3)
+            result = run_serial_job(
+                root,
+                job_id="provider-usage-validation",
+                run_profile=profile,
+                provider=ResumableFakeProvider(),
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 1},
+            )
+            usage = json.loads(json.dumps(result.provider_usage))
+
+            invalid_schema = json.loads(json.dumps(usage))
+            invalid_schema["schema_version"] = "unsupported"
+            with self.assertRaises(ValueError):
+                validate_provider_usage_record(invalid_schema)
+
+            invalid_role = json.loads(json.dumps(usage))
+            invalid_role["role_summaries"][0]["role"] = "unknown_role"
+            with self.assertRaises(ValueError):
+                validate_provider_usage_record(invalid_role)
+
+            invalid_totals = json.loads(json.dumps(usage))
+            invalid_totals["call_count"] += 1
+            with self.assertRaises(ValueError):
+                validate_provider_usage_record(invalid_totals)
+
+            invalid_identity = json.loads(json.dumps(usage))
+            invalid_identity["role_summaries"][0]["provider_alias"] = "other-provider"
+            with self.assertRaises(ValueError):
+                validate_provider_usage_record(invalid_identity)
+
+    def test_malformed_provider_usage_fails_closed(self) -> None:
+        from synthesis.orchestration import InvalidTransitionError, run_serial_job
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile = self._llm_profile(root, target=3)
+            with self.assertRaises(InvalidTransitionError):
+                run_serial_job(
+                    root,
+                    job_id="provider-usage-malformed",
+                    run_profile=profile,
+                    provider=ResumableFakeProvider(
+                        lineage_overrides={
+                            "tokens": {
+                                "prompt_tokens": 4,
+                                "unexpected_tokens": 2,
+                            }
+                        }
+                    ),
+                    provider_alias="fake-provider",
+                    model_alias="fake-model",
+                    authorization_limits={"logical_call_budget": 1},
+                )
+
+    def test_malformed_ambiguous_provider_usage_fails_closed(self) -> None:
+        from synthesis.orchestration import InvalidTransitionError, run_serial_job
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile = self._llm_profile(root, target=3)
+            with self.assertRaises(InvalidTransitionError):
+                run_serial_job(
+                    root,
+                    job_id="provider-usage-malformed-ambiguous",
+                    run_profile=profile,
+                    provider=ResumableFakeProvider(
+                        ambiguous_on_call=1,
+                        ambiguous_lineage_overrides={
+                            "tokens": {"unexpected_tokens": 1},
+                        },
+                    ),
+                    provider_alias="fake-provider",
+                    model_alias="fake-model",
+                    authorization_limits={"logical_call_budget": 1},
+                )
 
     def test_budget_exhaustion_stops_before_a_second_provider_action(self) -> None:
         from synthesis.orchestration import (

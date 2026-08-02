@@ -11,11 +11,12 @@ import errno
 import hashlib
 import inspect
 import json
+import math
 import os
 import re
 import secrets
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,6 +51,7 @@ from synthesis.pipeline import (
     run_foundation_pipeline,
 )
 from synthesis.run_profiles import RunProfile
+from synthesis.roles import RoleDefinition, default_role_registry
 from synthesis.domain_sources import (
     ProfileLocalDomainSourceRequest,
     build_profile_local_domain_source_input,
@@ -81,7 +83,9 @@ INVALID_CANDIDATE_CHECKPOINT_SCHEMA_VERSION = "orchestration_invalid_candidate_v
 CONFIGURATION_IDENTITY_SCHEMA_VERSION = "orchestration_configuration_identity_v1"
 LOCK_SCHEMA_VERSION = "orchestration_lock_v1"
 PROVIDER_ATTEMPT_SCHEMA_VERSION = "orchestration_provider_attempt_v1"
-PROVIDER_USAGE_SCHEMA_VERSION = "orchestration_provider_usage_v1"
+LEGACY_PROVIDER_USAGE_SCHEMA_VERSION = "orchestration_provider_usage_v1"
+PROVIDER_USAGE_SCHEMA_VERSION = "orchestration_provider_usage_v2"
+PROVIDER_ROLE_USAGE_SCHEMA_VERSION = "orchestration_provider_role_usage_v1"
 
 JOB_STATUSES = {
     "pending",
@@ -99,6 +103,15 @@ _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _HEX_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _PROVIDER_ALIAS_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _UNSET_CONCURRENCY = object()
+_TOKEN_USAGE_FIELDS = (
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+    "input_tokens",
+    "output_tokens",
+    "cached_tokens",
+)
+_PRICE_METADATA_FIELDS = ("input", "output", "total", "currency")
 
 
 class OrchestrationError(RuntimeError):
@@ -808,7 +821,6 @@ def _run_serial_job_locked(
     store.completed(pipeline_result)
     return store.result(output_dir, pipeline_result=pipeline_result)
 
-
 def validate_job_record(record: Mapping[str, object]) -> None:
     """Validate a persisted versioned job record."""
 
@@ -1057,6 +1069,374 @@ def validate_event_record(record: Mapping[str, object]) -> None:
     if previous_hash is not None:
         _validate_sha256(previous_hash, "event.previous_integrity_hash")
     _validate_sha256(record["integrity_hash"], "event.integrity_hash")
+
+
+def validate_provider_usage_record(record: Mapping[str, object]) -> None:
+    """Validate the versioned, sanitized provider-usage snapshot."""
+
+    _require_exact_keys(
+        record,
+        {
+            "schema_version",
+            "provider_alias",
+            "model_alias",
+            "logical_call_budget",
+            "issued_logical_calls",
+            "call_count",
+            "known_attempts",
+            "ambiguous_attempts",
+            "failed_attempts",
+            "adapter_retry_count",
+            "transport_retry_count",
+            "token_usage",
+            "price_metadata_status",
+            "price_metadata",
+            "role_summaries",
+            "attempts",
+        },
+        "provider_usage",
+    )
+    if record["schema_version"] != PROVIDER_USAGE_SCHEMA_VERSION:
+        raise ValueError("provider_usage.schema_version is unsupported")
+    provider_alias = record["provider_alias"]
+    model_alias = record["model_alias"]
+    if provider_alias is not None:
+        _validate_provider_alias(provider_alias, "provider_usage.provider_alias")
+    if model_alias is not None:
+        _validate_provider_alias(model_alias, "provider_usage.model_alias")
+    if (provider_alias is None) != (model_alias is None):
+        raise ValueError("provider_usage provider and model aliases must be paired")
+    budget = record["logical_call_budget"]
+    if budget is not None and (
+        not isinstance(budget, int) or isinstance(budget, bool) or budget <= 0
+    ):
+        raise ValueError("provider_usage.logical_call_budget is invalid")
+    counts: dict[str, int] = {}
+    for field_name in (
+        "issued_logical_calls",
+        "call_count",
+        "known_attempts",
+        "ambiguous_attempts",
+        "failed_attempts",
+        "adapter_retry_count",
+        "transport_retry_count",
+    ):
+        value = record[field_name]
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"provider_usage.{field_name} must be non-negative")
+        counts[field_name] = value
+    if counts["adapter_retry_count"] != counts["transport_retry_count"]:
+        raise ValueError("provider_usage retry totals are inconsistent")
+    if counts["known_attempts"] + counts["ambiguous_attempts"] != counts["call_count"]:
+        raise ValueError("provider_usage attempt totals are inconsistent")
+    if counts["failed_attempts"] > counts["known_attempts"]:
+        raise ValueError("provider_usage failed attempts exceed known attempts")
+    if budget is not None and counts["issued_logical_calls"] > budget:
+        raise ValueError("provider_usage exceeds logical call budget")
+
+    role_summaries = record["role_summaries"]
+    if not isinstance(role_summaries, list):
+        raise ValueError("provider_usage.role_summaries must be a list")
+    expected_roles = _provider_role_definitions()
+    if [summary.get("role") for summary in role_summaries if isinstance(summary, Mapping)] != [
+        role.name for role in expected_roles
+    ]:
+        raise ValueError("provider_usage role summaries are incomplete or reordered")
+    role_totals = {
+        "call_count": 0,
+        "known_attempts": 0,
+        "ambiguous_attempts": 0,
+        "failed_attempts": 0,
+        "adapter_retry_count": 0,
+    }
+    role_token_usage: list[object] = []
+    role_price_records: list[dict[str, object]] = []
+    for summary, role in zip(role_summaries, expected_roles, strict=True):
+        if not isinstance(summary, Mapping):
+            raise ValueError("provider_usage role summary must be an object")
+        _require_exact_keys(
+            summary,
+            {
+                "schema_version",
+                "role",
+                "role_version",
+                "provider_alias",
+                "model_alias",
+                "call_count",
+                "known_attempts",
+                "ambiguous_attempts",
+                "failed_attempts",
+                "adapter_retry_count",
+                "token_usage",
+                "price_metadata_status",
+                "price_metadata",
+            },
+            "provider_usage.role_summary",
+        )
+        if summary["schema_version"] != PROVIDER_ROLE_USAGE_SCHEMA_VERSION:
+            raise ValueError("provider_usage role summary schema is unsupported")
+        if summary["role"] != role.name or summary["role_version"] != role.version:
+            raise ValueError("provider_usage role identity is inconsistent")
+        if summary["provider_alias"] != provider_alias or summary["model_alias"] != model_alias:
+            raise ValueError("provider_usage role provider identity is inconsistent")
+        for field_name in (
+            "call_count",
+            "known_attempts",
+            "ambiguous_attempts",
+            "failed_attempts",
+            "adapter_retry_count",
+        ):
+            value = summary[field_name]
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError(f"provider_usage role {field_name} is invalid")
+            role_totals[field_name] += value
+        if summary["known_attempts"] + summary["ambiguous_attempts"] != summary["call_count"]:
+            raise ValueError("provider_usage role attempt totals are inconsistent")
+        if summary["failed_attempts"] > summary["known_attempts"]:
+            raise ValueError("provider_usage role failed attempts exceed known attempts")
+        role_token_usage.append(
+            _sanitize_token_usage(
+                summary["token_usage"],
+                field_name="provider_usage role token_usage",
+                check_consistency=False,
+            )
+        )
+        summary_prices = summary["price_metadata"]
+        if not isinstance(summary_prices, list):
+            raise ValueError("provider_usage role price_metadata must be a list")
+        for price_record in summary_prices:
+            _validate_price_record(price_record, role.name)
+            role_price_records.append(dict(price_record))
+        expected_status = _price_metadata_status(
+            summary["call_count"],
+            len(summary_prices),
+        )
+        if summary["price_metadata_status"] != expected_status:
+            raise ValueError("provider_usage role price status is inconsistent")
+
+    if role_totals != {
+        field_name: counts[field_name]
+        for field_name in role_totals
+    }:
+        raise ValueError("provider_usage role totals do not match summary totals")
+    if _sum_token_usage(role_token_usage) != _sanitize_token_usage(
+        record["token_usage"],
+        field_name="provider_usage.token_usage",
+        check_consistency=False,
+    ):
+        raise ValueError("provider_usage token totals do not match role totals")
+    price_metadata = record["price_metadata"]
+    if not isinstance(price_metadata, list):
+        raise ValueError("provider_usage price_metadata must be a list")
+    for price_record in price_metadata:
+        if not isinstance(price_record, Mapping):
+            raise ValueError("provider_usage price record must be an object")
+        _validate_price_record(price_record, str(price_record.get("role", "")))
+    if [dict(record) for record in price_metadata] != role_price_records:
+        raise ValueError("provider_usage price records do not match role summaries")
+    if record["price_metadata_status"] != _price_metadata_status(
+        counts["call_count"],
+        len(price_metadata),
+    ):
+        raise ValueError("provider_usage price status is inconsistent")
+
+    attempts = record["attempts"]
+    if not isinstance(attempts, list):
+        raise ValueError("provider_usage attempts must be a list")
+    if len(attempts) != counts["issued_logical_calls"]:
+        raise ValueError("provider_usage attempt count is inconsistent")
+    for attempt in attempts:
+        if not isinstance(attempt, Mapping):
+            raise ValueError("provider_usage attempt must be an object")
+        base_keys = {
+            "schema_version",
+            "attempt_id",
+            "attempt_sequence",
+            "role",
+            "role_version",
+            "provider_alias",
+            "model_alias",
+            "batch_index",
+            "status",
+            "issued",
+            "logical_call_number",
+            "retry_count",
+            "token_usage",
+            "price_metadata",
+        }
+        optional_keys = {"error_class", "cause"}
+        if set(attempt) - base_keys - optional_keys or not base_keys.issubset(attempt):
+            raise ValueError("provider_usage attempt keys are unsupported")
+        if attempt["schema_version"] != PROVIDER_ATTEMPT_SCHEMA_VERSION:
+            raise ValueError("provider_usage attempt schema is unsupported")
+        role = _supported_provider_role(
+            attempt["role"],
+            field_name="provider_usage attempt.role",
+        )
+        if attempt["role_version"] != role.version:
+            raise ValueError("provider_usage attempt role version is inconsistent")
+        if attempt["provider_alias"] != provider_alias or attempt["model_alias"] != model_alias:
+            raise ValueError("provider_usage attempt provider identity is inconsistent")
+        if attempt["status"] not in {"issued", "known", "checkpointed", "ambiguous", "failed"}:
+            raise ValueError("provider_usage attempt status is unsupported")
+        if attempt["issued"] is not True:
+            raise ValueError("provider_usage attempt issued marker is invalid")
+        for field_name in ("attempt_id",):
+            _require_non_empty_string(attempt[field_name], f"provider_usage attempt.{field_name}")
+        for field_name in ("attempt_sequence", "batch_index", "logical_call_number"):
+            value = attempt[field_name]
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                raise ValueError(f"provider_usage attempt.{field_name} is invalid")
+        _safe_retry_count(
+            attempt["retry_count"],
+            field_name="provider_usage attempt.retry_count",
+        )
+        _sanitize_token_usage(
+            attempt["token_usage"],
+            field_name="provider_usage attempt.token_usage",
+        )
+        _sanitize_price_metadata(
+            attempt["price_metadata"],
+            field_name="provider_usage attempt.price_metadata",
+        )
+
+
+def _validate_legacy_provider_usage_snapshot(
+    record: Mapping[str, object],
+) -> None:
+    """Validate the predecessor flat usage snapshot before rebuilding it."""
+
+    _require_exact_keys(
+        record,
+        {
+            "schema_version",
+            "provider_alias",
+            "model_alias",
+            "logical_call_budget",
+            "issued_logical_calls",
+            "known_attempts",
+            "ambiguous_attempts",
+            "transport_retry_count",
+            "attempts",
+        },
+        "legacy_provider_usage",
+    )
+    if record["schema_version"] != LEGACY_PROVIDER_USAGE_SCHEMA_VERSION:
+        raise ValueError("legacy provider usage schema is unsupported")
+    provider_alias = record["provider_alias"]
+    model_alias = record["model_alias"]
+    if provider_alias is not None:
+        _validate_provider_alias(provider_alias, "legacy_provider_usage.provider_alias")
+    if model_alias is not None:
+        _validate_provider_alias(model_alias, "legacy_provider_usage.model_alias")
+    if (provider_alias is None) != (model_alias is None):
+        raise ValueError("legacy provider usage aliases must be paired")
+    budget = record["logical_call_budget"]
+    if budget is not None and (
+        not isinstance(budget, int) or isinstance(budget, bool) or budget <= 0
+    ):
+        raise ValueError("legacy provider usage budget is invalid")
+    counts: dict[str, int] = {}
+    for field_name in (
+        "issued_logical_calls",
+        "known_attempts",
+        "ambiguous_attempts",
+        "transport_retry_count",
+    ):
+        value = record[field_name]
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"legacy provider usage {field_name} is invalid")
+        counts[field_name] = value
+    if budget is not None and counts["issued_logical_calls"] > budget:
+        raise ValueError("legacy provider usage exceeds logical call budget")
+
+    attempts = record["attempts"]
+    if not isinstance(attempts, list):
+        raise ValueError("legacy provider usage attempts must be a list")
+    observed_issued = 0
+    observed_known = 0
+    observed_ambiguous = 0
+    observed_retries = 0
+    for attempt in attempts:
+        if not isinstance(attempt, Mapping):
+            raise ValueError("legacy provider usage attempt must be an object")
+        base_keys = {
+            "schema_version",
+            "attempt_id",
+            "attempt_sequence",
+            "role",
+            "provider_alias",
+            "model_alias",
+            "batch_index",
+            "status",
+            "issued",
+            "logical_call_number",
+            "retry_count",
+            "token_usage",
+            "price_metadata",
+        }
+        optional_keys = {"error_class", "cause"}
+        if set(attempt) - base_keys - optional_keys or not base_keys.issubset(attempt):
+            raise ValueError("legacy provider usage attempt keys are unsupported")
+        if attempt["schema_version"] != PROVIDER_ATTEMPT_SCHEMA_VERSION:
+            raise ValueError("legacy provider usage attempt schema is unsupported")
+        role = _supported_provider_role(
+            attempt["role"],
+            field_name="legacy provider usage attempt.role",
+        )
+        if attempt["provider_alias"] != provider_alias or attempt["model_alias"] != model_alias:
+            raise ValueError("legacy provider usage attempt identity is inconsistent")
+        status = attempt["status"]
+        if status not in {"intent", "issued", "known", "checkpointed", "ambiguous", "failed"}:
+            raise ValueError("legacy provider usage attempt status is unsupported")
+        if attempt["issued"] is not (status != "intent"):
+            raise ValueError("legacy provider usage attempt issued marker is invalid")
+        _require_non_empty_string(
+            attempt["attempt_id"],
+            "legacy provider usage attempt.attempt_id",
+        )
+        for field_name in ("attempt_sequence", "batch_index"):
+            value = attempt[field_name]
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                raise ValueError(f"legacy provider usage attempt.{field_name} is invalid")
+        logical_call_number = attempt["logical_call_number"]
+        if status == "intent":
+            if logical_call_number is not None:
+                raise ValueError("legacy provider intent cannot have a logical call number")
+        elif (
+            not isinstance(logical_call_number, int)
+            or isinstance(logical_call_number, bool)
+            or logical_call_number <= 0
+        ):
+            raise ValueError("legacy provider usage logical call number is invalid")
+        retry_count = _safe_retry_count(
+            attempt["retry_count"],
+            field_name="legacy provider usage attempt.retry_count",
+        )
+        _sanitize_token_usage(
+            attempt["token_usage"],
+            field_name="legacy provider usage attempt.token_usage",
+        )
+        _sanitize_price_metadata(
+            attempt["price_metadata"],
+            field_name="legacy provider usage attempt.price_metadata",
+        )
+        observed_retries += retry_count
+        if status != "intent":
+            observed_issued += 1
+        if status in {"known", "checkpointed", "failed"}:
+            observed_known += 1
+        elif status == "ambiguous":
+            observed_ambiguous += 1
+
+    if observed_issued != counts["issued_logical_calls"]:
+        raise ValueError("legacy provider usage issued total is inconsistent")
+    if observed_known != counts["known_attempts"]:
+        raise ValueError("legacy provider usage known total is inconsistent")
+    if observed_ambiguous != counts["ambiguous_attempts"]:
+        raise ValueError("legacy provider usage ambiguous total is inconsistent")
+    if observed_retries != counts["transport_retry_count"]:
+        raise ValueError("legacy provider usage retry total is inconsistent")
 
 
 def _validate_outcome_record_shape(value: object) -> None:
@@ -1762,52 +2142,12 @@ class _LocalJobStore:
             self.job.get("authorization_limits"),
             required=False,
         )
-        attempts = []
-        retry_count = 0
-        for attempt in self.provider_attempts:
-            summary = {
-                "schema_version": PROVIDER_ATTEMPT_SCHEMA_VERSION,
-                "attempt_id": attempt["attempt_id"],
-                "attempt_sequence": attempt["attempt_sequence"],
-                "role": attempt["role"],
-                "provider_alias": attempt["provider_alias"],
-                "model_alias": attempt["model_alias"],
-                "batch_index": attempt["batch_index"],
-                "status": attempt["status"],
-                "issued": attempt["status"] != "intent",
-                "logical_call_number": attempt.get("logical_call_number"),
-                "retry_count": attempt.get("retry_count", 0),
-                "token_usage": _json_copy(attempt.get("token_usage", {})),
-                "price_metadata": _json_copy(attempt.get("price_metadata")),
-            }
-            if attempt.get("error_class") is not None:
-                summary["error_class"] = attempt["error_class"]
-            if attempt.get("cause") is not None:
-                summary["cause"] = attempt["cause"]
-            attempts.append(summary)
-            retry_count += _integer_value(
-                attempt.get("retry_count", 0),
-                "provider_attempt.retry_count",
-            )
-        usage: dict[str, object] = {
-            "schema_version": PROVIDER_USAGE_SCHEMA_VERSION,
-            "provider_alias": identity.get("provider_alias") if identity else None,
-            "model_alias": identity.get("model_alias") if identity else None,
-            "logical_call_budget": budget,
-            "issued_logical_calls": self.issued_logical_call_count,
-            "known_attempts": sum(
-                attempt["status"] in {"known", "failed", "checkpointed"}
-                for attempt in self.provider_attempts
-            ),
-            "ambiguous_attempts": sum(
-                attempt["status"] == "ambiguous"
-                for attempt in self.provider_attempts
-            ),
-            "transport_retry_count": retry_count,
-            "attempts": attempts,
-        }
-        _assert_safe_orchestration_value(usage)
-        return usage
+        return _build_provider_usage_record(
+            self.provider_attempts,
+            self.work_items,
+            provider_identity=identity,
+            logical_call_budget=budget,
+        )
 
     def create(
         self,
@@ -2210,12 +2550,17 @@ class _LocalJobStore:
                 str(self.job["job_id"]),
                 attempt_sequence,
             )
+            role_definition = _supported_provider_role(
+                role,
+                field_name="provider_attempt.role",
+            )
             self._append(
                 "provider_work_intent",
                 {
                     "attempt_id": attempt_id,
                     "attempt_sequence": attempt_sequence,
                     "role": role,
+                    "role_version": role_definition.version,
                     "provider_alias": provider_identity["provider_alias"],
                     "model_alias": provider_identity["model_alias"],
                     "batch_index": batch_index,
@@ -2252,6 +2597,7 @@ class _LocalJobStore:
             raise InvalidTransitionError(
                 "only an issued provider attempt can receive a response"
             )
+        _validate_provider_lineage_for_attempt(lineage, attempt)
         sanitized = _sanitize_provider_lineage(lineage)
         self._append(
             "provider_attempt_known",
@@ -2274,6 +2620,25 @@ class _LocalJobStore:
             raise InvalidTransitionError(
                 "only an issued provider attempt can fail"
             )
+        raw_lineage = getattr(error, "lineage", {})
+        if raw_lineage is None:
+            raw_lineage = {}
+        if not isinstance(raw_lineage, Mapping):
+            raise InvalidTransitionError("provider error lineage must be an object")
+        if raw_lineage:
+            _validate_provider_lineage_for_attempt(raw_lineage, attempt)
+        sanitized_lineage = _sanitize_provider_lineage(raw_lineage)
+        error_retry_count = _safe_retry_count(
+            getattr(error, "retry_count", 0),
+            field_name="provider error retry count",
+        )
+        if (
+            "retry_count" in raw_lineage
+            and sanitized_lineage["retry_count"] != error_retry_count
+        ):
+            raise InvalidTransitionError(
+                "provider error retry count is inconsistent with its lineage"
+            )
         if bool(getattr(error, "ambiguous", False)):
             self._append(
                 "provider_attempt_ambiguous",
@@ -2281,23 +2646,21 @@ class _LocalJobStore:
                     "attempt_id": attempt_id,
                     "reason": "provider_accepted_response_lost",
                     "error_class": _safe_error_class(type(error).__name__),
+                    "retry_count": error_retry_count,
+                    "token_usage": sanitized_lineage["token_usage"],
+                    "price_metadata": sanitized_lineage["price_metadata"],
                 },
             )
             return
-        lineage = _sanitize_provider_lineage(
-            getattr(error, "lineage", {})
-            if isinstance(getattr(error, "lineage", {}), Mapping)
-            else {}
-        )
         self._append(
             "provider_attempt_failed",
             {
                 "attempt_id": attempt_id,
                 "cause": _safe_error_class(str(getattr(error, "cause", "provider_error"))),
                 "error_class": _safe_error_class(type(error).__name__),
-                "retry_count": _safe_retry_count(getattr(error, "retry_count", 0)),
-                "token_usage": lineage["token_usage"],
-                "price_metadata": lineage["price_metadata"],
+                "retry_count": error_retry_count,
+                "token_usage": sanitized_lineage["token_usage"],
+                "price_metadata": sanitized_lineage["price_metadata"],
             },
         )
 
@@ -2560,9 +2923,7 @@ class _LocalJobStore:
             job_path=self.job_path,
             work_items_path=self.work_items_path,
             events_path=self.events_path,
-            provider_usage_path=(
-                self.provider_usage_path if self._provider_attempts else None
-            ),
+            provider_usage_path=self.provider_usage_path,
             provider_attempts=self.provider_attempts,
             provider_usage=self.provider_usage,
         )
@@ -2851,6 +3212,12 @@ class _LocalJobStore:
             raise JournalCorruptionError(
                 "provider checkpoint state is inconsistent with attempts"
             )
+        try:
+            validate_provider_usage_record(self.provider_usage)
+        except (InvalidTransitionError, TypeError, ValueError) as exc:
+            raise JournalCorruptionError(
+                "provider usage state is inconsistent with the journal"
+            ) from exc
 
     def _validate_snapshots(self) -> None:
         if not self.job_path.exists() or not self.work_items_path.exists():
@@ -2902,8 +3269,19 @@ class _LocalJobStore:
                 raise JournalCorruptionError(
                     "provider usage snapshot must be an object"
                 )
-            if _stable_snapshot_record(snapshot_usage) != _stable_snapshot_record(
-                self.provider_usage
+            try:
+                if snapshot_usage.get("schema_version") == LEGACY_PROVIDER_USAGE_SCHEMA_VERSION:
+                    _validate_legacy_provider_usage_snapshot(snapshot_usage)
+                    self._snapshots_need_rebuild = True
+                else:
+                    validate_provider_usage_record(snapshot_usage)
+            except (InvalidTransitionError, TypeError, ValueError) as exc:
+                raise JournalCorruptionError(
+                    "provider usage snapshot failed validation"
+                ) from exc
+            if snapshot_usage.get("schema_version") != LEGACY_PROVIDER_USAGE_SCHEMA_VERSION and (
+                _stable_snapshot_record(snapshot_usage)
+                != _stable_snapshot_record(self.provider_usage)
             ):
                 self._snapshots_need_rebuild = True
 
@@ -3117,19 +3495,20 @@ class _LocalJobStore:
                 )
             item["coverage_generation_rejection"] = _json_copy(rejection)
         elif event_type == "provider_work_intent":
-            _require_payload_keys(
-                payload,
-                {
-                    "attempt_id",
-                    "attempt_sequence",
-                    "role",
-                    "provider_alias",
-                    "model_alias",
-                    "batch_index",
-                    "requested_candidate_count",
-                    "prompt_hash",
-                },
-            )
+            required_keys = {
+                "attempt_id",
+                "attempt_sequence",
+                "role",
+                "provider_alias",
+                "model_alias",
+                "batch_index",
+                "requested_candidate_count",
+                "prompt_hash",
+            }
+            if set(payload) not in (required_keys, required_keys | {"role_version"}):
+                raise InvalidTransitionError(
+                    "provider work intent payload keys are unsupported"
+                )
             self._require_no_work_item(work_item_id)
             self._require_job_status("running")
             attempt_id = payload.get("attempt_id")
@@ -3151,6 +3530,15 @@ class _LocalJobStore:
             role = payload.get("role")
             provider_alias = payload.get("provider_alias")
             model_alias = payload.get("model_alias")
+            role_definition = _supported_provider_role(
+                role,
+                field_name="provider_attempt.role",
+            )
+            role_version = payload.get("role_version", role_definition.version)
+            if role_version != role_definition.version:
+                raise InvalidTransitionError(
+                    "provider attempt role version is inconsistent"
+                )
             _validate_provider_alias(role, "provider_attempt.role")
             _validate_provider_alias(provider_alias, "provider_attempt.provider_alias")
             _validate_provider_alias(model_alias, "provider_attempt.model_alias")
@@ -3181,6 +3569,7 @@ class _LocalJobStore:
                 "attempt_id": attempt_id,
                 "attempt_sequence": attempt_sequence,
                 "role": role,
+                "role_version": role_version,
                 "provider_alias": provider_alias,
                 "model_alias": model_alias,
                 "batch_index": batch_index,
@@ -3234,7 +3623,12 @@ class _LocalJobStore:
             attempt["token_usage"] = dict(payload["token_usage"])
             attempt["price_metadata"] = _json_copy(payload["price_metadata"])
         elif event_type == "provider_attempt_ambiguous":
-            _require_payload_keys(payload, {"attempt_id", "reason", "error_class"})
+            required_keys = {"attempt_id", "reason", "error_class"}
+            usage_keys = {"retry_count", "token_usage", "price_metadata"}
+            if set(payload) not in (required_keys, required_keys | usage_keys):
+                raise InvalidTransitionError(
+                    "provider ambiguity payload keys are unsupported"
+                )
             self._require_no_work_item(work_item_id)
             self._require_job_status_in({"running", "cancelling"})
             attempt = self._provider_attempt(str(payload.get("attempt_id")))
@@ -3242,6 +3636,15 @@ class _LocalJobStore:
                 raise InvalidTransitionError("provider attempt cannot become ambiguous")
             _require_non_empty_string(payload.get("reason"), "provider_attempt.reason")
             _validate_provider_alias(payload.get("error_class"), "provider_attempt.error_class")
+            if usage_keys <= set(payload):
+                _validate_provider_usage_payload(payload)
+                attempt["retry_count"] = payload["retry_count"]
+                attempt["token_usage"] = dict(payload["token_usage"])
+                attempt["price_metadata"] = _json_copy(payload["price_metadata"])
+            else:
+                attempt["retry_count"] = 0
+                attempt["token_usage"] = {}
+                attempt["price_metadata"] = None
             attempt["status"] = "ambiguous"
             attempt["error_class"] = payload["error_class"]
             attempt["cause"] = "llm_provider_ambiguous"
@@ -3447,6 +3850,509 @@ class _LocalJobStore:
         )
         _atomic_write_text(self.work_items_path, content)
         _atomic_write_json(self.provider_usage_path, self.provider_usage)
+
+
+def _build_provider_usage_record(
+    attempts: Iterable[Mapping[str, object]],
+    work_items: Iterable[Mapping[str, object]],
+    *,
+    provider_identity: Mapping[str, str] | None,
+    logical_call_budget: int | None,
+) -> dict[str, object]:
+    """Build the sanitized usage view from durable provider evidence.
+
+    Provider-attempt records are authoritative for cumulative authorization and
+    ambiguity. Terminal outcome lineages add known calls for roles that run
+    below the generation observer (for example a remote solution-policy
+    callback). Generation lineages are ignored when their durable attempt
+    journal already covers the same role, preventing checkpointed work from
+    being counted again.
+    """
+
+    identity = (
+        {
+            "provider_alias": str(provider_identity["provider_alias"]),
+            "model_alias": str(provider_identity["model_alias"]),
+        }
+        if provider_identity is not None
+        else None
+    )
+    if identity is not None:
+        _validate_provider_alias(identity["provider_alias"], "provider_alias")
+        _validate_provider_alias(identity["model_alias"], "model_alias")
+
+    role_definitions = _provider_role_definitions()
+    role_usage = {
+        role.name: _empty_role_usage(role, identity)
+        for role in role_definitions
+    }
+    attempt_records: list[dict[str, object]] = []
+    provider_attempt_roles: set[str] = set()
+    observations: list[tuple[str, dict[str, object]]] = []
+
+    normalized_attempts = tuple(dict(attempt) for attempt in attempts)
+    for attempt in normalized_attempts:
+        role = _supported_provider_role(
+            attempt.get("role"),
+            field_name="provider_attempt.role",
+        )
+        role_version = attempt.get("role_version", role.version)
+        if role_version != role.version:
+            raise InvalidTransitionError(
+                "provider attempt role version is inconsistent"
+            )
+        _validate_attempt_identity(attempt, identity)
+        status = attempt.get("status")
+        if status not in {"intent", "issued", "known", "checkpointed", "ambiguous", "failed"}:
+            raise InvalidTransitionError("provider attempt status is unsupported")
+        retry_count = _safe_retry_count(
+            attempt.get("retry_count", 0),
+            field_name="provider_attempt.retry_count",
+        )
+        token_usage = _sanitize_token_usage(
+            attempt.get("token_usage", {}),
+            field_name="provider_attempt.token_usage",
+        )
+        price_metadata = _sanitize_price_metadata(
+            attempt.get("price_metadata"),
+            field_name="provider_attempt.price_metadata",
+        )
+        if status == "intent":
+            continue
+
+        provider_attempt_roles.add(role.name)
+        observations.append(
+            (
+                role.name,
+                _usage_observation(
+                    role,
+                    identity,
+                    retry_count=retry_count,
+                    token_usage=token_usage,
+                    price_metadata=price_metadata,
+                    known=status in {"known", "checkpointed", "failed"},
+                    ambiguous=status in {"issued", "ambiguous"},
+                    failed=status == "failed",
+                    price_source={
+                        "source": "provider_attempt",
+                        "attempt_id": attempt.get("attempt_id"),
+                        "sequence_index": None,
+                    },
+                ),
+            )
+        )
+        attempt_summary: dict[str, object] = {
+            "schema_version": PROVIDER_ATTEMPT_SCHEMA_VERSION,
+            "attempt_id": attempt.get("attempt_id"),
+            "attempt_sequence": attempt.get("attempt_sequence"),
+            "role": role.name,
+            "role_version": role_version,
+            "provider_alias": attempt.get("provider_alias"),
+            "model_alias": attempt.get("model_alias"),
+            "batch_index": attempt.get("batch_index"),
+            "status": status,
+            "issued": True,
+            "logical_call_number": attempt.get("logical_call_number"),
+            "retry_count": retry_count,
+            "token_usage": token_usage,
+            "price_metadata": price_metadata,
+        }
+        if attempt.get("error_class") is not None:
+            attempt_summary["error_class"] = attempt["error_class"]
+        if attempt.get("cause") is not None:
+            attempt_summary["cause"] = attempt["cause"]
+        attempt_records.append(attempt_summary)
+
+    for item in work_items:
+        if item.get("status") != "completed":
+            continue
+        outcome = item.get("outcome")
+        if not isinstance(outcome, Mapping):
+            continue
+        seen_lineages: set[str] = set()
+        for lineage in _terminal_provider_lineages(outcome):
+            role = _lineage_usage_role(lineage, identity)
+            if role.name == "task_generation" and role.name in provider_attempt_roles:
+                continue
+            fingerprint = _hash_json(_usage_lineage_fingerprint(lineage))
+            if fingerprint in seen_lineages:
+                continue
+            seen_lineages.add(fingerprint)
+            retry_count = _safe_retry_count(
+                lineage.get("retry_count", 0),
+                field_name="provider lineage.retry_count",
+            )
+            token_usage = _sanitize_token_usage(
+                lineage.get("tokens", {}),
+                field_name="provider lineage.tokens",
+            )
+            price_metadata = _sanitize_price_metadata(
+                lineage.get("price_metadata"),
+                field_name="provider lineage.price_metadata",
+            )
+            sequence_index = item.get("sequence_index")
+            if (
+                not isinstance(sequence_index, int)
+                or isinstance(sequence_index, bool)
+                or sequence_index < 0
+            ):
+                raise InvalidTransitionError(
+                    "provider lineage work-item sequence index is invalid"
+                )
+            observations.append(
+                (
+                    role.name,
+                    _usage_observation(
+                        role,
+                        identity,
+                        retry_count=retry_count,
+                        token_usage=token_usage,
+                        price_metadata=price_metadata,
+                        known=True,
+                        ambiguous=False,
+                        failed=bool(lineage.get("error_class")),
+                        price_source={
+                            "source": "terminal_outcome",
+                            "attempt_id": None,
+                            "sequence_index": sequence_index,
+                        },
+                    ),
+                )
+            )
+
+    for role_name, observation in observations:
+        _merge_usage_observation(role_usage[role_name], observation)
+
+    role_summaries = [
+        _finalize_role_usage(role_usage[role.name])
+        for role in role_definitions
+    ]
+    usage_call_count = sum(
+        _integer_value(summary["call_count"], "provider role call_count")
+        for summary in role_summaries
+    )
+    known_attempts = sum(
+        _integer_value(summary["known_attempts"], "provider role known_attempts")
+        for summary in role_summaries
+    )
+    ambiguous_attempts = sum(
+        _integer_value(summary["ambiguous_attempts"], "provider role ambiguous_attempts")
+        for summary in role_summaries
+    )
+    failed_attempts = sum(
+        _integer_value(summary["failed_attempts"], "provider role failed_attempts")
+        for summary in role_summaries
+    )
+    adapter_retry_count = sum(
+        _integer_value(summary["adapter_retry_count"], "provider role retry count")
+        for summary in role_summaries
+    )
+    token_usage = _sum_token_usage(
+        [summary["token_usage"] for summary in role_summaries]
+    )
+    price_records: list[object] = []
+    for summary in role_summaries:
+        records = summary["price_metadata"]
+        if not isinstance(records, list):
+            raise InvalidTransitionError(
+                "provider role price metadata aggregation is malformed"
+            )
+        price_records.extend(_json_copy(record) for record in records)
+    price_status = _price_metadata_status(usage_call_count, len(price_records))
+    usage: dict[str, object] = {
+        "schema_version": PROVIDER_USAGE_SCHEMA_VERSION,
+        "provider_alias": identity["provider_alias"] if identity else None,
+        "model_alias": identity["model_alias"] if identity else None,
+        "logical_call_budget": logical_call_budget,
+        "issued_logical_calls": sum(
+            attempt.get("status") != "intent" for attempt in normalized_attempts
+        ),
+        "call_count": usage_call_count,
+        "known_attempts": known_attempts,
+        "ambiguous_attempts": ambiguous_attempts,
+        "failed_attempts": failed_attempts,
+        "adapter_retry_count": adapter_retry_count,
+        # Retain the predecessor name for consumers of the ticket-03 shape.
+        "transport_retry_count": adapter_retry_count,
+        "token_usage": token_usage,
+        "price_metadata_status": price_status,
+        "price_metadata": price_records,
+        "role_summaries": role_summaries,
+        "attempts": attempt_records,
+    }
+    validate_provider_usage_record(usage)
+    _assert_safe_orchestration_value(usage)
+    return usage
+
+
+def _provider_role_definitions() -> tuple[RoleDefinition, ...]:
+    return tuple(default_role_registry().roles())
+
+
+def _supported_provider_role(value: object, *, field_name: str) -> RoleDefinition:
+    if not isinstance(value, str):
+        raise InvalidTransitionError(f"{field_name} must be a known enabled role")
+    try:
+        role = default_role_registry().get(value)
+    except KeyError as exc:
+        raise InvalidTransitionError(f"{field_name} is unknown") from exc
+    if not role.enabled:
+        raise InvalidTransitionError(f"{field_name} is disabled")
+    return role
+
+
+def _empty_role_usage(
+    role: RoleDefinition,
+    identity: Mapping[str, str] | None,
+) -> dict[str, object]:
+    return {
+        "schema_version": PROVIDER_ROLE_USAGE_SCHEMA_VERSION,
+        "role": role.name,
+        "role_version": role.version,
+        "provider_alias": identity["provider_alias"] if identity else None,
+        "model_alias": identity["model_alias"] if identity else None,
+        "call_count": 0,
+        "known_attempts": 0,
+        "ambiguous_attempts": 0,
+        "failed_attempts": 0,
+        "adapter_retry_count": 0,
+        "token_usage": {},
+        "price_metadata_status": "unavailable",
+        "price_metadata": [],
+    }
+
+
+def _usage_observation(
+    role: RoleDefinition,
+    identity: Mapping[str, str] | None,
+    *,
+    retry_count: int,
+    token_usage: Mapping[str, int],
+    price_metadata: Mapping[str, object] | None,
+    known: bool,
+    ambiguous: bool,
+    failed: bool,
+    price_source: Mapping[str, object],
+) -> dict[str, object]:
+    if identity is None:
+        raise InvalidTransitionError(
+            "provider usage evidence requires a configured provider identity"
+        )
+    observation: dict[str, object] = {
+        "schema_version": PROVIDER_ROLE_USAGE_SCHEMA_VERSION,
+        "role": role.name,
+        "role_version": role.version,
+        "provider_alias": identity["provider_alias"],
+        "model_alias": identity["model_alias"],
+        "call_count": 1,
+        "known_attempts": 1 if known else 0,
+        "ambiguous_attempts": 1 if ambiguous else 0,
+        "failed_attempts": 1 if failed else 0,
+        "adapter_retry_count": retry_count,
+        "token_usage": dict(token_usage),
+        "price_metadata_status": "reported" if price_metadata is not None else "unavailable",
+        "price_metadata": [],
+    }
+    if price_metadata is not None:
+        observation["price_metadata"] = [
+            {
+                "role": role.name,
+                "source": price_source["source"],
+                "attempt_id": price_source["attempt_id"],
+                "sequence_index": price_source["sequence_index"],
+                "metadata": dict(price_metadata),
+            }
+        ]
+    return observation
+
+
+def _merge_usage_observation(
+    summary: dict[str, object],
+    observation: Mapping[str, object],
+) -> None:
+    for field_name in (
+        "call_count",
+        "known_attempts",
+        "ambiguous_attempts",
+        "failed_attempts",
+        "adapter_retry_count",
+    ):
+        summary[field_name] = _integer_value(
+            summary[field_name],
+            f"provider role {field_name}",
+        ) + _integer_value(observation[field_name], f"provider observation {field_name}")
+    summary["token_usage"] = _sum_token_usage(
+        (summary["token_usage"], observation["token_usage"])
+    )
+    existing_prices = summary["price_metadata"]
+    observed_prices = observation["price_metadata"]
+    if not isinstance(existing_prices, list) or not isinstance(observed_prices, list):
+        raise InvalidTransitionError("provider price metadata aggregation is malformed")
+    existing_prices.extend(_json_copy(observed_prices))
+    summary["price_metadata_status"] = _price_metadata_status(
+        _integer_value(summary["call_count"], "provider role call_count"),
+        len(existing_prices),
+    )
+
+
+def _finalize_role_usage(summary: Mapping[str, object]) -> dict[str, object]:
+    result = {key: _json_copy(value) for key, value in summary.items()}
+    result["price_metadata_status"] = _price_metadata_status(
+        _integer_value(result["call_count"], "provider role call_count"),
+        len(result["price_metadata"])
+        if isinstance(result["price_metadata"], list)
+        else 0,
+    )
+    return result
+
+
+def _terminal_provider_lineages(
+    outcome: Mapping[str, object],
+) -> Iterable[Mapping[str, object]]:
+    def walk(value: object) -> Iterable[Mapping[str, object]]:
+        if isinstance(value, Mapping):
+            if _looks_like_provider_lineage(value):
+                yield value
+                return
+            for nested in value.values():
+                yield from walk(nested)
+        elif isinstance(value, (list, tuple)):
+            for nested in value:
+                yield from walk(nested)
+
+    yield from walk(outcome)
+
+
+def _looks_like_provider_lineage(value: Mapping[str, object]) -> bool:
+    if not isinstance(value.get("role"), str):
+        return False
+    if "tokens" in value or "price_metadata" in value or "provider_alias" in value:
+        return True
+    provider_host = value.get("provider_host")
+    model = value.get("model")
+    return (
+        isinstance(provider_host, str)
+        and provider_host != "local"
+        and isinstance(model, str)
+        and model not in {"local", "scripted", "deterministic"}
+    )
+
+
+def _usage_lineage_fingerprint(lineage: Mapping[str, object]) -> dict[str, object]:
+    return {
+        key: _json_copy(lineage.get(key))
+        for key in (
+            "role",
+            "role_version",
+            "provider_alias",
+            "provider_host",
+            "model",
+            "config_hash",
+            "prompt_hash",
+            "retry_count",
+            "tokens",
+            "price_metadata",
+            "error_class",
+        )
+    }
+
+
+def _lineage_usage_role(
+    lineage: Mapping[str, object],
+    identity: Mapping[str, str] | None,
+) -> RoleDefinition:
+    role = _supported_provider_role(
+        lineage.get("role"),
+        field_name="provider lineage.role",
+    )
+    role_version = lineage.get("role_version")
+    if role_version is not None and role_version != role.version:
+        raise InvalidTransitionError("provider lineage role version is inconsistent")
+    if identity is None:
+        raise InvalidTransitionError(
+            "provider usage lineage requires a configured provider identity"
+        )
+    provider_alias = lineage.get("provider_alias")
+    if provider_alias is not None:
+        _validate_provider_alias(provider_alias, "provider lineage.provider_alias")
+        if provider_alias != identity["provider_alias"]:
+            raise InvalidTransitionError("provider lineage provider alias drifted")
+    reported_model_alias = lineage.get("model_alias")
+    if reported_model_alias is not None:
+        _validate_provider_alias(
+            reported_model_alias,
+            "provider lineage.model_alias",
+        )
+        if reported_model_alias != identity["model_alias"]:
+            raise InvalidTransitionError("provider lineage model alias drifted")
+    return role
+
+
+def _validate_attempt_identity(
+    attempt: Mapping[str, object],
+    identity: Mapping[str, str] | None,
+) -> None:
+    provider_alias = attempt.get("provider_alias")
+    model_alias = attempt.get("model_alias")
+    _validate_provider_alias(provider_alias, "provider_attempt.provider_alias")
+    _validate_provider_alias(model_alias, "provider_attempt.model_alias")
+    if identity is None or {
+        "provider_alias": provider_alias,
+        "model_alias": model_alias,
+    } != dict(identity):
+        raise InvalidTransitionError("provider attempt aliases drift from job identity")
+
+
+def _validate_provider_lineage_for_attempt(
+    lineage: Mapping[str, object],
+    attempt: Mapping[str, object],
+) -> None:
+    if not isinstance(lineage, Mapping):
+        raise InvalidTransitionError("provider response lineage must be an object")
+    role = lineage.get("role", attempt.get("role"))
+    if role != attempt.get("role"):
+        raise InvalidTransitionError("provider response role drifted from attempt")
+    attempt_role_version = attempt.get("role_version")
+    lineage_role_version = lineage.get("role_version")
+    if (
+        attempt_role_version is not None
+        and lineage_role_version is not None
+        and attempt_role_version != lineage_role_version
+    ):
+        raise InvalidTransitionError("provider response role version drifted")
+    _lineage_usage_role(
+        {**dict(lineage), "role": role},
+        {
+            "provider_alias": str(attempt["provider_alias"]),
+            "model_alias": str(attempt["model_alias"]),
+        },
+    )
+
+
+def _sum_token_usage(values: Iterable[object]) -> dict[str, int]:
+    totals: dict[str, int] = {}
+    for value in values:
+        if not isinstance(value, Mapping):
+            raise InvalidTransitionError("provider token usage aggregation is malformed")
+        for key, token_value in value.items():
+            if key not in _TOKEN_USAGE_FIELDS:
+                raise InvalidTransitionError("provider token usage contains unsupported fields")
+            if (
+                not isinstance(token_value, int)
+                or isinstance(token_value, bool)
+                or token_value < 0
+            ):
+                raise InvalidTransitionError("provider token usage contains invalid values")
+            totals[key] = totals.get(key, 0) + token_value
+    return totals
+
+
+def _price_metadata_status(call_count: int, reported_count: int) -> str:
+    if reported_count == 0:
+        return "unavailable"
+    if reported_count == call_count:
+        return "reported"
+    return "mixed"
 
 
 def _normalize_requested_concurrency(
@@ -3657,66 +4563,170 @@ def _provider_attempt_id(job_id: str, attempt_sequence: object) -> str:
     return f"{job_id}:provider:{attempt_sequence:06d}"
 
 
-def _safe_retry_count(value: object) -> int:
-    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-        return 0
-    return min(value, 1000)
+def _safe_retry_count(value: object, *, field_name: str = "provider.retry_count") -> int:
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or value < 0
+        or value > 1000
+    ):
+        raise InvalidTransitionError(f"{field_name} is invalid")
+    return value
+
+
+def _sanitize_token_usage(
+    value: object,
+    *,
+    field_name: str,
+    check_consistency: bool = True,
+) -> dict[str, int]:
+    if not isinstance(value, Mapping):
+        raise InvalidTransitionError(f"{field_name} must be an object")
+    token_usage: dict[str, int] = {}
+    for key, token_value in value.items():
+        if key not in _TOKEN_USAGE_FIELDS:
+            raise InvalidTransitionError(
+                f"{field_name} contains an unsupported field"
+            )
+        if (
+            not isinstance(token_value, int)
+            or isinstance(token_value, bool)
+            or token_value < 0
+        ):
+            raise InvalidTransitionError(f"{field_name} contains an invalid value")
+        token_usage[str(key)] = token_value
+
+    prompt_tokens = token_usage.get("prompt_tokens")
+    completion_tokens = token_usage.get("completion_tokens")
+    input_tokens = token_usage.get("input_tokens")
+    output_tokens = token_usage.get("output_tokens")
+    total_tokens = token_usage.get("total_tokens")
+    if check_consistency:
+        if (
+            prompt_tokens is not None
+            and input_tokens is not None
+            and prompt_tokens != input_tokens
+        ) or (
+            completion_tokens is not None
+            and output_tokens is not None
+            and completion_tokens != output_tokens
+        ):
+            raise InvalidTransitionError(
+                f"{field_name} has inconsistent input/output fields"
+            )
+        if total_tokens is not None:
+            for first, second in (
+                (prompt_tokens, completion_tokens),
+                (input_tokens, output_tokens),
+            ):
+                if (
+                    first is not None
+                    and second is not None
+                    and total_tokens != first + second
+                ):
+                    raise InvalidTransitionError(
+                        f"{field_name} has an inconsistent total"
+                    )
+    return token_usage
+
+
+def _sanitize_price_metadata(
+    value: object,
+    *,
+    field_name: str,
+) -> dict[str, object] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise InvalidTransitionError(f"{field_name} must be an object or null")
+    if any(key not in _PRICE_METADATA_FIELDS for key in value):
+        raise InvalidTransitionError(f"{field_name} contains an unsupported field")
+    sanitized: dict[str, object] = {}
+    for key, price_value in value.items():
+        if key == "currency":
+            if (
+                not isinstance(price_value, str)
+                or re.fullmatch(r"[A-Za-z]{3,12}", price_value) is None
+            ):
+                raise InvalidTransitionError(f"{field_name}.currency is invalid")
+            sanitized[key] = price_value
+            continue
+        if (
+            not isinstance(price_value, (int, float))
+            or isinstance(price_value, bool)
+            or not math.isfinite(float(price_value))
+            or float(price_value) < 0
+        ):
+            raise InvalidTransitionError(f"{field_name}.{key} is invalid")
+        sanitized[key] = price_value
+    return sanitized or None
+
+
+def _validate_price_record(
+    record: object,
+    expected_role: str,
+) -> None:
+    if not isinstance(record, Mapping):
+        raise ValueError("provider price record must be an object")
+    _require_exact_keys(
+        record,
+        {"role", "source", "attempt_id", "sequence_index", "metadata"},
+        "provider_usage.price_record",
+    )
+    if record["role"] != expected_role:
+        raise ValueError("provider price record role is inconsistent")
+    if record["source"] not in {"provider_attempt", "terminal_outcome"}:
+        raise ValueError("provider price record source is unsupported")
+    attempt_id = record["attempt_id"]
+    sequence_index = record["sequence_index"]
+    if record["source"] == "provider_attempt":
+        _require_non_empty_string(attempt_id, "provider price record.attempt_id")
+        if sequence_index is not None:
+            raise ValueError("provider attempt price record cannot have a sequence index")
+    else:
+        if attempt_id is not None:
+            raise ValueError("terminal price record cannot have an attempt id")
+        if (
+            not isinstance(sequence_index, int)
+            or isinstance(sequence_index, bool)
+            or sequence_index < 0
+        ):
+            raise ValueError("terminal price record sequence index is invalid")
+    _sanitize_price_metadata(
+        record["metadata"],
+        field_name="provider_usage.price_record.metadata",
+    )
 
 
 def _sanitize_provider_lineage(lineage: Mapping[str, object]) -> dict[str, object]:
     if not isinstance(lineage, Mapping):
-        lineage = {}
-    token_usage: dict[str, int] = {}
-    raw_tokens = lineage.get("tokens", {})
-    if isinstance(raw_tokens, Mapping):
-        for key in (
-            "prompt_tokens",
-            "completion_tokens",
-            "total_tokens",
-            "input_tokens",
-            "output_tokens",
-            "cached_tokens",
-        ):
-            value = raw_tokens.get(key)
-            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
-                token_usage[key] = value
-    price_metadata = lineage.get("price_metadata")
-    if isinstance(price_metadata, Mapping):
-        sanitized_price: dict[str, object] = {}
-        for key in ("input", "output", "total", "currency"):
-            value = price_metadata.get(key)
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                sanitized_price[key] = value
-            elif key == "currency" and isinstance(value, str) and value.isalpha():
-                sanitized_price[key] = value[:12]
-        price_metadata_value: dict[str, object] | None = sanitized_price or None
-    else:
-        price_metadata_value = None
+        raise InvalidTransitionError("provider lineage must be an object")
     return {
         "retry_count": _safe_retry_count(lineage.get("retry_count", 0)),
-        "token_usage": token_usage,
-        "price_metadata": price_metadata_value,
+        "token_usage": _sanitize_token_usage(
+            lineage.get("tokens", {}),
+            field_name="provider lineage.tokens",
+        ),
+        "price_metadata": _sanitize_price_metadata(
+            lineage.get("price_metadata"),
+            field_name="provider lineage.price_metadata",
+        ),
     }
 
 
 def _validate_provider_usage_payload(payload: Mapping[str, object]) -> None:
-    retry_count = payload.get("retry_count")
-    if not isinstance(retry_count, int) or isinstance(retry_count, bool) or retry_count < 0:
-        raise InvalidTransitionError("provider retry count is invalid")
-    token_usage = payload.get("token_usage")
-    if not isinstance(token_usage, Mapping):
-        raise InvalidTransitionError("provider token usage is invalid")
-    for key, value in token_usage.items():
-        if (
-            not isinstance(key, str)
-            or not isinstance(value, int)
-            or isinstance(value, bool)
-            or value < 0
-        ):
-            raise InvalidTransitionError("provider token usage contains invalid fields")
-    price_metadata = payload.get("price_metadata")
-    if price_metadata is not None and not isinstance(price_metadata, Mapping):
-        raise InvalidTransitionError("provider price metadata is invalid")
+    _safe_retry_count(
+        payload.get("retry_count"),
+        field_name="provider retry count",
+    )
+    _sanitize_token_usage(
+        payload.get("token_usage"),
+        field_name="provider token usage",
+    )
+    _sanitize_price_metadata(
+        payload.get("price_metadata"),
+        field_name="provider price metadata",
+    )
 
 
 def _normalized_configuration_identity(
@@ -4571,6 +5581,7 @@ __all__ = [
     "LogicalCallBudgetExceeded",
     "OrchestrationError",
     "PROVIDER_ATTEMPT_SCHEMA_VERSION",
+    "PROVIDER_ROLE_USAGE_SCHEMA_VERSION",
     "PROVIDER_USAGE_SCHEMA_VERSION",
     "ProviderAttemptAmbiguous",
     "ProviderResponseLost",
@@ -4581,5 +5592,6 @@ __all__ = [
     "serial_job_lock_path",
     "validate_event_record",
     "validate_job_record",
+    "validate_provider_usage_record",
     "validate_work_item_record",
 ]
