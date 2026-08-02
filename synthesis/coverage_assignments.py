@@ -889,13 +889,16 @@ class CoverageAssignmentScheduler:
         candidate_ids = set(generated.candidate_assignment_ids)
         if accepted_candidate_ids & rejected_candidate_ids:
             raise ValueError("coverage candidate cannot be accepted and rejected")
-        if accepted_candidate_ids | rejected_candidate_ids != candidate_ids:
+        reported_candidate_ids = accepted_candidate_ids | rejected_candidate_ids
+        if not reported_candidate_ids <= candidate_ids:
             raise ValueError("coverage wave outcomes do not match generated candidates")
         assignments = {
             assignment.assignment_id: assignment
             for assignment in generated.assignments
         }
         for candidate_id, assignment_id in generated.candidate_assignment_ids.items():
+            if candidate_id not in reported_candidate_ids:
+                continue
             assignment = assignments[assignment_id]
             if assignment_id in self._reconciled_assignment_ids:
                 continue
@@ -911,6 +914,7 @@ class CoverageAssignmentScheduler:
                 ] += 1
             else:
                 state.rejected += 1
+            self._reconciled_assignment_ids.add(assignment_id)
         wave_number = next(
             wave
             for wave, result in self._wave_results.items()

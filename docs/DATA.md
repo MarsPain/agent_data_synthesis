@@ -365,6 +365,12 @@ and a quality report:
   recovery is explicit and validates the
   durable journal before takeover. They remain separate from core dataset
   artifacts and are never attached to a dataset manifest or release pack.
+  When cooperative cancellation emits partial core artifacts, the normal
+  dataset manifest also carries an `orchestration` marker with
+  `schema_version: dataset_orchestration_status_v1`, `status: cancelled`,
+  `completeness: incomplete`, and `release_eligible: false`. This marker is
+  diagnostic only; fulfillment and release admission reject the incomplete
+  orchestration state.
 
 ### Mutation Calibration Import Contract
 

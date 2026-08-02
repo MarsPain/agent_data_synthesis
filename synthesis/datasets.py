@@ -616,6 +616,7 @@ def write_dataset_artifacts(
     run_profile_metadata: dict[str, object] | None = None,
     coverage_plan: CoveragePlan | None = None,
     coverage_reconciliation: Mapping[str, object] | None = None,
+    orchestration_status: str | None = None,
 ) -> DatasetArtifacts:
     output_dir.mkdir(parents=True, exist_ok=True)
     samples_path = output_dir / "samples.jsonl"
@@ -819,6 +820,15 @@ def write_dataset_artifacts(
     }
     if run_profile_metadata is not None:
         manifest["run_profile"] = dict(run_profile_metadata)
+    if orchestration_status is not None:
+        if orchestration_status != "cancelled":
+            raise ValueError("partial orchestration artifacts require cancelled status")
+        manifest["orchestration"] = {
+            "schema_version": "dataset_orchestration_status_v1",
+            "status": orchestration_status,
+            "completeness": "incomplete",
+            "release_eligible": False,
+        }
     if coverage_evidence is not None:
         assert coverage_evidence_path is not None
         manifest["coverage"] = {

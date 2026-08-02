@@ -17,7 +17,7 @@ dependencies, and assignment live only in the ticket files below.
 3. [Resume provider work within cumulative authorization](issues/03-provider-resumption-and-budget.md) — completed
 4. [Resume coverage assignments and bounded backfill](issues/04-coverage-resumption-and-backfill.md) — completed
 5. [Run bounded work concurrently with stable merge](issues/05-bounded-concurrency-stable-merge.md) — completed
-6. [Cancel and resume a live synthesis job](issues/06-cooperative-cancellation-and-resume.md) — ready for agent
+6. [Cancel and resume a live synthesis job](issues/06-cooperative-cancellation-and-resume.md) — completed
 7. [Publish sanitized per-role usage evidence](issues/07-sanitized-role-usage.md) — ready for agent
 8. [Expose the operator CLI and prove three-domain parity](issues/08-cli-and-three-domain-parity.md) — awaits tickets 06 and 07
 
@@ -34,6 +34,6 @@ Ticket 08 integrates both branches into the operator-facing workflow.
 
 ## Frontier
 
-Tickets 06 and 07 are now unblocked. Tickets 01 through 05 establish a
-complete, hardened resumable path with bounded concurrency before cancellation
-or operator-facing integration.
+Ticket 07 is now the remaining provider-usage branch before operator-facing
+integration. Tickets 01 through 06 establish a complete, hardened resumable
+path with bounded concurrency and cooperative cancellation.

@@ -6,6 +6,7 @@ from typing import Any
 
 __all__ = [
     "PipelineResult",
+    "CancellationSignal",
     "SerialJobResult",
     "run_foundation_pipeline",
     "run_serial_job",
@@ -14,10 +15,19 @@ __all__ = [
 
 def __getattr__(name: str) -> Any:
     if name in __all__:
-        if name in {"SerialJobResult", "run_serial_job"}:
-            from synthesis.orchestration import SerialJobResult, run_serial_job
+        if name in {
+            "CancellationSignal",
+            "SerialJobResult",
+            "run_serial_job",
+        }:
+            from synthesis.orchestration import (
+                CancellationSignal,
+                SerialJobResult,
+                run_serial_job,
+            )
 
             return {
+                "CancellationSignal": CancellationSignal,
                 "SerialJobResult": SerialJobResult,
                 "run_serial_job": run_serial_job,
             }[name]

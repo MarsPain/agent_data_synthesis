@@ -212,6 +212,21 @@ def _dataset_release_decision(
             "triggered_by": [],
         }
 
+    orchestration = manifest.get("orchestration")
+    if isinstance(orchestration, Mapping):
+        if (
+            orchestration.get("status") != "completed"
+            or orchestration.get("completeness") != "complete"
+            or orchestration.get("release_eligible") is False
+        ):
+            return {
+                "status": "insufficient_evidence",
+                "reasons": [
+                    "orchestration job is cancelled or incomplete; release admission is unavailable"
+                ],
+                "triggered_by": ["orchestration_completeness"],
+            }
+
     profile_purpose = _string_value(profile.get("profile_purpose"), "profile.profile_purpose")
     if profile_purpose != "release_candidate":
         return {

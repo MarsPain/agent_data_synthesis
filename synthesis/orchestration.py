@@ -45,6 +45,7 @@ from synthesis.llm import LLMProviderAmbiguousError, LLMProviderError
 from synthesis.pipeline import (
     CandidateGenerator,
     CandidateGeneratorFactory,
+    PipelineCancellation,
     PipelineResult,
     run_foundation_pipeline,
 )
@@ -82,8 +83,15 @@ LOCK_SCHEMA_VERSION = "orchestration_lock_v1"
 PROVIDER_ATTEMPT_SCHEMA_VERSION = "orchestration_provider_attempt_v1"
 PROVIDER_USAGE_SCHEMA_VERSION = "orchestration_provider_usage_v1"
 
-JOB_STATUSES = {"pending", "running", "failed", "completed"}
-WORK_ITEM_STATUSES = {"pending", "running", "completed"}
+JOB_STATUSES = {
+    "pending",
+    "running",
+    "cancelling",
+    "cancelled",
+    "failed",
+    "completed",
+}
+WORK_ITEM_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
 WORK_ITEM_RESULT_KINDS = {"accepted", "rejected"}
 JOB_EXECUTION_MODES = {"candidate_set", "coverage"}
 _JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
@@ -129,6 +137,53 @@ class StaleJobLockError(JobLockError):
     """Raised when recovering an orphaned lock was not explicitly requested."""
 
 
+class CancellationSignal:
+    """Thread-safe cooperative cancellation signal for one local job.
+
+    The signal is deliberately local and one-way. A caller may also pass a
+    standard :class:`threading.Event` to ``run_serial_job``; this small wrapper
+    exists for callers that want an explicit ``cancel()`` operation.
+    """
+
+    def __init__(self) -> None:
+        self._event = threading.Event()
+
+    def cancel(self) -> None:
+        self._event.set()
+
+    def set(self) -> None:
+        """Provide ``threading.Event``-compatible spelling for test operators."""
+
+        self.cancel()
+
+    def is_set(self) -> bool:
+        return self._event.is_set()
+
+
+class _CancellationController:
+    def __init__(
+        self,
+        store: "_LocalJobStore",
+        signal: object | None,
+    ) -> None:
+        self._store = store
+        self._signal = signal
+        self._lock = threading.Lock()
+        self._requested = False
+
+    def check(self) -> bool:
+        """Observe the signal and durably request cancellation once."""
+
+        if not _cancellation_signal_is_set(self._signal):
+            return self._requested or self._store.status == "cancelling"
+        self.request()
+        return True
+
+    def request(self) -> None:
+        with self._lock:
+            self._requested = True
+            self._store.request_cancellation(reason="operator_requested")
+
 # Public names make deterministic fake providers easy to write without exposing
 # provider-specific transport or credential details.
 ProviderAttemptAmbiguous = LLMProviderAmbiguousError
@@ -156,7 +211,7 @@ class SerialJobResult:
 
     @property
     def terminal(self) -> bool:
-        return self.status in {"completed", "failed"}
+        return self.status in {"completed", "cancelled", "failed"}
 
     @property
     def job(self) -> Mapping[str, object]:
@@ -208,6 +263,7 @@ def run_serial_job(
     provider_alias: str | None = None,
     model_alias: str | None = None,
     max_concurrency: int | None | object = _UNSET_CONCURRENCY,
+    cancellation_signal: object | None = None,
 ) -> SerialJobResult:
     """Run or resume one local job under an exclusive lock.
 
@@ -218,6 +274,7 @@ def run_serial_job(
     selects one worker; a resumed job reuses the bound recorded at creation.
     """
 
+    _validate_cancellation_signal(cancellation_signal)
     provider_identity = _normalize_provider_identity(
         provider_present=(provider is not None or provider_factory is not None),
         generation_mode=(
@@ -280,6 +337,7 @@ def run_serial_job(
             provider_factory=provider_factory,
             provider_identity=provider_identity,
             max_concurrency=requested_max_concurrency,
+            cancellation_signal=cancellation_signal,
             store=store,
             lock=lock,
         )
@@ -309,6 +367,7 @@ def _run_serial_job_locked(
     provider_factory: ProviderFactory | None = None,
     provider_identity: Mapping[str, str] | None = None,
     max_concurrency: int | None = None,
+    cancellation_signal: object | None = None,
     store: _LocalJobStore | None = None,
     lock: _LocalJobLock | None = None,
 ) -> SerialJobResult:
@@ -347,6 +406,7 @@ def _run_serial_job_locked(
         return client
 
     coverage_recovery: tuple[CoverageAssignmentRecovery, ...] | None = None
+    cancellation_controller: _CancellationController | None = None
     if resume:
         if not store.exists:
             raise JobConfigurationError(
@@ -399,10 +459,14 @@ def _run_serial_job_locked(
             store.lock_recovered()
         if store.status == "completed":
             return store.result(output_dir)
-        if store.status != "running":
+        if store.status not in {"running", "cancelling", "cancelled", "failed"}:
             raise JobConfigurationError(
                 f"serial job {job_id!r} is not resumable from status {store.status!r}"
             )
+        cancellation_controller = _CancellationController(
+            store,
+            cancellation_signal,
+        )
         store.resume()
         if coverage_mode:
             store.recover_coverage_provider_checkpoints()
@@ -429,7 +493,14 @@ def _run_serial_job_locked(
             provider_identity=provider_identity,
             max_concurrency=effective_max_concurrency,
         )
+        cancellation_controller = _CancellationController(
+            store,
+            cancellation_signal,
+        )
         effective_candidate_generator = candidate_generator
+
+    assert cancellation_controller is not None
+    cancellation_check = cancellation_controller.check
 
     effective_candidate_generator_factory: CandidateGeneratorFactory | None = None
     coverage_scheduler_factory: CoverageAssignmentSchedulerFactory | None = None
@@ -443,6 +514,8 @@ def _run_serial_job_locked(
             assignments: tuple[CoverageAssignment, ...],
             wave: int,
         ) -> None:
+            if cancellation_check():
+                raise PipelineCancellation()
             for assignment in assignments:
                 store.create_coverage_item(assignment, wave=wave)
             if interruption_hook is not None:
@@ -456,11 +529,15 @@ def _run_serial_job_locked(
                         ],
                     }
                 )
+            if cancellation_check():
+                raise PipelineCancellation()
 
         def coverage_generation_rejection(
             assignment: CoverageAssignment,
             rejection: Mapping[str, object],
         ) -> None:
+            if cancellation_check():
+                raise PipelineCancellation()
             store.record_coverage_generation_rejection(
                 assignment.assignment_ordinal,
                 rejection,
@@ -498,6 +575,7 @@ def _run_serial_job_locked(
                 assignment=assignment,
                 provider_identity=provider_identity,
                 interruption_hook=interruption_hook,
+                cancellation_check=cancellation_check,
             )
 
         coverage_scheduler_factory = build_coverage_assignment_scheduler_factory(
@@ -529,6 +607,7 @@ def _run_serial_job_locked(
                     store,
                     provider_identity=provider_identity,
                     interruption_hook=interruption_hook,
+                    cancellation_check=cancellation_check,
                 )
                 return generate_domain_llm_candidates(
                     seed,
@@ -547,7 +626,17 @@ def _run_serial_job_locked(
         else:
             effective_candidate_generator_factory = provider_generator_factory
     elif resume:
-        effective_candidate_generator = lambda _seed: list(stored_tasks)
+        if store.candidate_set_hash is not None:
+            effective_candidate_generator = lambda _seed: list(stored_tasks)
+        else:
+            # Cancellation may happen before deterministic candidate intent is
+            # durably bound. Rebuild that intent from the validated profile on
+            # resume; once bound, the persisted candidate set remains the sole
+            # source of truth.
+            effective_candidate_generator = candidate_generator or _default_deterministic_generator(
+                run_profile
+            )
+            effective_candidate_generator_factory = candidate_generator_factory
     else:
         effective_candidate_generator = candidate_generator or _default_deterministic_generator(
             run_profile
@@ -591,6 +680,8 @@ def _run_serial_job_locked(
             )
 
     def start_candidate(request: CandidateExecutionRequest) -> None:
+        if cancellation_check():
+            raise PipelineCancellation()
         if interrupt_after is not None and store.completed_work_item_count >= interrupt_after:
             store.interrupted(
                 reason=f"interrupt_after={interrupt_after}",
@@ -615,6 +706,11 @@ def _run_serial_job_locked(
         request: CandidateExecutionRequest,
         outcome: ProvisionalCandidateOutcome,
     ) -> None:
+        # A bounded concurrent drain may allow a worker to return after the
+        # pipeline has observed cancellation. Leave that item interrupted;
+        # recording a late completion would race the cancellation journal.
+        if cancellation_check():
+            return
         store.complete_item(
             request.sequence_index,
             outcome,
@@ -633,6 +729,15 @@ def _run_serial_job_locked(
             except Exception as exc:
                 store.interrupted(reason=type(exc).__name__)
                 raise
+
+    def finish_cancellation(
+        pipeline_result: PipelineResult | None = None,
+    ) -> SerialJobResult:
+        cancellation_controller.request()
+        store.recover_inflight_provider_attempts()
+        store.interrupt_running_items(reason="operator_cancelled")
+        store.cancelled(pipeline_result)
+        return store.result(output_dir, pipeline_result=pipeline_result)
 
     try:
         pipeline_result = run_foundation_pipeline(
@@ -666,18 +771,32 @@ def _run_serial_job_locked(
             coverage_scheduler_factory=coverage_scheduler_factory,
             coverage_recovery=coverage_recovery,
             max_concurrency=effective_max_concurrency,
+            cancellation_check=cancellation_check,
         )
     except JobInterruption:
+        if cancellation_controller.check():
+            return finish_cancellation()
         raise
+    except PipelineCancellation:
+        return finish_cancellation()
     except LLMProviderError as exc:
+        if cancellation_controller.check():
+            return finish_cancellation()
         if getattr(exc, "ambiguous", False):
             store.interrupted(reason="provider_attempt_ambiguous")
             raise
+        store.fail_running_items(error_class=type(exc).__name__)
         store.failed(error_class=type(exc).__name__)
         raise
     except Exception as exc:
+        if cancellation_controller.check():
+            return finish_cancellation()
+        store.fail_running_items(error_class=type(exc).__name__)
         store.failed(error_class=type(exc).__name__)
         raise
+
+    if cancellation_controller.check():
+        return finish_cancellation(pipeline_result)
 
     if store.work_items and any(
         item["status"] != "completed" for item in store.work_items
@@ -890,6 +1009,15 @@ def validate_work_item_record(record: Mapping[str, object]) -> None:
         expected_kind = "accepted" if sample is not None else "rejected"
         if expected_kind != result_kind:
             raise ValueError("work_item result_kind does not match outcome")
+    elif status in {"failed", "cancelled"}:
+        if attempt_count < 1:
+            raise ValueError(f"{status} work_item must contain an issued attempt")
+        if record["started_at"] is not None:
+            raise ValueError(f"{status} work_item cannot remain started")
+        if record["completed_at"] is not None:
+            raise ValueError(f"{status} work_item cannot have a completion timestamp")
+        if result_kind is not None or record["outcome"] is not None:
+            raise ValueError(f"{status} work_item cannot have a terminal outcome")
 
 
 def validate_event_record(record: Mapping[str, object]) -> None:
@@ -1144,12 +1272,14 @@ class _ProviderAttemptObserver:
         *,
         provider_identity: Mapping[str, str] | None,
         interruption_hook: SerialJobInterruptionHook | None,
+        cancellation_check: Callable[[], bool] | None = None,
     ) -> None:
         if provider_identity is None:
             raise JobConfigurationError("provider identity is required")
         self._store = store
         self._provider_identity = provider_identity
         self._interruption_hook = interruption_hook
+        self._cancellation_check = cancellation_check
         self._attempt_id: str | None = None
 
     def before_provider_call(
@@ -1159,6 +1289,8 @@ class _ProviderAttemptObserver:
         requested_candidate_count: int,
         prompt_hash: str,
     ) -> None:
+        if self._cancellation_check is not None and self._cancellation_check():
+            raise PipelineCancellation()
         self._attempt_id = self._store.prepare_provider_attempt(
             role="task_generation",
             provider_identity=self._provider_identity,
@@ -1173,6 +1305,8 @@ class _ProviderAttemptObserver:
                 "batch_index": batch_context.batch_index,
             }
         )
+        if self._cancellation_check is not None and self._cancellation_check():
+            raise PipelineCancellation()
         self._store.issue_provider_attempt(self._attempt_id)
         self._call_hook(
             {
@@ -1190,6 +1324,8 @@ class _ProviderAttemptObserver:
         lineage: Mapping[str, object],
     ) -> None:
         _ = batch_context, requested_candidate_count
+        if self._cancellation_check is not None and self._cancellation_check():
+            return
         if self._attempt_id is None:
             raise InvalidTransitionError("provider response has no durable attempt")
         self._store.complete_provider_attempt(
@@ -1205,6 +1341,8 @@ class _ProviderAttemptObserver:
         error: BaseException,
     ) -> None:
         _ = batch_context, requested_candidate_count
+        if self._cancellation_check is not None and self._cancellation_check():
+            return
         if self._attempt_id is None:
             raise InvalidTransitionError("provider failure has no durable attempt")
         self._store.fail_provider_attempt(self._attempt_id, error=error)
@@ -1218,6 +1356,8 @@ class _ProviderAttemptObserver:
         lineage: Mapping[str, object],
     ) -> None:
         _ = requested_candidate_count, lineage
+        if self._cancellation_check is not None and self._cancellation_check():
+            return
         if self._attempt_id is None:
             raise InvalidTransitionError(
                 "validated provider response has no durable attempt"
@@ -1251,6 +1391,7 @@ class _CoverageProviderAttemptObserver:
         assignment: CoverageAssignment,
         provider_identity: Mapping[str, str] | None,
         interruption_hook: SerialJobInterruptionHook | None,
+        cancellation_check: Callable[[], bool] | None = None,
     ) -> None:
         if provider_identity is None:
             raise JobConfigurationError("coverage provider identity is required")
@@ -1258,6 +1399,7 @@ class _CoverageProviderAttemptObserver:
         self._assignment = assignment
         self._provider_identity = provider_identity
         self._interruption_hook = interruption_hook
+        self._cancellation_check = cancellation_check
         self._attempt_id: str | None = None
 
     def before_provider_call(
@@ -1269,6 +1411,8 @@ class _CoverageProviderAttemptObserver:
         prompt_hash: str,
     ) -> None:
         _ = assignment, batch_context
+        if self._cancellation_check is not None and self._cancellation_check():
+            raise PipelineCancellation()
         self._attempt_id = self._store.prepare_provider_attempt(
             role="task_generation",
             provider_identity=self._provider_identity,
@@ -1284,6 +1428,8 @@ class _CoverageProviderAttemptObserver:
                 "coverage_assignment_id": self._assignment.assignment_id,
             }
         )
+        if self._cancellation_check is not None and self._cancellation_check():
+            raise PipelineCancellation()
         self._store.issue_provider_attempt(self._attempt_id)
         self._call_hook(
             {
@@ -1303,6 +1449,8 @@ class _CoverageProviderAttemptObserver:
         lineage: Mapping[str, object],
     ) -> None:
         _ = assignment, batch_context, requested_candidate_count
+        if self._cancellation_check is not None and self._cancellation_check():
+            return
         if self._attempt_id is None:
             raise InvalidTransitionError(
                 "coverage provider response has no durable attempt"
@@ -1321,6 +1469,8 @@ class _CoverageProviderAttemptObserver:
         error: BaseException,
     ) -> None:
         _ = assignment, batch_context, requested_candidate_count
+        if self._cancellation_check is not None and self._cancellation_check():
+            return
         if self._attempt_id is None:
             raise InvalidTransitionError(
                 "coverage provider failure has no durable attempt"
@@ -1337,6 +1487,8 @@ class _CoverageProviderAttemptObserver:
         lineage: Mapping[str, object],
     ) -> None:
         _ = assignment, batch_context, requested_candidate_count, lineage
+        if self._cancellation_check is not None and self._cancellation_check():
+            return
         if self._attempt_id is None:
             raise InvalidTransitionError(
                 "coverage checkpoint has no durable attempt"
@@ -1827,17 +1979,90 @@ class _LocalJobStore:
             )
 
     def resume(self) -> None:
-        if self.status != "running":
-            raise InvalidTransitionError("only a running serial job can be resumed")
-        self.recover_inflight_provider_attempts()
+        if self.status not in {"running", "cancelling", "cancelled", "failed"}:
+            raise InvalidTransitionError(
+                "only a running, cancelling, cancelled, or failed serial job can be resumed"
+            )
         self._append("job_resumed", {})
+        self.recover_inflight_provider_attempts()
         for item in self.work_items:
-            if item["status"] == "running":
+            if item["status"] in {"running", "cancelled", "failed"}:
                 self._append(
                     "work_item_requeued",
-                    {"reason": "interrupted"},
+                    {
+                        "reason": (
+                            "failed"
+                            if item["status"] == "failed"
+                            else "interrupted"
+                        )
+                    },
                     work_item_id=str(item["item_id"]),
                 )
+
+    def request_cancellation(self, *, reason: str) -> None:
+        if self._job is None or self.status in {"cancelling", "cancelled"}:
+            return
+        if self.status != "running":
+            return
+        self._append(
+            "job_cancelling",
+            {"reason": _safe_error_class(reason)},
+        )
+
+    def interrupt_running_items(self, *, reason: str) -> None:
+        for item in self.work_items:
+            if item["status"] != "running":
+                continue
+            self._append(
+                "work_item_interrupted",
+                {"reason": _safe_error_class(reason)},
+                work_item_id=str(item["item_id"]),
+            )
+
+    def fail_running_items(self, *, error_class: str) -> None:
+        for item in self.work_items:
+            if item["status"] != "running":
+                continue
+            self._append(
+                "work_item_failed",
+                {"error_class": _safe_error_class(error_class)},
+                work_item_id=str(item["item_id"]),
+            )
+
+    def cancelled(self, pipeline_result: PipelineResult | None) -> None:
+        if self.status == "cancelled":
+            return
+        if self.status != "cancelling":
+            raise InvalidTransitionError(
+                "only a cancelling serial job can become cancelled"
+            )
+        if any(item["status"] == "running" for item in self.work_items):
+            raise InvalidTransitionError(
+                "running work items must be settled before job cancellation"
+            )
+        references = (
+            _pipeline_result_references(pipeline_result)
+            if pipeline_result is not None
+            else {}
+        )
+        accepted_count = (
+            pipeline_result.accepted_count
+            if pipeline_result is not None
+            else self.job["accepted_work_item_count"]
+        )
+        rejected_count = (
+            pipeline_result.rejected_count
+            if pipeline_result is not None
+            else self.job["rejected_work_item_count"]
+        )
+        self._append(
+            "job_cancelled",
+            {
+                "artifact_references": references,
+                "accepted_count": accepted_count,
+                "rejected_count": rejected_count,
+            },
+        )
 
     def recover_coverage_provider_checkpoints(self) -> None:
         for item in self.work_items:
@@ -2312,7 +2537,11 @@ class _LocalJobStore:
         *,
         pipeline_result: PipelineResult | None = None,
     ) -> SerialJobResult:
-        if pipeline_result is None and self.status == "completed":
+        if (
+            pipeline_result is None
+            and self.status in {"completed", "cancelled"}
+            and self.job["artifact_references"]
+        ):
             pipeline_result = _pipeline_result_from_references(
                 output_dir,
                 self.job["artifact_references"],
@@ -2698,10 +2927,20 @@ class _LocalJobStore:
             self._require_no_work_item(work_item_id)
             self._require_job_status("pending")
             self._job["status"] = "running"
+        elif event_type == "job_cancelling":
+            _require_payload_keys(payload, {"reason"})
+            self._require_no_work_item(work_item_id)
+            self._require_job_status("running")
+            _require_non_empty_string(payload.get("reason"), "job_cancelling.reason")
+            self._job["status"] = "cancelling"
         elif event_type == "job_resumed":
             _require_payload_keys(payload, set())
             self._require_no_work_item(work_item_id)
-            self._require_job_status("running")
+            if self.status not in {"running", "cancelling", "cancelled", "failed"}:
+                raise InvalidTransitionError(
+                    f"job status {self.status!r} cannot accept resume"
+                )
+            self._job["status"] = "running"
         elif event_type == "candidate_set_bound":
             _require_payload_keys(payload, {"candidate_set_hash", "target_candidate_count"})
             self._require_no_work_item(work_item_id)
@@ -2753,6 +2992,7 @@ class _LocalJobStore:
             self._items[work_item_id] = item
         elif event_type == "work_item_started":
             _require_payload_keys(payload, set())
+            self._require_job_status("running")
             item = self._require_item(work_item_id)
             if item["status"] != "pending":
                 raise InvalidTransitionError("only pending work items can start")
@@ -2766,9 +3006,37 @@ class _LocalJobStore:
             _require_payload_keys(payload, {"reason"})
             _require_non_empty_string(payload.get("reason"), "work_item_requeued.reason")
             item = self._require_item(work_item_id)
-            if item["status"] != "running":
-                raise InvalidTransitionError("only running work items can be requeued")
+            if item["status"] not in {"running", "failed", "cancelled"}:
+                raise InvalidTransitionError(
+                    "only running, failed, or cancelled work items can be requeued"
+                )
             item["status"] = "pending"
+            item["started_at"] = None
+        elif event_type == "work_item_interrupted":
+            _require_payload_keys(payload, {"reason"})
+            _require_non_empty_string(
+                payload.get("reason"),
+                "work_item_interrupted.reason",
+            )
+            item = self._require_item(work_item_id)
+            if item["status"] != "running":
+                raise InvalidTransitionError(
+                    "only running work items can be interrupted"
+                )
+            item["status"] = "cancelled"
+            item["started_at"] = None
+        elif event_type == "work_item_failed":
+            _require_payload_keys(payload, {"error_class"})
+            _require_non_empty_string(
+                payload.get("error_class"),
+                "work_item_failed.error_class",
+            )
+            item = self._require_item(work_item_id)
+            if item["status"] != "running":
+                raise InvalidTransitionError(
+                    "only running work items can fail"
+                )
+            item["status"] = "failed"
             item["started_at"] = None
         elif event_type == "work_item_completed":
             _require_payload_keys(payload, {"result_kind", "outcome"})
@@ -2956,7 +3224,7 @@ class _LocalJobStore:
                 {"attempt_id", "retry_count", "token_usage", "price_metadata"},
             )
             self._require_no_work_item(work_item_id)
-            self._require_job_status("running")
+            self._require_job_status_in({"running", "cancelling"})
             attempt = self._provider_attempt(str(payload.get("attempt_id")))
             if attempt["status"] != "issued":
                 raise InvalidTransitionError("provider attempt cannot become known")
@@ -2968,7 +3236,7 @@ class _LocalJobStore:
         elif event_type == "provider_attempt_ambiguous":
             _require_payload_keys(payload, {"attempt_id", "reason", "error_class"})
             self._require_no_work_item(work_item_id)
-            self._require_job_status("running")
+            self._require_job_status_in({"running", "cancelling"})
             attempt = self._provider_attempt(str(payload.get("attempt_id")))
             if attempt["status"] != "issued":
                 raise InvalidTransitionError("provider attempt cannot become ambiguous")
@@ -2990,7 +3258,7 @@ class _LocalJobStore:
                 },
             )
             self._require_no_work_item(work_item_id)
-            self._require_job_status("running")
+            self._require_job_status_in({"running", "cancelling"})
             attempt = self._provider_attempt(str(payload.get("attempt_id")))
             if attempt["status"] != "issued":
                 raise InvalidTransitionError("provider attempt cannot fail twice")
@@ -3006,7 +3274,7 @@ class _LocalJobStore:
         elif event_type == "provider_contract_checkpointed":
             _require_payload_keys(payload, {"attempt_id", "batch_index", "contracts"})
             self._require_no_work_item(work_item_id)
-            self._require_job_status("running")
+            self._require_job_status_in({"running", "cancelling"})
             attempt = self._provider_attempt(str(payload.get("attempt_id")))
             if attempt["status"] != "known":
                 raise InvalidTransitionError(
@@ -3071,6 +3339,40 @@ class _LocalJobStore:
             self._require_job_status("running")
             _require_non_empty_string(payload.get("error_class"), "job_failed.error_class")
             self._job["status"] = "failed"
+        elif event_type == "job_cancelled":
+            _require_payload_keys(
+                payload,
+                {"artifact_references", "accepted_count", "rejected_count"},
+            )
+            self._require_no_work_item(work_item_id)
+            self._require_job_status("cancelling")
+            if any(item["status"] == "running" for item in self.work_items):
+                raise InvalidTransitionError(
+                    "job cannot be cancelled with running work items"
+                )
+            references = payload.get("artifact_references")
+            if not isinstance(references, Mapping):
+                raise InvalidTransitionError(
+                    "cancelled job artifact references are invalid"
+                )
+            accepted_count = payload.get("accepted_count")
+            rejected_count = payload.get("rejected_count")
+            if (
+                not isinstance(accepted_count, int)
+                or isinstance(accepted_count, bool)
+                or accepted_count < 0
+                or not isinstance(rejected_count, int)
+                or isinstance(rejected_count, bool)
+                or rejected_count < 0
+            ):
+                raise InvalidTransitionError(
+                    "cancelled job artifact counts are invalid"
+                )
+            _assert_safe_orchestration_value(references)
+            self._job["status"] = "cancelled"
+            self._job["artifact_references"] = dict(references)
+            self._job["accepted_count"] = accepted_count
+            self._job["rejected_count"] = rejected_count
         elif event_type == "job_completed":
             _require_payload_keys(
                 payload,
@@ -3098,6 +3400,12 @@ class _LocalJobStore:
         if self.status != expected:
             raise InvalidTransitionError(
                 f"job status {self.status!r} cannot accept transition from {expected!r}"
+            )
+
+    def _require_job_status_in(self, expected: set[str]) -> None:
+        if self.status not in expected:
+            raise InvalidTransitionError(
+                f"job status {self.status!r} cannot accept transition from {sorted(expected)!r}"
             )
 
     def _require_no_work_item(self, work_item_id: object) -> None:
@@ -3154,6 +3462,32 @@ def _normalize_requested_concurrency(
         return validate_concurrency(max_concurrency)
     except ValueError as exc:
         raise JobConfigurationError(str(exc)) from exc
+
+
+def _validate_cancellation_signal(signal: object | None) -> None:
+    if signal is None:
+        return
+    is_set = getattr(signal, "is_set", None)
+    if not callable(is_set):
+        raise JobConfigurationError(
+            "cancellation_signal must expose is_set()"
+        )
+
+
+def _cancellation_signal_is_set(signal: object | None) -> bool:
+    if signal is None:
+        return False
+    is_set = getattr(signal, "is_set", None)
+    if not callable(is_set):
+        raise JobConfigurationError(
+            "cancellation_signal must expose is_set()"
+        )
+    value = is_set()
+    if not isinstance(value, bool):
+        raise JobConfigurationError(
+            "cancellation_signal.is_set() must return a boolean"
+        )
+    return value
 
 
 def _validate_serial_configuration(
@@ -4224,6 +4558,7 @@ def _utc_timestamp() -> str:
 
 
 __all__ = [
+    "CancellationSignal",
     "CONFIGURATION_IDENTITY_SCHEMA_VERSION",
     "EVENT_SCHEMA_VERSION",
     "InvalidTransitionError",

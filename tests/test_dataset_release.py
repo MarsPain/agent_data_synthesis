@@ -365,6 +365,29 @@ class DatasetReleaseTest(unittest.TestCase):
 
         self.assertEqual(report["decisions"]["dataset_release"]["status"], "blocked")
 
+    def test_cancelled_orchestration_artifacts_are_not_releaseable(self) -> None:
+        from synthesis.dataset_release import build_dataset_release_report
+
+        manifest = _manifest(profile_purpose="release_candidate")
+        manifest["orchestration"] = {
+            "schema_version": "dataset_orchestration_status_v1",
+            "status": "cancelled",
+            "completeness": "incomplete",
+            "release_eligible": False,
+        }
+        report = build_dataset_release_report(
+            manifest=manifest,
+            quality_report=_quality_report(),
+            evaluation_report=_evaluation_report(status="passed"),
+            profile_decision_report=_profile_decision_report(
+                profile_promotion_status="passed"
+            ),
+        )
+
+        decision = report["decisions"]["dataset_release"]
+        self.assertEqual(decision["status"], "insufficient_evidence")
+        self.assertIn("orchestration_completeness", decision["triggered_by"])
+
     def test_activated_semantic_duplicate_detection_blocks_release(self) -> None:
         from synthesis.dataset_release import build_dataset_release_report
 

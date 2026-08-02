@@ -191,6 +191,392 @@ class SerialOrchestrationTest(unittest.TestCase):
             )
             self.assertNotIn(str(Path(tmpdir)), result.work_items_path.read_text())
 
+    def test_cancellation_drains_in_flight_work_and_resumes_to_uninterrupted_artifacts(self) -> None:
+        from synthesis.orchestration import CancellationSignal, run_serial_job
+
+        profile = load_run_profile(self.PROFILE_PATH)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            cancelled_dir = root / "cancelled"
+            signal = CancellationSignal()
+            policy_calls: list[str] = []
+            started_sequences: list[int] = []
+
+            def recording_policy(task: CandidateTask):
+                policy_calls.append(task.candidate_id)
+                time.sleep(0.02)
+                return scripted_solution_policy(task)
+
+            def cancel_after_first_completion(event):
+                if event.get("event_type") == "work_item_started":
+                    sequence_index = event.get("sequence_index")
+                    if isinstance(sequence_index, int):
+                        started_sequences.append(sequence_index)
+                if event.get("event_type") == "work_item_completed":
+                    signal.cancel()
+                    signal.cancel()
+
+            cancelled = run_serial_job(
+                cancelled_dir,
+                job_id="cooperative-cancel",
+                run_profile=profile,
+                policy_generator=recording_policy,
+                interruption_hook=cancel_after_first_completion,
+                cancellation_signal=signal,
+                max_concurrency=2,
+            )
+
+            self.assertEqual(cancelled.status, "cancelled")
+            self.assertTrue(cancelled.terminal)
+            self.assertIsNotNone(cancelled.pipeline_result)
+            self.assertLessEqual(len(policy_calls), 2)
+            self.assertNotIn(2, started_sequences)
+            self.assertTrue(
+                all(
+                    item["status"] in {"pending", "cancelled", "completed"}
+                    for item in cancelled.work_items
+                )
+            )
+            manifest = self._read_json(cancelled_dir / "manifest.json")
+            self.assertEqual(manifest["orchestration"]["status"], "cancelled")
+            self.assertEqual(manifest["orchestration"]["completeness"], "incomplete")
+
+            events = self._read_jsonl(cancelled.events_path)
+            self.assertEqual(
+                [
+                    event["event_type"]
+                    for event in events
+                    if event["event_type"] in {"job_cancelling", "job_cancelled"}
+                ],
+                ["job_cancelling", "job_cancelled"],
+            )
+            interrupted = [
+                event
+                for event in events
+                if event["event_type"] == "work_item_interrupted"
+            ]
+            interrupted_items = [
+                item
+                for item in cancelled.work_items
+                if item["status"] == "cancelled"
+            ]
+            self.assertEqual(len(interrupted), len(interrupted_items))
+            self.assertTrue(
+                all(event["payload"]["reason"] == "operator_cancelled" for event in interrupted)
+            )
+
+            resumed = run_serial_job(
+                cancelled_dir,
+                job_id="cooperative-cancel",
+                run_profile=profile,
+                policy_generator=recording_policy,
+                resume=True,
+            )
+            self.assertEqual(resumed.status, "completed")
+
+            uninterrupted_dir = root / "uninterrupted"
+            run_serial_job(
+                uninterrupted_dir,
+                job_id="uninterrupted",
+                run_profile=profile,
+            )
+            self.assertEqual(
+                self._core_artifacts(cancelled_dir),
+                self._core_artifacts(uninterrupted_dir),
+            )
+
+    def test_cancellation_after_last_item_still_marks_partial_artifacts(self) -> None:
+        from synthesis.orchestration import CancellationSignal, run_serial_job
+
+        profile = load_run_profile(self.PROFILE_PATH)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            signal = CancellationSignal()
+
+            def cancel_after_last_completion(event):
+                if (
+                    event.get("event_type") == "work_item_completed"
+                    and event.get("sequence_index") == 2
+                ):
+                    signal.cancel()
+
+            result = run_serial_job(
+                root,
+                job_id="cancel-after-last-item",
+                run_profile=profile,
+                interruption_hook=cancel_after_last_completion,
+                cancellation_signal=signal,
+            )
+
+            self.assertEqual(result.status, "cancelled")
+            manifest = self._read_json(root / "manifest.json")
+            self.assertEqual(manifest["orchestration"]["status"], "cancelled")
+            self.assertFalse(manifest["orchestration"]["release_eligible"])
+
+    def test_resume_recovers_a_crash_after_job_cancelling(self) -> None:
+        from synthesis.orchestration import CancellationSignal, run_serial_job
+
+        profile = load_run_profile(self.PROFILE_PATH)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            signal = CancellationSignal()
+            signal.cancel()
+            cancelled = run_serial_job(
+                root,
+                job_id="cancelling-crash-recovery",
+                run_profile=profile,
+                cancellation_signal=signal,
+            )
+            events = self._read_jsonl(cancelled.events_path)
+            self.assertEqual(events[-1]["event_type"], "job_cancelled")
+            cancelled.events_path.write_text(
+                "".join(json.dumps(event, sort_keys=True) + "\n" for event in events[:-1]),
+                encoding="utf-8",
+            )
+
+            resumed = run_serial_job(
+                root,
+                job_id="cancelling-crash-recovery",
+                run_profile=profile,
+                resume=True,
+            )
+            self.assertEqual(resumed.status, "completed")
+            self.assertIn(
+                "job_resumed",
+                [event["event_type"] for event in self._read_jsonl(resumed.events_path)],
+            )
+
+    def test_cancellation_is_observed_while_inflight_work_is_blocked(self) -> None:
+        from synthesis.orchestration import CancellationSignal, run_serial_job
+
+        profile = load_run_profile(self.PROFILE_PATH)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            signal = CancellationSignal()
+            release = threading.Event()
+            timer = threading.Timer(1.5, release.set)
+
+            def blocking_policy(task: CandidateTask):
+                self.assertTrue(release.wait(3))
+                return scripted_solution_policy(task)
+
+            def cancel_after_start(event):
+                if event.get("event_type") == "work_item_started":
+                    signal.cancel()
+
+            timer.start()
+            started_at = time.monotonic()
+            result = run_serial_job(
+                root,
+                job_id="blocked-inflight-cancel",
+                run_profile=profile,
+                policy_generator=blocking_policy,
+                interruption_hook=cancel_after_start,
+                cancellation_signal=signal,
+                max_concurrency=2,
+            )
+            elapsed = time.monotonic() - started_at
+            release.set()
+            timer.join(3)
+
+            self.assertEqual(result.status, "cancelled")
+            self.assertLess(elapsed, 1.45)
+            self.assertTrue(
+                any(
+                    event["event_type"] == "work_item_interrupted"
+                    for event in self._read_jsonl(result.events_path)
+                )
+            )
+
+    def test_serial_and_concurrent_cancellation_resume_have_same_core_artifacts(self) -> None:
+        from synthesis.orchestration import CancellationSignal, run_serial_job
+
+        profile = load_run_profile(self.PROFILE_PATH)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            for name, max_concurrency in (("serial", 1), ("concurrent", 2)):
+                signal = CancellationSignal()
+
+                def cancel_after_first_completion(event, signal=signal):
+                    if (
+                        event.get("event_type") == "work_item_completed"
+                        and event.get("sequence_index") == 0
+                    ):
+                        signal.cancel()
+
+                output_dir = root / name
+                cancelled = run_serial_job(
+                    output_dir,
+                    job_id=f"cancel-equivalence-{name}",
+                    run_profile=profile,
+                    interruption_hook=cancel_after_first_completion,
+                    cancellation_signal=signal,
+                    max_concurrency=max_concurrency,
+                )
+                self.assertEqual(cancelled.status, "cancelled")
+                resumed = run_serial_job(
+                    output_dir,
+                    job_id=f"cancel-equivalence-{name}",
+                    run_profile=profile,
+                    resume=True,
+                    max_concurrency=max_concurrency,
+                )
+                self.assertEqual(resumed.status, "completed")
+
+            self.assertEqual(
+                self._core_artifacts(root / "serial"),
+                self._core_artifacts(root / "concurrent"),
+            )
+
+    def test_cancelled_coverage_job_retains_assignments_and_resumes(self) -> None:
+        from synthesis.orchestration import CancellationSignal, run_serial_job
+
+        from tests.test_coverage_assignment_pipeline import AssignmentAwareFakeProvider
+
+        profile = load_run_profile(
+            Path("tests/fixtures/run_profiles/contacts-coverage-tracer.json")
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            cancelled_dir = root / "cancelled-coverage"
+            signal = CancellationSignal()
+
+            def cancel_after_first_bound(event):
+                if event.get("event_type") == "coverage_candidate_bound":
+                    signal.cancel()
+
+            cancelled = run_serial_job(
+                cancelled_dir,
+                job_id="cancelled-coverage",
+                run_profile=profile,
+                provider=AssignmentAwareFakeProvider(),
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 6},
+                interruption_hook=cancel_after_first_bound,
+                cancellation_signal=signal,
+                max_concurrency=2,
+            )
+            self.assertEqual(cancelled.status, "cancelled")
+            self.assertIsNotNone(cancelled.pipeline_result)
+            partial_manifest = self._read_json(cancelled_dir / "manifest.json")
+            self.assertEqual(
+                partial_manifest["coverage"]["evidence_artifact"]["path"],
+                "coverage_evidence.json",
+            )
+            evidence = self._read_json(cancelled_dir / "coverage_evidence.json")
+            self.assertEqual(evidence["fulfillment"]["status"], "incomplete")
+
+            resumed = run_serial_job(
+                cancelled_dir,
+                job_id="cancelled-coverage",
+                run_profile=profile,
+                provider=AssignmentAwareFakeProvider(),
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 6},
+                resume=True,
+                max_concurrency=2,
+            )
+            self.assertEqual(resumed.status, "completed")
+            self.assertIsNotNone(resumed.pipeline_result)
+            assert resumed.pipeline_result is not None
+            self.assertEqual(
+                resumed.pipeline_result.coverage_reconciliation["status"],
+                "complete",
+            )
+
+    def test_cancellation_before_candidate_binding_resumes_from_profile(self) -> None:
+        from synthesis.orchestration import CancellationSignal, run_serial_job
+
+        profile = load_run_profile(self.PROFILE_PATH)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            cancelled_dir = root / "cancelled-before-binding"
+            signal = CancellationSignal()
+            signal.cancel()
+
+            cancelled = run_serial_job(
+                cancelled_dir,
+                job_id="cancelled-before-binding",
+                run_profile=profile,
+                cancellation_signal=signal,
+            )
+            self.assertEqual(cancelled.status, "cancelled")
+            self.assertEqual(cancelled.job_record["work_item_count"], 0)
+            self.assertTrue(
+                all(
+                    event["event_type"] not in {"candidate_set_bound", "work_item_started"}
+                    for event in self._read_jsonl(cancelled.events_path)
+                )
+            )
+
+            resumed = run_serial_job(
+                cancelled_dir,
+                job_id="cancelled-before-binding",
+                run_profile=profile,
+                resume=True,
+            )
+            self.assertEqual(resumed.status, "completed")
+
+            uninterrupted_dir = root / "uninterrupted"
+            run_serial_job(
+                uninterrupted_dir,
+                job_id="uninterrupted",
+                run_profile=profile,
+            )
+            self.assertEqual(
+                self._core_artifacts(cancelled_dir),
+                self._core_artifacts(uninterrupted_dir),
+            )
+
+    def test_cancelled_provider_job_makes_no_call_and_validates_budget_on_resume(self) -> None:
+        from synthesis.orchestration import (
+            CancellationSignal,
+            JobConfigurationError,
+            run_serial_job,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile = self._llm_profile(root, target=3)
+            signal = CancellationSignal()
+            signal.cancel()
+            provider = ResumableFakeProvider()
+            constructed: list[bool] = []
+
+            def provider_factory():
+                constructed.append(True)
+                return provider
+
+            cancelled = run_serial_job(
+                root / "cancelled-provider",
+                job_id="cancelled-provider",
+                run_profile=profile,
+                provider_factory=provider_factory,
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 2},
+                cancellation_signal=signal,
+            )
+            self.assertEqual(cancelled.status, "cancelled")
+            self.assertEqual(constructed, [])
+            self.assertEqual(provider.calls, [])
+
+            with self.assertRaises(JobConfigurationError):
+                run_serial_job(
+                    root / "cancelled-provider",
+                    job_id="cancelled-provider",
+                    run_profile=profile,
+                    resume=True,
+                    provider_factory=provider_factory,
+                    provider_alias="fake-provider",
+                    model_alias="fake-model",
+                    authorization_limits={"logical_call_budget": 3},
+                )
+            self.assertEqual(constructed, [])
+            self.assertEqual(provider.calls, [])
+
     def test_concurrency_defaults_to_one_and_invalid_values_fail_before_work(self) -> None:
         from synthesis.orchestration import JobConfigurationError, run_serial_job
 

@@ -7,31 +7,47 @@ same configuration and authorization.
 
 **Blocked by:** [05 — Run Bounded Work Concurrently With Stable Merge](05-bounded-concurrency-stable-merge.md)
 
-**Status:** ready-for-agent
+**Status:** completed
 
-**Assignee:** Unassigned
+**Assignee:** Codex
 
 **Parent spec:** [Async Local Orchestration](../../../docs/product-specs/async-local-orchestration.md)
 
 ## Acceptance criteria
 
-- [ ] A programmatic cancellation signal transitions a running job through
+- [x] A programmatic cancellation signal transitions a running job through
   cancelling to cancelled and is idempotent when repeated.
-- [ ] Cancellation prevents new work pickup while allowing bounded in-flight
+- [x] Cancellation prevents new work pickup while allowing bounded in-flight
   work to finish, reach its existing timeout, or remain explicitly interrupted.
-- [ ] Every completed, failed, cancelled, or interrupted work item has a valid
+- [x] Every completed, failed, cancelled, or interrupted work item has a valid
   durable disposition after cancellation.
-- [ ] Partial dataset artifacts, when emitted, are rebuilt through the existing
+- [x] Partial dataset artifacts, when emitted, are rebuilt through the existing
   writer, remain diagnostic and incomplete, and cannot pass fulfillment or
   release gates.
-- [ ] A cancelled job resumes only after job identity, configuration, journal,
+- [x] A cancelled job resumes only after job identity, configuration, journal,
   lock, output ownership, and remaining authorization validate.
-- [ ] Resumption skips work that completed before or during cancellation and
+- [x] Resumption skips work that completed before or during cancellation and
   requeues only eligible interrupted work.
-- [ ] Serial and concurrent cancellation/resumption produce the same final core
+- [x] Serial and concurrent cancellation/resumption produce the same final core
   artifacts as uninterrupted execution for deterministic inputs.
-- [ ] Focused repeated-cancel, no-new-pickup, in-flight, partial-artifact,
+- [x] Focused repeated-cancel, no-new-pickup, in-flight, partial-artifact,
   authorization, resume, and equivalence tests pass without paid calls.
+
+## Implementation
+
+`run_serial_job` now accepts a thread-safe cooperative cancellation signal and
+durably records `job_cancelling`, interrupted work-item dispositions, and
+`job_cancelled`. Bounded candidate and coverage executors stop submitting new
+work, drain already-started work, and preserve stable merge order. Partial
+outputs use the existing dataset writer with an explicit incomplete
+orchestration marker; release admission rejects that marker. Cancelled jobs
+validate the existing identity, configuration, lock, journal, output, and
+authorization bindings before resuming completed outcomes and eligible pending
+work.
+
+Focused coverage, repeated-cancel, no-new-pickup, pre-bind resume, partial
+artifact, release-gate, and serial/concurrent equivalence tests are in
+`tests/test_orchestration.py` and `tests/test_dataset_release.py`.
 
 ## Scope guard
 

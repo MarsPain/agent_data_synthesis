@@ -89,6 +89,13 @@ from synthesis.tools import (
 )
 
 
+# Cooperative cancellation must never turn executor shutdown into an implicit
+# unbounded wait. Work that does not finish within this grace period is left
+# explicitly interrupted and is eligible for the normal resume path.
+CANCELLATION_DRAIN_TIMEOUT_SECONDS = 1.0
+CANCELLATION_POLL_INTERVAL_SECONDS = 0.1
+
+
 @dataclass(frozen=True)
 class PipelineResult:
     samples_path: Path
@@ -119,11 +126,20 @@ CandidateOutcomeCallback = Callable[
 ]
 
 
+class PipelineCancellation(RuntimeError):
+    """Internal signal used to stop pickup while draining in-flight work."""
+
+    def __init__(self, merge: CandidateMergeResult | None = None) -> None:
+        super().__init__("pipeline cancellation requested")
+        self.merge = merge
+
+
 @dataclass(frozen=True)
 class _CandidateWaveHooks:
     start: CandidateStartCallback | None = None
     outcome: CandidateOutcomeCallback | None = None
     precomputed: Mapping[int, ProvisionalCandidateOutcome] | None = None
+    should_stop: Callable[[], bool] | None = None
 
 
 class FoundationGateError(RuntimeError):
@@ -306,12 +322,20 @@ def run_foundation_pipeline(
     write_episode_logs: bool = False,
     mutation_judge_http_client: httpx.Client | None = None,
     max_concurrency: int = 1,
+    cancellation_check: Callable[[], bool] | None = None,
 ) -> PipelineResult:
     max_concurrency = validate_concurrency(max_concurrency)
+
+    def cancelled_artifact_status() -> str | None:
+        if cancellation_check is not None and cancellation_check():
+            return "cancelled"
+        return None
+
     candidate_wave_hooks = _CandidateWaveHooks(
         start=candidate_start_callback,
         outcome=candidate_outcome_callback,
         precomputed=precomputed_candidate_outcomes,
+        should_stop=cancellation_check,
     )
     run_profile_metadata = _authoritative_run_profile_metadata(
         run_profile,
@@ -357,6 +381,7 @@ def run_foundation_pipeline(
             tool_proposals=[],
             source_events=source_event_records,
             run_profile_metadata=run_profile_metadata,
+            orchestration_status=cancelled_artifact_status(),
         )
         return _pipeline_result(artifacts)
     if enable_source_audit:
@@ -405,6 +430,7 @@ def run_foundation_pipeline(
                 tool_proposals=[],
                 source_events=source_event_records,
                 run_profile_metadata=run_profile_metadata,
+                orchestration_status=cancelled_artifact_status(),
             )
             return _pipeline_result(artifacts)
         if enable_source_audit:
@@ -546,11 +572,84 @@ def run_foundation_pipeline(
             tool_proposals=tool_proposal_records,
             source_events=source_event_records,
             run_profile_metadata=run_profile_metadata,
+            orchestration_status=cancelled_artifact_status(),
         )
         return _pipeline_result(artifacts)
 
+    def finalize_pipeline(
+        *,
+        reconciliation: Mapping[str, object] | None = None,
+        orchestration_status: str | None = None,
+    ) -> PipelineResult:
+        if orchestration_status is None:
+            orchestration_status = cancelled_artifact_status()
+        if reconciliation is None:
+            reconciliation = coverage_reconciliation
+        _attach_source_governance_to_rejections(rejections, source_provenance)
+        sandbox_audits = (
+            build_deterministic_sandbox_fixture(output_dir)
+            if enable_sandbox_fixture
+            else []
+        )
+        artifacts = write_dataset_artifacts(
+            output_dir=output_dir,
+            dataset_version=dataset_version,
+            samples=samples,
+            rejections=rejections,
+            parent_artifact_path=parent_artifact_path,
+            review_records=review_records,
+            tool_proposals=tool_proposal_records,
+            source_events=source_event_records,
+            sandbox_audits=sandbox_audits,
+            run_profile_metadata=run_profile_metadata,
+            coverage_plan=coverage_plan,
+            coverage_reconciliation=reconciliation,
+            orchestration_status=orchestration_status,
+        )
+        episode_logs_path = (
+            write_episode_log_jsonl(output_dir / EPISODES_FILENAME, episode_logs)
+            if write_episode_logs
+            else None
+        )
+        return _pipeline_result(
+            artifacts,
+            episode_logs_path=episode_logs_path,
+            coverage_plan_path=coverage_plan_path,
+            coverage_reconciliation=reconciliation,
+        )
+
+    def partial_coverage_reconciliation(
+        scheduler: CoverageAssignmentScheduler,
+    ) -> Mapping[str, object]:
+        reconciliation = dict(scheduler.reconciliation())
+        raw_cells = reconciliation.get("cells")
+        terminal_attempts = 0
+        if isinstance(raw_cells, list):
+            terminal_attempts = sum(
+                int(isinstance(cell, Mapping))
+                * (
+                    int(cell.get("accepted", 0))
+                    + int(cell.get("rejected", 0))
+                )
+                for cell in raw_cells
+            )
+        attempts = reconciliation.get("attempts")
+        if isinstance(attempts, Mapping):
+            normalized_attempts = dict(attempts)
+            normalized_attempts["issued"] = terminal_attempts
+            normalized_attempts["remaining"] = (
+                int(normalized_attempts["ceiling"]) - terminal_attempts
+            )
+            reconciliation["attempts"] = normalized_attempts
+        return reconciliation
+
     processed_candidate_count = 0
     if coverage_scheduler is not None:
+        if cancellation_check is not None and cancellation_check():
+            return finalize_pipeline(
+                reconciliation=partial_coverage_reconciliation(coverage_scheduler),
+                orchestration_status="cancelled",
+            )
         if coverage_recovery is not None:
             for wave in sorted(
                 {
@@ -558,7 +657,15 @@ def run_foundation_pipeline(
                     for recovery in coverage_recovery
                 }
             ):
-                coverage_wave = coverage_scheduler.recover_wave(seed, wave)
+                try:
+                    coverage_wave = coverage_scheduler.recover_wave(seed, wave)
+                except PipelineCancellation:
+                    return finalize_pipeline(
+                        reconciliation=partial_coverage_reconciliation(
+                            coverage_scheduler
+                        ),
+                        orchestration_status="cancelled",
+                    )
                 rejections.extend(coverage_wave.rejections)
                 wave_tasks = [
                     domain_bundle.candidate_preparer(raw_task)
@@ -583,19 +690,48 @@ def run_foundation_pipeline(
                         strict=True,
                     )
                 ]
-                base_merge = _process_candidate_requests(
-                    requests=wave_requests,
-                    domain_bundle=domain_bundle,
-                    candidate_context=candidate_context,
-                    candidate_options=candidate_options,
-                    output_dir=output_dir,
-                    enable_mcp_adapter=enable_mcp_adapter,
-                    accepted_signatures=accepted_signatures,
-                    route_reviewable_failures=route_reviewable_failures,
-                    coverage_scheduler=coverage_scheduler,
-                    max_concurrency=max_concurrency,
-                    hooks=candidate_wave_hooks,
-                )
+                try:
+                    base_merge = _process_candidate_requests(
+                        requests=wave_requests,
+                        domain_bundle=domain_bundle,
+                        candidate_context=candidate_context,
+                        candidate_options=candidate_options,
+                        output_dir=output_dir,
+                        enable_mcp_adapter=enable_mcp_adapter,
+                        accepted_signatures=accepted_signatures,
+                        route_reviewable_failures=route_reviewable_failures,
+                        coverage_scheduler=coverage_scheduler,
+                        max_concurrency=max_concurrency,
+                        hooks=candidate_wave_hooks,
+                    )
+                except PipelineCancellation as exc:
+                    if exc.merge is not None:
+                        samples.extend(exc.merge.samples)
+                        rejections.extend(exc.merge.rejections)
+                        review_records.extend(exc.merge.review_records)
+                        tool_proposal_records.extend(exc.merge.tool_proposal_records)
+                        episode_logs.extend(exc.merge.episode_logs)
+                        request_by_sequence = {
+                            request.sequence_index: request
+                            for request in wave_requests
+                        }
+                        coverage_scheduler.reconcile_wave(
+                            coverage_wave,
+                            accepted_candidate_ids={
+                                request_by_sequence[index].raw_task.candidate_id
+                                for index in exc.merge.accepted_sequence_indices
+                            },
+                            rejected_candidate_ids={
+                                request_by_sequence[index].raw_task.candidate_id
+                                for index in exc.merge.rejected_sequence_indices
+                            },
+                        )
+                    return finalize_pipeline(
+                        reconciliation=partial_coverage_reconciliation(
+                            coverage_scheduler
+                        ),
+                        orchestration_status="cancelled",
+                    )
                 samples.extend(base_merge.samples)
                 rejections.extend(base_merge.rejections)
                 review_records.extend(base_merge.review_records)
@@ -619,7 +755,22 @@ def run_foundation_pipeline(
                 )
                 processed_candidate_count = coverage_scheduler.issued_count
         while coverage_scheduler.can_schedule:
-            coverage_wave = coverage_scheduler.generate_wave(seed)
+            if cancellation_check is not None and cancellation_check():
+                return finalize_pipeline(
+                    reconciliation=partial_coverage_reconciliation(
+                        coverage_scheduler
+                    ),
+                    orchestration_status="cancelled",
+                )
+            try:
+                coverage_wave = coverage_scheduler.generate_wave(seed)
+            except PipelineCancellation:
+                return finalize_pipeline(
+                    reconciliation=partial_coverage_reconciliation(
+                        coverage_scheduler
+                    ),
+                    orchestration_status="cancelled",
+                )
             rejections.extend(coverage_wave.rejections)
             wave_tasks = [
                 domain_bundle.candidate_preparer(raw_task)
@@ -644,19 +795,48 @@ def run_foundation_pipeline(
                     strict=True,
                 )
             ]
-            base_merge = _process_candidate_requests(
-                requests=wave_requests,
-                domain_bundle=domain_bundle,
-                candidate_context=candidate_context,
-                candidate_options=candidate_options,
-                output_dir=output_dir,
-                enable_mcp_adapter=enable_mcp_adapter,
-                accepted_signatures=accepted_signatures,
-                route_reviewable_failures=route_reviewable_failures,
-                coverage_scheduler=coverage_scheduler,
-                max_concurrency=max_concurrency,
-                hooks=candidate_wave_hooks,
-            )
+            try:
+                base_merge = _process_candidate_requests(
+                    requests=wave_requests,
+                    domain_bundle=domain_bundle,
+                    candidate_context=candidate_context,
+                    candidate_options=candidate_options,
+                    output_dir=output_dir,
+                    enable_mcp_adapter=enable_mcp_adapter,
+                    accepted_signatures=accepted_signatures,
+                    route_reviewable_failures=route_reviewable_failures,
+                    coverage_scheduler=coverage_scheduler,
+                    max_concurrency=max_concurrency,
+                    hooks=candidate_wave_hooks,
+                )
+            except PipelineCancellation as exc:
+                if exc.merge is not None:
+                    samples.extend(exc.merge.samples)
+                    rejections.extend(exc.merge.rejections)
+                    review_records.extend(exc.merge.review_records)
+                    tool_proposal_records.extend(exc.merge.tool_proposal_records)
+                    episode_logs.extend(exc.merge.episode_logs)
+                    request_by_sequence = {
+                        request.sequence_index: request
+                        for request in wave_requests
+                    }
+                    coverage_scheduler.reconcile_wave(
+                        coverage_wave,
+                        accepted_candidate_ids={
+                            request_by_sequence[index].raw_task.candidate_id
+                            for index in exc.merge.accepted_sequence_indices
+                        },
+                        rejected_candidate_ids={
+                            request_by_sequence[index].raw_task.candidate_id
+                            for index in exc.merge.rejected_sequence_indices
+                        },
+                    )
+                return finalize_pipeline(
+                    reconciliation=partial_coverage_reconciliation(
+                        coverage_scheduler
+                    ),
+                    orchestration_status="cancelled",
+                )
             samples.extend(base_merge.samples)
             rejections.extend(base_merge.rejections)
             review_records.extend(base_merge.review_records)
@@ -683,6 +863,8 @@ def run_foundation_pipeline(
     else:
         assert generate_candidates is not None
         try:
+            if cancellation_check is not None and cancellation_check():
+                return finalize_pipeline(orchestration_status="cancelled")
             generation_result = generate_candidates(seed)
             if isinstance(generation_result, DomainGenerationResult):
                 base_tasks = list(generation_result.candidates)
@@ -697,10 +879,14 @@ def run_foundation_pipeline(
                 base_tasks = generation_result
             if candidate_set_callback is not None:
                 candidate_set_callback(tuple(base_tasks))
+            if cancellation_check is not None and cancellation_check():
+                return finalize_pipeline(orchestration_status="cancelled")
             base_tasks = [
                 domain_bundle.candidate_preparer(raw_task)
                 for raw_task in base_tasks
             ]
+        except PipelineCancellation:
+            return finalize_pipeline(orchestration_status="cancelled")
         except LLMProviderError as exc:
             if getattr(exc, "ambiguous", False):
                 raise
@@ -716,22 +902,32 @@ def run_foundation_pipeline(
                 tool_proposals=tool_proposal_records,
                 source_events=source_event_records,
                 run_profile_metadata=run_profile_metadata,
+                orchestration_status=cancelled_artifact_status(),
             )
             return _pipeline_result(artifacts)
 
-        base_merge = _process_candidate_wave(
-            raw_tasks=base_tasks,
-            start_index=0,
-            domain_bundle=domain_bundle,
-            candidate_context=candidate_context,
-            candidate_options=candidate_options,
-            output_dir=output_dir,
-            enable_mcp_adapter=enable_mcp_adapter,
-            accepted_signatures=accepted_signatures,
-            route_reviewable_failures=route_reviewable_failures,
-            max_concurrency=max_concurrency,
-            hooks=candidate_wave_hooks,
-        )
+        try:
+            base_merge = _process_candidate_wave(
+                raw_tasks=base_tasks,
+                start_index=0,
+                domain_bundle=domain_bundle,
+                candidate_context=candidate_context,
+                candidate_options=candidate_options,
+                output_dir=output_dir,
+                enable_mcp_adapter=enable_mcp_adapter,
+                accepted_signatures=accepted_signatures,
+                route_reviewable_failures=route_reviewable_failures,
+                max_concurrency=max_concurrency,
+                hooks=candidate_wave_hooks,
+            )
+        except PipelineCancellation as exc:
+            if exc.merge is not None:
+                samples.extend(exc.merge.samples)
+                rejections.extend(exc.merge.rejections)
+                review_records.extend(exc.merge.review_records)
+                tool_proposal_records.extend(exc.merge.tool_proposal_records)
+                episode_logs.extend(exc.merge.episode_logs)
+            return finalize_pipeline(orchestration_status="cancelled")
         samples.extend(base_merge.samples)
         rejections.extend(base_merge.rejections)
         review_records.extend(base_merge.review_records)
@@ -741,6 +937,8 @@ def run_foundation_pipeline(
         processed_candidate_count = len(base_tasks)
 
     if enable_task_expansion:
+        if cancellation_check is not None and cancellation_check():
+            return finalize_pipeline(orchestration_status="cancelled")
         expansion = generate_task_expansion(seed)
         for rejected_suggestion in expansion.rejected_suggestions:
             rejection = assemble_task_suggestion_rejection(suggestion=rejected_suggestion)
@@ -790,37 +988,9 @@ def run_foundation_pipeline(
         episode_logs.extend(expanded_merge.episode_logs)
         accepted_signatures = expanded_merge.accepted_signatures
 
-    _attach_source_governance_to_rejections(rejections, source_provenance)
-    sandbox_audits = (
-        build_deterministic_sandbox_fixture(output_dir)
-        if enable_sandbox_fixture
-        else []
-    )
-    artifacts = write_dataset_artifacts(
-        output_dir=output_dir,
-        dataset_version=dataset_version,
-        samples=samples,
-        rejections=rejections,
-        parent_artifact_path=parent_artifact_path,
-        review_records=review_records,
-        tool_proposals=tool_proposal_records,
-        source_events=source_event_records,
-        sandbox_audits=sandbox_audits,
-        run_profile_metadata=run_profile_metadata,
-        coverage_plan=coverage_plan,
-        coverage_reconciliation=coverage_reconciliation,
-    )
-    episode_logs_path = (
-        write_episode_log_jsonl(output_dir / EPISODES_FILENAME, episode_logs)
-        if write_episode_logs
-        else None
-    )
-    return _pipeline_result(
-        artifacts,
-        episode_logs_path=episode_logs_path,
-        coverage_plan_path=coverage_plan_path,
-        coverage_reconciliation=coverage_reconciliation,
-    )
+    if cancellation_check is not None and cancellation_check():
+        return finalize_pipeline(orchestration_status="cancelled")
+    return finalize_pipeline()
 
 
 def _selected_coverage_planning_variant(
@@ -959,13 +1129,15 @@ def _process_candidate_requests(
     hooks: _CandidateWaveHooks | None = None,
 ) -> CandidateMergeResult:
     max_concurrency = validate_concurrency(max_concurrency)
-    outcomes = []
     hooks = hooks or _CandidateWaveHooks()
     precomputed = hooks.precomputed or {}
+    outcomes: list[ProvisionalCandidateOutcome] = []
 
     def process_request(request: CandidateExecutionRequest) -> ProvisionalCandidateOutcome:
         outcome = precomputed.get(request.sequence_index)
         if outcome is None:
+            if hooks.should_stop is not None and hooks.should_stop():
+                raise PipelineCancellation()
             if hooks.start is not None:
                 hooks.start(request)
             request_options = candidate_options
@@ -989,11 +1161,20 @@ def _process_candidate_requests(
                 options=request_options,
             )
             if hooks.outcome is not None:
-                hooks.outcome(request, outcome)
+                if hooks.should_stop is None or not hooks.should_stop():
+                    hooks.outcome(request, outcome)
+            if hooks.should_stop is not None and hooks.should_stop():
+                raise PipelineCancellation()
         return outcome
 
+    cancellation_requested = False
     if max_concurrency == 1:
-        outcomes = [process_request(request) for request in requests]
+        for request in requests:
+            try:
+                outcomes.append(process_request(request))
+            except PipelineCancellation:
+                cancellation_requested = True
+                break
     else:
         pending: dict[
             Future[ProvisionalCandidateOutcome], CandidateExecutionRequest
@@ -1009,40 +1190,85 @@ def _process_candidate_requests(
             return True
 
         failure: BaseException | None = None
-        with ThreadPoolExecutor(
+
+        def collect(future: Future[ProvisionalCandidateOutcome]) -> None:
+            nonlocal cancellation_requested, failure
+            try:
+                outcomes.append(future.result())
+            except PipelineCancellation:
+                cancellation_requested = True
+            except BaseException as exc:
+                if cancellation_requested or (
+                    hooks.should_stop is not None and hooks.should_stop()
+                ):
+                    cancellation_requested = True
+                else:
+                    failure = exc
+
+        executor = ThreadPoolExecutor(
             max_workers=max_concurrency,
             thread_name_prefix="synthesis-candidate",
-        ) as executor:
-            for _ in range(min(max_concurrency, len(requests))):
-                submit_next()
+        )
+        try:
+            if hooks.should_stop is not None and hooks.should_stop():
+                cancellation_requested = True
+            else:
+                for _ in range(min(max_concurrency, len(requests))):
+                    submit_next()
             while pending and failure is None:
-                done, _ = wait(tuple(pending), return_when=FIRST_COMPLETED)
+                done, _ = wait(
+                    tuple(pending),
+                    timeout=CANCELLATION_POLL_INTERVAL_SECONDS,
+                    return_when=FIRST_COMPLETED,
+                )
+                if not done:
+                    if hooks.should_stop is not None and hooks.should_stop():
+                        cancellation_requested = True
+                    else:
+                        continue
                 for future in done:
                     pending.pop(future)
-                    try:
-                        outcomes.append(future.result())
-                    except BaseException as exc:
-                        failure = exc
+                    collect(future)
+                    if failure is not None or cancellation_requested:
+                        break
+                    if hooks.should_stop is not None and hooks.should_stop():
+                        cancellation_requested = True
                         break
                     submit_next()
-                if failure is not None:
+                if failure is not None or cancellation_requested:
                     for future in pending:
                         future.cancel()
-                    for future in pending:
-                        if future.cancelled():
-                            continue
-                        try:
-                            future.result()
-                        except BaseException:
-                            pass
+                    if pending:
+                        done, _ = wait(
+                            tuple(pending),
+                            timeout=CANCELLATION_DRAIN_TIMEOUT_SECONDS,
+                        )
+                        for future in done:
+                            pending.pop(future)
+                            if future.cancelled():
+                                continue
+                            collect(future)
+                    break
             if failure is not None:
                 raise failure
+        finally:
+            if cancellation_requested:
+                # Do not wait for a provider or user callback that ignored the
+                # cooperative signal. Its orchestration callbacks check the
+                # same signal before recording any late result; the durable
+                # runner records unfinished items as interrupted.
+                executor.shutdown(wait=False, cancel_futures=True)
+            else:
+                executor.shutdown(wait=True)
 
-    return merge_candidate_outcomes(
+    merged = merge_candidate_outcomes(
         tuple(outcomes),
         initial_accepted_signatures=accepted_signatures,
         route_reviewable_failures=route_reviewable_failures,
     )
+    if cancellation_requested:
+        raise PipelineCancellation(merged)
+    return merged
 
 
 def _original_candidate_ids_for_indices(
