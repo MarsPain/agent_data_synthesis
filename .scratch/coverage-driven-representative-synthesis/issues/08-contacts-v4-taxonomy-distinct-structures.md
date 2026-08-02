@@ -7,12 +7,13 @@ search-to-lookup sequence and one state-changing
 search-to-lookup-to-follow-up sequence without changing the shared scheduler or
 counting instruction, grounding, or cell-name variation as structural growth.
 
-**Blocked by:** None; informed by
+**Blocked by:** The synthesis operator has excluded further contacts demo
+expansion from the current product scope. The design remains informed by
 [06 — Validate Representative Coverage Campaigns](06-representative-coverage-campaign.md)
 and
 [07 — Expand Representative Structural Catalogs](07-expand-representative-structural-catalogs.md)
 
-**Status:** ready-for-agent
+**Status:** blocked
 
 **Assignee:** Unassigned
 
@@ -50,3 +51,11 @@ family count. Do not add redundant tool calls, unsupported mutations, arbitrary
 fixture rows, instruction paraphrases, or higher grounding reuse as diversity.
 Do not make paid provider calls without new explicit provider, model,
 credential, and budget authorization.
+
+## Current disposition
+
+The synthesis operator has accepted contacts as a demonstration domain whose
+structural-capacity saturation successfully exercised the framework's
+fail-closed evidence path. Further contacts scenario expansion is not currently
+planned. Retain this ticket as the bounded design record; do not implement it
+unless the operator later reactivates contacts as a target domain.

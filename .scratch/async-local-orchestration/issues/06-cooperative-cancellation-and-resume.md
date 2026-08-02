@@ -1,0 +1,39 @@
+# 06 — Cancel and Resume a Live Synthesis Job
+
+**What to build:** Let a synthesis operator cooperatively cancel a running
+serial or concurrent job, stop new work pickup, record the disposition of
+in-flight work, retain valid diagnostic progress, and later resume under the
+same configuration and authorization.
+
+**Blocked by:** [05 — Run Bounded Work Concurrently With Stable Merge](05-bounded-concurrency-stable-merge.md)
+
+**Status:** ready-for-agent
+
+**Assignee:** Unassigned
+
+**Parent spec:** [Async Local Orchestration](../../../docs/product-specs/async-local-orchestration.md)
+
+## Acceptance criteria
+
+- [ ] A programmatic cancellation signal transitions a running job through
+  cancelling to cancelled and is idempotent when repeated.
+- [ ] Cancellation prevents new work pickup while allowing bounded in-flight
+  work to finish, reach its existing timeout, or remain explicitly interrupted.
+- [ ] Every completed, failed, cancelled, or interrupted work item has a valid
+  durable disposition after cancellation.
+- [ ] Partial dataset artifacts, when emitted, are rebuilt through the existing
+  writer, remain diagnostic and incomplete, and cannot pass fulfillment or
+  release gates.
+- [ ] A cancelled job resumes only after job identity, configuration, journal,
+  lock, output ownership, and remaining authorization validate.
+- [ ] Resumption skips work that completed before or during cancellation and
+  requeues only eligible interrupted work.
+- [ ] Serial and concurrent cancellation/resumption produce the same final core
+  artifacts as uninterrupted execution for deterministic inputs.
+- [ ] Focused repeated-cancel, no-new-pickup, in-flight, partial-artifact,
+  authorization, resume, and equivalence tests pass without paid calls.
+
+## Scope guard
+
+Do not add forceful thread termination, remote cancellation endpoints,
+unbounded shutdown waits, process supervisors, or automatic resumption.

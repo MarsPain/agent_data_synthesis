@@ -7,15 +7,16 @@ triggers, and technical debt. Tracker configuration lives in
 
 ## Open
 
-- [Coverage-Driven Representative Synthesis](coverage-driven-representative-synthesis/README.md) — contacts v4 structural-capacity follow-up is ready for agent after the target-30 campaign selected `revise-catalog`
 - [Semantic Mutation Admission](semantic-mutation-admission/README.md) — ticketed;
   runtime enforcement, release-artifact auditing, and calibration-corpus work
   are complete; activation evaluation is complete and the representative gate
   remains externally blocked
-- [ISSUE-0001: Async local orchestration](ISSUE-0001-async-local-orchestration.md) — activation threshold observed in the target-30 provider campaign; ready for agent
+- [Async Local Orchestration](async-local-orchestration/README.md) — eight tracer-bullet tickets published; ticket 01 is the current frontier after the runtime activation threshold was observed
 - [ISSUE-0002: Semantic duplicate detection](ISSUE-0002-semantic-duplicate-detection.md)
 
 ## Closed
 
-No feature group is currently closed. Historical completed work remains under
+- [Coverage-Driven Representative Synthesis](coverage-driven-representative-synthesis/README.md) — campaign completed with `revise-catalog`; contacts remains a demonstration domain and further scenario expansion is deferred
+
+Historical completed work remains under
 [docs/exec-plans/completed/](../docs/exec-plans/completed/README.md).
