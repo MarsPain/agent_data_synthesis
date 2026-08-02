@@ -30,6 +30,12 @@ from synthesis.candidate_processing import (
     PolicyGenerator,
     ProvisionalCandidateOutcome,
 )
+from synthesis.coverage_assignments import (
+    CoverageAssignment,
+    CoverageAssignmentRecovery,
+    CoverageAssignmentSchedulerFactory,
+    build_coverage_assignment_scheduler_factory,
+)
 from synthesis.domain_generation import (
     generate_domain_llm_candidates,
 )
@@ -77,6 +83,7 @@ PROVIDER_USAGE_SCHEMA_VERSION = "orchestration_provider_usage_v1"
 JOB_STATUSES = {"pending", "running", "failed", "completed"}
 WORK_ITEM_STATUSES = {"pending", "running", "completed"}
 WORK_ITEM_RESULT_KINDS = {"accepted", "rejected"}
+JOB_EXECUTION_MODES = {"candidate_set", "coverage"}
 _JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _HEX_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -309,6 +316,7 @@ def _run_serial_job_locked(
         orchestration_dir = output_dir / "orchestration" / job_id
         store = _LocalJobStore(orchestration_dir, timestamp_factory=now)
     provider_mode = provider_identity is not None
+    coverage_mode = run_profile.coverage_profile is not None
     provider_holder = [provider]
 
     def resolve_provider() -> object:
@@ -325,6 +333,7 @@ def _run_serial_job_locked(
             )
         return client
 
+    coverage_recovery: tuple[CoverageAssignmentRecovery, ...] | None = None
     if resume:
         if not store.exists:
             raise JobConfigurationError(
@@ -372,6 +381,11 @@ def _run_serial_job_locked(
                 f"serial job {job_id!r} is not resumable from status {store.status!r}"
             )
         store.resume()
+        if coverage_mode:
+            store.recover_coverage_provider_checkpoints()
+            store.recover_coverage_generation_rejections(
+                include_episode_log=write_episode_logs,
+            )
         stored_tasks = tuple(
             _candidate_from_record(item["candidate"])
             for item in store.work_items
@@ -393,7 +407,85 @@ def _run_serial_job_locked(
         effective_candidate_generator = candidate_generator
 
     effective_candidate_generator_factory: CandidateGeneratorFactory | None = None
-    if provider_mode:
+    coverage_scheduler_factory: CoverageAssignmentSchedulerFactory | None = None
+    if coverage_mode:
+        if not provider_mode:
+            raise JobConfigurationError(
+                "coverage serial orchestration requires an explicit provider"
+            )
+
+        def coverage_assignment_wave(
+            assignments: tuple[CoverageAssignment, ...],
+            wave: int,
+        ) -> None:
+            for assignment in assignments:
+                store.create_coverage_item(assignment, wave=wave)
+            if interruption_hook is not None:
+                interruption_hook(
+                    {
+                        "event_type": "coverage_wave_issued",
+                        "coverage_wave": wave,
+                        "assignments": [
+                            assignment.lineage()
+                            for assignment in assignments
+                        ],
+                    }
+                )
+
+        def coverage_generation_rejection(
+            assignment: CoverageAssignment,
+            rejection: Mapping[str, object],
+        ) -> None:
+            store.record_coverage_generation_rejection(
+                assignment.assignment_ordinal,
+                rejection,
+            )
+            store.start_item(
+                assignment.assignment_ordinal,
+                assignment.assignment_id,
+            )
+            candidate_id = rejection.get("candidate_id")
+            outcome = ProvisionalCandidateOutcome(
+                sequence_index=assignment.assignment_ordinal,
+                candidate_id=(
+                    str(candidate_id)
+                    if isinstance(candidate_id, str)
+                    else "generation_stage"
+                ),
+                rejection=dict(rejection),
+            )
+            store.complete_item(
+                assignment.assignment_ordinal,
+                outcome,
+                include_episode_log=write_episode_logs,
+            )
+            if interruption_hook is not None:
+                interruption_hook(
+                    {
+                        "event_type": "coverage_generation_rejected",
+                        **store.item_for_sequence(assignment.assignment_ordinal),
+                    }
+                )
+
+        def coverage_attempt_observer_factory(assignment: CoverageAssignment):
+            return _CoverageProviderAttemptObserver(
+                store,
+                assignment=assignment,
+                provider_identity=provider_identity,
+                interruption_hook=interruption_hook,
+            )
+
+        coverage_scheduler_factory = build_coverage_assignment_scheduler_factory(
+            resolve_provider(),
+            assignment_wave_callback=coverage_assignment_wave,
+            attempt_observer_factory=coverage_attempt_observer_factory,
+            generation_rejection_callback=coverage_generation_rejection,
+        )
+        if resume:
+            coverage_recovery = _coverage_recovery_from_store(store)
+        effective_candidate_generator = None
+        effective_candidate_generator_factory = None
+    elif provider_mode:
         def provider_generator_factory(bundle):
             generation_spec = getattr(bundle, "generation_spec", None)
             if generation_spec is None:
@@ -545,6 +637,8 @@ def _run_serial_job_locked(
             ),
             run_profile=run_profile,
             write_episode_logs=write_episode_logs,
+            coverage_scheduler_factory=coverage_scheduler_factory,
+            coverage_recovery=coverage_recovery,
         )
     except JobInterruption:
         raise
@@ -586,6 +680,7 @@ def validate_job_record(record: Mapping[str, object]) -> None:
             "output_ownership_hash",
             "dataset_version",
             "domain",
+            "execution_mode",
             "target_candidate_count",
             "candidate_set_hash",
             "work_item_count",
@@ -605,6 +700,8 @@ def validate_job_record(record: Mapping[str, object]) -> None:
     _validate_job_id(record["job_id"])
     if record["status"] not in JOB_STATUSES:
         raise ValueError("job.status is unsupported")
+    if record["execution_mode"] not in JOB_EXECUTION_MODES:
+        raise ValueError("job.execution_mode is unsupported")
     _validate_sha256(record["config_hash"], "job.config_hash")
     _validate_sha256(
         record["execution_config_hash"],
@@ -663,6 +760,9 @@ def validate_work_item_record(record: Mapping[str, object]) -> None:
             "status",
             "candidate",
             "task_contract",
+            "coverage_assignment",
+            "coverage_wave",
+            "coverage_generation_rejection",
             "attempt_count",
             "created_at",
             "started_at",
@@ -695,6 +795,31 @@ def validate_work_item_record(record: Mapping[str, object]) -> None:
         raise ValueError("work_item.task_contract must be an object or null")
     if task_contract is not None:
         _assert_safe_orchestration_value(task_contract)
+    coverage_assignment = record["coverage_assignment"]
+    if coverage_assignment is not None:
+        if not isinstance(coverage_assignment, Mapping):
+            raise ValueError(
+                "work_item.coverage_assignment must be an object or null"
+            )
+        _assert_safe_orchestration_value(coverage_assignment)
+    coverage_wave = record["coverage_wave"]
+    if coverage_wave is not None and (
+        not isinstance(coverage_wave, int)
+        or isinstance(coverage_wave, bool)
+        or coverage_wave <= 0
+    ):
+        raise ValueError("work_item.coverage_wave must be a positive integer or null")
+    generation_rejection = record["coverage_generation_rejection"]
+    if generation_rejection is not None:
+        if not isinstance(generation_rejection, Mapping):
+            raise ValueError(
+                "work_item.coverage_generation_rejection must be an object or null"
+            )
+        _assert_safe_orchestration_value(generation_rejection)
+    if (coverage_assignment is None) != (coverage_wave is None):
+        raise ValueError(
+            "coverage assignment and coverage wave must be present together"
+        )
     attempt_count = record["attempt_count"]
     if not isinstance(attempt_count, int) or isinstance(attempt_count, bool) or attempt_count < 0:
         raise ValueError("work_item.attempt_count must be a non-negative integer")
@@ -1084,6 +1209,201 @@ class _ProviderAttemptObserver:
             self._interruption_hook(event)
 
 
+class _CoverageProviderAttemptObserver:
+    """Journal one provider call for one durable coverage assignment."""
+
+    def __init__(
+        self,
+        store: "_LocalJobStore",
+        *,
+        assignment: CoverageAssignment,
+        provider_identity: Mapping[str, str] | None,
+        interruption_hook: SerialJobInterruptionHook | None,
+    ) -> None:
+        if provider_identity is None:
+            raise JobConfigurationError("coverage provider identity is required")
+        self._store = store
+        self._assignment = assignment
+        self._provider_identity = provider_identity
+        self._interruption_hook = interruption_hook
+        self._attempt_id: str | None = None
+
+    def before_provider_call(
+        self,
+        *,
+        assignment: CoverageAssignment,
+        batch_context: object,
+        requested_candidate_count: int,
+        prompt_hash: str,
+    ) -> None:
+        _ = assignment, batch_context
+        self._attempt_id = self._store.prepare_provider_attempt(
+            role="task_generation",
+            provider_identity=self._provider_identity,
+            batch_index=self._assignment.assignment_ordinal + 1,
+            requested_candidate_count=requested_candidate_count,
+            prompt_hash=prompt_hash,
+        )
+        self._call_hook(
+            {
+                "event_type": "provider_attempt_intent",
+                "attempt_id": self._attempt_id,
+                "batch_index": self._assignment.assignment_ordinal + 1,
+                "coverage_assignment_id": self._assignment.assignment_id,
+            }
+        )
+        self._store.issue_provider_attempt(self._attempt_id)
+        self._call_hook(
+            {
+                "event_type": "provider_attempt_issued",
+                "attempt_id": self._attempt_id,
+                "batch_index": self._assignment.assignment_ordinal + 1,
+                "coverage_assignment_id": self._assignment.assignment_id,
+            }
+        )
+
+    def provider_response_received(
+        self,
+        *,
+        assignment: CoverageAssignment,
+        batch_context: object,
+        requested_candidate_count: int,
+        lineage: Mapping[str, object],
+    ) -> None:
+        _ = assignment, batch_context, requested_candidate_count
+        if self._attempt_id is None:
+            raise InvalidTransitionError(
+                "coverage provider response has no durable attempt"
+            )
+        self._store.complete_provider_attempt(
+            self._attempt_id,
+            lineage=lineage,
+        )
+
+    def provider_attempt_failed(
+        self,
+        *,
+        assignment: CoverageAssignment,
+        batch_context: object,
+        requested_candidate_count: int,
+        error: BaseException,
+    ) -> None:
+        _ = assignment, batch_context, requested_candidate_count
+        if self._attempt_id is None:
+            raise InvalidTransitionError(
+                "coverage provider failure has no durable attempt"
+            )
+        self._store.fail_provider_attempt(self._attempt_id, error=error)
+
+    def validated_contracts_checkpointed(
+        self,
+        *,
+        assignment: CoverageAssignment,
+        batch_context: object,
+        requested_candidate_count: int,
+        contracts: tuple[TaskContract, ...],
+        lineage: Mapping[str, object],
+    ) -> None:
+        _ = assignment, batch_context, requested_candidate_count, lineage
+        if self._attempt_id is None:
+            raise InvalidTransitionError(
+                "coverage checkpoint has no durable attempt"
+            )
+        self._store.checkpoint_provider_contracts(
+            self._attempt_id,
+            batch_index=self._assignment.assignment_ordinal + 1,
+            contracts=contracts,
+        )
+        self._call_hook(
+            {
+                "event_type": "provider_contract_checkpointed",
+                "attempt_id": self._attempt_id,
+                "batch_index": self._assignment.assignment_ordinal + 1,
+                "coverage_assignment_id": self._assignment.assignment_id,
+            }
+        )
+        if len(contracts) != 1:
+            raise InvalidTransitionError(
+                "coverage provider checkpoint must contain one contract"
+            )
+        candidate = candidate_from_task_contract(contracts[0])
+        self._store.bind_coverage_candidate(
+            self._assignment.assignment_ordinal,
+            candidate,
+        )
+        self._call_hook(
+            {
+                "event_type": "coverage_candidate_bound",
+                "coverage_assignment_id": self._assignment.assignment_id,
+                "sequence_index": self._assignment.assignment_ordinal,
+            }
+        )
+
+    def _call_hook(self, event: Mapping[str, object]) -> None:
+        if self._interruption_hook is not None:
+            self._interruption_hook(event)
+
+
+def _coverage_recovery_from_store(
+    store: "_LocalJobStore",
+) -> tuple[CoverageAssignmentRecovery, ...]:
+    recoveries: list[CoverageAssignmentRecovery] = []
+    for item in store.work_items:
+        assignment_record = item.get("coverage_assignment")
+        wave = item.get("coverage_wave")
+        if not isinstance(assignment_record, Mapping) or not isinstance(wave, int):
+            raise JournalCorruptionError(
+                "coverage job contains an invalid durable assignment"
+            )
+        try:
+            assignment = CoverageAssignment.from_durable_record(assignment_record)
+        except (TypeError, ValueError) as exc:
+            raise JournalCorruptionError(
+                "coverage assignment recovery state is malformed"
+            ) from exc
+        candidate_record = item.get("candidate")
+        candidate: CandidateTask | None = None
+        if isinstance(candidate_record, Mapping) and candidate_record.get(
+            "schema_version"
+        ) != INVALID_CANDIDATE_CHECKPOINT_SCHEMA_VERSION:
+            try:
+                candidate = _candidate_from_record(candidate_record)
+            except (TypeError, ValueError) as exc:
+                raise JournalCorruptionError(
+                    "coverage candidate recovery state is malformed"
+                ) from exc
+        outcome = None
+        if item["status"] == "completed":
+            outcome_value = item.get("outcome")
+            if outcome_value is None:
+                raise JournalCorruptionError(
+                    "completed coverage item has no durable outcome"
+                )
+            outcome = _outcome_from_record(outcome_value)
+        generation_rejection = item.get("coverage_generation_rejection")
+        if generation_rejection is not None and not isinstance(
+            generation_rejection,
+            Mapping,
+        ):
+            raise JournalCorruptionError(
+                "coverage generation rejection state is malformed"
+            )
+        recoveries.append(
+            CoverageAssignmentRecovery(
+                assignment=assignment,
+                wave=wave,
+                candidate=candidate,
+                generation_rejection=(
+                    dict(generation_rejection)
+                    if isinstance(generation_rejection, Mapping)
+                    else None
+                ),
+                outcome=outcome,
+            )
+        )
+    return tuple(recoveries)
+
+
 class _LocalJobStore:
     def __init__(
         self,
@@ -1187,6 +1507,30 @@ class _LocalJobStore:
                         "provider contract checkpoint item is invalid"
                     ) from exc
         return tuple(contracts)
+
+    def provider_checkpoint_for_batch(
+        self,
+        batch_index: int,
+    ) -> tuple[Mapping[str, object], ...] | None:
+        matches = [
+            checkpoint
+            for checkpoint in self._provider_checkpoints
+            if checkpoint["batch_index"] == batch_index
+        ]
+        if not matches:
+            return None
+        if len(matches) != 1:
+            raise JournalCorruptionError(
+                "provider checkpoint batch identity is duplicated"
+            )
+        contracts = matches[0].get("contracts")
+        if not isinstance(contracts, list) or not all(
+            isinstance(contract, Mapping) for contract in contracts
+        ):
+            raise JournalCorruptionError(
+                "provider checkpoint contracts are malformed"
+            )
+        return tuple(dict(contract) for contract in contracts)
 
     @property
     def next_provider_batch_index(self) -> int:
@@ -1297,6 +1641,11 @@ class _LocalJobStore:
             "output_ownership_hash": _output_ownership_hash(output_dir, job_id),
             "dataset_version": run_profile.dataset_version,
             "domain": run_profile.seed.domain,
+            "execution_mode": (
+                "coverage"
+                if run_profile.coverage_profile is not None
+                else "candidate_set"
+            ),
             "target_candidate_count": run_profile.generation.target_candidate_count,
             "candidate_set_hash": None,
             "work_item_count": 0,
@@ -1436,6 +1785,101 @@ class _LocalJobStore:
                     {"reason": "interrupted"},
                     work_item_id=str(item["item_id"]),
                 )
+
+    def recover_coverage_provider_checkpoints(self) -> None:
+        for item in self.work_items:
+            assignment_record = item.get("coverage_assignment")
+            candidate_record = item.get("candidate")
+            if (
+                assignment_record is None
+                or item["status"] not in {"pending", "running"}
+                or not isinstance(candidate_record, Mapping)
+                or candidate_record.get("schema_version")
+                != INVALID_CANDIDATE_CHECKPOINT_SCHEMA_VERSION
+            ):
+                continue
+            if not isinstance(assignment_record, Mapping):
+                raise JournalCorruptionError(
+                    "coverage assignment checkpoint is malformed"
+                )
+            try:
+                assignment = CoverageAssignment.from_durable_record(
+                    assignment_record
+                )
+            except (TypeError, ValueError) as exc:
+                raise JournalCorruptionError(
+                    "coverage assignment checkpoint is malformed"
+                ) from exc
+            checkpoint_records = self.provider_checkpoint_for_batch(
+                assignment.assignment_ordinal + 1
+            )
+            if checkpoint_records is None:
+                continue
+            if len(checkpoint_records) != 1:
+                raise JournalCorruptionError(
+                    "coverage provider checkpoint must contain one contract"
+                )
+            try:
+                candidate = candidate_from_task_contract(
+                    _task_contract_from_record(checkpoint_records[0])
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise JournalCorruptionError(
+                    "coverage provider checkpoint contract is malformed"
+                ) from exc
+            self.bind_coverage_candidate(
+                assignment.assignment_ordinal,
+                candidate,
+            )
+
+    def recover_coverage_generation_rejections(
+        self,
+        *,
+        include_episode_log: bool,
+    ) -> None:
+        for item in self.work_items:
+            rejection = item.get("coverage_generation_rejection")
+            assignment_record = item.get("coverage_assignment")
+            if (
+                rejection is None
+                or assignment_record is None
+                or item["status"] == "completed"
+            ):
+                continue
+            if not isinstance(assignment_record, Mapping) or not isinstance(
+                rejection,
+                Mapping,
+            ):
+                raise JournalCorruptionError(
+                    "coverage generation rejection recovery state is malformed"
+                )
+            try:
+                assignment = CoverageAssignment.from_durable_record(
+                    assignment_record
+                )
+            except (TypeError, ValueError) as exc:
+                raise JournalCorruptionError(
+                    "coverage generation rejection assignment is malformed"
+                ) from exc
+            self.start_item(
+                assignment.assignment_ordinal,
+                assignment.assignment_id,
+            )
+            candidate_id = rejection.get("candidate_id")
+            outcome = ProvisionalCandidateOutcome(
+                sequence_index=assignment.assignment_ordinal,
+                candidate_id=(
+                    str(candidate_id)
+                    if isinstance(candidate_id, str)
+                    else "generation_stage"
+                ),
+                rejection=dict(rejection),
+            )
+            self.complete_item(
+                assignment.assignment_ordinal,
+                outcome,
+                include_episode_log=include_episode_log,
+            )
 
     def recover_inflight_provider_attempts(self) -> None:
         for attempt in self.provider_attempts:
@@ -1629,6 +2073,9 @@ class _LocalJobStore:
                 "status": "pending",
                 "candidate": candidate,
                 "task_contract": _task_contract_checkpoint_from_record(candidate),
+                "coverage_assignment": None,
+                "coverage_wave": None,
+                "coverage_generation_rejection": None,
                 "attempt_count": 0,
                 "created_at": self._timestamp_factory(),
                 "started_at": None,
@@ -1642,6 +2089,94 @@ class _LocalJobStore:
                 work_item,
                 work_item_id=item_id,
             )
+
+    def create_coverage_item(
+        self,
+        assignment: CoverageAssignment,
+        *,
+        wave: int,
+    ) -> None:
+        sequence_index = assignment.assignment_ordinal
+        item_id = _work_item_id(str(self.job["job_id"]), sequence_index)
+        candidate_id = _work_item_candidate_id(
+            assignment.assignment_id,
+            sequence_index,
+        )
+        candidate = {
+            "schema_version": INVALID_CANDIDATE_CHECKPOINT_SCHEMA_VERSION,
+            "candidate_id": candidate_id,
+        }
+        work_item = {
+            "schema_version": WORK_ITEM_SCHEMA_VERSION,
+            "job_id": self.job["job_id"],
+            "item_id": item_id,
+            "sequence_index": sequence_index,
+            "candidate_id": candidate_id,
+            "status": "pending",
+            "candidate": candidate,
+            "task_contract": None,
+            "coverage_assignment": assignment.durable_record(),
+            "coverage_wave": wave,
+            "coverage_generation_rejection": None,
+            "attempt_count": 0,
+            "created_at": self._timestamp_factory(),
+            "started_at": None,
+            "completed_at": None,
+            "result_kind": None,
+            "outcome": None,
+        }
+        validate_work_item_record(work_item)
+        self._append(
+            "work_item_created",
+            work_item,
+            work_item_id=item_id,
+        )
+
+    def bind_coverage_candidate(
+        self,
+        sequence_index: int,
+        candidate: CandidateTask,
+    ) -> None:
+        item = self._item_for_sequence(sequence_index)
+        if item["coverage_assignment"] is None:
+            raise InvalidTransitionError(
+                "work item is not a coverage assignment"
+            )
+        if item["status"] not in {"pending", "running"}:
+            raise InvalidTransitionError(
+                "coverage candidate cannot be bound after completion"
+            )
+        candidate_record = _candidate_to_record(candidate)
+        if candidate_record.get("schema_version") != CANDIDATE_CHECKPOINT_SCHEMA_VERSION:
+            raise InvalidTransitionError(
+                "coverage candidate checkpoint is invalid"
+            )
+        self._append(
+            "coverage_candidate_bound",
+            {
+                "candidate": candidate_record,
+                "task_contract": _task_contract_checkpoint_from_record(
+                    candidate_record
+                ),
+            },
+            work_item_id=str(item["item_id"]),
+        )
+
+    def record_coverage_generation_rejection(
+        self,
+        sequence_index: int,
+        rejection: Mapping[str, object],
+    ) -> None:
+        item = self._item_for_sequence(sequence_index)
+        if item["coverage_assignment"] is None:
+            raise InvalidTransitionError(
+                "work item is not a coverage assignment"
+            )
+        self._append(
+            "coverage_generation_rejected",
+            {"rejection": dict(rejection)},
+            work_item_id=str(item["item_id"]),
+        )
 
     def start_item(self, sequence_index: int, candidate_id: str) -> None:
         item = self._item_for_sequence(sequence_index)
@@ -1908,7 +2443,48 @@ class _LocalJobStore:
             for item in items
         ):
             raise JournalCorruptionError("job rejected count does not match journal state")
-        if self._job["candidate_set_hash"] is None:
+        if self._job["execution_mode"] == "coverage":
+            if self._job["candidate_set_hash"] is not None:
+                raise JournalCorruptionError(
+                    "coverage job cannot bind a candidate set"
+                )
+            if tuple(item["sequence_index"] for item in items) != tuple(
+                range(len(items))
+            ):
+                raise JournalCorruptionError(
+                    "coverage work-item sequence indexes are not contiguous"
+                )
+            for item in items:
+                assignment = item.get("coverage_assignment")
+                wave = item.get("coverage_wave")
+                if not isinstance(assignment, Mapping) or not isinstance(wave, int):
+                    raise JournalCorruptionError(
+                        "coverage work item is missing durable assignment state"
+                    )
+                try:
+                    parsed_assignment = CoverageAssignment.from_durable_record(
+                        assignment
+                    )
+                except (TypeError, ValueError) as exc:
+                    raise JournalCorruptionError(
+                        "coverage work item assignment is malformed"
+                    ) from exc
+                if parsed_assignment.assignment_ordinal != item["sequence_index"]:
+                    raise JournalCorruptionError(
+                        "coverage assignment sequence identity is inconsistent"
+                    )
+                candidate_record = item.get("candidate")
+                if not isinstance(candidate_record, Mapping):
+                    raise JournalCorruptionError(
+                        "coverage work item candidate is malformed"
+                    )
+                if item["coverage_generation_rejection"] is not None and candidate_record.get(
+                    "schema_version"
+                ) != INVALID_CANDIDATE_CHECKPOINT_SCHEMA_VERSION:
+                    raise JournalCorruptionError(
+                        "coverage generation rejection has a bound candidate"
+                    )
+        elif self._job["candidate_set_hash"] is None:
             if items:
                 raise JournalCorruptionError("work items exist before candidate set binding")
         else:
@@ -2086,6 +2662,22 @@ class _LocalJobStore:
                 raise InvalidTransitionError("work item sequence indexes are reordered")
             if item["item_id"] != _work_item_id(str(self._job["job_id"]), item["sequence_index"]):
                 raise InvalidTransitionError("work item identity is not locally derived")
+            if self._job["execution_mode"] == "coverage":
+                if item["coverage_assignment"] is None:
+                    raise InvalidTransitionError(
+                        "coverage job work item is missing its assignment"
+                    )
+            elif any(
+                item[field_name] is not None
+                for field_name in (
+                    "coverage_assignment",
+                    "coverage_wave",
+                    "coverage_generation_rejection",
+                )
+            ):
+                raise InvalidTransitionError(
+                    "candidate-set work item contains coverage state"
+                )
             self._items[work_item_id] = item
         elif event_type == "work_item_started":
             _require_payload_keys(payload, set())
@@ -2140,6 +2732,50 @@ class _LocalJobStore:
             item["completed_at"] = self._timestamp_factory()
             item["result_kind"] = result_kind
             item["outcome"] = dict(outcome)
+        elif event_type == "coverage_candidate_bound":
+            _require_payload_keys(payload, {"candidate", "task_contract"})
+            item = self._require_item(work_item_id)
+            if item["coverage_assignment"] is None:
+                raise InvalidTransitionError(
+                    "coverage candidate binding references a non-coverage item"
+                )
+            if item["status"] not in {"pending", "running"}:
+                raise InvalidTransitionError(
+                    "coverage candidate cannot be bound after completion"
+                )
+            candidate = payload.get("candidate")
+            task_contract = payload.get("task_contract")
+            if not isinstance(candidate, Mapping):
+                raise InvalidTransitionError("coverage candidate is malformed")
+            if not isinstance(task_contract, Mapping):
+                raise InvalidTransitionError("coverage task checkpoint is malformed")
+            try:
+                parsed_candidate = _candidate_from_record(candidate)
+                validate_task_contract(parsed_candidate.contract())
+            except (KeyError, TypeError, ValueError) as exc:
+                raise InvalidTransitionError(
+                    "coverage candidate checkpoint is invalid"
+                ) from exc
+            item["candidate"] = _json_copy(candidate)
+            item["task_contract"] = _json_copy(task_contract)
+            item["candidate_id"] = parsed_candidate.candidate_id
+        elif event_type == "coverage_generation_rejected":
+            _require_payload_keys(payload, {"rejection"})
+            item = self._require_item(work_item_id)
+            if item["coverage_assignment"] is None:
+                raise InvalidTransitionError(
+                    "coverage rejection references a non-coverage item"
+                )
+            if item["status"] != "pending" or item["coverage_generation_rejection"] is not None:
+                raise InvalidTransitionError(
+                    "coverage generation rejection transition is invalid"
+                )
+            rejection = payload.get("rejection")
+            if not isinstance(rejection, Mapping):
+                raise InvalidTransitionError(
+                    "coverage generation rejection is malformed"
+                )
+            item["coverage_generation_rejection"] = _json_copy(rejection)
         elif event_type == "provider_work_intent":
             _require_payload_keys(
                 payload,
@@ -2471,10 +3107,6 @@ def _validate_serial_configuration(
     ):
         raise JobConfigurationError(
             "provider-backed orchestration owns the candidate generator"
-        )
-    if run_profile.coverage_profile is not None:
-        raise JobConfigurationError(
-            "coverage orchestration is deferred to a later serial-job slice"
         )
     if run_profile.features.enable_task_expansion:
         raise JobConfigurationError(
@@ -3291,8 +3923,29 @@ def _json_copy(value: object) -> Any:
     return json.loads(json.dumps(value, ensure_ascii=False, sort_keys=True))
 
 
-def _assert_safe_orchestration_value(value: object) -> None:
+def _assert_safe_orchestration_value(
+    value: object,
+    *,
+    _path: tuple[str, ...] = (),
+) -> None:
     """Reject secret-bearing or host-path state before it reaches the journal."""
+
+    def semantic_authorization_metadata(
+        path: tuple[str, ...],
+        nested: object,
+    ) -> bool:
+        return (
+            isinstance(nested, str)
+            and path[-2:]
+            in {
+                ("mutation_admission", "contract_versions"),
+                ("mutation_admission", "hashes"),
+            }
+            and (
+                nested == "mutation_authorization_record_v1"
+                or _SHA256_RE.fullmatch(nested) is not None
+            )
+        )
 
     forbidden_key_fragments = (
         "api_key",
@@ -3320,17 +3973,25 @@ def _assert_safe_orchestration_value(value: object) -> None:
     if isinstance(value, Mapping):
         for raw_key, nested in value.items():
             key = str(raw_key).lower()
-            if key in forbidden_exact_keys or any(
+            allowed_semantic_authorization = (
+                key == "authorization"
+                and semantic_authorization_metadata(_path, nested)
+            )
+            if (
+                key in forbidden_exact_keys
+                and not allowed_semantic_authorization
+            ) or any(
                 fragment in key for fragment in forbidden_key_fragments
             ):
                 raise JobConfigurationError(
-                    "orchestration state contains a forbidden sensitive field"
+                    "orchestration state contains a forbidden sensitive field: "
+                    + key
                 )
-            _assert_safe_orchestration_value(nested)
+            _assert_safe_orchestration_value(nested, _path=(*_path, key))
         return
     if isinstance(value, (list, tuple)):
         for nested in value:
-            _assert_safe_orchestration_value(nested)
+            _assert_safe_orchestration_value(nested, _path=_path)
         return
     if isinstance(value, str):
         lowered = value.lower()

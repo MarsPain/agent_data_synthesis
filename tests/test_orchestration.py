@@ -554,6 +554,452 @@ class SerialOrchestrationTest(unittest.TestCase):
                 )
             self.assertEqual(constructed, [])
 
+    def test_coverage_job_persists_the_initial_wave_before_provider_work(self) -> None:
+        from tests.test_coverage_assignment_pipeline import AssignmentAwareFakeProvider
+
+        from synthesis.orchestration import JobInterruption, run_serial_job
+
+        profile = load_run_profile(
+            Path("tests/fixtures/run_profiles/contacts-coverage-tracer.json")
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            provider = AssignmentAwareFakeProvider()
+
+            def interrupt_after_wave_intent(event):
+                if event.get("event_type") == "coverage_wave_issued":
+                    raise JobInterruption("coverage-initial-wave")
+
+            with self.assertRaises(JobInterruption):
+                run_serial_job(
+                    root,
+                    job_id="coverage-initial-wave",
+                    run_profile=profile,
+                    provider=provider,
+                    provider_alias="fake-provider",
+                    model_alias="fake-model",
+                    authorization_limits={"logical_call_budget": 3},
+                    interruption_hook=interrupt_after_wave_intent,
+                )
+
+            self.assertEqual(provider.payloads, [])
+            state_dir = root / "orchestration" / "coverage-initial-wave"
+            work_items = self._read_jsonl(state_dir / "work_items.jsonl")
+            self.assertEqual(len(work_items), 2)
+            self.assertEqual(
+                [item["coverage_wave"] for item in work_items],
+                [1, 1],
+            )
+            self.assertEqual(
+                [
+                    item["coverage_assignment"]["assignment_ordinal"]
+                    for item in work_items
+                ],
+                [0, 1],
+            )
+            self.assertTrue(
+                all(
+                    item["coverage_assignment"]["plan_hash"].startswith("sha256:")
+                    for item in work_items
+                )
+            )
+
+            resumed_provider = AssignmentAwareFakeProvider()
+            resumed = run_serial_job(
+                root,
+                job_id="coverage-initial-wave",
+                run_profile=profile,
+                resume=True,
+                provider=resumed_provider,
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 3},
+            )
+
+            self.assertEqual(resumed.status, "completed")
+            self.assertEqual(len(resumed_provider.payloads), 2)
+            self.assertEqual(
+                [
+                    payload["coverage_assignment"]["assignment_ordinal"]
+                    for payload in resumed_provider.payloads
+                ],
+                [0, 1],
+            )
+            self.assertTrue(
+                all(item["status"] == "completed" for item in resumed.work_items)
+            )
+
+    def test_coverage_backfill_resume_reconciles_from_terminal_outcomes(self) -> None:
+        from tests.test_coverage_assignment_pipeline import AssignmentAwareFakeProvider
+
+        from synthesis.orchestration import JobInterruption, run_serial_job
+        from synthesis.coverage_assignments import (
+            build_coverage_assignment_scheduler_factory,
+        )
+
+        profile = load_run_profile(
+            Path("tests/fixtures/run_profiles/contacts-coverage-tracer.json")
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            interrupted_provider = AssignmentAwareFakeProvider(
+                mismatch_first_assignment=True
+            )
+            seen_backfill_wave = False
+
+            def interrupt_on_backfill(event):
+                nonlocal seen_backfill_wave
+                if event.get("event_type") == "coverage_wave_issued":
+                    if event.get("coverage_wave") == 2:
+                        seen_backfill_wave = True
+                        raise JobInterruption("coverage-backfill")
+
+            with self.assertRaises(JobInterruption):
+                run_serial_job(
+                    root,
+                    job_id="coverage-backfill",
+                    run_profile=profile,
+                    provider=interrupted_provider,
+                    provider_alias="fake-provider",
+                    model_alias="fake-model",
+                    authorization_limits={"logical_call_budget": 3},
+                    interruption_hook=interrupt_on_backfill,
+                )
+
+            self.assertTrue(seen_backfill_wave)
+            self.assertEqual(len(interrupted_provider.payloads), 2)
+            state_dir = root / "orchestration" / "coverage-backfill"
+            partial_items = self._read_jsonl(state_dir / "work_items.jsonl")
+            self.assertEqual(
+                [item["status"] for item in partial_items],
+                ["completed", "completed", "pending"],
+            )
+            self.assertEqual(
+                [item["result_kind"] for item in partial_items[:2]],
+                ["rejected", "accepted"],
+            )
+
+            resumed_provider = AssignmentAwareFakeProvider()
+            resumed = run_serial_job(
+                root,
+                job_id="coverage-backfill",
+                run_profile=profile,
+                resume=True,
+                provider=resumed_provider,
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 3},
+            )
+
+            self.assertEqual(resumed.status, "completed")
+            self.assertEqual(len(resumed_provider.payloads), 1)
+            self.assertEqual(
+                resumed_provider.payloads[0]["coverage_assignment"]["assignment_ordinal"],
+                2,
+            )
+            assert resumed.pipeline_result is not None
+            assert resumed.pipeline_result.coverage_reconciliation is not None
+            self.assertEqual(
+                resumed.pipeline_result.coverage_reconciliation["status"],
+                "complete",
+            )
+
+            sync_dir = root / "sync"
+            sync_provider = AssignmentAwareFakeProvider(
+                mismatch_first_assignment=True
+            )
+            sync = run_foundation_pipeline(
+                sync_dir,
+                dataset_version=profile.dataset_version,
+                coverage_scheduler_factory=(
+                    build_coverage_assignment_scheduler_factory(sync_provider)
+                ),
+                seed_override=profile.seed,
+                run_profile_metadata=profile.sanitized_metadata(),
+                run_profile=profile,
+            )
+            self.assertEqual(
+                self._core_artifacts(root),
+                self._core_artifacts(sync_dir),
+            )
+            self.assertEqual(
+                resumed.pipeline_result.coverage_reconciliation,
+                sync.coverage_reconciliation,
+            )
+
+    def test_coverage_resume_applies_terminal_rejections_before_backfill(self) -> None:
+        from tests.test_coverage_assignment_pipeline import AssignmentAwareFakeProvider
+
+        from synthesis.orchestration import JobInterruption, run_serial_job
+        from synthesis.coverage_assignments import (
+            build_coverage_assignment_scheduler_factory,
+        )
+
+        profile = load_run_profile(
+            Path("tests/fixtures/run_profiles/contacts-coverage-tracer.json")
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            saw_backfill_wave = False
+
+            def policy_generator_factory():
+                rejected_first_followup = False
+
+                def policy_generator(candidate):
+                    nonlocal rejected_first_followup
+                    policy = scripted_solution_policy(candidate)
+                    if (
+                        candidate.constraints["task_type"] == "contact_followup"
+                        and not rejected_first_followup
+                    ):
+                        rejected_first_followup = True
+                        return replace(
+                            policy,
+                            final_response_template="No matching email was found.",
+                        )
+                    return policy
+
+                return policy_generator
+
+            policy_generator = policy_generator_factory()
+
+            def interrupt_on_backfill(event):
+                nonlocal saw_backfill_wave
+                if event.get("event_type") == "coverage_wave_issued":
+                    if event.get("coverage_wave") == 2:
+                        saw_backfill_wave = True
+                        raise JobInterruption("coverage-terminal-rejection-backfill")
+
+            with self.assertRaises(JobInterruption):
+                run_serial_job(
+                    root,
+                    job_id="coverage-terminal-rejection-backfill",
+                    run_profile=profile,
+                    provider=AssignmentAwareFakeProvider(),
+                    policy_generator=policy_generator,
+                    provider_alias="fake-provider",
+                    model_alias="fake-model",
+                    authorization_limits={"logical_call_budget": 3},
+                    interruption_hook=interrupt_on_backfill,
+                )
+
+            self.assertTrue(saw_backfill_wave)
+            partial_items = self._read_jsonl(
+                root
+                / "orchestration"
+                / "coverage-terminal-rejection-backfill"
+                / "work_items.jsonl"
+            )
+            self.assertTrue(
+                any(
+                    item["status"] == "completed"
+                    and item["result_kind"] == "rejected"
+                    for item in partial_items
+                )
+            )
+
+            resumed = run_serial_job(
+                root,
+                job_id="coverage-terminal-rejection-backfill",
+                run_profile=profile,
+                resume=True,
+                provider=AssignmentAwareFakeProvider(),
+                policy_generator=policy_generator,
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 3},
+            )
+
+            sync_dir = root / "sync"
+            sync = run_foundation_pipeline(
+                sync_dir,
+                dataset_version=profile.dataset_version,
+                coverage_scheduler_factory=build_coverage_assignment_scheduler_factory(
+                    AssignmentAwareFakeProvider()
+                ),
+                policy_generator=policy_generator_factory(),
+                seed_override=profile.seed,
+                run_profile_metadata=profile.sanitized_metadata(),
+                run_profile=profile,
+            )
+            self.assertEqual(resumed.status, "completed")
+            self.assertEqual(self._core_artifacts(root), self._core_artifacts(sync_dir))
+            assert resumed.pipeline_result is not None
+            self.assertEqual(
+                resumed.pipeline_result.coverage_reconciliation,
+                sync.coverage_reconciliation,
+            )
+
+    def test_journal_sanitizer_allows_only_semantic_authorization_metadata(self) -> None:
+        from synthesis.orchestration import (
+            JobConfigurationError,
+            _assert_safe_orchestration_value,
+        )
+
+        _assert_safe_orchestration_value(
+            {
+                "mutation_admission": {
+                    "contract_versions": {
+                        "authorization": "mutation_authorization_record_v1"
+                    },
+                    "hashes": {
+                        "authorization": "sha256:" + "a" * 64,
+                    },
+                }
+            }
+        )
+        for value in (
+            {"authorization": "opaque-token"},
+            {"nested": {"authorization": {"token": "opaque-token"}}},
+            {
+                "mutation_admission": {
+                    "hashes": {"authorization": "opaque-token"}
+                }
+            },
+        ):
+            with self.assertRaises(JobConfigurationError):
+                _assert_safe_orchestration_value(value)
+
+    def test_coverage_attempt_ceiling_leaves_incomplete_diagnostic_evidence(self) -> None:
+        from tests.test_coverage_assignment_pipeline import AssignmentAwareFakeProvider
+
+        from synthesis.orchestration import run_serial_job
+
+        profile = load_run_profile(
+            Path("tests/fixtures/run_profiles/contacts-coverage-backfill.json")
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_serial_job(
+                Path(tmpdir),
+                job_id="coverage-attempt-ceiling",
+                run_profile=profile,
+                provider=AssignmentAwareFakeProvider(
+                    duplicate_followup_instruction=True
+                ),
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 5},
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.job_record["work_item_count"], 5)
+            assert result.pipeline_result is not None
+            assert result.pipeline_result.coverage_reconciliation is not None
+            self.assertEqual(
+                result.pipeline_result.coverage_reconciliation["status"],
+                "incomplete",
+            )
+            assert result.pipeline_result.coverage_evidence_path is not None
+            evidence = self._read_json(result.pipeline_result.coverage_evidence_path)
+            self.assertEqual(evidence["fulfillment"]["status"], "incomplete")
+            self.assertIn(
+                "attempt_ceiling_exhausted",
+                evidence["fulfillment"]["reasons"],
+            )
+
+    def test_coverage_resume_after_terminal_outcome_does_not_repeat_generation(self) -> None:
+        from tests.test_coverage_assignment_pipeline import AssignmentAwareFakeProvider
+
+        from synthesis.orchestration import JobInterruption, run_serial_job
+
+        profile = load_run_profile(
+            Path("tests/fixtures/run_profiles/contacts-coverage-tracer.json")
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            first_provider = AssignmentAwareFakeProvider()
+            seen_completion = False
+
+            def interrupt_after_first_completion(event):
+                nonlocal seen_completion
+                if (
+                    event.get("event_type") == "work_item_completed"
+                    and not seen_completion
+                ):
+                    seen_completion = True
+                    raise JobInterruption("coverage-terminal-outcome")
+
+            with self.assertRaises(JobInterruption):
+                run_serial_job(
+                    root,
+                    job_id="coverage-terminal-outcome",
+                    run_profile=profile,
+                    provider=first_provider,
+                    provider_alias="fake-provider",
+                    model_alias="fake-model",
+                    authorization_limits={"logical_call_budget": 3},
+                    interruption_hook=interrupt_after_first_completion,
+                )
+
+            self.assertEqual(len(first_provider.payloads), 2)
+            resumed_provider = AssignmentAwareFakeProvider()
+            resumed = run_serial_job(
+                root,
+                job_id="coverage-terminal-outcome",
+                run_profile=profile,
+                resume=True,
+                provider=resumed_provider,
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 3},
+            )
+            self.assertEqual(resumed.status, "completed")
+            self.assertEqual(resumed_provider.payloads, [])
+            self.assertEqual(
+                resumed.provider_usage["issued_logical_calls"],
+                2,
+            )
+
+    def test_coverage_checkpoint_resume_reuses_validated_assignment_contract(self) -> None:
+        from tests.test_coverage_assignment_pipeline import AssignmentAwareFakeProvider
+
+        from synthesis.orchestration import JobInterruption, run_serial_job
+
+        profile = load_run_profile(
+            Path("tests/fixtures/run_profiles/contacts-coverage-tracer.json")
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            first_provider = AssignmentAwareFakeProvider()
+
+            def interrupt_after_checkpoint(event):
+                if event.get("event_type") == "provider_contract_checkpointed":
+                    raise JobInterruption("coverage-contract-checkpoint")
+
+            with self.assertRaises(JobInterruption):
+                run_serial_job(
+                    root,
+                    job_id="coverage-contract-checkpoint",
+                    run_profile=profile,
+                    provider=first_provider,
+                    provider_alias="fake-provider",
+                    model_alias="fake-model",
+                    authorization_limits={"logical_call_budget": 3},
+                    interruption_hook=interrupt_after_checkpoint,
+                )
+
+            self.assertEqual(len(first_provider.payloads), 1)
+            resumed_provider = AssignmentAwareFakeProvider()
+            resumed = run_serial_job(
+                root,
+                job_id="coverage-contract-checkpoint",
+                run_profile=profile,
+                resume=True,
+                provider=resumed_provider,
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 3},
+            )
+            self.assertEqual(resumed.status, "completed")
+            self.assertEqual(len(resumed_provider.payloads), 1)
+            self.assertEqual(
+                resumed_provider.payloads[0]["coverage_assignment"][
+                    "assignment_ordinal"
+                ],
+                1,
+            )
+            self.assertEqual(resumed.provider_usage["issued_logical_calls"], 2)
+
     def test_interrupted_serial_job_resumes_without_reprocessing_completed_work(self) -> None:
         from synthesis.orchestration import (
             JobConfigurationError,

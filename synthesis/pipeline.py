@@ -22,6 +22,7 @@ from synthesis.coverage import CoveragePlan, compile_coverage_plan, write_covera
 from synthesis.coverage_assignments import (
     CoverageAssignmentScheduler,
     CoverageAssignmentSchedulerFactory,
+    CoverageAssignmentRecovery,
 )
 from synthesis.coverage_registry import (
     DomainCoveragePlanningVariant,
@@ -281,6 +282,7 @@ def run_foundation_pipeline(
     coverage_scheduler_factory: (
         CoverageAssignmentSchedulerFactory | None
     ) = None,
+    coverage_recovery: tuple[CoverageAssignmentRecovery, ...] | None = None,
     policy_generator: PolicyGenerator | None = None,
     parent_artifact_path: Path | None = None,
     route_reviewable_failures: bool = False,
@@ -456,6 +458,8 @@ def run_foundation_pipeline(
             coverage_plan,
             catalog,
         )
+        if coverage_recovery is not None:
+            coverage_scheduler.restore_assignments(coverage_recovery)
     elif candidate_generator_factory is not None:
         generate_candidates = candidate_generator_factory(domain_bundle)
     elif candidate_generator is None:
@@ -543,6 +547,72 @@ def run_foundation_pipeline(
 
     processed_candidate_count = 0
     if coverage_scheduler is not None:
+        if coverage_recovery is not None:
+            for wave in sorted(
+                {
+                    recovery.wave
+                    for recovery in coverage_recovery
+                }
+            ):
+                coverage_wave = coverage_scheduler.recover_wave(seed, wave)
+                rejections.extend(coverage_wave.rejections)
+                wave_tasks = [
+                    domain_bundle.candidate_preparer(raw_task)
+                    for raw_task in coverage_wave.candidates
+                ]
+                assignments_by_id = {
+                    assignment.assignment_id: assignment
+                    for assignment in coverage_wave.assignments
+                }
+                wave_requests = [
+                    CandidateExecutionRequest(
+                        sequence_index=assignments_by_id[
+                            coverage_wave.candidate_assignment_ids[
+                                raw_task.candidate_id
+                            ]
+                        ].assignment_ordinal,
+                        raw_task=task,
+                    )
+                    for raw_task, task in zip(
+                        coverage_wave.candidates,
+                        wave_tasks,
+                        strict=True,
+                    )
+                ]
+                base_merge = _process_candidate_requests(
+                    requests=wave_requests,
+                    domain_bundle=domain_bundle,
+                    candidate_context=candidate_context,
+                    candidate_options=candidate_options,
+                    output_dir=output_dir,
+                    enable_mcp_adapter=enable_mcp_adapter,
+                    accepted_signatures=accepted_signatures,
+                    route_reviewable_failures=route_reviewable_failures,
+                    coverage_scheduler=coverage_scheduler,
+                    hooks=candidate_wave_hooks,
+                )
+                samples.extend(base_merge.samples)
+                rejections.extend(base_merge.rejections)
+                review_records.extend(base_merge.review_records)
+                tool_proposal_records.extend(base_merge.tool_proposal_records)
+                episode_logs.extend(base_merge.episode_logs)
+                accepted_signatures = base_merge.accepted_signatures
+                request_by_sequence = {
+                    request.sequence_index: request
+                    for request in wave_requests
+                }
+                coverage_scheduler.reconcile_wave(
+                    coverage_wave,
+                    accepted_candidate_ids={
+                        request_by_sequence[index].raw_task.candidate_id
+                        for index in base_merge.accepted_sequence_indices
+                    },
+                    rejected_candidate_ids={
+                        request_by_sequence[index].raw_task.candidate_id
+                        for index in base_merge.rejected_sequence_indices
+                    },
+                )
+                processed_candidate_count = coverage_scheduler.issued_count
         while coverage_scheduler.can_schedule:
             coverage_wave = coverage_scheduler.generate_wave(seed)
             rejections.extend(coverage_wave.rejections)
@@ -550,9 +620,27 @@ def run_foundation_pipeline(
                 domain_bundle.candidate_preparer(raw_task)
                 for raw_task in coverage_wave.candidates
             ]
-            base_merge = _process_candidate_wave(
-                raw_tasks=wave_tasks,
-                start_index=processed_candidate_count,
+            assignments_by_id = {
+                assignment.assignment_id: assignment
+                for assignment in coverage_wave.assignments
+            }
+            wave_requests = [
+                CandidateExecutionRequest(
+                    sequence_index=assignments_by_id[
+                        coverage_wave.candidate_assignment_ids[
+                            raw_task.candidate_id
+                        ]
+                    ].assignment_ordinal,
+                    raw_task=task,
+                )
+                for raw_task, task in zip(
+                    coverage_wave.candidates,
+                    wave_tasks,
+                    strict=True,
+                )
+            ]
+            base_merge = _process_candidate_requests(
+                requests=wave_requests,
                 domain_bundle=domain_bundle,
                 candidate_context=candidate_context,
                 candidate_options=candidate_options,
@@ -569,20 +657,22 @@ def run_foundation_pipeline(
             tool_proposal_records.extend(base_merge.tool_proposal_records)
             episode_logs.extend(base_merge.episode_logs)
             accepted_signatures = base_merge.accepted_signatures
+            request_by_sequence = {
+                request.sequence_index: request
+                for request in wave_requests
+            }
             coverage_scheduler.reconcile_wave(
                 coverage_wave,
-                accepted_candidate_ids=_original_candidate_ids_for_indices(
-                    wave_tasks,
-                    start_index=processed_candidate_count,
-                    sequence_indices=base_merge.accepted_sequence_indices,
-                ),
-                rejected_candidate_ids=_original_candidate_ids_for_indices(
-                    wave_tasks,
-                    start_index=processed_candidate_count,
-                    sequence_indices=base_merge.rejected_sequence_indices,
-                ),
+                accepted_candidate_ids={
+                    request_by_sequence[index].raw_task.candidate_id
+                    for index in base_merge.accepted_sequence_indices
+                },
+                rejected_candidate_ids={
+                    request_by_sequence[index].raw_task.candidate_id
+                    for index in base_merge.rejected_sequence_indices
+                },
             )
-            processed_candidate_count += len(wave_tasks)
+            processed_candidate_count = coverage_scheduler.issued_count
         coverage_reconciliation = coverage_scheduler.reconciliation()
     else:
         assert generate_candidates is not None
@@ -824,14 +914,44 @@ def _process_candidate_wave(
     coverage_scheduler: CoverageAssignmentScheduler | None = None,
     hooks: _CandidateWaveHooks | None = None,
 ) -> CandidateMergeResult:
-    outcomes = []
-    hooks = hooks or _CandidateWaveHooks()
-    precomputed = hooks.precomputed or {}
-    for offset, raw_task in enumerate(raw_tasks):
-        request = CandidateExecutionRequest(
+    requests = [
+        CandidateExecutionRequest(
             sequence_index=start_index + offset,
             raw_task=raw_task,
         )
+        for offset, raw_task in enumerate(raw_tasks)
+    ]
+    return _process_candidate_requests(
+        requests=requests,
+        domain_bundle=domain_bundle,
+        candidate_context=candidate_context,
+        candidate_options=candidate_options,
+        output_dir=output_dir,
+        enable_mcp_adapter=enable_mcp_adapter,
+        accepted_signatures=accepted_signatures,
+        route_reviewable_failures=route_reviewable_failures,
+        coverage_scheduler=coverage_scheduler,
+        hooks=hooks,
+    )
+
+
+def _process_candidate_requests(
+    *,
+    requests: list[CandidateExecutionRequest],
+    domain_bundle: DomainPipelineBundle,
+    candidate_context: CandidateProcessingContext,
+    candidate_options: CandidateProcessingOptions,
+    output_dir: Path,
+    enable_mcp_adapter: bool,
+    accepted_signatures: frozenset[tuple[str, tuple[str, ...]]],
+    route_reviewable_failures: bool,
+    coverage_scheduler: CoverageAssignmentScheduler | None = None,
+    hooks: _CandidateWaveHooks | None = None,
+) -> CandidateMergeResult:
+    outcomes = []
+    hooks = hooks or _CandidateWaveHooks()
+    precomputed = hooks.precomputed or {}
+    for request in requests:
         outcome = precomputed.get(request.sequence_index)
         if outcome is None:
             if hooks.start is not None:
@@ -842,7 +962,7 @@ def _process_candidate_wave(
                     candidate_options,
                     refined_candidate_validator=_coverage_refined_candidate_validator(
                         coverage_scheduler,
-                        raw_task.candidate_id,
+                        request.raw_task.candidate_id,
                     ),
                 )
             outcome = process_candidate_through_gates(

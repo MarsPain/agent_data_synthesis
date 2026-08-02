@@ -11,7 +11,7 @@ triggers, and technical debt. Tracker configuration lives in
   runtime enforcement, release-artifact auditing, and calibration-corpus work
   are complete; activation evaluation is complete and the representative gate
   remains externally blocked
-- [Async Local Orchestration](async-local-orchestration/README.md) — eight tracer-bullet tickets published; ticket 01 is the current frontier after the runtime activation threshold was observed
+- [Async Local Orchestration](async-local-orchestration/README.md) — tickets 01 through 04 completed; tickets 05 and 07 are the current frontier
 - [ISSUE-0002: Semantic duplicate detection](ISSUE-0002-semantic-duplicate-detection.md)
 
 ## Closed

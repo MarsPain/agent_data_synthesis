@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from collections import Counter
 from dataclasses import dataclass, replace
 from typing import Callable, Mapping, cast
 
+from synthesis.candidate_processing import ProvisionalCandidateOutcome
 from synthesis.coverage import (
     CoverageCatalog,
     CoverageCell,
@@ -68,6 +70,126 @@ class CoverageAssignment:
     difficulty_semantics: Mapping[str, object]
     branch_plan: Mapping[str, object] | None
 
+    def durable_record(self) -> dict[str, object]:
+        """Return the locally issued assignment without grounding payloads."""
+
+        return {
+            "schema_version": COVERAGE_ASSIGNMENT_VERSION,
+            "assignment_id": self.assignment_id,
+            "assignment_hash": self.assignment_hash,
+            "assignment_ordinal": self.assignment_ordinal,
+            "plan_id": self.plan_id,
+            "plan_hash": self.plan_hash,
+            "cell_id": self.cell_id,
+            "dimensions": dict(self.dimensions),
+            "catalog": dict(self.catalog),
+            "coverage_profile": dict(self.coverage_profile),
+            "grounding_context_key": self.grounding_context_key,
+            "grounding_unit_index": self.grounding_unit_index,
+            "grounding_unit_hash": self.grounding_unit_hash,
+            "grounding_unit_id": self.grounding_unit_id,
+            "difficulty_semantics": dict(self.difficulty_semantics),
+            "branch_plan": (
+                dict(self.branch_plan)
+                if self.branch_plan is not None
+                else None
+            ),
+        }
+
+    @classmethod
+    def from_durable_record(
+        cls,
+        record: Mapping[str, object],
+    ) -> "CoverageAssignment":
+        expected_keys = {
+            "schema_version",
+            "assignment_id",
+            "assignment_hash",
+            "assignment_ordinal",
+            "plan_id",
+            "plan_hash",
+            "cell_id",
+            "dimensions",
+            "catalog",
+            "coverage_profile",
+            "grounding_context_key",
+            "grounding_unit_index",
+            "grounding_unit_hash",
+            "grounding_unit_id",
+            "difficulty_semantics",
+            "branch_plan",
+        }
+        if set(record) != expected_keys:
+            raise ValueError("coverage assignment durable record keys mismatch")
+        if record["schema_version"] != COVERAGE_ASSIGNMENT_VERSION:
+            raise ValueError("coverage assignment durable schema is unsupported")
+        assignment_ordinal = record["assignment_ordinal"]
+        grounding_unit_index = record["grounding_unit_index"]
+        if (
+            not isinstance(assignment_ordinal, int)
+            or isinstance(assignment_ordinal, bool)
+            or assignment_ordinal < 0
+            or not isinstance(grounding_unit_index, int)
+            or isinstance(grounding_unit_index, bool)
+            or grounding_unit_index < 0
+        ):
+            raise ValueError("coverage assignment ordinal or grounding index is invalid")
+
+        def mapping(field_name: str) -> Mapping[str, object]:
+            value = record[field_name]
+            if not isinstance(value, Mapping):
+                raise ValueError(
+                    f"coverage assignment {field_name} must be an object"
+                )
+            return value
+
+        for field_name in (
+            "assignment_id",
+            "assignment_hash",
+            "plan_id",
+            "plan_hash",
+            "cell_id",
+            "grounding_context_key",
+            "grounding_unit_hash",
+        ):
+            if not isinstance(record[field_name], str) or not record[field_name]:
+                raise ValueError(
+                    f"coverage assignment {field_name} must be non-empty"
+                )
+        dimensions = _canonical_dimensions(mapping("dimensions"))
+        catalog = dict(mapping("catalog"))
+        coverage_profile = dict(mapping("coverage_profile"))
+        difficulty_semantics = dict(mapping("difficulty_semantics"))
+        branch_plan = record["branch_plan"]
+        if branch_plan is not None and not isinstance(branch_plan, Mapping):
+            raise ValueError("coverage assignment branch plan must be an object or null")
+        grounding_unit_id = record["grounding_unit_id"]
+        if grounding_unit_id is not None and not isinstance(grounding_unit_id, str):
+            raise ValueError("coverage assignment grounding unit id is invalid")
+        assignment = cls(
+            assignment_id=str(record["assignment_id"]),
+            assignment_hash=str(record["assignment_hash"]),
+            assignment_ordinal=assignment_ordinal,
+            plan_id=str(record["plan_id"]),
+            plan_hash=str(record["plan_hash"]),
+            cell_id=str(record["cell_id"]),
+            dimensions=dimensions,
+            catalog=catalog,
+            coverage_profile=coverage_profile,
+            grounding_context_key=str(record["grounding_context_key"]),
+            grounding_unit_index=grounding_unit_index,
+            grounding_unit_hash=str(record["grounding_unit_hash"]),
+            grounding_unit_id=grounding_unit_id,
+            difficulty_semantics=difficulty_semantics,
+            branch_plan=dict(branch_plan) if isinstance(branch_plan, Mapping) else None,
+        )
+        if assignment.assignment_id != (
+            "coverage_assignment_"
+            + assignment.assignment_hash.removeprefix("sha256:")[:16]
+        ):
+            raise ValueError("coverage assignment id is not locally derived")
+        return assignment
+
     def provider_contract(self) -> dict[str, object]:
         required_tools = _required_tools_dimension(self.dimensions)
         return {
@@ -126,6 +248,28 @@ class CoverageAssignmentGenerationResult:
     assignments: tuple[CoverageAssignment, ...]
     candidate_assignment_ids: Mapping[str, str]
     rejected_assignment_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class CoverageAssignmentRecovery:
+    """Durable coverage state supplied to a resumed pipeline."""
+
+    assignment: CoverageAssignment
+    wave: int
+    candidate: CandidateTask | None
+    generation_rejection: Mapping[str, object] | None
+    outcome: ProvisionalCandidateOutcome | None
+
+
+CoverageAssignmentWaveCallback = Callable[
+    [tuple[CoverageAssignment, ...], int],
+    None,
+]
+CoverageAssignmentAttemptObserverFactory = Callable[[CoverageAssignment], object]
+CoverageGenerationRejectionCallback = Callable[
+    [CoverageAssignment, Mapping[str, object]],
+    None,
+]
 
 
 CoverageAssignmentSchedulerFactory = Callable[
@@ -202,6 +346,13 @@ class CoverageAssignmentScheduler:
             [str, dict[str, object]],
             dict[str, object],
         ],
+        assignment_wave_callback: CoverageAssignmentWaveCallback | None = None,
+        attempt_observer_factory: (
+            CoverageAssignmentAttemptObserverFactory | None
+        ) = None,
+        generation_rejection_callback: (
+            CoverageGenerationRejectionCallback | None
+        ) = None,
     ) -> None:
         validate_domain_generation_spec(spec)
         validate_coverage_catalog_reachability(
@@ -216,6 +367,9 @@ class CoverageAssignmentScheduler:
         self._plan = plan
         self._catalog = catalog
         self._role_registry = role_registry
+        self._assignment_wave_callback = assignment_wave_callback
+        self._attempt_observer_factory = attempt_observer_factory
+        self._generation_rejection_callback = generation_rejection_callback
         self._cells = {cell.cell_id: cell for cell in catalog.cells}
         self._cell_states = {
             str(item["cell_id"]): _CoverageCellState(
@@ -258,6 +412,8 @@ class CoverageAssignmentScheduler:
         self._wave_results: dict[int, CoverageAssignmentGenerationResult] = {}
         self._candidate_assignments: dict[str, CoverageAssignment] = {}
         self._generated_candidates: dict[str, CandidateTask] = {}
+        self._recovered_waves: dict[int, tuple[CoverageAssignmentRecovery, ...]] = {}
+        self._reconciled_assignment_ids: set[str] = set()
 
     @property
     def can_schedule(self) -> bool:
@@ -268,6 +424,10 @@ class CoverageAssignmentScheduler:
                 state.in_flight > 0 for state in self._cell_states.values()
             )
         )
+
+    @property
+    def issued_count(self) -> int:
+        return self._issued_count
 
     def generate_wave(
         self,
@@ -313,12 +473,15 @@ class CoverageAssignmentScheduler:
             state.in_flight += 1
             self._inflight_grounding[(cell_id, grounding_index)] += 1
             self._issued_count += 1
+        if self._assignment_wave_callback is not None:
+            self._assignment_wave_callback(tuple(assignments), wave_number)
         generated = _generate_coverage_assignments(
             seed=seed,
             client=self._client,
             spec=self._spec,
             assignments=tuple(assignments),
             role_registry=self._role_registry,
+            attempt_observer_factory=self._attempt_observer_factory,
         )
         rejected_assignment_ids = set(generated.rejected_assignment_ids)
         assignments_by_id = {
@@ -342,6 +505,14 @@ class CoverageAssignmentScheduler:
                 state.in_flight -= 1
                 self._release_inflight_grounding(assignment)
                 state.rejected += 1
+                if self._generation_rejection_callback is not None:
+                    rejection = next(
+                        rejection
+                        for rejection in generated.rejections
+                        if _rejection_assignment_id(rejection)
+                        == assignment.assignment_id
+                    )
+                    self._generation_rejection_callback(assignment, rejection)
         wave_state = _CoverageWaveState(
             wave=wave_number,
             issued=len(assignments),
@@ -353,6 +524,284 @@ class CoverageAssignmentScheduler:
         self._wave_states.append(wave_state)
         self._wave_results[wave_number] = generated
         return generated
+
+    def restore_assignments(
+        self,
+        recoveries: tuple[CoverageAssignmentRecovery, ...],
+    ) -> None:
+        """Replay durable assignment intent before any new assignment is issued."""
+
+        if not recoveries:
+            return
+        ordered = tuple(
+            sorted(
+                recoveries,
+                key=lambda item: (item.wave, item.assignment.assignment_ordinal),
+            )
+        )
+        if ordered != recoveries:
+            raise ValueError("coverage recovery assignments must be in stable order")
+        grouped: dict[int, list[CoverageAssignmentRecovery]] = {}
+        for recovery in recoveries:
+            grouped.setdefault(recovery.wave, []).append(recovery)
+        expected_wave = 1
+        for wave, wave_recoveries in grouped.items():
+            if wave != expected_wave:
+                raise ValueError("coverage recovery waves are not contiguous")
+            expected_wave += 1
+            for recovery in wave_recoveries:
+                assignment = recovery.assignment
+                if assignment.assignment_ordinal != self._issued_count:
+                    raise ValueError("coverage recovery assignment ordinal is not contiguous")
+                cell_id = _select_next_deficit(
+                    tuple(
+                        _CoverageDeficit(
+                            cell_id=state.cell_id,
+                            planned=state.planned,
+                            mandatory_floor=state.mandatory_floor,
+                            reserved=state.accepted + state.in_flight,
+                        )
+                        for state in self._cell_states.values()
+                    )
+                )
+                if cell_id is None:
+                    raise ValueError("coverage recovery contains an unschedulable assignment")
+                state = self._cell_states[cell_id]
+                expected = _build_coverage_assignment(
+                    plan=self._plan,
+                    catalog=self._catalog,
+                    cell=self._cells[cell_id],
+                    assignment_ordinal=self._issued_count,
+                    grounding_index=self._next_grounding_index(cell_id),
+                    spec=self._spec,
+                )
+                if assignment != expected:
+                    raise ValueError("durable coverage assignment does not match the local plan")
+                state.in_flight += 1
+                self._inflight_grounding[(cell_id, assignment.grounding_unit_index)] += 1
+                self._issued_count += 1
+                if recovery.candidate is not None:
+                    self._validate_recovered_candidate(
+                        assignment,
+                        recovery.candidate,
+                    )
+                    self._candidate_assignments[recovery.candidate.candidate_id] = assignment
+                    self._generated_candidates[recovery.candidate.candidate_id] = recovery.candidate
+            for recovery in wave_recoveries:
+                assignment = recovery.assignment
+                if recovery.generation_rejection is not None:
+                    if recovery.outcome is None:
+                        raise ValueError(
+                            "coverage generation rejection has no durable outcome"
+                        )
+                    self._release_inflight_grounding(assignment)
+                    state = self._cell_states[assignment.cell_id]
+                    state.in_flight -= 1
+                    state.rejected += 1
+                    continue
+                if recovery.outcome is None:
+                    continue
+                candidate = recovery.candidate
+                if candidate is None:
+                    raise ValueError(
+                        "coverage terminal outcome has no durable candidate"
+                    )
+                if (
+                    recovery.outcome.candidate_id != candidate.candidate_id
+                    or recovery.outcome.sequence_index != assignment.assignment_ordinal
+                ):
+                    raise ValueError(
+                        "coverage terminal outcome does not match its assignment"
+                    )
+                self._release_inflight_grounding(assignment)
+                state = self._cell_states[assignment.cell_id]
+                state.in_flight -= 1
+                if recovery.outcome.sample is not None:
+                    state.accepted += 1
+                    self._accepted_grounding[
+                        (assignment.cell_id, assignment.grounding_unit_index)
+                    ] += 1
+                else:
+                    state.rejected += 1
+                self._reconciled_assignment_ids.add(assignment.assignment_id)
+            self._recovered_waves[wave] = tuple(wave_recoveries)
+            self._wave_states.append(
+                _CoverageWaveState(
+                    wave=wave,
+                    issued=len(wave_recoveries),
+                    in_flight_after_generation=sum(
+                        recovery.candidate is not None
+                        for recovery in wave_recoveries
+                    ),
+                    generation_rejected=sum(
+                        recovery.generation_rejection is not None
+                        for recovery in wave_recoveries
+                    ),
+                )
+            )
+
+    def _validate_recovered_candidate(
+        self,
+        assignment: CoverageAssignment,
+        candidate: CandidateTask,
+    ) -> None:
+        try:
+            contract = candidate.contract()
+            assignment_spec = _assignment_generation_spec(
+                self._spec,
+                assignment,
+            )
+            _validate_contract_assignment_membership(
+                contract=contract,
+                assignment=assignment,
+                assignment_spec=assignment_spec,
+            )
+            if canonical_coverage_hash(candidate.difficulty) != (
+                canonical_coverage_hash(_assignment_difficulty(assignment))
+            ):
+                raise CoverageAssignmentMismatch("difficulty_mismatch")
+            lineage = candidate.generation_lineage
+            lineage_assignment = (
+                lineage.get("coverage_assignment")
+                if isinstance(lineage, Mapping)
+                else None
+            )
+            if (
+                not isinstance(lineage_assignment, Mapping)
+                or lineage_assignment.get("assignment_id")
+                != assignment.assignment_id
+            ):
+                raise CoverageAssignmentMismatch("assignment_lineage_mismatch")
+        except (CoverageAssignmentMismatch, KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "durable coverage candidate does not satisfy its assignment"
+            ) from exc
+
+    def recover_wave(
+        self,
+        seed: DomainSeed,
+        wave: int,
+    ) -> CoverageAssignmentGenerationResult:
+        """Regenerate only an interrupted assignment, never issue a new one."""
+
+        recoveries = self._recovered_waves.get(wave)
+        if recoveries is None:
+            raise ValueError("coverage recovery wave is unknown")
+        unresolved = tuple(
+            recovery.assignment
+            for recovery in recoveries
+            if recovery.candidate is None
+            and recovery.generation_rejection is None
+        )
+        if unresolved:
+            generated = _generate_coverage_assignments(
+                seed=seed,
+                client=self._client,
+                spec=self._spec,
+                assignments=unresolved,
+                role_registry=self._role_registry,
+                attempt_observer_factory=self._attempt_observer_factory,
+            )
+            for candidate_id, assignment_id in generated.candidate_assignment_ids.items():
+                assignment = next(
+                    item for item in unresolved if item.assignment_id == assignment_id
+                )
+                self._candidate_assignments[candidate_id] = assignment
+                self._generated_candidates[candidate_id] = next(
+                    candidate
+                    for candidate in generated.candidates
+                    if candidate.candidate_id == candidate_id
+                )
+            updated_recoveries: list[CoverageAssignmentRecovery] = []
+            generated_by_assignment: dict[str, str] = {
+                assignment_id: candidate_id
+                for candidate_id, assignment_id in generated.candidate_assignment_ids.items()
+            }
+            rejection_by_assignment: dict[str, dict[str, object]] = {
+                assignment_id: rejection
+                for rejection in generated.rejections
+                for assignment_id in [_rejection_assignment_id(rejection)]
+                if assignment_id is not None
+            }
+            for recovery in recoveries:
+                assignment = recovery.assignment
+                generated_candidate_id = generated_by_assignment.get(
+                    assignment.assignment_id
+                )
+                if generated_candidate_id is not None:
+                    candidate = next(
+                        candidate
+                        for candidate in generated.candidates
+                        if candidate.candidate_id == generated_candidate_id
+                    )
+                    updated_recoveries.append(
+                        replace(recovery, candidate=candidate)
+                    )
+                elif assignment.assignment_id in rejection_by_assignment:
+                    updated_recoveries.append(
+                        replace(
+                            recovery,
+                            generation_rejection=rejection_by_assignment[
+                                assignment.assignment_id
+                            ],
+                        )
+                    )
+                else:
+                    updated_recoveries.append(recovery)
+            recoveries = tuple(updated_recoveries)
+            self._recovered_waves[wave] = recoveries
+            for assignment in unresolved:
+                if assignment.assignment_id in set(generated.rejected_assignment_ids):
+                    state = self._cell_states[assignment.cell_id]
+                    self._release_inflight_grounding(assignment)
+                    state.in_flight -= 1
+                    state.rejected += 1
+                    if self._generation_rejection_callback is not None:
+                        rejection = next(
+                            rejection
+                            for rejection in generated.rejections
+                            if _rejection_assignment_id(rejection)
+                            == assignment.assignment_id
+                        )
+                        self._generation_rejection_callback(assignment, rejection)
+        combined = self.recovered_wave_result(wave)
+        wave_state = self._wave_states[wave - 1]
+        wave_state.in_flight_after_generation = len(combined.candidates)
+        wave_state.generation_rejected = len(combined.rejections)
+        self._wave_results[wave] = combined
+        return combined
+
+    def recovered_wave_result(self, wave: int) -> CoverageAssignmentGenerationResult:
+        recoveries = self._recovered_waves.get(wave)
+        if recoveries is None:
+            raise ValueError("coverage recovery wave is unknown")
+        assignments = tuple(recovery.assignment for recovery in recoveries)
+        candidates: list[CandidateTask] = []
+        candidate_assignment_ids: dict[str, str] = {}
+        rejections: list[dict[str, object]] = []
+        rejected_assignment_ids: list[str] = []
+        for recovery in recoveries:
+            candidate = recovery.candidate
+            if candidate is not None:
+                current = self._generated_candidates.get(
+                    candidate.candidate_id,
+                    candidate,
+                )
+                candidates.append(current)
+                candidate_assignment_ids[current.candidate_id] = (
+                    recovery.assignment.assignment_id
+                )
+            if recovery.generation_rejection is not None:
+                rejections.append(dict(recovery.generation_rejection))
+                rejected_assignment_ids.append(recovery.assignment.assignment_id)
+        return CoverageAssignmentGenerationResult(
+            candidates=tuple(candidates),
+            rejections=tuple(rejections),
+            issued_assignment_count=len(assignments),
+            assignments=assignments,
+            candidate_assignment_ids=candidate_assignment_ids,
+            rejected_assignment_ids=tuple(rejected_assignment_ids),
+        )
 
     def validate_refined_candidate(
         self,
@@ -433,6 +882,8 @@ class CoverageAssignmentScheduler:
         }
         for candidate_id, assignment_id in generated.candidate_assignment_ids.items():
             assignment = assignments[assignment_id]
+            if assignment_id in self._reconciled_assignment_ids:
+                continue
             state = self._cell_states[assignment.cell_id]
             if state.in_flight < 1:
                 raise ValueError("coverage assignment is not in flight")
@@ -515,6 +966,13 @@ def build_coverage_assignment_scheduler_factory(
     client: object,
     *,
     role_registry: RoleRegistry | None = None,
+    assignment_wave_callback: CoverageAssignmentWaveCallback | None = None,
+    attempt_observer_factory: (
+        CoverageAssignmentAttemptObserverFactory | None
+    ) = None,
+    generation_rejection_callback: (
+        CoverageGenerationRejectionCallback | None
+    ) = None,
 ) -> CoverageAssignmentSchedulerFactory:
     registry = role_registry or default_role_registry()
 
@@ -532,6 +990,9 @@ def build_coverage_assignment_scheduler_factory(
             catalog=catalog,
             role_registry=registry,
             execute_tool=bundle.registry.execute,
+            assignment_wave_callback=assignment_wave_callback,
+            attempt_observer_factory=attempt_observer_factory,
+            generation_rejection_callback=generation_rejection_callback,
         )
 
     return factory
@@ -722,6 +1183,9 @@ def _generate_coverage_assignments(
     spec: DomainGenerationSpec,
     assignments: tuple[CoverageAssignment, ...],
     role_registry: RoleRegistry,
+    attempt_observer_factory: (
+        CoverageAssignmentAttemptObserverFactory | None
+    ) = None,
 ) -> CoverageAssignmentGenerationResult:
     candidates: list[CandidateTask] = []
     rejections: list[dict[str, object]] = []
@@ -739,12 +1203,37 @@ def _generate_coverage_assignments(
             assignment=assignment,
             batch_context=batch_context,
         )
+        attempt_observer = (
+            attempt_observer_factory(assignment)
+            if attempt_observer_factory is not None
+            else None
+        )
         try:
+            if attempt_observer is not None:
+                _invoke_observer(
+                    attempt_observer,
+                    "before_provider_call",
+                    assignment=assignment,
+                    batch_context=batch_context,
+                    requested_candidate_count=1,
+                    prompt_hash=hashlib.sha256(
+                        prompt.encode("utf-8")
+                    ).hexdigest(),
+                )
             result = role_registry.invoke_json(
                 TASK_GENERATION_ROLE,
                 client,
                 prompt,
             )
+            if attempt_observer is not None:
+                _invoke_observer(
+                    attempt_observer,
+                    "provider_response_received",
+                    assignment=assignment,
+                    batch_context=batch_context,
+                    requested_candidate_count=1,
+                    lineage=result.lineage,
+                )
             raw_record = _single_provider_record(result.content)
             generation_lineage = {
                 **result.lineage,
@@ -770,6 +1259,16 @@ def _generate_coverage_assignments(
                 contract,
                 assignment,
             )
+            if attempt_observer is not None:
+                _invoke_observer(
+                    attempt_observer,
+                    "validated_contracts_checkpointed",
+                    assignment=assignment,
+                    batch_context=batch_context,
+                    requested_candidate_count=1,
+                    contracts=(contract,),
+                    lineage=generation_lineage,
+                )
             candidate = candidate_from_task_contract(contract)
             candidates.append(candidate)
             candidate_assignment_ids[candidate.candidate_id] = (
@@ -794,6 +1293,17 @@ def _generate_coverage_assignments(
                 )
             )
         except LLMProviderError as exc:
+            if attempt_observer is not None:
+                _invoke_observer(
+                    attempt_observer,
+                    "provider_attempt_failed",
+                    assignment=assignment,
+                    batch_context=batch_context,
+                    requested_candidate_count=1,
+                    error=exc,
+                )
+            if getattr(exc, "ambiguous", False):
+                raise
             rejected_assignment_ids.append(assignment.assignment_id)
             rejection = assemble_generation_stage_rejection(error=exc)
             raw_details = rejection.get("details")
@@ -813,6 +1323,30 @@ def _generate_coverage_assignments(
         candidate_assignment_ids=candidate_assignment_ids,
         rejected_assignment_ids=tuple(rejected_assignment_ids),
     )
+
+
+def _invoke_observer(
+    observer: object,
+    method_name: str,
+    **kwargs: object,
+) -> None:
+    method = getattr(observer, method_name, None)
+    if not callable(method):
+        raise TypeError(
+            f"coverage assignment attempt observer lacks {method_name}"
+        )
+    method(**kwargs)
+
+
+def _rejection_assignment_id(rejection: Mapping[str, object]) -> str | None:
+    details = rejection.get("details")
+    if not isinstance(details, Mapping):
+        return None
+    assignment = details.get("coverage_assignment")
+    if not isinstance(assignment, Mapping):
+        return None
+    assignment_id = assignment.get("assignment_id")
+    return assignment_id if isinstance(assignment_id, str) else None
 
 
 def build_coverage_assignment_prompt(

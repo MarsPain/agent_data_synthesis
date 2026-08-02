@@ -15,8 +15,8 @@ dependencies, and assignment live only in the ticket files below.
 1. [Run and resume a deterministic serial job](issues/01-resumable-deterministic-serial-job.md) — completed
 2. [Reject unsafe job resumption](issues/02-reject-unsafe-job-resumption.md) — completed
 3. [Resume provider work within cumulative authorization](issues/03-provider-resumption-and-budget.md) — completed
-4. [Resume coverage assignments and bounded backfill](issues/04-coverage-resumption-and-backfill.md) — ready for agent
-5. [Run bounded work concurrently with stable merge](issues/05-bounded-concurrency-stable-merge.md) — awaits ticket 04
+4. [Resume coverage assignments and bounded backfill](issues/04-coverage-resumption-and-backfill.md) — completed
+5. [Run bounded work concurrently with stable merge](issues/05-bounded-concurrency-stable-merge.md) — ready for agent
 6. [Cancel and resume a live synthesis job](issues/06-cooperative-cancellation-and-resume.md) — awaits ticket 05
 7. [Publish sanitized per-role usage evidence](issues/07-sanitized-role-usage.md) — ready for agent
 8. [Expose the operator CLI and prove three-domain parity](issues/08-cli-and-three-domain-parity.md) — awaits tickets 06 and 07
@@ -34,6 +34,6 @@ Ticket 08 integrates both branches into the operator-facing workflow.
 
 ## Frontier
 
-Tickets 04 and 07 are now unblocked. Tickets 01 through 03 establish a
-complete, hardened resumable serial path before coverage recovery,
-concurrency, cancellation, or operator-facing integration.
+Tickets 05 and 07 are now unblocked. Tickets 01 through 04 establish a
+complete, hardened resumable serial path before concurrency, cancellation, or
+operator-facing integration.
