@@ -12,6 +12,7 @@ from synthesis.candidate_processing import (
     CandidateProcessingContext,
     CandidateProcessingOptions,
     PolicyGenerator,
+    ProvisionalCandidateOutcome,
     ToolProposalGenerator,
     _maybe_route_review,
     merge_candidate_outcomes,
@@ -36,7 +37,10 @@ from synthesis.datasets import (
     assemble_task_suggestion_rejection,
     write_dataset_artifacts,
 )
-from synthesis.episode_quality import EPISODES_FILENAME, write_episode_logs as write_episode_log_jsonl
+from synthesis.episode_quality import (
+    EPISODES_FILENAME,
+    write_episode_logs as write_episode_log_jsonl,
+)
 from synthesis.domain_pipeline import (
     DomainPipelineBundle,
     build_domain_pipeline_bundle,
@@ -105,6 +109,18 @@ class PipelineResult:
 CandidateGenerator = Callable[[DomainSeed], list[CandidateTask] | DomainGenerationResult]
 CandidateGeneratorFactory = Callable[[DomainPipelineBundle], CandidateGenerator]
 TaskExpansionGenerator = Callable[[DomainSeed], TaskExpansionResult]
+CandidateSetCallback = Callable[[tuple[CandidateTask, ...]], None]
+CandidateStartCallback = Callable[[CandidateExecutionRequest], None]
+CandidateOutcomeCallback = Callable[
+    [CandidateExecutionRequest, ProvisionalCandidateOutcome], None
+]
+
+
+@dataclass(frozen=True)
+class _CandidateWaveHooks:
+    start: CandidateStartCallback | None = None
+    outcome: CandidateOutcomeCallback | None = None
+    precomputed: Mapping[int, ProvisionalCandidateOutcome] | None = None
 
 
 class FoundationGateError(RuntimeError):
@@ -255,6 +271,12 @@ def run_foundation_pipeline(
     *,
     dataset_version: str = "dataset_foundation_v1",
     candidate_generator: CandidateGenerator | None = None,
+    candidate_set_callback: CandidateSetCallback | None = None,
+    candidate_start_callback: CandidateStartCallback | None = None,
+    candidate_outcome_callback: CandidateOutcomeCallback | None = None,
+    precomputed_candidate_outcomes: (
+        Mapping[int, ProvisionalCandidateOutcome] | None
+    ) = None,
     candidate_generator_factory: CandidateGeneratorFactory | None = None,
     coverage_scheduler_factory: (
         CoverageAssignmentSchedulerFactory | None
@@ -280,6 +302,11 @@ def run_foundation_pipeline(
     write_episode_logs: bool = False,
     mutation_judge_http_client: httpx.Client | None = None,
 ) -> PipelineResult:
+    candidate_wave_hooks = _CandidateWaveHooks(
+        start=candidate_start_callback,
+        outcome=candidate_outcome_callback,
+        precomputed=precomputed_candidate_outcomes,
+    )
     run_profile_metadata = _authoritative_run_profile_metadata(
         run_profile,
         run_profile_metadata,
@@ -534,6 +561,7 @@ def run_foundation_pipeline(
                 accepted_signatures=accepted_signatures,
                 route_reviewable_failures=route_reviewable_failures,
                 coverage_scheduler=coverage_scheduler,
+                hooks=candidate_wave_hooks,
             )
             samples.extend(base_merge.samples)
             rejections.extend(base_merge.rejections)
@@ -571,6 +599,8 @@ def run_foundation_pipeline(
                 )
             else:
                 base_tasks = generation_result
+            if candidate_set_callback is not None:
+                candidate_set_callback(tuple(base_tasks))
             base_tasks = [
                 domain_bundle.candidate_preparer(raw_task)
                 for raw_task in base_tasks
@@ -601,6 +631,7 @@ def run_foundation_pipeline(
             enable_mcp_adapter=enable_mcp_adapter,
             accepted_signatures=accepted_signatures,
             route_reviewable_failures=route_reviewable_failures,
+            hooks=candidate_wave_hooks,
         )
         samples.extend(base_merge.samples)
         rejections.extend(base_merge.rejections)
@@ -789,24 +820,30 @@ def _process_candidate_wave(
     accepted_signatures: frozenset[tuple[str, tuple[str, ...]]],
     route_reviewable_failures: bool,
     coverage_scheduler: CoverageAssignmentScheduler | None = None,
+    hooks: _CandidateWaveHooks | None = None,
 ) -> CandidateMergeResult:
     outcomes = []
+    hooks = hooks or _CandidateWaveHooks()
+    precomputed = hooks.precomputed or {}
     for offset, raw_task in enumerate(raw_tasks):
         request = CandidateExecutionRequest(
             sequence_index=start_index + offset,
             raw_task=raw_task,
         )
-        request_options = candidate_options
-        if coverage_scheduler is not None:
-            request_options = replace(
-                candidate_options,
-                refined_candidate_validator=_coverage_refined_candidate_validator(
-                    coverage_scheduler,
-                    raw_task.candidate_id,
-                ),
-            )
-        outcomes.append(
-            process_candidate_through_gates(
+        outcome = precomputed.get(request.sequence_index)
+        if outcome is None:
+            if hooks.start is not None:
+                hooks.start(request)
+            request_options = candidate_options
+            if coverage_scheduler is not None:
+                request_options = replace(
+                    candidate_options,
+                    refined_candidate_validator=_coverage_refined_candidate_validator(
+                        coverage_scheduler,
+                        raw_task.candidate_id,
+                    ),
+                )
+            outcome = process_candidate_through_gates(
                 request=request,
                 context=_candidate_context_for_request(
                     base_bundle=domain_bundle,
@@ -817,7 +854,9 @@ def _process_candidate_wave(
                 ),
                 options=request_options,
             )
-        )
+            if hooks.outcome is not None:
+                hooks.outcome(request, outcome)
+        outcomes.append(outcome)
     return merge_candidate_outcomes(
         tuple(outcomes),
         initial_accepted_signatures=accepted_signatures,

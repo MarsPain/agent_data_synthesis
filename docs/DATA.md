@@ -351,6 +351,15 @@ and a quality report:
   downstream model-quality proof.
 - `reward_label_report.json`: optional label coverage and decision summary over
   `reward_labels.jsonl`, written only when explicitly requested.
+- `orchestration/<job-id>/job.json`, `work_items.jsonl`, and `events.jsonl`:
+  opt-in local serial-orchestration state using the versioned
+  `orchestration_job_v1`, `orchestration_work_item_v1`, and
+  `orchestration_event_v1` contracts. These records contain durable job
+  progress and normalized provisional outcomes from the existing pipeline
+  boundary; sensitive provider envelopes, credentials, secret-like values,
+  and host paths are rejected before journaling. They remain separate from
+  core dataset artifacts and are never attached to a dataset manifest or
+  release pack.
 
 ### Mutation Calibration Import Contract
 

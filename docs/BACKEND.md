@@ -552,9 +552,27 @@ passed profile promotion, passed held-out evaluation, deferred async and
 semantic-duplicate decisions, zero source-policy rejection rate, and complete
 release artifact references.
 
-Durable queues, workers, cancellation, resumption, external process isolation,
-and per-role async cost tracking are not active runtime behavior. Desired
-behavior is defined by the
+Ticket 01 now adds an explicitly opt-in programmatic
+`synthesis.orchestration.run_serial_job` tracer bullet for validated
+deterministic run profiles. It writes versioned `job.json`, `work_items.jsonl`,
+and append-only `events.jsonl` records under
+`<output-dir>/orchestration/<job-id>/`, persists candidate intent before
+processing, checkpoints terminal provisional outcomes, and resumes by feeding
+completed outcomes back through the existing candidate-processing and stable
+merge seams. The normal dataset writer remains the only core-artifact
+assembler, so completed serial jobs preserve synchronous samples, rejections,
+manifests, and quality reports. Orchestration state is not a dataset artifact
+and is not attached to the manifest. The job binds an execution-input digest
+alongside the run-profile digest; resume rejects policy, source, environment,
+metadata, and output-mode drift before candidate processing begins. Journal
+payloads are limited to normalized pipeline records and reject provider
+envelopes, credentials, secret-like values, and host paths.
+
+This first slice is deliberately limited to serial deterministic fixture and
+scale-probe jobs. Provider resumption, coverage recovery, concurrency,
+cancellation, CLI exposure, and per-role usage remain later tickets. The
+default synchronous command and programmatic path remain unchanged. Desired
+broader behavior is defined by the
 [async local orchestration spec](product-specs/async-local-orchestration.md),
 while current disposition lives only in
 [ISSUE-0001](../.scratch/ISSUE-0001-async-local-orchestration.md).
