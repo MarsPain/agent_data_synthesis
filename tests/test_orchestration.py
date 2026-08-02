@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
+import threading
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -290,3 +292,315 @@ class SerialOrchestrationTest(unittest.TestCase):
             output_dir = Path(tmpdir) / "sync-only"
             run_foundation_pipeline(output_dir)
             self.assertFalse((output_dir / "orchestration").exists())
+
+    def test_resume_rejects_copied_output_before_candidate_processing(self) -> None:
+        from synthesis.orchestration import (
+            JobConfigurationError,
+            JobInterruption,
+            run_serial_job,
+        )
+
+        profile = load_run_profile(self.PROFILE_PATH)
+        candidate_calls: list[str] = []
+
+        def should_not_generate(seed):
+            candidate_calls.append("generated")
+            raise AssertionError("resume must use durable intent before candidate generation")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = Path(tmpdir) / "original"
+            copied = Path(tmpdir) / "copied"
+            with self.assertRaises(JobInterruption):
+                run_serial_job(
+                    original,
+                    job_id="output-owner",
+                    run_profile=profile,
+                    interrupt_after=1,
+                )
+            shutil.copytree(original / "orchestration", copied / "orchestration")
+
+            with self.assertRaises(JobConfigurationError):
+                run_serial_job(
+                    copied,
+                    job_id="output-owner",
+                    run_profile=profile,
+                    resume=True,
+                    candidate_generator=should_not_generate,
+                )
+            self.assertEqual(candidate_calls, [])
+
+    def test_resume_rejects_snapshot_corruption_before_candidate_processing(self) -> None:
+        from synthesis.orchestration import (
+            JobInterruption,
+            JournalCorruptionError,
+            run_serial_job,
+        )
+
+        profile = load_run_profile(self.PROFILE_PATH)
+        policy_calls: list[str] = []
+
+        def recording_policy(task: CandidateTask):
+            policy_calls.append(task.candidate_id)
+            return scripted_solution_policy(task)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            with self.assertRaises(JobInterruption):
+                run_serial_job(
+                    root,
+                    job_id="snapshot-corruption",
+                    run_profile=profile,
+                    policy_generator=recording_policy,
+                    interrupt_after=1,
+                )
+            job_path = root / "orchestration" / "snapshot-corruption" / "job.json"
+            job = self._read_json(job_path)
+            assert isinstance(job, dict)
+            job["status"] = "corrupted_status"
+            job_path.write_text(json.dumps(job, sort_keys=True) + "\n", encoding="utf-8")
+
+            with self.assertRaises(JournalCorruptionError):
+                run_serial_job(
+                    root,
+                    job_id="snapshot-corruption",
+                    run_profile=profile,
+                    policy_generator=recording_policy,
+                    resume=True,
+                )
+            self.assertEqual(len(policy_calls), 1)
+
+    def test_live_job_lock_rejects_second_writer_without_changing_journal(self) -> None:
+        from synthesis.orchestration import JobLockError, run_serial_job
+
+        profile = load_run_profile(self.PROFILE_PATH)
+        started = threading.Event()
+        release = threading.Event()
+        thread_errors: list[BaseException] = []
+
+        def block_before_candidate_processing(item):
+            started.set()
+            self.assertTrue(release.wait(5))
+
+        def run_first_writer(root: Path) -> None:
+            try:
+                run_serial_job(
+                    root,
+                    job_id="exclusive-writer",
+                    run_profile=profile,
+                    interruption_hook=block_before_candidate_processing,
+                )
+            except BaseException as exc:  # pragma: no cover - assertion below reports it
+                thread_errors.append(exc)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            worker = threading.Thread(target=run_first_writer, args=(root,))
+            worker.start()
+            self.assertTrue(started.wait(5))
+            events_path = root / "orchestration" / "exclusive-writer" / "events.jsonl"
+            before = events_path.read_bytes()
+
+            with self.assertRaises(JobLockError):
+                run_serial_job(
+                    root,
+                    job_id="exclusive-writer",
+                    run_profile=profile,
+                    resume=True,
+                )
+            self.assertEqual(events_path.read_bytes(), before)
+
+            release.set()
+            worker.join(10)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(thread_errors, [])
+
+    def test_stale_lock_requires_explicit_recovery_and_validates_state(self) -> None:
+        from synthesis.orchestration import (
+            JobInterruption,
+            JournalCorruptionError,
+            StaleJobLockError,
+            JobLockError,
+            run_serial_job,
+            serial_job_lock_path,
+        )
+
+        profile = load_run_profile(self.PROFILE_PATH)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            with self.assertRaises(JobInterruption):
+                run_serial_job(
+                    root,
+                    job_id="stale-lock",
+                    run_profile=profile,
+                    interrupt_after=1,
+                )
+            lock_path = serial_job_lock_path(root, "stale-lock")
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            lock_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "orchestration_lock_v1",
+                        "pid": 999999999,
+                        "token": "stale-token",
+                        "acquired_at": "2026-08-02T00:00:00Z",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            events_path = root / "orchestration" / "stale-lock" / "events.jsonl"
+            before = events_path.read_bytes()
+
+            with self.assertRaises(StaleJobLockError):
+                run_serial_job(
+                    root,
+                    job_id="stale-lock",
+                    run_profile=profile,
+                    resume=True,
+                )
+            self.assertEqual(events_path.read_bytes(), before)
+
+            # An explicit recovery still fails closed if the durable journal is bad.
+            events_path.write_bytes(before[:-1] + b"not-json\n")
+            with self.assertRaises((JournalCorruptionError, JobLockError)):
+                run_serial_job(
+                    root,
+                    job_id="stale-lock",
+                    run_profile=profile,
+                    resume=True,
+                    recover_stale_lock=True,
+                )
+
+    def test_explicit_stale_lock_recovery_resumes_valid_state_and_records_marker(self) -> None:
+        from synthesis.orchestration import JobInterruption, run_serial_job, serial_job_lock_path
+
+        profile = load_run_profile(self.PROFILE_PATH)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            with self.assertRaises(JobInterruption):
+                run_serial_job(
+                    root,
+                    job_id="recoverable-stale-lock",
+                    run_profile=profile,
+                    interrupt_after=1,
+                )
+            serial_job_lock_path(root, "recoverable-stale-lock").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "orchestration_lock_v1",
+                        "pid": 999999999,
+                        "token": "stale-token",
+                        "acquired_at": "2026-08-02T00:00:00Z",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = run_serial_job(
+                root,
+                job_id="recoverable-stale-lock",
+                run_profile=profile,
+                resume=True,
+                recover_stale_lock=True,
+            )
+            events = self._read_jsonl(result.events_path)
+            self.assertEqual(result.status, "completed")
+            self.assertTrue(
+                any(event["event_type"] == "job_lock_recovered" for event in events)
+            )
+
+    def test_duplicate_and_mid_journal_corruption_fail_closed(self) -> None:
+        from synthesis.orchestration import JobInterruption, JournalCorruptionError, run_serial_job
+
+        profile = load_run_profile(self.PROFILE_PATH)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            with self.assertRaises(JobInterruption):
+                run_serial_job(
+                    root,
+                    job_id="duplicate-event",
+                    run_profile=profile,
+                    interrupt_after=1,
+                )
+            duplicate_events = root / "orchestration" / "duplicate-event" / "events.jsonl"
+            duplicate_events.write_bytes(
+                duplicate_events.read_bytes()
+                + duplicate_events.read_bytes().splitlines(keepends=True)[-1]
+            )
+            with self.assertRaises(JournalCorruptionError):
+                run_serial_job(
+                    root,
+                    job_id="duplicate-event",
+                    run_profile=profile,
+                    resume=True,
+                )
+
+            with self.assertRaises(JobInterruption):
+                run_serial_job(
+                    root,
+                    job_id="mid-journal-corruption",
+                    run_profile=profile,
+                    interrupt_after=1,
+                )
+            mid_journal = root / "orchestration" / "mid-journal-corruption" / "events.jsonl"
+            lines = mid_journal.read_bytes().splitlines(keepends=True)
+            lines[2] = b"not-json\n"
+            mid_journal.write_bytes(b"".join(lines))
+            with self.assertRaises(JournalCorruptionError):
+                run_serial_job(
+                    root,
+                    job_id="mid-journal-corruption",
+                    run_profile=profile,
+                    resume=True,
+                )
+
+    def test_normalized_configuration_identity_has_no_path_or_credential_material(self) -> None:
+        from synthesis.orchestration import run_serial_job
+
+        profile = load_run_profile(self.PROFILE_PATH)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            result = run_serial_job(
+                root,
+                job_id="normalized-identity",
+                run_profile=profile,
+                authorization_limits={"logical_call_budget": 3},
+            )
+            serialized = result.job_path.read_text(encoding="utf-8")
+            self.assertNotIn(str(root), serialized)
+            self.assertNotIn("api_key", serialized.lower())
+            self.assertEqual(
+                result.job_record["authorization_limits"],
+                {"logical_call_budget": 3},
+            )
+            identity = result.job_record["configuration_identity"]
+            assert isinstance(identity, dict)
+            self.assertEqual(identity["domain"], "contacts")
+            self.assertEqual(identity["generation"]["mode"], "foundation_fixture")
+            self.assertEqual(identity["authorization_limits"], {"logical_call_budget": 3})
+
+    def test_work_item_validator_rejects_impossible_lifecycle_shape(self) -> None:
+        from synthesis.orchestration import validate_work_item_record
+
+        record = {
+            "schema_version": "orchestration_work_item_v1",
+            "job_id": "invalid-shape",
+            "item_id": "invalid-shape:work:000000",
+            "sequence_index": 0,
+            "candidate_id": "candidate-0",
+            "status": "pending",
+            "candidate": {
+                "schema_version": "orchestration_invalid_candidate_v1",
+                "candidate_id": "candidate-0",
+            },
+            "task_contract": None,
+            "attempt_count": 0,
+            "created_at": "2026-08-02T00:00:00Z",
+            "started_at": "2026-08-02T00:00:01Z",
+            "completed_at": None,
+            "result_kind": None,
+            "outcome": None,
+        }
+        with self.assertRaises(ValueError):
+            validate_work_item_record(record)

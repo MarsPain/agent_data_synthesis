@@ -12,9 +12,9 @@ dependencies, and assignment live only in the ticket files below.
 
 ## Tickets
 
-1. [Run and resume a deterministic serial job](issues/01-resumable-deterministic-serial-job.md) — ready for agent
-2. [Reject unsafe job resumption](issues/02-reject-unsafe-job-resumption.md) — awaits ticket 01
-3. [Resume provider work within cumulative authorization](issues/03-provider-resumption-and-budget.md) — awaits ticket 02
+1. [Run and resume a deterministic serial job](issues/01-resumable-deterministic-serial-job.md) — completed
+2. [Reject unsafe job resumption](issues/02-reject-unsafe-job-resumption.md) — completed
+3. [Resume provider work within cumulative authorization](issues/03-provider-resumption-and-budget.md) — ready for agent
 4. [Resume coverage assignments and bounded backfill](issues/04-coverage-resumption-and-backfill.md) — awaits ticket 03
 5. [Run bounded work concurrently with stable merge](issues/05-bounded-concurrency-stable-merge.md) — awaits ticket 04
 6. [Cancel and resume a live synthesis job](issues/06-cooperative-cancellation-and-resume.md) — awaits ticket 05
@@ -34,6 +34,6 @@ Ticket 08 integrates both branches into the operator-facing workflow.
 
 ## Frontier
 
-Ticket 01 is the only current frontier ticket. It establishes a complete,
-resumable serial path before provider work, coverage recovery, concurrency, or
-cancellation is introduced.
+Ticket 03 is the current frontier ticket. Tickets 01 and 02 establish a
+complete, hardened resumable serial path before provider work, coverage
+recovery, or concurrency is introduced.

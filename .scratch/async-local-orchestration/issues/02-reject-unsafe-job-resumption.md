@@ -7,31 +7,42 @@ final append without executing candidate or provider work prematurely.
 
 **Blocked by:** [01 — Run and Resume a Deterministic Serial Job](01-resumable-deterministic-serial-job.md)
 
-**Status:** ready-for-agent
+**Status:** completed
 
-**Assignee:** Unassigned
+**Assignee:** Codex
 
 **Parent spec:** [Async Local Orchestration](../../../docs/product-specs/async-local-orchestration.md)
 
 ## Acceptance criteria
 
-- [ ] A normalized configuration identity binds the job to its run profile,
+- [x] A normalized configuration identity binds the job to its run profile,
   domain, generation settings, enabled features, and declared authorization
   limits without retaining credentials or raw paths.
-- [ ] Resumption rejects job, configuration, or output-ownership mismatch before
+- [x] Resumption rejects job, configuration, or output-ownership mismatch before
   candidate processing or provider construction.
-- [ ] Invalid job/work-item transitions, unsupported schema versions, duplicate
+- [x] Invalid job/work-item transitions, unsupported schema versions, duplicate
   or reordered events, and integrity-invalid mid-journal records fail closed.
-- [ ] Reload can discard one incomplete final append, records that recovery,
+- [x] Reload can discard one incomplete final append, records that recovery,
   and reconstructs the same last valid state.
-- [ ] An exclusive local job lock prevents simultaneous writers without
+- [x] An exclusive local job lock prevents simultaneous writers without
   modifying job state when acquisition fails.
-- [ ] Stale-lock recovery is explicit, validates durable state first, and cannot
+- [x] Stale-lock recovery is explicit, validates durable state first, and cannot
   silently take ownership from a live writer.
-- [ ] The hardened runner still completes and resumes the deterministic serial
+- [x] The hardened runner still completes and resumes the deterministic serial
   tracer bullet from ticket 01 with equivalent core artifacts.
-- [ ] Focused corruption, lock, configuration-drift, transition, and regression
+- [x] Focused corruption, lock, configuration-drift, transition, and regression
   tests pass without provider access.
+
+## Implementation
+
+Added normalized configuration and authorization-limit identity fields, a
+hash-bound output owner, POSIX-exclusive local locking with explicit stale-lock
+recovery, snapshot-to-journal validation, strict lifecycle and event-payload
+validation, and bounded final-append recovery. Resume validates durable state,
+identity, output ownership, and execution inputs before candidate processing.
+Focused tests cover copied output state, snapshot corruption, live and stale
+locks, redaction, lifecycle shape, interruption recovery, and ticket-01
+artifact equivalence; the full 795-test suite passes without provider access.
 
 ## Scope guard
 

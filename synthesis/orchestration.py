@@ -7,16 +7,23 @@ stable duplicate admission, and dataset assembly remain in
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import inspect
 import json
 import os
 import re
+import secrets
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - the supported local runner is POSIX-only.
+    fcntl = None  # type: ignore[assignment]
 
 from synthesis.candidate_processing import (
     CandidateExecutionRequest,
@@ -56,6 +63,8 @@ EVENT_SCHEMA_VERSION = "orchestration_event_v1"
 TASK_CHECKPOINT_SCHEMA_VERSION = "task_contract_checkpoint_v1"
 CANDIDATE_CHECKPOINT_SCHEMA_VERSION = "orchestration_candidate_checkpoint_v1"
 INVALID_CANDIDATE_CHECKPOINT_SCHEMA_VERSION = "orchestration_invalid_candidate_v1"
+CONFIGURATION_IDENTITY_SCHEMA_VERSION = "orchestration_configuration_identity_v1"
+LOCK_SCHEMA_VERSION = "orchestration_lock_v1"
 
 JOB_STATUSES = {"pending", "running", "failed", "completed"}
 WORK_ITEM_STATUSES = {"pending", "running", "completed"}
@@ -86,6 +95,14 @@ class JobInterruption(OrchestrationError):
     def __init__(self, job_id: str, message: str = "serial job interrupted") -> None:
         super().__init__(message)
         self.job_id = job_id
+
+
+class JobLockError(OrchestrationError):
+    """Raised when another local writer owns the serial job lock."""
+
+
+class StaleJobLockError(JobLockError):
+    """Raised when recovering an orphaned lock was not explicitly requested."""
 
 
 @dataclass(frozen=True)
@@ -145,6 +162,76 @@ def run_serial_job(
     interrupt_after: int | None = None,
     interruption_hook: SerialJobInterruptionHook | None = None,
     timestamp_factory: TimestampFactory | None = None,
+    authorization_limits: Mapping[str, object] | None = None,
+    recover_stale_lock: bool = False,
+) -> SerialJobResult:
+    """Run or resume one deterministic local job under an exclusive lock."""
+
+    _validate_serial_configuration(
+        job_id=job_id,
+        run_profile=run_profile,
+        interrupt_after=interrupt_after,
+    )
+    normalized_limits = _normalize_authorization_limits(authorization_limits)
+    now = timestamp_factory or _utc_timestamp
+    output_dir = Path(output_dir)
+    orchestration_dir = output_dir / "orchestration" / job_id
+    store = _LocalJobStore(orchestration_dir, timestamp_factory=now)
+
+    def validate_stale_state() -> None:
+        if resume and store.exists:
+            store.load(repair_tail=False)
+
+    with _LocalJobLock(
+        serial_job_lock_path(output_dir, job_id),
+        timestamp_factory=now,
+        recover_stale_lock=recover_stale_lock,
+        stale_state_validator=validate_stale_state,
+    ) as lock:
+        return _run_serial_job_locked(
+            output_dir,
+            job_id=job_id,
+            run_profile=run_profile,
+            resume=resume,
+            candidate_generator=candidate_generator,
+            policy_generator=policy_generator,
+            source_bundle=source_bundle,
+            domain_environment_input=domain_environment_input,
+            source_events=source_events,
+            run_profile_metadata=run_profile_metadata,
+            parent_artifact_path=parent_artifact_path,
+            route_reviewable_failures=route_reviewable_failures,
+            write_episode_logs=write_episode_logs,
+            interrupt_after=interrupt_after,
+            interruption_hook=interruption_hook,
+            timestamp_factory=now,
+            authorization_limits=normalized_limits,
+            store=store,
+            lock=lock,
+        )
+
+
+def _run_serial_job_locked(
+    output_dir: Path,
+    *,
+    job_id: str,
+    run_profile: RunProfile,
+    resume: bool = False,
+    candidate_generator: CandidateGenerator | None = None,
+    policy_generator: PolicyGenerator | None = None,
+    source_bundle: SourceBundle | None = None,
+    domain_environment_input: object | None = None,
+    source_events: list[dict[str, object]] | None = None,
+    run_profile_metadata: dict[str, object] | None = None,
+    parent_artifact_path: Path | None = None,
+    route_reviewable_failures: bool = False,
+    write_episode_logs: bool = False,
+    interrupt_after: int | None = None,
+    interruption_hook: SerialJobInterruptionHook | None = None,
+    timestamp_factory: TimestampFactory | None = None,
+    authorization_limits: Mapping[str, object] | None = None,
+    store: _LocalJobStore | None = None,
+    lock: _LocalJobLock | None = None,
 ) -> SerialJobResult:
     """Run or resume one deterministic candidate set serially.
 
@@ -156,13 +243,24 @@ def run_serial_job(
     assembly.
     """
 
-    _validate_serial_configuration(
-        job_id=job_id,
-        run_profile=run_profile,
-        interrupt_after=interrupt_after,
-    )
     now = timestamp_factory or _utc_timestamp
     output_dir = Path(output_dir)
+    authorization_limits = _normalize_authorization_limits(authorization_limits)
+    if store is None:
+        orchestration_dir = output_dir / "orchestration" / job_id
+        store = _LocalJobStore(orchestration_dir, timestamp_factory=now)
+    if resume:
+        if not store.exists:
+            raise JobConfigurationError(
+                f"cannot resume missing serial job: {job_id}"
+            )
+        if not store.loaded:
+            store.load(repair_tail=False)
+        store.validate_configuration_identity(
+            run_profile,
+            authorization_limits,
+            output_dir=output_dir,
+        )
     resolved_inputs = _resolve_profile_source_inputs(
         run_profile,
         source_bundle=source_bundle,
@@ -184,16 +282,12 @@ def run_serial_job(
         route_reviewable_failures=route_reviewable_failures,
         write_episode_logs=write_episode_logs,
     )
-    orchestration_dir = output_dir / "orchestration" / job_id
-    store = _LocalJobStore(orchestration_dir, timestamp_factory=now)
-
     if resume:
-        if not store.exists:
-            raise JobConfigurationError(
-                f"cannot resume missing serial job: {job_id}"
-            )
-        store.load()
         store.validate_configuration(run_profile, execution_config_hash)
+        store.rebuild_snapshots()
+        store.repair_journal_tail()
+        if lock is not None and lock.stale_recovered:
+            store.lock_recovered()
         if store.status == "completed":
             return store.result(output_dir)
         if store.status != "running":
@@ -217,6 +311,8 @@ def run_serial_job(
             job_id=job_id,
             run_profile=run_profile,
             execution_config_hash=execution_config_hash,
+            output_dir=output_dir,
+            authorization_limits=authorization_limits,
         )
         effective_candidate_generator = candidate_generator or _default_deterministic_generator(
             run_profile
@@ -341,6 +437,10 @@ def validate_job_record(record: Mapping[str, object]) -> None:
             "status",
             "config_hash",
             "execution_config_hash",
+            "configuration_identity",
+            "configuration_identity_hash",
+            "authorization_limits",
+            "output_ownership_hash",
             "dataset_version",
             "domain",
             "target_candidate_count",
@@ -367,6 +467,17 @@ def validate_job_record(record: Mapping[str, object]) -> None:
         record["execution_config_hash"],
         "job.execution_config_hash",
     )
+    _validate_sha256(
+        record["configuration_identity_hash"],
+        "job.configuration_identity_hash",
+    )
+    if not isinstance(record["configuration_identity"], Mapping):
+        raise ValueError("job.configuration_identity must be an object")
+    if not isinstance(record["authorization_limits"], Mapping):
+        raise ValueError("job.authorization_limits must be an object")
+    _assert_safe_orchestration_value(record["configuration_identity"])
+    _assert_safe_orchestration_value(record["authorization_limits"])
+    _validate_sha256(record["output_ownership_hash"], "job.output_ownership_hash")
     for field_name in ("dataset_version", "domain", "created_at", "updated_at"):
         _require_non_empty_string(record[field_name], f"job.{field_name}")
     target = record["target_candidate_count"]
@@ -392,6 +503,7 @@ def validate_job_record(record: Mapping[str, object]) -> None:
             raise ValueError(f"job.{field_name} must be a non-negative integer")
     if not isinstance(record["artifact_references"], Mapping):
         raise ValueError("job.artifact_references must be an object")
+    _assert_safe_orchestration_value(record["artifact_references"])
 
 
 def validate_work_item_record(record: Mapping[str, object]) -> None:
@@ -420,7 +532,6 @@ def validate_work_item_record(record: Mapping[str, object]) -> None:
     if record["schema_version"] != WORK_ITEM_SCHEMA_VERSION:
         raise ValueError("work_item.schema_version is unsupported")
     _validate_job_id(record["job_id"])
-    _require_non_empty_string(record["item_id"], "work_item.item_id")
     sequence_index = record["sequence_index"]
     if (
         not isinstance(sequence_index, int)
@@ -428,14 +539,19 @@ def validate_work_item_record(record: Mapping[str, object]) -> None:
         or sequence_index < 0
     ):
         raise ValueError("work_item.sequence_index must be a non-negative integer")
+    if record["item_id"] != _work_item_id(str(record["job_id"]), sequence_index):
+        raise ValueError("work_item.item_id does not match job and sequence")
     _require_non_empty_string(record["candidate_id"], "work_item.candidate_id")
     if record["status"] not in WORK_ITEM_STATUSES:
         raise ValueError("work_item.status is unsupported")
     if not isinstance(record["candidate"], Mapping):
         raise ValueError("work_item.candidate must be an object")
+    _assert_safe_orchestration_value(record["candidate"])
     task_contract = record["task_contract"]
     if task_contract is not None and not isinstance(task_contract, Mapping):
         raise ValueError("work_item.task_contract must be an object or null")
+    if task_contract is not None:
+        _assert_safe_orchestration_value(task_contract)
     attempt_count = record["attempt_count"]
     if not isinstance(attempt_count, int) or isinstance(attempt_count, bool) or attempt_count < 0:
         raise ValueError("work_item.attempt_count must be a non-negative integer")
@@ -448,11 +564,32 @@ def validate_work_item_record(record: Mapping[str, object]) -> None:
     result_kind = record["result_kind"]
     if result_kind is not None and result_kind not in WORK_ITEM_RESULT_KINDS:
         raise ValueError("work_item.result_kind is unsupported")
-    if record["status"] == "completed":
+    status = record["status"]
+    if status == "pending":
+        if record["started_at"] is not None or record["completed_at"] is not None:
+            raise ValueError("pending work_item cannot have lifecycle timestamps")
+        if result_kind is not None or record["outcome"] is not None:
+            raise ValueError("pending work_item cannot have a terminal outcome")
+    elif status == "running":
+        if attempt_count < 1 or record["started_at"] is None:
+            raise ValueError("running work_item must have an issued attempt")
+        if (
+            record["completed_at"] is not None
+            or result_kind is not None
+            or record["outcome"] is not None
+        ):
+            raise ValueError("running work_item cannot have a terminal outcome")
+    elif status == "completed":
+        if attempt_count < 1 or record["started_at"] is None or record["completed_at"] is None:
+            raise ValueError("completed work_item must have complete lifecycle timestamps")
         if result_kind is None or not isinstance(record["outcome"], Mapping):
             raise ValueError("completed work_item must contain result_kind and outcome")
-    elif record["outcome"] is not None:
-        raise ValueError("non-completed work_item cannot contain an outcome")
+        _validate_outcome_record_shape(record["outcome"])
+        sample = record["outcome"].get("sample")
+        rejection = record["outcome"].get("rejection")
+        expected_kind = "accepted" if sample is not None else "rejected"
+        if expected_kind != result_kind:
+            raise ValueError("work_item result_kind does not match outcome")
 
 
 def validate_event_record(record: Mapping[str, object]) -> None:
@@ -487,10 +624,215 @@ def validate_event_record(record: Mapping[str, object]) -> None:
     _require_non_empty_string(record["event_type"], "event.event_type")
     if not isinstance(record["payload"], Mapping):
         raise ValueError("event.payload must be an object")
+    _assert_safe_orchestration_value(record["payload"])
     previous_hash = record["previous_integrity_hash"]
     if previous_hash is not None:
         _validate_sha256(previous_hash, "event.previous_integrity_hash")
     _validate_sha256(record["integrity_hash"], "event.integrity_hash")
+
+
+def _validate_outcome_record_shape(value: object) -> None:
+    if not isinstance(value, Mapping):
+        raise ValueError("work_item.outcome must be an object")
+    sample = value.get("sample")
+    rejection = value.get("rejection")
+    if (sample is None) == (rejection is None):
+        raise ValueError("work_item.outcome must contain exactly one sample or rejection")
+    if sample is not None and not isinstance(sample, Mapping):
+        raise ValueError("work_item.outcome.sample must be an object or null")
+    if rejection is not None and not isinstance(rejection, Mapping):
+        raise ValueError("work_item.outcome.rejection must be an object or null")
+    for field_name in ("sequence_index", "candidate_id"):
+        if field_name not in value:
+            raise ValueError(f"work_item.outcome.{field_name} is required")
+    if (
+        not isinstance(value["sequence_index"], int)
+        or isinstance(value["sequence_index"], bool)
+        or value["sequence_index"] < 0
+    ):
+        raise ValueError("work_item.outcome.sequence_index must be non-negative")
+    _require_non_empty_string(value["candidate_id"], "work_item.outcome.candidate_id")
+    _assert_safe_orchestration_value(value)
+
+
+def serial_job_lock_path(output_dir: Path, job_id: str) -> Path:
+    """Return the local lock path for one job without exposing host paths."""
+
+    _validate_job_id(job_id)
+    return Path(output_dir) / "orchestration" / f".{job_id}.lock"
+
+
+class _LocalJobLock:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        timestamp_factory: TimestampFactory,
+        recover_stale_lock: bool,
+        stale_state_validator: Callable[[], None] | None,
+    ) -> None:
+        self.path = path
+        self._timestamp_factory = timestamp_factory
+        self._recover_stale_lock = recover_stale_lock
+        self._stale_state_validator = stale_state_validator
+        self._fd: int | None = None
+        self.stale_recovered = False
+        self._token = secrets.token_hex(16)
+
+    def __enter__(self) -> "_LocalJobLock":
+        self.acquire()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        self.release()
+
+    def acquire(self) -> None:
+        if fcntl is None:
+            raise JobLockError("exclusive local job locks require a POSIX filesystem")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            fd = os.open(
+                self.path,
+                os.O_CREAT | os.O_EXCL | os.O_RDWR,
+                0o600,
+            )
+            self._lock_fd(fd)
+            self._write_metadata(fd)
+            self._fd = fd
+            return
+        except FileExistsError:
+            pass
+        except Exception:
+            self._close_fd(fd if "fd" in locals() else None, unlink=True)
+            raise
+
+        try:
+            fd = os.open(self.path, os.O_RDWR)
+        except OSError as exc:
+            raise JobLockError("serial job lock disappeared during acquisition") from exc
+        try:
+            try:
+                self._lock_fd(fd)
+            except OSError as exc:
+                if exc.errno in {errno.EACCES, errno.EAGAIN}:
+                    raise JobLockError("serial job is already owned by another writer") from exc
+                raise JobLockError("serial job lock cannot be acquired") from exc
+
+            metadata = self._read_metadata(fd)
+            if metadata.get("released") is not True and _lock_metadata_pid_is_alive(metadata):
+                raise JobLockError("serial job lock is owned by a live writer")
+            if metadata.get("released") is not True and not self._recover_stale_lock:
+                raise StaleJobLockError(
+                    "serial job lock is stale; pass recover_stale_lock=True explicitly"
+                )
+            if metadata.get("released") is not True and self._stale_state_validator is not None:
+                self._stale_state_validator()
+            self._write_metadata(fd, recovered=True)
+            self.stale_recovered = metadata.get("released") is not True
+            self._fd = fd
+        except Exception:
+            self._close_fd(fd, unlink=False)
+            raise
+
+    def release(self) -> None:
+        if self._fd is None:
+            return
+        fd = self._fd
+        self._fd = None
+        try:
+            # Keep the inode stable across release. A later writer can acquire
+            # the same file description without racing an unlink/recreate gap.
+            try:
+                self._write_metadata(fd, released=True)
+            except OSError:
+                # A failed release marker leaves a conservative stale lock;
+                # explicit recovery is then required on the next run.
+                pass
+            if fcntl is not None:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+    def _lock_fd(self, fd: int) -> None:
+        assert fcntl is not None
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise exc
+
+    def _write_metadata(
+        self,
+        fd: int,
+        *,
+        recovered: bool = False,
+        released: bool = False,
+    ) -> None:
+        metadata: dict[str, object] = {
+            "schema_version": LOCK_SCHEMA_VERSION,
+            "pid": os.getpid(),
+            "token": self._token,
+            "acquired_at": self._timestamp_factory(),
+            "released": released,
+        }
+        if recovered:
+            metadata["recovered_stale_lock"] = True
+        _assert_safe_orchestration_value(metadata)
+        encoded = _json_bytes(metadata) + b"\n"
+        os.ftruncate(fd, 0)
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.write(fd, encoded)
+        os.fsync(fd)
+
+    def _read_metadata(self, fd: int) -> Mapping[str, object]:
+        os.lseek(fd, 0, os.SEEK_SET)
+        raw = os.read(fd, 65536)
+        try:
+            value = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise JobLockError("serial job lock metadata is malformed") from exc
+        if not isinstance(value, Mapping):
+            raise JobLockError("serial job lock metadata must be an object")
+        expected = {"schema_version", "pid", "token", "acquired_at", "released"}
+        if set(value) - expected - {"recovered_stale_lock"}:
+            raise JobLockError("serial job lock metadata contains unsupported fields")
+        if value.get("schema_version") != LOCK_SCHEMA_VERSION:
+            raise JobLockError("serial job lock schema is unsupported")
+        pid = value.get("pid")
+        if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+            raise JobLockError("serial job lock pid is invalid")
+        _require_non_empty_string(value.get("token"), "lock.token")
+        _require_non_empty_string(value.get("acquired_at"), "lock.acquired_at")
+        if "released" in value and not isinstance(value["released"], bool):
+            raise JobLockError("serial job lock release marker is invalid")
+        return value
+
+    def _close_fd(self, fd: int | None, *, unlink: bool) -> None:
+        if fd is None:
+            return
+        try:
+            if unlink:
+                try:
+                    self.path.unlink()
+                except FileNotFoundError:
+                    pass
+            if fcntl is not None:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
+def _lock_metadata_pid_is_alive(metadata: Mapping[str, object]) -> bool:
+    pid = metadata["pid"]
+    assert isinstance(pid, int)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
 
 
 class _LocalJobStore:
@@ -510,10 +852,17 @@ class _LocalJobStore:
         self._events: list[dict[str, object]] = []
         self._last_integrity_hash: str | None = None
         self._recovered_tail_bytes = 0
+        self._recovered_tail_prefix: bytes | None = None
+        self._snapshots_need_rebuild = False
+        self._loaded = False
 
     @property
     def exists(self) -> bool:
         return self.orchestration_dir.exists()
+
+    @property
+    def loaded(self) -> bool:
+        return self._loaded
 
     @property
     def job(self) -> dict[str, object]:
@@ -558,6 +907,8 @@ class _LocalJobStore:
         job_id: str,
         run_profile: RunProfile,
         execution_config_hash: str,
+        output_dir: Path,
+        authorization_limits: Mapping[str, object],
     ) -> None:
         self.orchestration_dir.mkdir(parents=True, exist_ok=False)
         initial_job: dict[str, object] = {
@@ -566,6 +917,16 @@ class _LocalJobStore:
             "status": "pending",
             "config_hash": run_profile.config_hash,
             "execution_config_hash": execution_config_hash,
+            "configuration_identity": _normalized_configuration_identity(
+                run_profile,
+                authorization_limits,
+            ),
+            "configuration_identity_hash": _configuration_identity_hash(
+                run_profile,
+                authorization_limits,
+            ),
+            "authorization_limits": _json_copy(authorization_limits),
+            "output_ownership_hash": _output_ownership_hash(output_dir, job_id),
             "dataset_version": run_profile.dataset_version,
             "domain": run_profile.seed.domain,
             "target_candidate_count": run_profile.generation.target_candidate_count,
@@ -583,8 +944,11 @@ class _LocalJobStore:
         validate_job_record(initial_job)
         self._append("job_created", initial_job)
         self._append("job_started", {})
+        self._loaded = True
 
-    def load(self) -> None:
+    def load(self, *, repair_tail: bool = True) -> None:
+        if self._loaded:
+            return
         if not self.events_path.exists():
             raise JournalCorruptionError("serial job is missing its event journal")
         self._replay_events()
@@ -593,11 +957,38 @@ class _LocalJobStore:
         validate_job_record(self._job)
         for item in self.work_items:
             validate_work_item_record(item)
-        if self._recovered_tail_bytes:
-            self._append(
-                "journal_tail_recovered",
-                {"discarded_bytes": self._recovered_tail_bytes},
-            )
+        self._validate_reconstructed_state()
+        self._validate_snapshots()
+        self._loaded = True
+        if repair_tail:
+            self.rebuild_snapshots()
+            self.repair_journal_tail()
+
+    def rebuild_snapshots(self) -> None:
+        if not self._snapshots_need_rebuild:
+            return
+        self._write_snapshots()
+        self._snapshots_need_rebuild = False
+
+    def repair_journal_tail(self) -> None:
+        if not self._recovered_tail_bytes:
+            return
+        if self._recovered_tail_prefix is None:
+            raise JournalCorruptionError("serial job journal recovery prefix is unavailable")
+        with self.events_path.open("wb") as handle:
+            handle.write(self._recovered_tail_prefix)
+            handle.flush()
+            os.fsync(handle.fileno())
+        discarded_bytes = self._recovered_tail_bytes
+        self._recovered_tail_bytes = 0
+        self._recovered_tail_prefix = None
+        self._append(
+            "journal_tail_recovered",
+            {"discarded_bytes": discarded_bytes},
+        )
+
+    def lock_recovered(self) -> None:
+        self._append("job_lock_recovered", {"recovered_stale_lock": True})
 
     def validate_configuration(
         self,
@@ -617,6 +1008,50 @@ class _LocalJobStore:
         if self.job["execution_config_hash"] != execution_config_hash:
             raise JobConfigurationError(
                 "serial execution inputs do not match durable serial job"
+            )
+
+    def validate_configuration_identity(
+        self,
+        run_profile: RunProfile,
+        authorization_limits: Mapping[str, object],
+        *,
+        output_dir: Path,
+    ) -> None:
+        if self.job["job_id"] != self.orchestration_dir.name:
+            raise JobConfigurationError("durable job identity does not match its directory")
+        if self.job["config_hash"] != run_profile.config_hash:
+            raise JobConfigurationError(
+                "run profile configuration hash does not match durable serial job"
+            )
+        if self.job["dataset_version"] != run_profile.dataset_version:
+            raise JobConfigurationError(
+                "dataset version does not match durable serial job"
+            )
+        if self.job["domain"] != run_profile.seed.domain:
+            raise JobConfigurationError("run profile domain does not match durable serial job")
+        expected_identity = _normalized_configuration_identity(
+            run_profile,
+            authorization_limits,
+        )
+        expected_hash = _hash_json(expected_identity)
+        if self.job["configuration_identity_hash"] != expected_hash:
+            raise JobConfigurationError(
+                "normalized configuration identity does not match durable serial job"
+            )
+        if self.job["configuration_identity"] != expected_identity:
+            raise JobConfigurationError(
+                "durable normalized configuration identity is inconsistent"
+            )
+        if self.job["authorization_limits"] != dict(authorization_limits):
+            raise JobConfigurationError(
+                "declared authorization limits do not match durable serial job"
+            )
+        if self.job["output_ownership_hash"] != _output_ownership_hash(
+            output_dir,
+            str(self.job["job_id"]),
+        ):
+            raise JobConfigurationError(
+                "serial job output ownership does not match durable state"
             )
 
     def resume(self) -> None:
@@ -788,11 +1223,14 @@ class _LocalJobStore:
     ) -> None:
         _assert_safe_orchestration_value(payload)
         sequence = len(self._events)
+        event_job_id = str(payload.get("job_id", self._job["job_id"] if self._job else ""))
+        if self._job is not None and event_job_id != self._job["job_id"]:
+            raise InvalidTransitionError("event job identity does not match durable job")
         event_without_integrity: dict[str, object] = {
             "schema_version": EVENT_SCHEMA_VERSION,
             "sequence": sequence,
             "event_id": f"event_{sequence:08d}",
-            "job_id": str(payload.get("job_id", self._job["job_id"] if self._job else "")),
+            "job_id": event_job_id,
             "work_item_id": work_item_id,
             "event_type": event_type,
             "payload": _json_copy(dict(payload)),
@@ -844,7 +1282,7 @@ class _LocalJobStore:
                     and _looks_like_truncated_json(content)
                 ):
                     self._recovered_tail_bytes = len(raw) - valid_prefix_end
-                    self.events_path.write_bytes(raw[:valid_prefix_end])
+                    self._recovered_tail_prefix = raw[:valid_prefix_end]
                     break
                 raise JournalCorruptionError(
                     "serial job journal contains malformed or truncated event data"
@@ -874,6 +1312,8 @@ class _LocalJobStore:
                     raise JournalCorruptionError(
                         "serial job journal integrity hash is invalid"
                     )
+                if self._job is not None and parsed["job_id"] != self._job["job_id"]:
+                    raise JournalCorruptionError("serial job journal event belongs to another job")
                 self._events.append(parsed)
                 self._last_integrity_hash = str(parsed["integrity_hash"])
                 self._apply_event(parsed)
@@ -885,25 +1325,106 @@ class _LocalJobStore:
                 ) from exc
             valid_prefix_end += len(line)
 
+    def _validate_reconstructed_state(self) -> None:
+        assert self._job is not None
+        if self._job["job_id"] != self.orchestration_dir.name:
+            raise JournalCorruptionError("journal job identity does not match its directory")
+        if self._job["configuration_identity_hash"] != _hash_json(
+            self._job["configuration_identity"]
+        ):
+            raise JournalCorruptionError("configuration identity hash is invalid")
+        items = self.work_items
+        if self._job["work_item_count"] != len(items):
+            raise JournalCorruptionError("job work-item count does not match journal state")
+        if self._job["completed_work_item_count"] != sum(
+            item["status"] == "completed" for item in items
+        ):
+            raise JournalCorruptionError("job completed count does not match journal state")
+        if self._job["accepted_work_item_count"] != sum(
+            item["status"] == "completed" and item["result_kind"] == "accepted"
+            for item in items
+        ):
+            raise JournalCorruptionError("job accepted count does not match journal state")
+        if self._job["rejected_work_item_count"] != sum(
+            item["status"] == "completed" and item["result_kind"] == "rejected"
+            for item in items
+        ):
+            raise JournalCorruptionError("job rejected count does not match journal state")
+        if self._job["candidate_set_hash"] is None:
+            if items:
+                raise JournalCorruptionError("work items exist before candidate set binding")
+            return
+        records = tuple(item["candidate"] for item in items)
+        if self._job["candidate_set_hash"] != _hash_json(records):
+            raise JournalCorruptionError("durable candidate set hash is invalid")
+        if self._job["target_candidate_count"] != len(records):
+            raise JournalCorruptionError("durable candidate target does not match work items")
+        if tuple(item["sequence_index"] for item in items) != tuple(range(len(items))):
+            raise JournalCorruptionError("work-item sequence indexes are not contiguous")
+
+    def _validate_snapshots(self) -> None:
+        if not self.job_path.exists() or not self.work_items_path.exists():
+            self._snapshots_need_rebuild = True
+            return
+        try:
+            snapshot_job = json.loads(self.job_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise JournalCorruptionError("serial job snapshot is malformed") from exc
+        if not isinstance(snapshot_job, Mapping):
+            raise JournalCorruptionError("serial job snapshot must be an object")
+        try:
+            validate_job_record(snapshot_job)
+        except (TypeError, ValueError) as exc:
+            raise JournalCorruptionError("serial job snapshot failed validation") from exc
+        try:
+            snapshot_items = [
+                json.loads(line)
+                for line in self.work_items_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise JournalCorruptionError("work-item snapshot is malformed") from exc
+        if not all(isinstance(item, Mapping) for item in snapshot_items):
+            raise JournalCorruptionError("work-item snapshot entries must be objects")
+        try:
+            for item in snapshot_items:
+                validate_work_item_record(item)
+        except (TypeError, ValueError) as exc:
+            raise JournalCorruptionError("work-item snapshot failed validation") from exc
+        if _stable_snapshot_record(snapshot_job) != _stable_snapshot_record(self.job):
+            self._snapshots_need_rebuild = True
+        if [_stable_snapshot_record(item) for item in snapshot_items] != [
+            _stable_snapshot_record(item) for item in self.work_items
+        ]:
+            self._snapshots_need_rebuild = True
+
     def _apply_event(self, event: Mapping[str, object]) -> None:
         event_type = str(event["event_type"])
         payload = event["payload"]
         assert isinstance(payload, Mapping)
         work_item_id = event["work_item_id"]
         if event_type == "job_created":
-            if self._job is not None or self._events[:-1]:
+            if work_item_id is not None or self._job is not None or self._events[:-1]:
                 raise JournalCorruptionError("job_created must be the first event")
             self._job = dict(payload)
+            if event["job_id"] != self._job.get("job_id"):
+                raise JournalCorruptionError("job_created event identity does not match payload")
             validate_job_record(self._job)
             return
         if self._job is None:
             raise JournalCorruptionError("event precedes job_created")
         if event_type == "job_started":
+            _require_payload_keys(payload, set())
+            self._require_no_work_item(work_item_id)
             self._require_job_status("pending")
             self._job["status"] = "running"
         elif event_type == "job_resumed":
+            _require_payload_keys(payload, set())
+            self._require_no_work_item(work_item_id)
             self._require_job_status("running")
         elif event_type == "candidate_set_bound":
+            _require_payload_keys(payload, {"candidate_set_hash", "target_candidate_count"})
+            self._require_no_work_item(work_item_id)
             self._require_job_status("running")
             if self.candidate_set_hash is not None:
                 raise InvalidTransitionError("candidate set is already bound")
@@ -912,6 +1433,9 @@ class _LocalJobStore:
             count = payload.get("target_candidate_count")
             if not isinstance(count, int) or isinstance(count, bool) or count < 0:
                 raise InvalidTransitionError("candidate set count is invalid")
+            original_target = self._job["target_candidate_count"]
+            if original_target is not None and original_target != count:
+                raise InvalidTransitionError("candidate set count drifts from run profile")
             self._job["candidate_set_hash"] = candidate_set_hash
             self._job["target_candidate_count"] = count
         elif event_type == "work_item_created":
@@ -926,8 +1450,13 @@ class _LocalJobStore:
                 raise InvalidTransitionError("work item event identity does not match payload")
             if item["job_id"] != self._job["job_id"]:
                 raise InvalidTransitionError("work item belongs to another job")
+            if item["sequence_index"] != len(self._items):
+                raise InvalidTransitionError("work item sequence indexes are reordered")
+            if item["item_id"] != _work_item_id(str(self._job["job_id"]), item["sequence_index"]):
+                raise InvalidTransitionError("work item identity is not locally derived")
             self._items[work_item_id] = item
         elif event_type == "work_item_started":
+            _require_payload_keys(payload, set())
             item = self._require_item(work_item_id)
             if item["status"] != "pending":
                 raise InvalidTransitionError("only pending work items can start")
@@ -938,12 +1467,15 @@ class _LocalJobStore:
             ) + 1
             item["started_at"] = self._timestamp_factory()
         elif event_type == "work_item_requeued":
+            _require_payload_keys(payload, {"reason"})
+            _require_non_empty_string(payload.get("reason"), "work_item_requeued.reason")
             item = self._require_item(work_item_id)
             if item["status"] != "running":
                 raise InvalidTransitionError("only running work items can be requeued")
             item["status"] = "pending"
             item["started_at"] = None
         elif event_type == "work_item_completed":
+            _require_payload_keys(payload, {"result_kind", "outcome"})
             item = self._require_item(work_item_id)
             if item["status"] != "running":
                 raise InvalidTransitionError("only running work items can complete")
@@ -951,13 +1483,39 @@ class _LocalJobStore:
             outcome = payload.get("outcome")
             if result_kind not in WORK_ITEM_RESULT_KINDS or not isinstance(outcome, Mapping):
                 raise InvalidTransitionError("work item completion payload is invalid")
+            _validate_outcome_record_shape(outcome)
+            candidate_record = item["candidate"]
+            if not isinstance(candidate_record, Mapping):
+                raise InvalidTransitionError("work item candidate intent is not an object")
+            sequence_index = item["sequence_index"]
+            if not isinstance(sequence_index, int) or isinstance(sequence_index, bool):
+                raise InvalidTransitionError("work item sequence index is invalid")
+            candidate_schema = candidate_record.get("schema_version")
+            candidate_identity_matches = (
+                candidate_schema == INVALID_CANDIDATE_CHECKPOINT_SCHEMA_VERSION
+                or _work_item_candidate_id(
+                    outcome["candidate_id"],
+                    sequence_index,
+                )
+                == item["candidate_id"]
+            )
+            if outcome["sequence_index"] != sequence_index or not candidate_identity_matches:
+                raise InvalidTransitionError("work item outcome identity does not match intent")
+            expected_kind = "accepted" if outcome.get("sample") is not None else "rejected"
+            if result_kind != expected_kind:
+                raise InvalidTransitionError("work item result kind does not match outcome")
             item["status"] = "completed"
             item["completed_at"] = self._timestamp_factory()
             item["result_kind"] = result_kind
             item["outcome"] = dict(outcome)
         elif event_type == "job_interrupted":
+            _require_payload_keys(payload, {"reason"})
+            _require_non_empty_string(payload.get("reason"), "job_interrupted.reason")
+            self._require_no_work_item(work_item_id)
             self._require_job_status("running")
         elif event_type == "journal_tail_recovered":
+            _require_payload_keys(payload, {"discarded_bytes"})
+            self._require_no_work_item(work_item_id)
             discarded_bytes = payload.get("discarded_bytes")
             if (
                 not isinstance(discarded_bytes, int)
@@ -967,21 +1525,36 @@ class _LocalJobStore:
                 raise InvalidTransitionError(
                     "journal recovery byte count is invalid"
                 )
+        elif event_type == "job_lock_recovered":
+            _require_payload_keys(payload, {"recovered_stale_lock"})
+            self._require_no_work_item(work_item_id)
+            if payload.get("recovered_stale_lock") is not True:
+                raise InvalidTransitionError("lock recovery marker is invalid")
         elif event_type == "job_failed":
-            if self.status in {"completed", "failed"}:
-                raise InvalidTransitionError("terminal job cannot fail")
+            _require_payload_keys(payload, {"error_class"})
+            self._require_no_work_item(work_item_id)
+            self._require_job_status("running")
+            _require_non_empty_string(payload.get("error_class"), "job_failed.error_class")
             self._job["status"] = "failed"
         elif event_type == "job_completed":
+            _require_payload_keys(
+                payload,
+                {"artifact_references", "accepted_count", "rejected_count"},
+            )
+            self._require_no_work_item(work_item_id)
             self._require_job_status("running")
             if any(item["status"] != "completed" for item in self.work_items):
                 raise InvalidTransitionError("job cannot complete with pending work")
             references = payload.get("artifact_references")
             if not isinstance(references, Mapping):
                 raise InvalidTransitionError("job completion artifacts are invalid")
+            accepted_count = payload.get("accepted_count")
+            rejected_count = payload.get("rejected_count")
+            _assert_safe_orchestration_value(references)
             self._job["status"] = "completed"
             self._job["artifact_references"] = dict(references)
-            self._job["accepted_count"] = payload.get("accepted_count", 0)
-            self._job["rejected_count"] = payload.get("rejected_count", 0)
+            self._job["accepted_count"] = accepted_count
+            self._job["rejected_count"] = rejected_count
         else:
             raise JournalCorruptionError(f"unsupported serial job event: {event_type}")
         self._refresh_job()
@@ -991,6 +1564,10 @@ class _LocalJobStore:
             raise InvalidTransitionError(
                 f"job status {self.status!r} cannot accept transition from {expected!r}"
             )
+
+    def _require_no_work_item(self, work_item_id: object) -> None:
+        if work_item_id is not None:
+            raise InvalidTransitionError("job event cannot reference a work item")
 
     def _require_item(self, work_item_id: object) -> dict[str, object]:
         if not isinstance(work_item_id, str) or work_item_id not in self._items:
@@ -1059,6 +1636,109 @@ def _validate_serial_configuration(
         or interrupt_after < 0
     ):
         raise JobConfigurationError("interrupt_after must be a non-negative integer or null")
+
+
+def _normalize_authorization_limits(
+    value: Mapping[str, object] | None,
+) -> dict[str, object]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise JobConfigurationError("authorization_limits must be an object or null")
+    try:
+        normalized = json.loads(
+            json.dumps(dict(value), ensure_ascii=False, sort_keys=True)
+        )
+    except (TypeError, ValueError) as exc:
+        raise JobConfigurationError(
+            "authorization_limits must contain JSON-compatible values"
+        ) from exc
+    if not isinstance(normalized, dict):
+        raise JobConfigurationError("authorization_limits must be an object")
+    _assert_safe_orchestration_value(normalized)
+    return normalized
+
+
+def _normalized_configuration_identity(
+    run_profile: RunProfile,
+    authorization_limits: Mapping[str, object],
+) -> dict[str, object]:
+    source: dict[str, object] | None = None
+    if run_profile.source is not None:
+        source = {
+            "kind": run_profile.source.kind,
+            "source_id": run_profile.source.source_id,
+            "license_label": run_profile.source.license_label,
+            "max_bytes": run_profile.source.max_bytes,
+        }
+    identity: dict[str, object] = {
+        "schema_version": CONFIGURATION_IDENTITY_SCHEMA_VERSION,
+        "profile": {
+            "schema_version": run_profile.schema_version,
+            "profile_id": run_profile.profile_id,
+            "dataset_version": run_profile.dataset_version,
+            "profile_purpose": run_profile.profile_purpose,
+        },
+        "domain": run_profile.seed.domain,
+        "seed": {
+            "seed_id": run_profile.seed.seed_id,
+            "description": run_profile.seed.description,
+            "task_taxonomy": list(run_profile.seed.task_taxonomy),
+        },
+        "generation": run_profile.generation.canonical(),
+        "enabled_features": run_profile.features.canonical(),
+        "source": source,
+        "mutation_admission": run_profile.mutation_admission.canonical(),
+        "coverage_profile": (
+            run_profile.coverage_profile.canonical()
+            if run_profile.coverage_profile is not None
+            else None
+        ),
+        "authorization_limits": _json_copy(dict(authorization_limits)),
+    }
+    _assert_safe_orchestration_value(identity)
+    return identity
+
+
+def _configuration_identity_hash(
+    run_profile: RunProfile,
+    authorization_limits: Mapping[str, object],
+) -> str:
+    return _hash_json(_normalized_configuration_identity(run_profile, authorization_limits))
+
+
+def _output_ownership_hash(output_dir: Path, job_id: str) -> str:
+    # The resolved path participates only in this digest. The durable record
+    # can therefore bind ownership without retaining a host path.
+    binding = {
+        "schema_version": "orchestration_output_ownership_v1",
+        "job_id": job_id,
+        "resolved_output": str(Path(output_dir).expanduser().resolve()),
+    }
+    return _hash_json(binding)
+
+
+def _stable_snapshot_value(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {
+            str(key): _stable_snapshot_value(nested)
+            for key, nested in value.items()
+        }
+    if isinstance(value, list):
+        return [_stable_snapshot_value(nested) for nested in value]
+    return value
+
+
+def _stable_snapshot_record(value: object) -> object:
+    if not isinstance(value, Mapping):
+        return _stable_snapshot_value(value)
+    return _stable_snapshot_value(
+        {
+            key: nested
+            for key, nested in value.items()
+            if key not in {"created_at", "updated_at", "started_at", "completed_at"}
+        }
+    )
 
 
 def _resolve_profile_source_inputs(
@@ -1153,7 +1833,10 @@ def _stable_execution_value(value: object) -> object:
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, Path):
-        return {"kind": "path", "value": str(value)}
+        return {
+            "kind": "path",
+            "digest": _hash_json(str(value.expanduser().resolve())),
+        }
     if callable(value):
         target = value
         if not getattr(target, "__qualname__", None):
@@ -1592,21 +2275,33 @@ def _assert_safe_orchestration_value(value: object) -> None:
 
     forbidden_key_fragments = (
         "api_key",
+        "api_token",
+        "access_token",
         "authorization_header",
         "credential",
         "environment_variable",
+        "private_key",
         "provider_payload",
         "provider_prompt",
         "provider_response",
+        "private_payload",
         "raw_prompt",
         "raw_response",
         "raw_payload",
         "secret",
     )
+    forbidden_exact_keys = {
+        "authorization",
+        "headers",
+        "password",
+        "raw_content",
+    }
     if isinstance(value, Mapping):
         for raw_key, nested in value.items():
             key = str(raw_key).lower()
-            if any(fragment in key for fragment in forbidden_key_fragments):
+            if key in forbidden_exact_keys or any(
+                fragment in key for fragment in forbidden_key_fragments
+            ):
                 raise JobConfigurationError(
                     "orchestration state contains a forbidden sensitive field"
                 )
@@ -1713,6 +2408,14 @@ def _require_exact_keys(
         )
 
 
+def _require_payload_keys(payload: Mapping[str, object], expected: set[str]) -> None:
+    actual = set(payload)
+    if actual != expected:
+        raise InvalidTransitionError(
+            f"event payload keys mismatch; expected={sorted(expected)}, actual={sorted(actual)}"
+        )
+
+
 def _mapping_value(value: object, field_name: str) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise TypeError(f"{field_name} must be an object")
@@ -1742,16 +2445,21 @@ def _utc_timestamp() -> str:
 
 
 __all__ = [
+    "CONFIGURATION_IDENTITY_SCHEMA_VERSION",
     "EVENT_SCHEMA_VERSION",
     "InvalidTransitionError",
     "JOB_SCHEMA_VERSION",
     "JobConfigurationError",
     "JobInterruption",
+    "JobLockError",
     "JournalCorruptionError",
+    "LOCK_SCHEMA_VERSION",
     "OrchestrationError",
     "SerialJobResult",
+    "StaleJobLockError",
     "WORK_ITEM_SCHEMA_VERSION",
     "run_serial_job",
+    "serial_job_lock_path",
     "validate_event_record",
     "validate_job_record",
     "validate_work_item_record",

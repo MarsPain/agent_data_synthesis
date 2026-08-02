@@ -357,9 +357,12 @@ and a quality report:
   `orchestration_event_v1` contracts. These records contain durable job
   progress and normalized provisional outcomes from the existing pipeline
   boundary; sensitive provider envelopes, credentials, secret-like values,
-  and host paths are rejected before journaling. They remain separate from
-  core dataset artifacts and are never attached to a dataset manifest or
-  release pack.
+  and host paths are rejected before journaling. Job records also bind a
+  normalized configuration identity, declared authorization limits, and a
+  hash-only output owner. The sibling local lock is exclusive and is not
+  treated as dataset state; stale-lock recovery is explicit and validates the
+  durable journal before takeover. They remain separate from core dataset
+  artifacts and are never attached to a dataset manifest or release pack.
 
 ### Mutation Calibration Import Contract
 

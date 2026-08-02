@@ -568,6 +568,14 @@ metadata, and output-mode drift before candidate processing begins. Journal
 payloads are limited to normalized pipeline records and reject provider
 envelopes, credentials, secret-like values, and host paths.
 
+Ticket 02 hardens this tracer bullet with a normalized configuration identity,
+declared authorization-limit binding, hash-only output ownership, and an
+exclusive local lock. Resume validates the journal and snapshots before
+repairing one crash-truncated final append or starting candidate work;
+malformed, reordered, duplicate, or integrity-invalid history fails closed.
+Stale-lock takeover requires an explicit option and validates durable state
+before recording the recovery marker.
+
 This first slice is deliberately limited to serial deterministic fixture and
 scale-probe jobs. Provider resumption, coverage recovery, concurrency,
 cancellation, CLI exposure, and per-role usage remain later tickets. The
