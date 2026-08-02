@@ -13,6 +13,7 @@ the configured issue tracker.
 - [SECURITY.md](SECURITY.md): sandboxing, trust boundaries, secrets, and external integrations.
 - [PRODUCT_SENSE.md](PRODUCT_SENSE.md): users, value model, success metrics, and non-goals.
 - [ROADMAP.md](ROADMAP.md): staged development direction.
+- [OPERATIONS.md](OPERATIONS.md): local synchronous and async operator workflows.
 
 ## Agent Configuration
 

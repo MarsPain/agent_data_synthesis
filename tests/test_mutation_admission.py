@@ -97,6 +97,34 @@ class MutationAdmissionCandidateProcessingTest(unittest.TestCase):
         self,
     ) -> None:
         captured: dict[str, object] = {}
+        observed_attempts: list[object] = []
+        observed_responses: list[dict[str, object]] = []
+
+        class AttemptObserver:
+            def before_provider_call(self, *, prompt_hash: str) -> object:
+                attempt_id = f"judge-attempt-{len(observed_attempts) + 1}"
+                observed_attempts.append((attempt_id, prompt_hash))
+                return attempt_id
+
+            def provider_response_received(
+                self,
+                *,
+                attempt_id: object,
+                lineage: dict[str, object],
+            ) -> None:
+                observed_responses.append(
+                    {"attempt_id": attempt_id, "lineage": dict(lineage)}
+                )
+
+            def provider_attempt_failed(
+                self,
+                *,
+                attempt_id: object,
+                error: BaseException,
+            ) -> None:
+                raise AssertionError(
+                    f"unexpected judge failure for {attempt_id}: {error}"
+                )
 
         def handler(request: httpx.Request) -> httpx.Response:
             payload = json.loads(request.content.decode("utf-8"))
@@ -159,6 +187,7 @@ class MutationAdmissionCandidateProcessingTest(unittest.TestCase):
             http_client=httpx.Client(transport=httpx.MockTransport(handler)),
             timeout_seconds=12.5,
             max_retries=1,
+            attempt_observer=AttemptObserver(),
         )
 
         outcome, environment = self._process(self._candidate(), judge=judge)
@@ -186,6 +215,8 @@ class MutationAdmissionCandidateProcessingTest(unittest.TestCase):
             evidence["lineage"]["judge"]["provider_host"],
             "judge.example.test",
         )
+        self.assertEqual(len(observed_attempts), 1)
+        self.assertEqual(len(observed_responses), 1)
         self.assertNotEqual(
             evidence["lineage"]["generator"]["model"],
             evidence["lineage"]["judge"]["model"],

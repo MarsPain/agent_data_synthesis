@@ -1,6 +1,6 @@
 # Async Local Orchestration
 
-- **Status:** Ticketed
+- **Status:** Completed
 - **Canonical spec:** [Async Local Orchestration](../../docs/product-specs/async-local-orchestration.md)
 - **Parent issue:** [ISSUE-0001](../ISSUE-0001-async-local-orchestration.md)
 - **Current phase:** Provider-safe resumable bounded local orchestration
@@ -19,7 +19,7 @@ dependencies, and assignment live only in the ticket files below.
 5. [Run bounded work concurrently with stable merge](issues/05-bounded-concurrency-stable-merge.md) — completed
 6. [Cancel and resume a live synthesis job](issues/06-cooperative-cancellation-and-resume.md) — completed
 7. [Publish sanitized per-role usage evidence](issues/07-sanitized-role-usage.md) — completed
-8. [Expose the operator CLI and prove three-domain parity](issues/08-cli-and-three-domain-parity.md) — ready for agent
+8. [Expose the operator CLI and prove three-domain parity](issues/08-cli-and-three-domain-parity.md) — completed
 
 ## Dependency Shape
 
@@ -34,7 +34,6 @@ Ticket 08 integrates both branches into the operator-facing workflow.
 
 ## Frontier
 
-Ticket 08 is now the remaining operator-facing integration after the provider-
-usage branch completed. Tickets 01 through 07 establish a complete, hardened
-resumable path with bounded concurrency, cooperative cancellation, and
-sanitized usage evidence.
+Tickets 01 through 08 establish a complete, hardened local path with bounded
+concurrency, cooperative cancellation, sanitized usage evidence, an explicit
+operator CLI, and deterministic parity across the three supported domains.

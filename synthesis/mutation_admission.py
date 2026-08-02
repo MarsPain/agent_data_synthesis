@@ -236,6 +236,26 @@ class SemanticMutationJudge(Protocol):
     def __call__(self, request: SemanticJudgeRequest) -> "SemanticJudgeResult": ...
 
 
+class SemanticJudgeAttemptObserver(Protocol):
+    """Durable authorization and usage hooks for remote judge calls."""
+
+    def before_provider_call(self, *, prompt_hash: str) -> object: ...
+
+    def provider_response_received(
+        self,
+        *,
+        attempt_id: object,
+        lineage: Mapping[str, object],
+    ) -> None: ...
+
+    def provider_attempt_failed(
+        self,
+        *,
+        attempt_id: object,
+        error: BaseException,
+    ) -> None: ...
+
+
 @dataclass(frozen=True)
 class SemanticJudgeResult:
     verdict: Mapping[str, object] | None
@@ -290,21 +310,36 @@ class OpenAICompatibleSemanticMutationJudge:
     timeout_seconds: float
     max_retries: int
     role_registry: RoleRegistry
+    attempt_observer: SemanticJudgeAttemptObserver | None = None
 
     def __call__(self, request: SemanticJudgeRequest) -> SemanticJudgeResult:
         configured_lineage = _remote_judge_lineage(
             self.client.config,
             self.role_registry,
         )
+        prompt = _semantic_judge_prompt(request)
+        prompt_hash = canonical_hash(prompt)
         for attempt in range(self.max_retries + 1):
             attempts = attempt + 1
+            attempt_id = (
+                self.attempt_observer.before_provider_call(
+                    prompt_hash=prompt_hash,
+                )
+                if self.attempt_observer is not None
+                else None
+            )
             try:
                 result = self.role_registry.invoke_json(
                     MUTATION_ADMISSION_JUDGE_ROLE,
                     self.client,
-                    _semantic_judge_prompt(request),
+                    prompt,
                 )
-            except LLMConfigurationError:
+            except LLMConfigurationError as exc:
+                if self.attempt_observer is not None and attempt_id is not None:
+                    self.attempt_observer.provider_attempt_failed(
+                        attempt_id=attempt_id,
+                        error=exc,
+                    )
                 return SemanticJudgeResult(
                     verdict=None,
                     provider_outcome="unavailable",
@@ -313,6 +348,11 @@ class OpenAICompatibleSemanticMutationJudge:
                     judge_lineage=configured_lineage,
                 )
             except LLMProviderError as exc:
+                if self.attempt_observer is not None and attempt_id is not None:
+                    self.attempt_observer.provider_attempt_failed(
+                        attempt_id=attempt_id,
+                        error=exc,
+                    )
                 output_invalid = exc.cause == "llm_response_schema_error"
                 if (
                     attempt < self.max_retries
@@ -329,6 +369,11 @@ class OpenAICompatibleSemanticMutationJudge:
                     judge_lineage=configured_lineage,
                 )
 
+            if self.attempt_observer is not None and attempt_id is not None:
+                self.attempt_observer.provider_response_received(
+                    attempt_id=attempt_id,
+                    lineage=result.lineage,
+                )
             content = result.content
             if not isinstance(content, Mapping) or set(content) != SEMANTIC_MODEL_OUTPUT_KEYS:
                 if attempt < self.max_retries:
@@ -378,6 +423,7 @@ def build_openai_compatible_semantic_mutation_judge(
     timeout_seconds: float,
     max_retries: int,
     role_registry: RoleRegistry | None = None,
+    attempt_observer: SemanticJudgeAttemptObserver | None = None,
 ) -> OpenAICompatibleSemanticMutationJudge:
     if not 0 < timeout_seconds <= 120:
         raise ValueError("timeout_seconds must be in (0, 120]")
@@ -399,6 +445,7 @@ def build_openai_compatible_semantic_mutation_judge(
         timeout_seconds=timeout_seconds,
         max_retries=max_retries,
         role_registry=role_registry or default_role_registry(),
+        attempt_observer=attempt_observer,
     )
 
 

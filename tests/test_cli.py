@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import io
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -101,6 +104,363 @@ class FoundationCliTest(unittest.TestCase):
         self.assertFalse(args.enable_branching)
         self.assertFalse(args.enable_mcp_adapter)
         self.assertFalse(args.enable_sandbox_fixture)
+        self.assertFalse(args.enable_async_runner)
+        self.assertIsNone(args.job_id)
+        self.assertFalse(args.resume)
+        self.assertIsNone(args.max_concurrency)
+
+    def test_async_cli_preserves_three_domain_fixture_artifacts(self) -> None:
+        profiles = (
+            (
+                "contacts",
+                "tests/fixtures/run_profiles/profile-local-contacts.json",
+            ),
+            (
+                "mobile-messages",
+                "tests/fixtures/run_profiles/profile-local-mobile-messages.json",
+            ),
+            (
+                "workspace-tasks",
+                "tests/fixtures/run_profiles/profile-local-workspace-tasks.json",
+            ),
+        )
+        core_artifacts = (
+            "samples.jsonl",
+            "rejections.jsonl",
+            "manifest.json",
+            "quality_report.json",
+            "episodes.jsonl",
+            "episode_replay_report.json",
+            "evaluation_report.json",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            for domain_name, profile_path in profiles:
+                with self.subTest(domain=domain_name):
+                    sync_output = root / f"{domain_name}-sync"
+                    async_output = root / f"{domain_name}-async"
+                    common = [
+                        "--run-profile",
+                        profile_path,
+                        "--write-episode-replay-report",
+                        "--write-evaluation-report",
+                    ]
+                    sync = subprocess.run(
+                        [
+                            sys.executable,
+                            "main.py",
+                            *common,
+                            "--output-dir",
+                            str(sync_output),
+                        ],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        env={
+                            **os.environ,
+                            "AGENT_DATA_API_KEY": "async-cli-secret-marker",
+                        },
+                    )
+                    self.assertEqual(sync.returncode, 0, sync.stdout + sync.stderr)
+
+                    async_run = subprocess.run(
+                        [
+                            sys.executable,
+                            "main.py",
+                            *common,
+                            "--enable-async-runner",
+                            "--job-id",
+                            f"parity-{domain_name}",
+                            "--output-dir",
+                            str(async_output),
+                        ],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        env={
+                            **os.environ,
+                            "AGENT_DATA_API_KEY": "async-cli-secret-marker",
+                        },
+                    )
+                    self.assertEqual(
+                        async_run.returncode,
+                        0,
+                        async_run.stdout + async_run.stderr,
+                    )
+
+                    for artifact_name in core_artifacts:
+                        with self.subTest(artifact=artifact_name):
+                            self.assertEqual(
+                                (async_output / artifact_name).read_bytes(),
+                                (sync_output / artifact_name).read_bytes(),
+                            )
+
+                    job_path = (
+                        async_output
+                        / "orchestration"
+                        / f"parity-{domain_name}"
+                        / "job.json"
+                    )
+                    job = json.loads(job_path.read_text(encoding="utf-8"))
+                    self.assertEqual(job["status"], "completed")
+                    self.assertEqual(job["max_concurrency"], 1)
+                    self.assertIn(
+                        "provider_usage",
+                        job_path.parent.joinpath("provider_usage.json").read_text(
+                            encoding="utf-8"
+                        ),
+                    )
+                    self.assertIn("Async synthesis job", async_run.stdout)
+                    retained = b"".join(
+                        path.read_bytes()
+                        for path in async_output.rglob("*")
+                        if path.is_file()
+                    )
+                    self.assertNotIn(b"async-cli-secret-marker", retained)
+                    self.assertNotIn(str(root).encode(), retained)
+
+    def test_async_cli_rejects_invalid_combinations_before_work(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            cases = (
+                (
+                    ["--enable-async-runner"],
+                    "requires --run-profile",
+                ),
+                (
+                    ["--job-id", "orphan-job"],
+                    "requires --enable-async-runner",
+                ),
+                (
+                    [
+                        "--run-profile",
+                        "tests/fixtures/run_profiles/profile-local-contacts.json",
+                        "--enable-async-runner",
+                        "--job-id",
+                        "bad-bound",
+                        "--max-concurrency",
+                        "0",
+                    ],
+                    "max-concurrency",
+                ),
+            )
+            for index, (options, message) in enumerate(cases):
+                with self.subTest(case=index):
+                    output_dir = root / f"invalid-{index}"
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            "main.py",
+                            *options,
+                            "--output-dir",
+                            str(output_dir),
+                        ],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                    self.assertIn(message, result.stderr)
+                    self.assertFalse((output_dir / "samples.jsonl").exists())
+
+    def test_async_cli_missing_resume_state_does_not_run_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "missing-resume"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/profile-local-contacts.json",
+                    "--enable-async-runner",
+                    "--job-id",
+                    "missing-resume",
+                    "--resume",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("cannot resume missing serial job", result.stderr)
+            self.assertFalse((output_dir / "samples.jsonl").exists())
+
+    def test_async_process_signals_request_cooperative_cancellation(self) -> None:
+        from main import _async_signal_handlers
+        from synthesis.orchestration import CancellationSignal
+
+        for signal_number in (signal.SIGINT, signal.SIGTERM):
+            with self.subTest(signal=signal_number):
+                cancellation_signal = CancellationSignal()
+                with _async_signal_handlers(cancellation_signal):
+                    os.kill(os.getpid(), signal_number)
+                self.assertTrue(cancellation_signal.is_set())
+
+    def test_async_cli_reports_cancelled_job_without_pipeline_artifacts(self) -> None:
+        from main import main
+        from synthesis.orchestration import SerialJobResult
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir)
+            cancelled = SerialJobResult(
+                job_record={
+                    "job_id": "cancelled-job",
+                    "status": "cancelled",
+                    "max_concurrency": 1,
+                },
+                work_items=(),
+                pipeline_result=None,
+                orchestration_dir=output_dir,
+                job_path=output_dir / "job.json",
+                work_items_path=output_dir / "work_items.jsonl",
+                events_path=output_dir / "events.jsonl",
+                provider_usage_path=output_dir / "provider_usage.json",
+            )
+            with (
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "main.py",
+                        "--run-profile",
+                        "tests/fixtures/run_profiles/profile-local-contacts.json",
+                        "--enable-async-runner",
+                        "--job-id",
+                        "cancelled-job",
+                        "--output-dir",
+                        str(output_dir),
+                    ],
+                ),
+                patch("main._run_async_job", return_value=cancelled),
+            ):
+                stdout = io.StringIO()
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("status=cancelled", stdout.getvalue())
+
+    def test_async_cli_uses_sanitized_provider_budget_and_fake_factory(self) -> None:
+        from main import main
+        from tests.test_orchestration import ResumableFakeProvider
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_profile = json.loads(
+                Path(
+                    "tests/fixtures/run_profiles/contacts-representative-llm-100.json"
+                ).read_text(encoding="utf-8")
+            )
+            raw_profile["schema_version"] = "run_profile_v3"
+            raw_profile.pop("mutation_admission", None)
+            raw_profile["generation"]["target_candidate_count"] = 2
+            profile_path = root / "llm-profile.json"
+            profile_path.write_text(json.dumps(raw_profile), encoding="utf-8")
+            output_dir = root / "async-llm"
+            provider = ResumableFakeProvider()
+            argv = [
+                "main.py",
+                "--run-profile",
+                str(profile_path),
+                "--use-llm",
+                "--enable-async-runner",
+                "--job-id",
+                "async-llm",
+                "--logical-call-budget",
+                "1",
+                "--provider-alias",
+                "fake-provider",
+                "--model-alias",
+                "fake-model",
+                "--output-dir",
+                str(output_dir),
+            ]
+            with (
+                patch.object(sys, "argv", argv),
+                patch.dict(
+                    os.environ,
+                    {
+                        "AGENT_DATA_LLM_BASE_URL": "https://llm.example.test/v1",
+                        "AGENT_DATA_API_KEY": "async-provider-secret-marker",
+                        "AGENT_DATA_LLM_MODEL": "fake-model",
+                    },
+                    clear=False,
+                ),
+                patch("main.OpenAICompatibleClient", return_value=provider),
+            ):
+                exit_code = main()
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(len(provider.calls), 1)
+            job_dir = output_dir / "orchestration" / "async-llm"
+            job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+            usage = json.loads(
+                (job_dir / "provider_usage.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(job["status"], "completed")
+            self.assertEqual(usage["provider_alias"], "fake-provider")
+            self.assertEqual(usage["model_alias"], "fake-model")
+            self.assertEqual(usage["logical_call_budget"], 1)
+            retained = b"".join(
+                path.read_bytes() for path in output_dir.rglob("*") if path.is_file()
+            )
+            self.assertNotIn(b"async-provider-secret-marker", retained)
+
+    def test_async_cli_records_explicit_bound_and_resumes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "explicit-bound"
+            create = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/foundation-fixture.json",
+                    "--enable-async-runner",
+                    "--job-id",
+                    "explicit-bound",
+                    "--max-concurrency",
+                    "2",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(create.returncode, 0, create.stdout + create.stderr)
+
+            resume = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--run-profile",
+                    "tests/fixtures/run_profiles/foundation-fixture.json",
+                    "--enable-async-runner",
+                    "--job-id",
+                    "explicit-bound",
+                    "--resume",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(resume.returncode, 0, resume.stdout + resume.stderr)
+            job = json.loads(
+                (
+                    output_dir
+                    / "orchestration"
+                    / "explicit-bound"
+                    / "job.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(job["status"], "completed")
+            self.assertEqual(job["max_concurrency"], 2)
 
     def test_main_writes_requested_output_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

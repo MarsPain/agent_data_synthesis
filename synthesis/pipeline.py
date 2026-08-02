@@ -58,6 +58,7 @@ from synthesis.domain_generation import (
 from synthesis.llm import LLMConfig, LLMProviderError, OpenAICompatibleClient
 from synthesis.mutation_admission import (
     CandidateAdmissionEvaluator,
+    SemanticJudgeAttemptObserver,
     build_local_candidate_admission_evaluator,
     build_openai_compatible_semantic_mutation_judge,
     permit_candidate_execution,
@@ -321,6 +322,7 @@ def run_foundation_pipeline(
     run_profile: object | None = None,
     write_episode_logs: bool = False,
     mutation_judge_http_client: httpx.Client | None = None,
+    mutation_judge_attempt_observer: SemanticJudgeAttemptObserver | None = None,
     max_concurrency: int = 1,
     cancellation_check: Callable[[], bool] | None = None,
 ) -> PipelineResult:
@@ -522,6 +524,7 @@ def run_foundation_pipeline(
                     getattr(judge_config, "timeout_seconds")
                 ),
                 max_retries=int(getattr(judge_config, "max_retries")),
+                attempt_observer=mutation_judge_attempt_observer,
             )
         state_changing_tools = tuple(
             str(tool["name"])

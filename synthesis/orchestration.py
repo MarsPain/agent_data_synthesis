@@ -43,6 +43,8 @@ from synthesis.domain_generation import (
     generate_domain_llm_candidates,
 )
 from synthesis.llm import LLMProviderAmbiguousError, LLMProviderError
+from synthesis.mutation_admission import SemanticJudgeAttemptObserver
+from synthesis.mutation_admission_config import MUTATION_ADMISSION_JUDGE_ROLE
 from synthesis.pipeline import (
     CandidateGenerator,
     CandidateGeneratorFactory,
@@ -263,6 +265,7 @@ def run_serial_job(
     domain_environment_input: object | None = None,
     source_events: list[dict[str, object]] | None = None,
     run_profile_metadata: dict[str, object] | None = None,
+    enable_source_audit: bool | None = None,
     parent_artifact_path: Path | None = None,
     route_reviewable_failures: bool = False,
     write_episode_logs: bool = False,
@@ -339,6 +342,7 @@ def run_serial_job(
             domain_environment_input=domain_environment_input,
             source_events=source_events,
             run_profile_metadata=run_profile_metadata,
+            enable_source_audit=enable_source_audit,
             parent_artifact_path=parent_artifact_path,
             route_reviewable_failures=route_reviewable_failures,
             write_episode_logs=write_episode_logs,
@@ -369,6 +373,7 @@ def _run_serial_job_locked(
     domain_environment_input: object | None = None,
     source_events: list[dict[str, object]] | None = None,
     run_profile_metadata: dict[str, object] | None = None,
+    enable_source_audit: bool | None = None,
     parent_artifact_path: Path | None = None,
     route_reviewable_failures: bool = False,
     write_episode_logs: bool = False,
@@ -420,6 +425,7 @@ def _run_serial_job_locked(
 
     coverage_recovery: tuple[CoverageAssignmentRecovery, ...] | None = None
     cancellation_controller: _CancellationController | None = None
+    mutation_judge_attempt_observer: SemanticJudgeAttemptObserver | None = None
     if resume:
         if not store.exists:
             raise JobConfigurationError(
@@ -454,6 +460,11 @@ def _run_serial_job_locked(
     domain_environment_input = resolved_inputs.domain_environment_input
     source_events = resolved_inputs.source_events
     run_profile_metadata = resolved_inputs.run_profile_metadata
+    effective_enable_source_audit = (
+        bool(enable_source_audit)
+        or run_profile.features.enable_source_governance_fixture
+        or run_profile.source is not None
+    )
     execution_config_hash = _execution_config_hash(
         policy_generator=policy_generator,
         source_bundle=source_bundle,
@@ -514,6 +525,13 @@ def _run_serial_job_locked(
 
     assert cancellation_controller is not None
     cancellation_check = cancellation_controller.check
+    if provider_mode:
+        mutation_judge_attempt_observer = _MutationJudgeAttemptObserver(
+            store,
+            provider_identity=provider_identity,
+            interruption_hook=interruption_hook,
+            cancellation_check=cancellation_check,
+        )
 
     effective_candidate_generator_factory: CandidateGeneratorFactory | None = None
     coverage_scheduler_factory: CoverageAssignmentSchedulerFactory | None = None
@@ -767,10 +785,7 @@ def _run_serial_job_locked(
             route_reviewable_failures=route_reviewable_failures,
             enable_branching=run_profile.features.enable_branching,
             source_bundle=source_bundle,
-            enable_source_audit=(
-                run_profile.features.enable_source_governance_fixture
-                or run_profile.source is not None
-            ),
+            enable_source_audit=effective_enable_source_audit,
             domain_environment_input=domain_environment_input,
             source_events=source_events,
             enable_mcp_adapter=run_profile.features.enable_mcp_adapter,
@@ -781,6 +796,7 @@ def _run_serial_job_locked(
             ),
             run_profile=run_profile,
             write_episode_logs=write_episode_logs,
+            mutation_judge_attempt_observer=mutation_judge_attempt_observer,
             coverage_scheduler_factory=coverage_scheduler_factory,
             coverage_recovery=coverage_recovery,
             max_concurrency=effective_max_concurrency,
@@ -1641,6 +1657,89 @@ def _lock_metadata_pid_is_alive(metadata: Mapping[str, object]) -> bool:
     except OSError:
         return False
     return True
+
+
+class _MutationJudgeAttemptObserver(SemanticJudgeAttemptObserver):
+    """Journal remote mutation-admission judge calls under the job budget."""
+
+    def __init__(
+        self,
+        store: "_LocalJobStore",
+        *,
+        provider_identity: Mapping[str, str] | None,
+        interruption_hook: SerialJobInterruptionHook | None,
+        cancellation_check: Callable[[], bool] | None = None,
+    ) -> None:
+        if provider_identity is None:
+            raise JobConfigurationError("provider identity is required")
+        self._store = store
+        self._provider_identity = provider_identity
+        self._interruption_hook = interruption_hook
+        self._cancellation_check = cancellation_check
+        self._next_batch_index = store.next_provider_batch_index
+        self._batch_index_lock = threading.Lock()
+
+    def before_provider_call(self, *, prompt_hash: str) -> object:
+        if self._cancellation_check is not None and self._cancellation_check():
+            raise PipelineCancellation()
+        with self._batch_index_lock:
+            batch_index = self._next_batch_index
+            self._next_batch_index += 1
+        attempt_id = self._store.prepare_provider_attempt(
+            role=MUTATION_ADMISSION_JUDGE_ROLE,
+            provider_identity=self._provider_identity,
+            batch_index=batch_index,
+            requested_candidate_count=1,
+            prompt_hash=prompt_hash,
+        )
+        self._call_hook(
+            {
+                "event_type": "provider_attempt_intent",
+                "attempt_id": attempt_id,
+                "batch_index": batch_index,
+                "role": MUTATION_ADMISSION_JUDGE_ROLE,
+            }
+        )
+        if self._cancellation_check is not None and self._cancellation_check():
+            raise PipelineCancellation()
+        self._store.issue_provider_attempt(attempt_id)
+        self._call_hook(
+            {
+                "event_type": "provider_attempt_issued",
+                "attempt_id": attempt_id,
+                "batch_index": batch_index,
+                "role": MUTATION_ADMISSION_JUDGE_ROLE,
+            }
+        )
+        return attempt_id
+
+    def provider_response_received(
+        self,
+        *,
+        attempt_id: object,
+        lineage: Mapping[str, object],
+    ) -> None:
+        if self._cancellation_check is not None and self._cancellation_check():
+            return
+        if not isinstance(attempt_id, str):
+            raise InvalidTransitionError("mutation judge attempt id is invalid")
+        self._store.complete_provider_attempt(attempt_id, lineage=lineage)
+
+    def provider_attempt_failed(
+        self,
+        *,
+        attempt_id: object,
+        error: BaseException,
+    ) -> None:
+        if self._cancellation_check is not None and self._cancellation_check():
+            return
+        if not isinstance(attempt_id, str):
+            raise InvalidTransitionError("mutation judge attempt id is invalid")
+        self._store.fail_provider_attempt(attempt_id, error=error)
+
+    def _call_hook(self, event: Mapping[str, object]) -> None:
+        if self._interruption_hook is not None:
+            self._interruption_hook(event)
 
 
 class _ProviderAttemptObserver:
@@ -3972,7 +4071,7 @@ def _build_provider_usage_record(
         seen_lineages: set[str] = set()
         for lineage in _terminal_provider_lineages(outcome):
             role = _lineage_usage_role(lineage, identity)
-            if role.name == "task_generation" and role.name in provider_attempt_roles:
+            if role.name in provider_attempt_roles:
                 continue
             fingerprint = _hash_json(_usage_lineage_fingerprint(lineage))
             if fingerprint in seen_lineages:

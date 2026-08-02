@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import signal
 import sys
 import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, TypedDict
 
 from synthesis.datasets import (
     attach_dataset_release_card_to_manifest,
@@ -37,13 +41,21 @@ from synthesis.episode_replay import (
     write_episode_replay_report,
 )
 from synthesis.evaluation import write_evaluation_report
+from synthesis.concurrency import validate_concurrency
 from synthesis.llm import (
     LLMConfig,
     LLMConfigurationError,
     LLMProviderError,
     OpenAICompatibleClient,
 )
+from synthesis.orchestration import (
+    CancellationSignal,
+    OrchestrationError,
+    SerialJobResult,
+    run_serial_job,
+)
 from synthesis.pipeline import (
+    CandidateGenerator,
     build_domain_llm_candidate_generator_factory,
     build_llm_candidate_generator,
     build_llm_task_expansion_generator,
@@ -79,13 +91,34 @@ from synthesis.domain_sources import (
     build_profile_local_domain_source_input,
     resolve_domain_source_importer,
 )
-from synthesis.sources import build_external_fixture_source_bundle
+from synthesis.sources import SourceBundle, build_external_fixture_source_bundle
 from synthesis.sources import (
     ControlledSourceFetchError,
     FetchedSourceRequest,
     build_network_contacts_source_input,
 )
 from synthesis.tasks import generate_scale_probe_candidates
+
+
+class _AsyncJobKwargs(TypedDict):
+    output_dir: Path
+    job_id: str
+    run_profile: RunProfile
+    resume: bool
+    candidate_generator: CandidateGenerator | None
+    source_bundle: SourceBundle | None
+    domain_environment_input: object | None
+    source_events: list[dict[str, object]] | None
+    enable_source_audit: bool
+    run_profile_metadata: dict[str, object]
+    parent_artifact_path: Path | None
+    write_episode_logs: bool
+    authorization_limits: dict[str, object] | None
+    recover_stale_lock: bool
+    provider_factory: Callable[[], object] | None
+    provider_alias: str | None
+    model_alias: str | None
+    cancellation_signal: CancellationSignal
 
 
 def parse_args() -> argparse.Namespace:
@@ -106,6 +139,54 @@ def parse_args() -> argparse.Namespace:
             "Validated run_profile_v1, run_profile_v2, run_profile_v3, "
             "or run_profile_v4 JSON file."
         ),
+    )
+    parser.add_argument(
+        "--enable-async-runner",
+        "--enable-async",
+        "--async",
+        dest="enable_async_runner",
+        action="store_true",
+        help=(
+            "Opt into a durable local orchestration job. Requires a validated "
+            "--run-profile and --job-id."
+        ),
+    )
+    parser.add_argument(
+        "--job-id",
+        default=None,
+        help="Stable local orchestration job identifier for explicit async runs.",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume the durable async job identified by --job-id.",
+    )
+    parser.add_argument(
+        "--max-concurrency",
+        type=_positive_int_argument,
+        default=None,
+        help="Positive async worker bound; omitted async runs use one worker.",
+    )
+    parser.add_argument(
+        "--recover-stale-lock",
+        action="store_true",
+        help="Explicitly recover a validated stale async job lock.",
+    )
+    parser.add_argument(
+        "--logical-call-budget",
+        type=_positive_logical_call_budget_argument,
+        default=None,
+        help="Cumulative logical provider-call authorization for async LLM jobs.",
+    )
+    parser.add_argument(
+        "--provider-alias",
+        default=None,
+        help="Sanitized provider alias persisted in async usage evidence.",
+    )
+    parser.add_argument(
+        "--model-alias",
+        default=None,
+        help="Sanitized model alias persisted in async usage evidence.",
     )
     parser.add_argument(
         "--preview-coverage-plan",
@@ -290,6 +371,7 @@ def parse_args() -> argparse.Namespace:
 
     if args.loaded_run_profile is not None:
         _validate_profile_cli_combinations(parser, args.loaded_run_profile, args)
+    _validate_async_cli_combinations(parser, args.loaded_run_profile, args)
     coverage_preview_requested = (
         args.preview_coverage_plan or args.write_coverage_plan
     )
@@ -391,73 +473,97 @@ def main() -> int:
         elif args.write_coverage_plan:
             print(f"Coverage plan written: {args.output_dir / 'coverage_plan.json'}")
         return 0
-    coverage_scheduler_factory = None
-    if profile is not None and profile.coverage_profile is not None:
-        candidate_generator = None
-        candidate_generator_factory = None
-        coverage_scheduler_factory = (
-            build_coverage_assignment_scheduler_factory(
-                OpenAICompatibleClient(LLMConfig.from_env())
-            )
-        )
-    else:
-        candidate_generator, candidate_generator_factory = (
-            _profile_candidate_generators(
-                profile,
-                use_llm=args.use_llm,
-            )
-        )
-    task_expansion_generator = (
-        build_llm_task_expansion_generator()
-        if args.use_llm and _feature_enabled(args, profile, "enable_task_expansion")
-        else None
-    )
-    refiner = (
-        deterministic_fixture_refiner
-        if _feature_enabled(args, profile, "enable_refinement")
-        else None
-    )
     start_time = time.perf_counter() if args.write_profile_decision_report else None
-    try:
-        result = run_foundation_pipeline(
-            args.output_dir,
-            dataset_version=args.dataset_version,
-            candidate_generator=candidate_generator,
-            candidate_generator_factory=candidate_generator_factory,
-            coverage_scheduler_factory=(
-                coverage_scheduler_factory
-            ),
-            parent_artifact_path=args.parent_artifact,
-            refiner=refiner,
-            enable_branching=_feature_enabled(args, profile, "enable_branching"),
-            enable_task_expansion=_feature_enabled(args, profile, "enable_task_expansion"),
-            task_expansion_generator=task_expansion_generator,
-            source_bundle=source_bundle,
-            enable_source_audit=(
-                _feature_enabled(args, profile, "enable_source_governance_fixture")
-                or args.enable_network_source
-                or (profile is not None and profile.source is not None)
-            ),
-            domain_environment_input=domain_environment_input,
-            source_events=source_events,
-            enable_mcp_adapter=_feature_enabled(args, profile, "enable_mcp_adapter"),
-            enable_sandbox_fixture=_feature_enabled(args, profile, "enable_sandbox_fixture"),
-            seed_override=profile.seed if profile is not None else None,
-            run_profile_metadata=(
-                profile.sanitized_metadata(source_summary=profile_source_summary)
-                if profile is not None
-                else None
-            ),
-            run_profile=profile,
-            write_episode_logs=(
-                args.write_episode_quality_report
-                or args.write_episode_replay_report
-                or args.write_reward_label_report
-            ),
+    async_job_result: SerialJobResult | None = None
+    if args.enable_async_runner:
+        assert profile is not None
+        try:
+            async_job_result = _run_async_job(
+                args,
+                profile=profile,
+                source_bundle=source_bundle,
+                domain_environment_input=domain_environment_input,
+                source_events=source_events,
+                profile_source_summary=profile_source_summary,
+            )
+            if async_job_result.pipeline_result is None:
+                if async_job_result.status == "cancelled":
+                    _print_async_job_status(async_job_result)
+                    return 0
+                raise OrchestrationError(
+                    "async job did not produce inspectable pipeline artifacts"
+                )
+            result = async_job_result.pipeline_result
+        except (LLMConfigurationError, LLMProviderError, OrchestrationError, ValueError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+    else:
+        coverage_scheduler_factory = None
+        if profile is not None and profile.coverage_profile is not None:
+            candidate_generator = None
+            candidate_generator_factory = None
+            coverage_scheduler_factory = (
+                build_coverage_assignment_scheduler_factory(
+                    OpenAICompatibleClient(LLMConfig.from_env())
+                )
+            )
+        else:
+            candidate_generator, candidate_generator_factory = (
+                _profile_candidate_generators(
+                    profile,
+                    use_llm=args.use_llm,
+                )
+            )
+        task_expansion_generator = (
+            build_llm_task_expansion_generator()
+            if args.use_llm and _feature_enabled(args, profile, "enable_task_expansion")
+            else None
         )
-    except (LLMConfigurationError, LLMProviderError) as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        refiner = (
+            deterministic_fixture_refiner
+            if _feature_enabled(args, profile, "enable_refinement")
+            else None
+        )
+        try:
+            result = run_foundation_pipeline(
+                args.output_dir,
+                dataset_version=args.dataset_version,
+                candidate_generator=candidate_generator,
+                candidate_generator_factory=candidate_generator_factory,
+                coverage_scheduler_factory=(
+                    coverage_scheduler_factory
+                ),
+                parent_artifact_path=args.parent_artifact,
+                refiner=refiner,
+                enable_branching=_feature_enabled(args, profile, "enable_branching"),
+                enable_task_expansion=_feature_enabled(args, profile, "enable_task_expansion"),
+                task_expansion_generator=task_expansion_generator,
+                source_bundle=source_bundle,
+                enable_source_audit=(
+                    _feature_enabled(args, profile, "enable_source_governance_fixture")
+                    or args.enable_network_source
+                    or (profile is not None and profile.source is not None)
+                ),
+                domain_environment_input=domain_environment_input,
+                source_events=source_events,
+                enable_mcp_adapter=_feature_enabled(args, profile, "enable_mcp_adapter"),
+                enable_sandbox_fixture=_feature_enabled(args, profile, "enable_sandbox_fixture"),
+                seed_override=profile.seed if profile is not None else None,
+                run_profile_metadata=(
+                    profile.sanitized_metadata(source_summary=profile_source_summary)
+                    if profile is not None
+                    else None
+                ),
+                run_profile=profile,
+                write_episode_logs=(
+                    args.write_episode_quality_report
+                    or args.write_episode_replay_report
+                    or args.write_reward_label_report
+                ),
+            )
+        except (LLMConfigurationError, LLMProviderError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
 
     episodes = None
     episode_quality_report = None
@@ -732,6 +838,8 @@ def main() -> int:
             else ""
         )
     )
+    if async_job_result is not None:
+        _print_async_job_status(async_job_result)
     return 0
 
 
@@ -766,6 +874,205 @@ def _load_profile_or_error(
         parser.error(f"run profile not found: {profile_path}")
     except RunProfileValidationError as exc:
         parser.error(f"invalid run profile: {exc}")
+
+
+def _positive_int_argument(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    try:
+        return validate_concurrency(parsed)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
+def _positive_logical_call_budget_argument(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError(
+            "logical_call_budget must be a positive integer"
+        )
+    return parsed
+
+
+def _validate_async_cli_combinations(
+    parser: argparse.ArgumentParser,
+    profile: RunProfile | None,
+    args: argparse.Namespace,
+) -> None:
+    async_only_options = (
+        (args.job_id is not None, "--job-id"),
+        (args.resume, "--resume"),
+        (args.max_concurrency is not None, "--max-concurrency"),
+        (args.recover_stale_lock, "--recover-stale-lock"),
+        (args.logical_call_budget is not None, "--logical-call-budget"),
+        (args.provider_alias is not None, "--provider-alias"),
+        (args.model_alias is not None, "--model-alias"),
+    )
+    if not args.enable_async_runner:
+        for supplied, option in async_only_options:
+            if supplied:
+                parser.error(f"{option} requires --enable-async-runner")
+        return
+
+    if profile is None:
+        parser.error("--enable-async-runner requires --run-profile")
+    if args.job_id is None:
+        parser.error("--enable-async-runner requires --job-id")
+    if args.recover_stale_lock and not args.resume:
+        parser.error("--recover-stale-lock requires --resume")
+    if args.preview_coverage_plan or args.write_coverage_plan:
+        parser.error(
+            "coverage-plan preview and async orchestration are mutually exclusive"
+        )
+    if args.enable_task_expansion or args.enable_refinement:
+        parser.error(
+            "async orchestration does not support task expansion or refinement"
+        )
+
+    assert profile is not None
+    for feature_name in (
+        "enable_branching",
+        "enable_mcp_adapter",
+        "enable_sandbox_fixture",
+        "enable_source_governance_fixture",
+    ):
+        if getattr(args, feature_name) and not getattr(profile.features, feature_name):
+            parser.error(
+                f"--{feature_name.replace('_', '-')} must be declared in the "
+                "run profile for async orchestration"
+            )
+
+    if profile.generation.mode == "llm":
+        if args.logical_call_budget is None:
+            parser.error(
+                "async llm orchestration requires --logical-call-budget"
+            )
+    elif any(
+        supplied
+        for supplied, option in async_only_options
+        if option
+        in {
+            "--logical-call-budget",
+            "--provider-alias",
+            "--model-alias",
+        }
+    ):
+        parser.error(
+            "provider aliases and logical-call authorization require llm generation"
+        )
+
+
+def _run_async_job(
+    args: argparse.Namespace,
+    *,
+    profile: RunProfile,
+    source_bundle: object | None,
+    domain_environment_input: object | None,
+    source_events: list[dict[str, object]] | None,
+    profile_source_summary: dict[str, object] | None,
+) -> SerialJobResult:
+    if args.dataset_version != profile.dataset_version:
+        profile = profile.with_dataset_version(args.dataset_version)
+
+    candidate_generator = None
+    if profile.generation.mode != "llm":
+        candidate_generator, _ = _profile_candidate_generators(
+            profile,
+            use_llm=False,
+        )
+
+    provider_factory = None
+    provider_alias = None
+    model_alias = None
+    authorization_limits = None
+    if profile.generation.mode == "llm":
+        provider_config = LLMConfig.from_env()
+        provider_alias = args.provider_alias or "openai_compatible"
+        model_alias = args.model_alias or provider_config.model
+        authorization_limits = {
+            "logical_call_budget": args.logical_call_budget,
+        }
+
+        def build_provider() -> OpenAICompatibleClient:
+            return OpenAICompatibleClient(provider_config)
+
+        provider_factory = build_provider
+
+    cancellation_signal = CancellationSignal()
+    common_kwargs: _AsyncJobKwargs = {
+        "output_dir": args.output_dir,
+        "job_id": args.job_id,
+        "run_profile": profile,
+        "resume": args.resume,
+        "candidate_generator": candidate_generator,
+        "source_bundle": source_bundle,
+        "domain_environment_input": domain_environment_input,
+        "source_events": source_events,
+        "enable_source_audit": (
+            args.enable_network_source
+            or profile.source is not None
+            or profile.features.enable_source_governance_fixture
+        ),
+        "run_profile_metadata": profile.sanitized_metadata(
+            source_summary=profile_source_summary,
+        ),
+        "parent_artifact_path": args.parent_artifact,
+        "write_episode_logs": (
+            args.write_episode_quality_report
+            or args.write_episode_replay_report
+            or args.write_reward_label_report
+        ),
+        "authorization_limits": authorization_limits,
+        "recover_stale_lock": args.recover_stale_lock,
+        "provider_factory": provider_factory,
+        "provider_alias": provider_alias,
+        "model_alias": model_alias,
+        "cancellation_signal": cancellation_signal,
+    }
+    with _async_signal_handlers(cancellation_signal):
+        if args.max_concurrency is None:
+            return run_serial_job(**common_kwargs)
+        return run_serial_job(
+            **common_kwargs,
+            max_concurrency=args.max_concurrency,
+        )
+
+
+@contextmanager
+def _async_signal_handlers(
+    cancellation_signal: CancellationSignal,
+) -> Iterator[None]:
+    previous_handlers: dict[int, Any] = {}
+
+    def request_cancellation(_signum: int, _frame: Any) -> None:
+        cancellation_signal.cancel()
+
+    for registered_signal in (signal.SIGINT, signal.SIGTERM):
+        signal_number = int(registered_signal)
+        previous_handlers[signal_number] = signal.getsignal(registered_signal)
+        signal.signal(registered_signal, request_cancellation)
+    try:
+        yield
+    finally:
+        for signal_number, previous_handler in previous_handlers.items():
+            signal.signal(signal_number, previous_handler)
+
+
+def _print_async_job_status(async_job_result: SerialJobResult) -> None:
+    print(
+        "Async synthesis job: "
+        f"job_id={async_job_result.job_record['job_id']} "
+        f"status={async_job_result.status} "
+        f"max_concurrency={async_job_result.max_concurrency} "
+        f"job={async_job_result.job_path} "
+        f"events={async_job_result.events_path} "
+        f"provider_usage={async_job_result.provider_usage_path}"
+    )
 
 
 def _validate_profile_cli_combinations(

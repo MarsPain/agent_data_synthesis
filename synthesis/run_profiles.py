@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -190,6 +190,26 @@ class RunProfile:
             source=self.source,
             mutation_admission=self.mutation_admission,
             coverage_profile=self.coverage_profile,
+        )
+
+    def with_dataset_version(self, dataset_version: str) -> "RunProfile":
+        """Return the same validated profile bound to another dataset version.
+
+        The CLI already supports a dataset-version override for synchronous
+        runs. Async jobs must bind that same effective value into the durable
+        profile identity so a later resume cannot silently drift.
+        """
+
+        if not isinstance(dataset_version, str) or not dataset_version.strip():
+            raise RunProfileValidationError(
+                "dataset_version must be a non-empty string"
+            )
+        canonical = self.canonical()
+        canonical["dataset_version"] = dataset_version
+        return replace(
+            self,
+            dataset_version=dataset_version,
+            config_hash=_config_hash(canonical),
         )
 
 

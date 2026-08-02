@@ -12,6 +12,7 @@ This repository is an early-stage Agent data synthesis framework. Root files are
 - Deep framework design: [docs/design-docs/agent-data-synthesis-framework.md](docs/design-docs/agent-data-synthesis-framework.md)
 - Architecture explainers: [docs/design-docs/architecture-explainers.md](docs/design-docs/architecture-explainers.md)
 - PDF source analysis: [docs/references/agent-data-synthesis-pdf-analysis.md](docs/references/agent-data-synthesis-pdf-analysis.md)
+- Operator workflows: [docs/OPERATIONS.md](docs/OPERATIONS.md)
 - Issue-tracker configuration: [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md)
 - Current work: [.scratch/README.md](.scratch/README.md)
 - Historical plan archive: [docs/PLANS.md](docs/PLANS.md)

@@ -7,36 +7,50 @@ workspace tasks while leaving the default command unchanged.
 
 **Blocked by:** [06 — Cancel and Resume a Live Synthesis Job](06-cooperative-cancellation-and-resume.md) and [07 — Publish Sanitized Per-Role Usage Evidence](07-sanitized-role-usage.md)
 
-**Status:** ready-for-agent
+**Status:** completed
 
-**Assignee:** Unassigned
+**Assignee:** Codex
 
 **Parent spec:** [Async Local Orchestration](../../../docs/product-specs/async-local-orchestration.md)
 
 ## Acceptance criteria
 
-- [ ] The CLI exposes explicit async enablement, job identity, resume, and
+- [x] The CLI exposes explicit async enablement, job identity, resume, and
   maximum-concurrency options; async enablement without a concurrency value
   uses one worker.
-- [ ] The ordinary command remains synchronous and produces unchanged core
+- [x] The ordinary command remains synchronous and produces unchanged core
   behavior when no async option is supplied.
-- [ ] Invalid option combinations, missing resume state, configuration drift,
+- [x] Invalid option combinations, missing resume state, configuration drift,
   unsafe output ownership, and exhausted authorization fail before provider
   work begins.
-- [ ] Process interrupt and termination signals request cooperative cancellation
+- [x] Process interrupt and termination signals request cooperative cancellation
   and leave a valid cancelled or interrupted job rather than corrupting state.
-- [ ] Deterministic contacts, mobile-messages, and workspace-tasks fixtures each
+- [x] Deterministic contacts, mobile-messages, and workspace-tasks fixtures each
   produce equivalent sync and async samples, rejections, ordering, quality,
   evaluation, and applicable coverage evidence.
-- [ ] Existing source governance, sandbox admission, mutation admission, role
+- [x] Existing source governance, sandbox admission, mutation admission, role
   guardrails, provider-host policy, held-out evaluation, profile decisions, and
   release gates behave identically in async mode.
-- [ ] Operator documentation describes creation, status, cancellation,
+- [x] Operator documentation describes creation, status, cancellation,
   resumption, ambiguity, authorization, concurrency, artifacts, and the
   unchanged synchronous default.
-- [ ] Focused CLI and three-domain tests, retained-material scans,
+- [x] Focused CLI and three-domain tests, retained-material scans,
   documentation validation, type checks, and the full unit suite pass without
   paid provider calls.
+
+## Implementation
+
+Added explicit `--enable-async-runner`/`--enable-async`/`--async` CLI opt-in
+with durable job identity, resume, stale-lock recovery, bounded concurrency,
+and LLM authorization options. The CLI preserves the existing synchronous
+path, installs cooperative SIGINT/SIGTERM handlers, reports cancellation and
+durable job paths, binds dataset-version/source behavior into validated
+resumption, and routes remote mutation-judge calls through the same durable
+logical-call budget and sanitized usage evidence. Deterministic contacts,
+mobile-messages, and workspace-tasks subprocess tests compare core artifacts
+and retained material between sync and async runs. Operator workflows are
+documented in `docs/OPERATIONS.md`; docs validation, isolated mypy, focused
+tests, and the full unit suite pass with fake providers only.
 
 ## Scope guard
 
