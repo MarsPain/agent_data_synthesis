@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Mapping
@@ -28,6 +29,7 @@ from synthesis.coverage_registry import (
     DomainCoveragePlanningVariant,
     resolve_domain_coverage_planning,
 )
+from synthesis.concurrency import validate_concurrency
 from synthesis.datasets import (
     DatasetArtifacts,
     attach_coverage_plan_to_manifest,
@@ -303,7 +305,9 @@ def run_foundation_pipeline(
     run_profile: object | None = None,
     write_episode_logs: bool = False,
     mutation_judge_http_client: httpx.Client | None = None,
+    max_concurrency: int = 1,
 ) -> PipelineResult:
+    max_concurrency = validate_concurrency(max_concurrency)
     candidate_wave_hooks = _CandidateWaveHooks(
         start=candidate_start_callback,
         outcome=candidate_outcome_callback,
@@ -589,6 +593,7 @@ def run_foundation_pipeline(
                     accepted_signatures=accepted_signatures,
                     route_reviewable_failures=route_reviewable_failures,
                     coverage_scheduler=coverage_scheduler,
+                    max_concurrency=max_concurrency,
                     hooks=candidate_wave_hooks,
                 )
                 samples.extend(base_merge.samples)
@@ -649,6 +654,7 @@ def run_foundation_pipeline(
                 accepted_signatures=accepted_signatures,
                 route_reviewable_failures=route_reviewable_failures,
                 coverage_scheduler=coverage_scheduler,
+                max_concurrency=max_concurrency,
                 hooks=candidate_wave_hooks,
             )
             samples.extend(base_merge.samples)
@@ -723,6 +729,7 @@ def run_foundation_pipeline(
             enable_mcp_adapter=enable_mcp_adapter,
             accepted_signatures=accepted_signatures,
             route_reviewable_failures=route_reviewable_failures,
+            max_concurrency=max_concurrency,
             hooks=candidate_wave_hooks,
         )
         samples.extend(base_merge.samples)
@@ -912,6 +919,7 @@ def _process_candidate_wave(
     accepted_signatures: frozenset[tuple[str, tuple[str, ...]]],
     route_reviewable_failures: bool,
     coverage_scheduler: CoverageAssignmentScheduler | None = None,
+    max_concurrency: int = 1,
     hooks: _CandidateWaveHooks | None = None,
 ) -> CandidateMergeResult:
     requests = [
@@ -931,6 +939,7 @@ def _process_candidate_wave(
         accepted_signatures=accepted_signatures,
         route_reviewable_failures=route_reviewable_failures,
         coverage_scheduler=coverage_scheduler,
+        max_concurrency=max_concurrency,
         hooks=hooks,
     )
 
@@ -946,12 +955,15 @@ def _process_candidate_requests(
     accepted_signatures: frozenset[tuple[str, tuple[str, ...]]],
     route_reviewable_failures: bool,
     coverage_scheduler: CoverageAssignmentScheduler | None = None,
+    max_concurrency: int = 1,
     hooks: _CandidateWaveHooks | None = None,
 ) -> CandidateMergeResult:
+    max_concurrency = validate_concurrency(max_concurrency)
     outcomes = []
     hooks = hooks or _CandidateWaveHooks()
     precomputed = hooks.precomputed or {}
-    for request in requests:
+
+    def process_request(request: CandidateExecutionRequest) -> ProvisionalCandidateOutcome:
         outcome = precomputed.get(request.sequence_index)
         if outcome is None:
             if hooks.start is not None:
@@ -978,7 +990,54 @@ def _process_candidate_requests(
             )
             if hooks.outcome is not None:
                 hooks.outcome(request, outcome)
-        outcomes.append(outcome)
+        return outcome
+
+    if max_concurrency == 1:
+        outcomes = [process_request(request) for request in requests]
+    else:
+        pending: dict[
+            Future[ProvisionalCandidateOutcome], CandidateExecutionRequest
+        ] = {}
+        request_iterator = iter(requests)
+
+        def submit_next() -> bool:
+            try:
+                request = next(request_iterator)
+            except StopIteration:
+                return False
+            pending[executor.submit(process_request, request)] = request
+            return True
+
+        failure: BaseException | None = None
+        with ThreadPoolExecutor(
+            max_workers=max_concurrency,
+            thread_name_prefix="synthesis-candidate",
+        ) as executor:
+            for _ in range(min(max_concurrency, len(requests))):
+                submit_next()
+            while pending and failure is None:
+                done, _ = wait(tuple(pending), return_when=FIRST_COMPLETED)
+                for future in done:
+                    pending.pop(future)
+                    try:
+                        outcomes.append(future.result())
+                    except BaseException as exc:
+                        failure = exc
+                        break
+                    submit_next()
+                if failure is not None:
+                    for future in pending:
+                        future.cancel()
+                    for future in pending:
+                        if future.cancelled():
+                            continue
+                        try:
+                            future.result()
+                        except BaseException:
+                            pass
+            if failure is not None:
+                raise failure
+
     return merge_candidate_outcomes(
         tuple(outcomes),
         initial_accepted_signatures=accepted_signatures,

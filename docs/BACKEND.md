@@ -576,9 +576,18 @@ malformed, reordered, duplicate, or integrity-invalid history fails closed.
 Stale-lock takeover requires an explicit option and validates durable state
 before recording the recovery marker.
 
-This first slice is deliberately limited to serial deterministic fixture and
-scale-probe jobs. Provider resumption, coverage recovery, concurrency,
-cancellation, CLI exposure, and per-role usage remain later tickets. The
+Tickets 03 through 05 extend the same runner with cumulative provider-attempt
+resumption, coverage-assignment recovery, and operator-selected bounded local
+concurrency. Omitted concurrency uses one worker; an explicitly configured
+bound is persisted with the job and cannot be changed on resume. Candidate
+work and independent coverage-assignment provider calls may finish out of
+order, but the existing sequence-index merge remains the sole core-artifact
+assembly path, preserving duplicate admission, coverage reconciliation, and
+deterministic dataset bytes. Journal mutation and provider-attempt reservation
+are protected for overlapping local work, while candidate-local environment
+and checkpoint handling remain owned by the existing pipeline.
+
+Cancellation, CLI exposure, and per-role usage remain later tickets. The
 default synchronous command and programmatic path remain unchanged. Desired
 broader behavior is defined by the
 [async local orchestration spec](product-specs/async-local-orchestration.md),

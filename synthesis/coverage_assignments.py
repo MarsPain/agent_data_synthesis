@@ -3,10 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from typing import Callable, Mapping, cast
 
 from synthesis.candidate_processing import ProvisionalCandidateOutcome
+from synthesis.concurrency import validate_concurrency
 from synthesis.coverage import (
     CoverageCatalog,
     CoverageCell,
@@ -251,6 +253,14 @@ class CoverageAssignmentGenerationResult:
 
 
 @dataclass(frozen=True)
+class _CoverageAssignmentGenerationOutcome:
+    assignment: CoverageAssignment
+    candidate: CandidateTask | None
+    rejection: dict[str, object] | None
+    rejected: bool
+
+
+@dataclass(frozen=True)
 class CoverageAssignmentRecovery:
     """Durable coverage state supplied to a resumed pipeline."""
 
@@ -353,8 +363,10 @@ class CoverageAssignmentScheduler:
         generation_rejection_callback: (
             CoverageGenerationRejectionCallback | None
         ) = None,
+        max_concurrency: int = 1,
     ) -> None:
         validate_domain_generation_spec(spec)
+        max_concurrency = validate_concurrency(max_concurrency)
         validate_coverage_catalog_reachability(
             catalog,
             spec,
@@ -370,6 +382,7 @@ class CoverageAssignmentScheduler:
         self._assignment_wave_callback = assignment_wave_callback
         self._attempt_observer_factory = attempt_observer_factory
         self._generation_rejection_callback = generation_rejection_callback
+        self._max_concurrency = max_concurrency
         self._cells = {cell.cell_id: cell for cell in catalog.cells}
         self._cell_states = {
             str(item["cell_id"]): _CoverageCellState(
@@ -482,6 +495,7 @@ class CoverageAssignmentScheduler:
             assignments=tuple(assignments),
             role_registry=self._role_registry,
             attempt_observer_factory=self._attempt_observer_factory,
+            max_concurrency=self._max_concurrency,
         )
         rejected_assignment_ids = set(generated.rejected_assignment_ids)
         assignments_by_id = {
@@ -701,6 +715,7 @@ class CoverageAssignmentScheduler:
                 assignments=unresolved,
                 role_registry=self._role_registry,
                 attempt_observer_factory=self._attempt_observer_factory,
+                max_concurrency=self._max_concurrency,
             )
             for candidate_id, assignment_id in generated.candidate_assignment_ids.items():
                 assignment = next(
@@ -973,8 +988,10 @@ def build_coverage_assignment_scheduler_factory(
     generation_rejection_callback: (
         CoverageGenerationRejectionCallback | None
     ) = None,
+    max_concurrency: int = 1,
 ) -> CoverageAssignmentSchedulerFactory:
     registry = role_registry or default_role_registry()
+    max_concurrency = validate_concurrency(max_concurrency)
 
     def factory(
         bundle: DomainPipelineBundle,
@@ -993,6 +1010,7 @@ def build_coverage_assignment_scheduler_factory(
             assignment_wave_callback=assignment_wave_callback,
             attempt_observer_factory=attempt_observer_factory,
             generation_rejection_callback=generation_rejection_callback,
+            max_concurrency=max_concurrency,
         )
 
     return factory
@@ -1160,6 +1178,7 @@ def generate_initial_coverage_assignments(
     plan: CoveragePlan,
     catalog: CoverageCatalog,
     role_registry: RoleRegistry | None = None,
+    max_concurrency: int = 1,
 ) -> CoverageAssignmentGenerationResult:
     registry = role_registry or default_role_registry()
     assignments = issue_initial_coverage_assignments(
@@ -1173,6 +1192,7 @@ def generate_initial_coverage_assignments(
         spec=spec,
         assignments=assignments,
         role_registry=registry,
+        max_concurrency=max_concurrency,
     )
 
 
@@ -1186,12 +1206,13 @@ def _generate_coverage_assignments(
     attempt_observer_factory: (
         CoverageAssignmentAttemptObserverFactory | None
     ) = None,
+    max_concurrency: int = 1,
 ) -> CoverageAssignmentGenerationResult:
-    candidates: list[CandidateTask] = []
-    rejections: list[dict[str, object]] = []
-    candidate_assignment_ids: dict[str, str] = {}
-    rejected_assignment_ids: list[str] = []
-    for assignment in assignments:
+    max_concurrency = validate_concurrency(max_concurrency)
+
+    def generate_assignment(
+        assignment: CoverageAssignment,
+    ) -> _CoverageAssignmentGenerationOutcome:
         raw_record: Mapping[str, object] | None = None
         assignment_spec = _assignment_generation_spec(spec, assignment)
         batch_context = build_generation_batch_context(
@@ -1270,27 +1291,33 @@ def _generate_coverage_assignments(
                     lineage=generation_lineage,
                 )
             candidate = candidate_from_task_contract(contract)
-            candidates.append(candidate)
-            candidate_assignment_ids[candidate.candidate_id] = (
-                assignment.assignment_id
+            return _CoverageAssignmentGenerationOutcome(
+                assignment=assignment,
+                candidate=candidate,
+                rejection=None,
+                rejected=False,
             )
         except CoverageAssignmentMismatch as exc:
-            rejected_assignment_ids.append(assignment.assignment_id)
-            rejections.append(
-                _assignment_mismatch_rejection(
+            return _CoverageAssignmentGenerationOutcome(
+                assignment=assignment,
+                candidate=None,
+                rejection=_assignment_mismatch_rejection(
                     assignment=assignment,
                     raw_record=raw_record,
                     reason=exc.reason,
-                )
+                ),
+                rejected=True,
             )
         except DomainGenerationValidationError as exc:
-            rejected_assignment_ids.append(assignment.assignment_id)
-            rejections.append(
-                _assignment_generation_rejection(
+            return _CoverageAssignmentGenerationOutcome(
+                assignment=assignment,
+                candidate=None,
+                rejection=_assignment_generation_rejection(
                     assignment=assignment,
                     reason=exc.reason,
                     detail=exc.detail,
-                )
+                ),
+                rejected=True,
             )
         except LLMProviderError as exc:
             if attempt_observer is not None:
@@ -1304,7 +1331,6 @@ def _generate_coverage_assignments(
                 )
             if getattr(exc, "ambiguous", False):
                 raise
-            rejected_assignment_ids.append(assignment.assignment_id)
             rejection = assemble_generation_stage_rejection(error=exc)
             raw_details = rejection.get("details")
             details = (
@@ -1314,7 +1340,36 @@ def _generate_coverage_assignments(
             )
             details["coverage_assignment"] = assignment.lineage()
             rejection["details"] = details
-            rejections.append(rejection)
+            return _CoverageAssignmentGenerationOutcome(
+                assignment=assignment,
+                candidate=None,
+                rejection=rejection,
+                rejected=True,
+            )
+
+    if max_concurrency == 1:
+        outcomes = tuple(generate_assignment(assignment) for assignment in assignments)
+    else:
+        with ThreadPoolExecutor(
+            max_workers=max_concurrency,
+            thread_name_prefix="synthesis-coverage",
+        ) as executor:
+            outcomes = tuple(executor.map(generate_assignment, assignments))
+
+    candidates: list[CandidateTask] = []
+    rejections: list[dict[str, object]] = []
+    candidate_assignment_ids: dict[str, str] = {}
+    rejected_assignment_ids: list[str] = []
+    for outcome in outcomes:
+        if outcome.candidate is not None:
+            candidates.append(outcome.candidate)
+            candidate_assignment_ids[outcome.candidate.candidate_id] = (
+                outcome.assignment.assignment_id
+            )
+        if outcome.rejected:
+            rejected_assignment_ids.append(outcome.assignment.assignment_id)
+        if outcome.rejection is not None:
+            rejections.append(outcome.rejection)
     return CoverageAssignmentGenerationResult(
         candidates=tuple(candidates),
         rejections=tuple(rejections),

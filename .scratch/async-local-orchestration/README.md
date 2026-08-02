@@ -3,7 +3,7 @@
 - **Status:** Ticketed
 - **Canonical spec:** [Async Local Orchestration](../../docs/product-specs/async-local-orchestration.md)
 - **Parent issue:** [ISSUE-0001](../ISSUE-0001-async-local-orchestration.md)
-- **Current phase:** Provider-safe resumable serial orchestration
+- **Current phase:** Provider-safe resumable bounded local orchestration
 
 This directory is the feature-level aggregation point for async local
 orchestration delivery state. Desired behavior and accepted implementation and
@@ -16,8 +16,8 @@ dependencies, and assignment live only in the ticket files below.
 2. [Reject unsafe job resumption](issues/02-reject-unsafe-job-resumption.md) — completed
 3. [Resume provider work within cumulative authorization](issues/03-provider-resumption-and-budget.md) — completed
 4. [Resume coverage assignments and bounded backfill](issues/04-coverage-resumption-and-backfill.md) — completed
-5. [Run bounded work concurrently with stable merge](issues/05-bounded-concurrency-stable-merge.md) — ready for agent
-6. [Cancel and resume a live synthesis job](issues/06-cooperative-cancellation-and-resume.md) — awaits ticket 05
+5. [Run bounded work concurrently with stable merge](issues/05-bounded-concurrency-stable-merge.md) — completed
+6. [Cancel and resume a live synthesis job](issues/06-cooperative-cancellation-and-resume.md) — ready for agent
 7. [Publish sanitized per-role usage evidence](issues/07-sanitized-role-usage.md) — ready for agent
 8. [Expose the operator CLI and prove three-domain parity](issues/08-cli-and-three-domain-parity.md) — awaits tickets 06 and 07
 
@@ -34,6 +34,6 @@ Ticket 08 integrates both branches into the operator-facing workflow.
 
 ## Frontier
 
-Tickets 05 and 07 are now unblocked. Tickets 01 through 04 establish a
-complete, hardened resumable serial path before concurrency, cancellation, or
-operator-facing integration.
+Tickets 06 and 07 are now unblocked. Tickets 01 through 05 establish a
+complete, hardened resumable path with bounded concurrency before cancellation
+or operator-facing integration.

@@ -4,6 +4,7 @@ import json
 import shutil
 import tempfile
 import threading
+import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -189,6 +190,412 @@ class SerialOrchestrationTest(unittest.TestCase):
                 result.job_path.read_text() + result.events_path.read_text(),
             )
             self.assertNotIn(str(Path(tmpdir)), result.work_items_path.read_text())
+
+    def test_concurrency_defaults_to_one_and_invalid_values_fail_before_work(self) -> None:
+        from synthesis.orchestration import JobConfigurationError, run_serial_job
+
+        profile = load_run_profile(self.PROFILE_PATH)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            result = run_serial_job(
+                root,
+                job_id="default-concurrency",
+                run_profile=profile,
+            )
+            self.assertEqual(result.job_record["max_concurrency"], 1)
+
+        for invalid in (None, 0, -1, 1.5, True, "2", 10**100):
+            with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                candidate_calls: list[str] = []
+
+                def should_not_generate(seed):
+                    candidate_calls.append(seed.seed_id)
+                    raise AssertionError("invalid concurrency must fail before work")
+
+                with self.assertRaises(JobConfigurationError):
+                    run_serial_job(
+                        root,
+                        job_id="invalid-concurrency",
+                        run_profile=profile,
+                        candidate_generator=should_not_generate,
+                        max_concurrency=invalid,
+                    )
+                self.assertEqual(candidate_calls, [])
+                self.assertFalse((root / "orchestration").exists())
+
+    def test_reverse_completion_merges_by_stable_sequence_and_matches_serial(self) -> None:
+        from synthesis.orchestration import run_serial_job
+
+        profile = load_run_profile(self.PROFILE_PATH)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            serial_dir = root / "serial"
+            concurrent_dir = root / "concurrent"
+            completion_order: list[int] = []
+            second_completed = threading.Event()
+
+            def reverse_policy(task: CandidateTask):
+                if task.candidate_id == "candidate_contacts_alice":
+                    self.assertTrue(second_completed.wait(5))
+                else:
+                    time.sleep(0.01)
+                return scripted_solution_policy(task)
+
+            def observe(event):
+                if event.get("event_type") != "work_item_completed":
+                    return
+                sequence_index = event.get("sequence_index")
+                assert isinstance(sequence_index, int)
+                completion_order.append(sequence_index)
+                if sequence_index == 1:
+                    second_completed.set()
+
+            serial = run_serial_job(
+                serial_dir,
+                job_id="serial-equivalent",
+                run_profile=profile,
+            )
+            concurrent = run_serial_job(
+                concurrent_dir,
+                job_id="reverse-completion",
+                run_profile=profile,
+                policy_generator=reverse_policy,
+                interruption_hook=observe,
+                max_concurrency=2,
+            )
+
+            self.assertEqual(concurrent.status, "completed")
+            self.assertEqual(completion_order[:2], [1, 0])
+            self.assertEqual(
+                self._core_artifacts(serial_dir),
+                self._core_artifacts(concurrent_dir),
+            )
+            self.assertEqual(
+                [item["sequence_index"] for item in concurrent.work_items],
+                [0, 1, 2],
+            )
+
+    def test_configured_bound_limits_candidate_pickup_and_resume_keeps_original_bound(self) -> None:
+        from synthesis.orchestration import (
+            JobConfigurationError,
+            JobInterruption,
+            run_serial_job,
+        )
+
+        profile = load_run_profile(self.PROFILE_PATH)
+        active = 0
+        observed_max = 0
+        active_lock = threading.Lock()
+        interrupted = False
+
+        def bounded_policy(task: CandidateTask):
+            nonlocal active, observed_max
+            with active_lock:
+                active += 1
+                observed_max = max(observed_max, active)
+            try:
+                time.sleep(0.02)
+                return scripted_solution_policy(task)
+            finally:
+                with active_lock:
+                    active -= 1
+
+        def interrupt_once(event):
+            nonlocal interrupted
+            if event.get("event_type") == "work_item_completed" and not interrupted:
+                interrupted = True
+                raise JobInterruption("bounded-resume")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            with self.assertRaises(JobInterruption):
+                run_serial_job(
+                    root,
+                    job_id="bounded-resume",
+                    run_profile=profile,
+                    policy_generator=bounded_policy,
+                    interruption_hook=interrupt_once,
+                    max_concurrency=2,
+                )
+
+            with self.assertRaises(JobConfigurationError):
+                run_serial_job(
+                    root,
+                    job_id="bounded-resume",
+                    run_profile=profile,
+                    policy_generator=bounded_policy,
+                    resume=True,
+                    max_concurrency=3,
+                )
+
+            resumed = run_serial_job(
+                root,
+                job_id="bounded-resume",
+                run_profile=profile,
+                policy_generator=bounded_policy,
+                resume=True,
+            )
+
+            self.assertEqual(resumed.status, "completed")
+            self.assertEqual(resumed.max_concurrency, 2)
+            self.assertLessEqual(observed_max, 2)
+            self.assertGreaterEqual(observed_max, 2)
+            self.assertEqual(
+                [item["sequence_index"] for item in resumed.work_items],
+                [0, 1, 2],
+            )
+
+    def test_concurrent_duplicate_admission_matches_serial_order(self) -> None:
+        from synthesis.orchestration import run_serial_job
+
+        profile = load_run_profile(self.PROFILE_PATH)
+
+        def duplicate_candidates(seed):
+            candidates = generate_foundation_candidates(seed)
+            return [
+                candidates[0],
+                replace(candidates[0], candidate_id="candidate_contacts_alice_copy"),
+                candidates[2],
+            ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            serial_dir = root / "serial-duplicates"
+            concurrent_dir = root / "concurrent-duplicates"
+            run_serial_job(
+                serial_dir,
+                job_id="serial-duplicates",
+                run_profile=profile,
+                candidate_generator=duplicate_candidates,
+            )
+            concurrent = run_serial_job(
+                concurrent_dir,
+                job_id="concurrent-duplicates",
+                run_profile=profile,
+                candidate_generator=duplicate_candidates,
+                max_concurrency=2,
+            )
+
+            self.assertEqual(concurrent.status, "completed")
+            self.assertEqual(
+                self._core_artifacts(serial_dir),
+                self._core_artifacts(concurrent_dir),
+            )
+            rejections = self._read_jsonl(concurrent_dir / "rejections.jsonl")
+            duplicate_rejections = [
+                rejection
+                for rejection in rejections
+                if rejection.get("cause") == "quality_duplicate"
+            ]
+            self.assertEqual(
+                [rejection["candidate_id"] for rejection in duplicate_rejections],
+                ["candidate_contacts_alice_copy"],
+            )
+
+    def test_interrupted_concurrent_job_resumes_only_pending_work(self) -> None:
+        from synthesis.orchestration import JobInterruption, run_serial_job
+
+        profile = load_run_profile(self.PROFILE_PATH)
+        policy_calls: list[str] = []
+        policy_lock = threading.Lock()
+        interrupted = False
+
+        def recording_policy(task: CandidateTask):
+            with policy_lock:
+                policy_calls.append(task.candidate_id)
+            time.sleep(0.01)
+            return scripted_solution_policy(task)
+
+        def interrupt_after_one_completion(event):
+            nonlocal interrupted
+            if event.get("event_type") == "work_item_completed" and not interrupted:
+                interrupted = True
+                raise JobInterruption("concurrent-interruption")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            with self.assertRaises(JobInterruption):
+                run_serial_job(
+                    root,
+                    job_id="concurrent-interruption",
+                    run_profile=profile,
+                    policy_generator=recording_policy,
+                    interruption_hook=interrupt_after_one_completion,
+                    max_concurrency=2,
+                )
+
+            resumed = run_serial_job(
+                root,
+                job_id="concurrent-interruption",
+                run_profile=profile,
+                policy_generator=recording_policy,
+                resume=True,
+            )
+
+            self.assertEqual(resumed.status, "completed")
+            self.assertEqual(resumed.max_concurrency, 2)
+            self.assertEqual(
+                sorted(policy_calls),
+                sorted(
+                    item["candidate_id"]
+                    for item in resumed.work_items
+                    if item["candidate_id"] != "candidate_contacts_alice_copy"
+                ),
+            )
+            self.assertEqual(len(policy_calls), len(set(policy_calls)))
+            self.assertEqual(
+                len(
+                    [
+                        event
+                        for event in self._read_jsonl(resumed.events_path)
+                        if event["event_type"] == "work_item_completed"
+                    ]
+                ),
+                3,
+            )
+
+    def test_concurrent_coverage_matches_serial_core_artifacts(self) -> None:
+        from synthesis.orchestration import run_serial_job
+
+        from tests.test_coverage_assignment_pipeline import AssignmentAwareFakeProvider
+
+        active = 0
+        observed_max = 0
+        active_lock = threading.Lock()
+
+        class BoundedCoverageProvider(AssignmentAwareFakeProvider):
+            def generate_json(self, prompt: str, *, role: str):
+                nonlocal active, observed_max
+                with active_lock:
+                    active += 1
+                    observed_max = max(observed_max, active)
+                try:
+                    time.sleep(0.02)
+                    return super().generate_json(prompt, role=role)
+                finally:
+                    with active_lock:
+                        active -= 1
+
+        profile = load_run_profile(
+            Path("tests/fixtures/run_profiles/contacts-coverage-tracer.json")
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            serial_dir = root / "serial-coverage"
+            concurrent_dir = root / "concurrent-coverage"
+            concurrent_provider = BoundedCoverageProvider()
+            serial = run_serial_job(
+                serial_dir,
+                job_id="serial-coverage",
+                run_profile=profile,
+                provider=AssignmentAwareFakeProvider(),
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 3},
+                max_concurrency=1,
+            )
+            concurrent = run_serial_job(
+                concurrent_dir,
+                job_id="concurrent-coverage",
+                run_profile=profile,
+                provider=concurrent_provider,
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 3},
+                max_concurrency=2,
+            )
+
+            self.assertEqual(serial.status, "completed")
+            self.assertEqual(concurrent.status, "completed")
+            self.assertLessEqual(observed_max, 2)
+            self.assertGreaterEqual(observed_max, 2)
+            artifact_names = (
+                "samples.jsonl",
+                "rejections.jsonl",
+                "manifest.json",
+                "quality_report.json",
+                "coverage_plan.json",
+                "coverage_evidence.json",
+            )
+            self.assertEqual(
+                {
+                    name: (serial_dir / name).read_bytes()
+                    for name in artifact_names
+                },
+                {
+                    name: (concurrent_dir / name).read_bytes()
+                    for name in artifact_names
+                },
+            )
+            self.assertEqual(
+                concurrent.pipeline_result.coverage_reconciliation,
+                serial.pipeline_result.coverage_reconciliation,
+            )
+
+    def test_interrupted_concurrent_coverage_resumes_with_cumulative_budget(self) -> None:
+        from synthesis.orchestration import JobInterruption, run_serial_job
+
+        from tests.test_coverage_assignment_pipeline import AssignmentAwareFakeProvider
+
+        profile = load_run_profile(
+            Path("tests/fixtures/run_profiles/contacts-coverage-tracer.json")
+        )
+        interruption_lock = threading.Lock()
+        interrupted = False
+
+        def interrupt_once(event):
+            nonlocal interrupted
+            if event.get("event_type") != "provider_attempt_issued":
+                return
+            with interruption_lock:
+                if interrupted:
+                    return
+                interrupted = True
+            raise JobInterruption("concurrent-coverage-interruption")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            with self.assertRaises(JobInterruption):
+                run_serial_job(
+                    root,
+                    job_id="concurrent-coverage-resume",
+                    run_profile=profile,
+                    provider=AssignmentAwareFakeProvider(),
+                    provider_alias="fake-provider",
+                    model_alias="fake-model",
+                    authorization_limits={"logical_call_budget": 6},
+                    interruption_hook=interrupt_once,
+                    max_concurrency=2,
+                )
+
+            resumed = run_serial_job(
+                root,
+                job_id="concurrent-coverage-resume",
+                run_profile=profile,
+                provider=AssignmentAwareFakeProvider(),
+                provider_alias="fake-provider",
+                model_alias="fake-model",
+                authorization_limits={"logical_call_budget": 6},
+                interruption_hook=interrupt_once,
+                resume=True,
+            )
+
+            self.assertEqual(resumed.status, "completed")
+            self.assertEqual(resumed.max_concurrency, 2)
+            self.assertLessEqual(
+                resumed.provider_usage["issued_logical_calls"],
+                6,
+            )
+            completed_events = [
+                event
+                for event in self._read_jsonl(resumed.events_path)
+                if event["event_type"] == "work_item_completed"
+            ]
+            self.assertEqual(
+                len({event["work_item_id"] for event in completed_events}),
+                len(resumed.work_items),
+            )
 
     def test_provider_checkpoint_resume_only_calls_remaining_generation_batch(self) -> None:
         from synthesis.orchestration import JobInterruption, run_serial_job

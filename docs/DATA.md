@@ -352,15 +352,17 @@ and a quality report:
 - `reward_label_report.json`: optional label coverage and decision summary over
   `reward_labels.jsonl`, written only when explicitly requested.
 - `orchestration/<job-id>/job.json`, `work_items.jsonl`, and `events.jsonl`:
-  opt-in local serial-orchestration state using the versioned
+  opt-in local orchestration state using the versioned
   `orchestration_job_v1`, `orchestration_work_item_v1`, and
   `orchestration_event_v1` contracts. These records contain durable job
   progress and normalized provisional outcomes from the existing pipeline
   boundary; sensitive provider envelopes, credentials, secret-like values,
   and host paths are rejected before journaling. Job records also bind a
-  normalized configuration identity, declared authorization limits, and a
-  hash-only output owner. The sibling local lock is exclusive and is not
-  treated as dataset state; stale-lock recovery is explicit and validates the
+  normalized configuration identity, the selected positive
+  `max_concurrency` bound, declared authorization limits, and a hash-only
+  output owner. The bound defaults to one and is reused on resume. The sibling
+  local lock is exclusive and is not treated as dataset state; stale-lock
+  recovery is explicit and validates the
   durable journal before takeover. They remain separate from core dataset
   artifacts and are never attached to a dataset manifest or release pack.
 

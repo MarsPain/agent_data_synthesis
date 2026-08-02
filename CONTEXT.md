@@ -73,15 +73,15 @@ terms, not package structure, implementation plans, or work status. See
 
 - **Run profile:** Versioned input that selects a domain, generation mode,
   candidate target, purpose, feature flags, and optional governed source.
-- **Serial orchestration job:** An opt-in local lifecycle for running one
-  validated deterministic candidate set in sequence, with durable progress
-  and resumable terminal outcomes. It is not a provider queue or a dataset
-  release.
+- **Local orchestration job:** An opt-in local lifecycle for running one
+  validated deterministic candidate set with durable progress, a persisted
+  concurrency bound, and resumable terminal outcomes. The default bound is
+  one; it is not a provider queue or a dataset release.
 - **Work item:** The durable execution intent for one candidate sequence
-  position in a serial orchestration job. A work item records pending,
+  position in a local orchestration job. A work item records pending,
   running, or completed state and an accepted or rejected terminal outcome.
 - **Orchestration event journal:** The append-only, integrity-chained event
-  history that rebuilds a serial orchestration job and its work-item state.
+  history that rebuilds a local orchestration job and its work-item state.
 - **Coverage dimension:** A domain-owned structural axis used to distinguish
   training experiences, such as task type, tool sequence, state behavior,
   grounding pattern, constraint profile, difficulty, ambiguity, or recovery

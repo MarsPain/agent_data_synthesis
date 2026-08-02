@@ -1,4 +1,4 @@
-"""Durable, opt-in serial orchestration for deterministic synthesis jobs.
+"""Durable, opt-in local orchestration for deterministic synthesis jobs.
 
 The runner in this module owns job lifecycle state only. Candidate execution,
 stable duplicate admission, and dataset assembly remain in
@@ -14,6 +14,7 @@ import json
 import os
 import re
 import secrets
+import threading
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
@@ -30,6 +31,7 @@ from synthesis.candidate_processing import (
     PolicyGenerator,
     ProvisionalCandidateOutcome,
 )
+from synthesis.concurrency import validate_concurrency
 from synthesis.coverage_assignments import (
     CoverageAssignment,
     CoverageAssignmentRecovery,
@@ -88,6 +90,7 @@ _JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _HEX_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _PROVIDER_ALIAS_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+_UNSET_CONCURRENCY = object()
 
 
 class OrchestrationError(RuntimeError):
@@ -161,6 +164,10 @@ class SerialJobResult:
 
         return self.job_record
 
+    @property
+    def max_concurrency(self) -> int:
+        return validate_concurrency(self.job_record["max_concurrency"])
+
 
 SerialJobInterruptionHook = Callable[[Mapping[str, object]], None]
 TimestampFactory = Callable[[], str]
@@ -200,13 +207,15 @@ def run_serial_job(
     provider_factory: ProviderFactory | None = None,
     provider_alias: str | None = None,
     model_alias: str | None = None,
+    max_concurrency: int | None | object = _UNSET_CONCURRENCY,
 ) -> SerialJobResult:
     """Run or resume one local job under an exclusive lock.
 
     Deterministic fixture jobs retain their original candidate-generator path.
     An explicit provider opts a representative ``llm`` profile into durable
     generation-attempt journaling. Provider aliases are identity only; provider
-    objects and credentials are never written.
+    objects and credentials are never written. Omitting the concurrency bound
+    selects one worker; a resumed job reuses the bound recorded at creation.
     """
 
     provider_identity = _normalize_provider_identity(
@@ -219,6 +228,7 @@ def run_serial_job(
         provider_alias=provider_alias,
         model_alias=model_alias,
     )
+    requested_max_concurrency = _normalize_requested_concurrency(max_concurrency)
     normalized_limits = _normalize_authorization_limits(authorization_limits)
     _validate_serial_configuration(
         job_id=job_id,
@@ -230,6 +240,7 @@ def run_serial_job(
         provider_factory=provider_factory,
         candidate_generator=candidate_generator,
         candidate_generator_factory=candidate_generator_factory,
+        max_concurrency=requested_max_concurrency,
     )
     now = timestamp_factory or _utc_timestamp
     output_dir = Path(output_dir)
@@ -268,6 +279,7 @@ def run_serial_job(
             provider=provider,
             provider_factory=provider_factory,
             provider_identity=provider_identity,
+            max_concurrency=requested_max_concurrency,
             store=store,
             lock=lock,
         )
@@ -296,17 +308,18 @@ def _run_serial_job_locked(
     provider: object | None = None,
     provider_factory: ProviderFactory | None = None,
     provider_identity: Mapping[str, str] | None = None,
+    max_concurrency: int | None = None,
     store: _LocalJobStore | None = None,
     lock: _LocalJobLock | None = None,
 ) -> SerialJobResult:
-    """Run or resume one deterministic candidate set serially.
+    """Run or resume one deterministic candidate set with a local bound.
 
     A validated :class:`~synthesis.run_profiles.RunProfile` is the durable
     configuration identity. On creation the pipeline's generated candidate set
-    is recorded before the first candidate is processed. On resume the stored
-    candidate set and completed provisional outcomes are supplied back to the
-    existing pipeline, which performs the normal stable merge and artifact
-    assembly.
+    is recorded before the first candidate is processed. Candidate work uses
+    the persisted local concurrency bound; on resume the stored candidate set
+    and completed provisional outcomes are supplied back to the existing
+    pipeline, which performs the normal stable merge and artifact assembly.
     """
 
     now = timestamp_factory or _utc_timestamp
@@ -341,11 +354,21 @@ def _run_serial_job_locked(
             )
         if not store.loaded:
             store.load(repair_tail=False)
+        persisted_max_concurrency = store.max_concurrency
+        if (
+            max_concurrency is not None
+            and max_concurrency != persisted_max_concurrency
+        ):
+            raise JobConfigurationError(
+                "max_concurrency does not match durable serial job"
+            )
+        effective_max_concurrency = persisted_max_concurrency
         store.validate_configuration_identity(
             run_profile,
             authorization_limits,
             output_dir=output_dir,
             provider_identity=provider_identity,
+            max_concurrency=effective_max_concurrency,
         )
     resolved_inputs = _resolve_profile_source_inputs(
         run_profile,
@@ -396,6 +419,7 @@ def _run_serial_job_locked(
             raise JobConfigurationError(
                 f"serial job already exists: {job_id}; pass resume=True"
             )
+        effective_max_concurrency = max_concurrency or 1
         store.create(
             job_id=job_id,
             run_profile=run_profile,
@@ -403,6 +427,7 @@ def _run_serial_job_locked(
             output_dir=output_dir,
             authorization_limits=authorization_limits,
             provider_identity=provider_identity,
+            max_concurrency=effective_max_concurrency,
         )
         effective_candidate_generator = candidate_generator
 
@@ -480,6 +505,7 @@ def _run_serial_job_locked(
             assignment_wave_callback=coverage_assignment_wave,
             attempt_observer_factory=coverage_attempt_observer_factory,
             generation_rejection_callback=coverage_generation_rejection,
+            max_concurrency=effective_max_concurrency,
         )
         if resume:
             coverage_recovery = _coverage_recovery_from_store(store)
@@ -639,6 +665,7 @@ def _run_serial_job_locked(
             write_episode_logs=write_episode_logs,
             coverage_scheduler_factory=coverage_scheduler_factory,
             coverage_recovery=coverage_recovery,
+            max_concurrency=effective_max_concurrency,
         )
     except JobInterruption:
         raise
@@ -681,6 +708,7 @@ def validate_job_record(record: Mapping[str, object]) -> None:
             "dataset_version",
             "domain",
             "execution_mode",
+            "max_concurrency",
             "target_candidate_count",
             "candidate_set_hash",
             "work_item_count",
@@ -702,6 +730,10 @@ def validate_job_record(record: Mapping[str, object]) -> None:
         raise ValueError("job.status is unsupported")
     if record["execution_mode"] not in JOB_EXECUTION_MODES:
         raise ValueError("job.execution_mode is unsupported")
+    try:
+        validate_concurrency(record["max_concurrency"])
+    except ValueError as exc:
+        raise ValueError(f"job.max_concurrency is invalid: {exc}") from exc
     _validate_sha256(record["config_hash"], "job.config_hash")
     _validate_sha256(
         record["execution_config_hash"],
@@ -1422,6 +1454,7 @@ class _LocalJobStore:
         self._events: list[dict[str, object]] = []
         self._provider_attempts: dict[str, dict[str, object]] = {}
         self._provider_checkpoints: list[dict[str, object]] = []
+        self._mutex = threading.RLock()
         self._last_integrity_hash: str | None = None
         self._recovered_tail_bytes = 0
         self._recovered_tail_prefix: bytes | None = None
@@ -1444,17 +1477,30 @@ class _LocalJobStore:
 
     @property
     def work_items(self) -> tuple[dict[str, object], ...]:
-        return tuple(
-            self._items[item_id]
-            for item_id in sorted(
-                self._items,
-                key=lambda key: _sequence_index(self._items[key]),
+        with self._mutex:
+            return tuple(
+                self._items[item_id]
+                for item_id in sorted(
+                    self._items,
+                    key=lambda key: _sequence_index(self._items[key]),
+                )
             )
-        )
 
     @property
     def status(self) -> str:
         return str(self.job["status"])
+
+    @property
+    def max_concurrency(self) -> int:
+        try:
+            return validate_concurrency(
+                self.job["max_concurrency"],
+                field_name="job.max_concurrency",
+            )
+        except ValueError as exc:
+            raise JournalCorruptionError(
+                "durable job concurrency bound is invalid"
+            ) from exc
 
     @property
     def candidate_set_hash(self) -> str | None:
@@ -1475,16 +1521,17 @@ class _LocalJobStore:
 
     @property
     def provider_attempts(self) -> tuple[dict[str, object], ...]:
-        return tuple(
-            dict(self._provider_attempts[attempt_id])
-            for attempt_id in sorted(
-                self._provider_attempts,
-                key=lambda attempt_id: _integer_value(
-                    self._provider_attempts[attempt_id]["attempt_sequence"],
-                    "provider_attempt.attempt_sequence",
-                ),
+        with self._mutex:
+            return tuple(
+                dict(self._provider_attempts[attempt_id])
+                for attempt_id in sorted(
+                    self._provider_attempts,
+                    key=lambda attempt_id: _integer_value(
+                        self._provider_attempts[attempt_id]["attempt_sequence"],
+                        "provider_attempt.attempt_sequence",
+                    ),
+                )
             )
-        )
 
     @property
     def provider_checkpoint_contracts(self) -> tuple[TaskContract, ...]:
@@ -1619,6 +1666,7 @@ class _LocalJobStore:
         output_dir: Path,
         authorization_limits: Mapping[str, object],
         provider_identity: Mapping[str, str] | None,
+        max_concurrency: int,
     ) -> None:
         self.orchestration_dir.mkdir(parents=True, exist_ok=False)
         initial_job: dict[str, object] = {
@@ -1631,11 +1679,13 @@ class _LocalJobStore:
                 run_profile,
                 authorization_limits,
                 provider_identity=provider_identity,
+                max_concurrency=max_concurrency,
             ),
             "configuration_identity_hash": _configuration_identity_hash(
                 run_profile,
                 authorization_limits,
                 provider_identity=provider_identity,
+                max_concurrency=max_concurrency,
             ),
             "authorization_limits": _json_copy(authorization_limits),
             "output_ownership_hash": _output_ownership_hash(output_dir, job_id),
@@ -1646,6 +1696,7 @@ class _LocalJobStore:
                 if run_profile.coverage_profile is not None
                 else "candidate_set"
             ),
+            "max_concurrency": validate_concurrency(max_concurrency),
             "target_candidate_count": run_profile.generation.target_candidate_count,
             "candidate_set_hash": None,
             "work_item_count": 0,
@@ -1734,6 +1785,7 @@ class _LocalJobStore:
         *,
         output_dir: Path,
         provider_identity: Mapping[str, str] | None,
+        max_concurrency: int,
     ) -> None:
         if self.job["job_id"] != self.orchestration_dir.name:
             raise JobConfigurationError("durable job identity does not match its directory")
@@ -1751,6 +1803,7 @@ class _LocalJobStore:
             run_profile,
             authorization_limits,
             provider_identity=provider_identity,
+            max_concurrency=max_concurrency,
         )
         expected_hash = _hash_json(expected_identity)
         if self.job["configuration_identity_hash"] != expected_hash:
@@ -1903,60 +1956,65 @@ class _LocalJobStore:
         requested_candidate_count: int,
         prompt_hash: str,
     ) -> str:
-        self._ensure_provider_budget()
-        for attempt in self.provider_attempts:
-            if (
-                attempt["status"] == "intent"
-                and attempt["role"] == role
-                and attempt["batch_index"] == batch_index
-                and attempt["requested_candidate_count"]
-                == requested_candidate_count
-            ):
-                if attempt["prompt_hash"] != prompt_hash:
-                    raise JobConfigurationError(
-                        "provider attempt prompt identity does not match durable intent"
+        with self._mutex:
+            self._ensure_provider_budget()
+            for attempt in self.provider_attempts:
+                if (
+                    attempt["status"] == "intent"
+                    and attempt["role"] == role
+                    and attempt["batch_index"] == batch_index
+                    and attempt["requested_candidate_count"]
+                    == requested_candidate_count
+                ):
+                    if attempt["prompt_hash"] != prompt_hash:
+                        raise JobConfigurationError(
+                            "provider attempt prompt identity does not match durable intent"
+                        )
+                    return str(attempt["attempt_id"])
+            attempt_sequence = max(
+                [
+                    _integer_value(
+                        attempt["attempt_sequence"],
+                        "provider_attempt.attempt_sequence",
                     )
-                return str(attempt["attempt_id"])
-        attempt_sequence = max(
-            [
-                _integer_value(
-                    attempt["attempt_sequence"],
-                    "provider_attempt.attempt_sequence",
-                )
-                for attempt in self.provider_attempts
-            ],
-            default=0,
-        ) + 1
-        attempt_id = _provider_attempt_id(str(self.job["job_id"]), attempt_sequence)
-        self._append(
-            "provider_work_intent",
-            {
-                "attempt_id": attempt_id,
-                "attempt_sequence": attempt_sequence,
-                "role": role,
-                "provider_alias": provider_identity["provider_alias"],
-                "model_alias": provider_identity["model_alias"],
-                "batch_index": batch_index,
-                "requested_candidate_count": requested_candidate_count,
-                "prompt_hash": prompt_hash,
-            },
-        )
-        return attempt_id
+                    for attempt in self.provider_attempts
+                ],
+                default=0,
+            ) + 1
+            attempt_id = _provider_attempt_id(
+                str(self.job["job_id"]),
+                attempt_sequence,
+            )
+            self._append(
+                "provider_work_intent",
+                {
+                    "attempt_id": attempt_id,
+                    "attempt_sequence": attempt_sequence,
+                    "role": role,
+                    "provider_alias": provider_identity["provider_alias"],
+                    "model_alias": provider_identity["model_alias"],
+                    "batch_index": batch_index,
+                    "requested_candidate_count": requested_candidate_count,
+                    "prompt_hash": prompt_hash,
+                },
+            )
+            return attempt_id
 
     def issue_provider_attempt(self, attempt_id: str) -> None:
-        attempt = self._provider_attempt(attempt_id)
-        if attempt["status"] != "intent":
-            raise InvalidTransitionError(
-                "provider attempt is not waiting to be issued"
+        with self._mutex:
+            attempt = self._provider_attempt(attempt_id)
+            if attempt["status"] != "intent":
+                raise InvalidTransitionError(
+                    "provider attempt is not waiting to be issued"
+                )
+            self._ensure_provider_budget()
+            self._append(
+                "provider_attempt_issued",
+                {
+                    "attempt_id": attempt_id,
+                    "logical_call_number": self.issued_logical_call_count + 1,
+                },
             )
-        self._ensure_provider_budget()
-        self._append(
-            "provider_attempt_issued",
-            {
-                "attempt_id": attempt_id,
-                "logical_call_number": self.issued_logical_call_count + 1,
-            },
-        )
 
     def complete_provider_attempt(
         self,
@@ -2308,6 +2366,20 @@ class _LocalJobStore:
             )
 
     def _append(
+        self,
+        event_type: str,
+        payload: Mapping[str, object],
+        *,
+        work_item_id: str | None = None,
+    ) -> None:
+        with self._mutex:
+            self._append_unlocked(
+                event_type,
+                payload,
+                work_item_id=work_item_id,
+            )
+
+    def _append_unlocked(
         self,
         event_type: str,
         payload: Mapping[str, object],
@@ -3069,6 +3141,21 @@ class _LocalJobStore:
         _atomic_write_json(self.provider_usage_path, self.provider_usage)
 
 
+def _normalize_requested_concurrency(
+    max_concurrency: object,
+) -> int | None:
+    if max_concurrency is _UNSET_CONCURRENCY:
+        return None
+    if max_concurrency is None:
+        raise JobConfigurationError(
+            "max_concurrency must be a positive integer"
+        )
+    try:
+        return validate_concurrency(max_concurrency)
+    except ValueError as exc:
+        raise JobConfigurationError(str(exc)) from exc
+
+
 def _validate_serial_configuration(
     *,
     job_id: str,
@@ -3080,6 +3167,7 @@ def _validate_serial_configuration(
     provider_factory: ProviderFactory | None,
     candidate_generator: CandidateGenerator | None,
     candidate_generator_factory: CandidateGeneratorFactory | None,
+    max_concurrency: int | None,
 ) -> None:
     _validate_job_id(job_id)
     if not isinstance(run_profile, RunProfile):
@@ -3122,6 +3210,11 @@ def _validate_serial_configuration(
         or interrupt_after < 0
     ):
         raise JobConfigurationError("interrupt_after must be a non-negative integer or null")
+    if max_concurrency is not None:
+        try:
+            validate_concurrency(max_concurrency)
+        except ValueError as exc:
+            raise JobConfigurationError(str(exc)) from exc
 
 
 def _normalize_authorization_limits(
@@ -3297,6 +3390,7 @@ def _normalized_configuration_identity(
     authorization_limits: Mapping[str, object],
     *,
     provider_identity: Mapping[str, str] | None = None,
+    max_concurrency: int = 1,
 ) -> dict[str, object]:
     source: dict[str, object] | None = None
     if run_profile.source is not None:
@@ -3330,6 +3424,7 @@ def _normalized_configuration_identity(
             else None
         ),
         "authorization_limits": _json_copy(dict(authorization_limits)),
+        "max_concurrency": validate_concurrency(max_concurrency),
     }
     if provider_identity is not None:
         identity["provider"] = {
@@ -3345,12 +3440,14 @@ def _configuration_identity_hash(
     authorization_limits: Mapping[str, object],
     *,
     provider_identity: Mapping[str, str] | None = None,
+    max_concurrency: int = 1,
 ) -> str:
     return _hash_json(
         _normalized_configuration_identity(
             run_profile,
             authorization_limits,
             provider_identity=provider_identity,
+            max_concurrency=max_concurrency,
         )
     )
 

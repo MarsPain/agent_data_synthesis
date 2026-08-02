@@ -7,32 +7,46 @@ admission, coverage reconciliation, and deterministic core artifacts.
 
 **Blocked by:** [04 — Resume Coverage Assignments and Bounded Backfill](04-coverage-resumption-and-backfill.md)
 
-**Status:** ready-for-agent
+**Status:** completed
 
-**Assignee:** Unassigned
+**Assignee:** Codex
 
 **Parent spec:** [Async Local Orchestration](../../../docs/product-specs/async-local-orchestration.md)
 
 ## Acceptance criteria
 
-- [ ] Async execution defaults to concurrency one and rejects zero, negative,
+- [x] Async execution defaults to concurrency one and rejects zero, negative,
   non-integer, or implementation-unsafe concurrency values before work begins.
-- [ ] A configured bound limits simultaneous work pickup and remote-attempt
+- [x] A configured bound limits simultaneous work pickup and remote-attempt
   reservation without permitting the cumulative authorization to overshoot.
-- [ ] Concurrent work preserves candidate-local environment rebuild,
+- [x] Concurrent work preserves candidate-local environment rebuild,
   checkpoint, tool-registry, adapter, mutation, execution, and verification
   isolation.
-- [ ] A deterministic test forces provisional outcomes to finish in reverse
+- [x] A deterministic test forces provisional outcomes to finish in reverse
   order and proves that merge still follows stable sequence index.
-- [ ] Exact-duplicate admission chooses the same winner as serial execution,
+- [x] Exact-duplicate admission chooses the same winner as serial execution,
   and review, proposal, episode, rejection, and coverage ordering remain stable.
-- [ ] Serial and concurrent fake-provider coverage jobs produce equivalent core
+- [x] Serial and concurrent fake-provider coverage jobs produce equivalent core
   artifacts for identical inputs; only orchestration timing and usage ordering
   may differ.
-- [ ] Interrupted concurrent work resumes without duplicating completed items
+- [x] Interrupted concurrent work resumes without duplicating completed items
   or exceeding the original concurrency and budget bounds.
-- [ ] Focused bound, isolation, reverse-completion, duplicate, coverage,
+- [x] Focused bound, isolation, reverse-completion, duplicate, coverage,
   interruption, and equivalence tests pass without paid calls.
+
+## Implementation
+
+`run_serial_job` now accepts a validated positive `max_concurrency` bound,
+defaults omitted values to one worker, and persists the selected bound as part
+of the job configuration. Candidate
+work and independent coverage-assignment provider calls use bounded local
+executors while the existing stable sequence merge remains the sole assembler
+for core artifacts. Durable journal mutation and provider-attempt reservation
+are serialized so cumulative authorization cannot overshoot under overlap;
+resumption reuses the original bound and skips completed work. Focused
+orchestration tests cover bounds, reverse completion, candidate isolation,
+duplicate admission, coverage equivalence, provider interruption, and
+serial/concurrent artifact parity.
 
 ## Scope guard
 
