@@ -27,6 +27,12 @@ release pack, and a hash-bound downstream benchmark result.
   identity, and the distinction between releaseability and downstream utility.
 - Workspace is the tracer domain; Contacts and Mobile remain compatibility
   evidence, not additional tracer implementations for this effort.
+- The accepted handoff is now published as the
+  [canonical product spec](../../docs/product-specs/outcome-validated-domain-pack.md),
+  [deep design](../../docs/design-docs/outcome-validated-domain-pack.md),
+  [ADRs](../../docs/adr/README.md), and
+  [implementation tracker](../outcome-validated-domain-pack/README.md). This map
+  remains historical decision provenance.
 
 ## Decisions so far
 

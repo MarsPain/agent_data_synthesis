@@ -7,6 +7,8 @@ triggers, and technical debt. Tracker configuration lives in
 
 ## Open
 
+- [Outcome-Validated Domain Pack](outcome-validated-domain-pack/README.md) —
+  ticketed; canonical identity and planning contracts are the current frontier
 - [Semantic Mutation Admission](semantic-mutation-admission/README.md) — ticketed;
   runtime enforcement, release-artifact auditing, and calibration-corpus work
   are complete; activation evaluation is complete and the representative gate

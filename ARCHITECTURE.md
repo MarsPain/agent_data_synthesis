@@ -38,6 +38,10 @@ only the top-level system and package map.
    pre-execution semantic mutation admission for state-changing candidates,
    executable verification, logical consistency checks, diversity checks, and
    human review queues for uncertain cases.
+   A versioned Domain Pack is the semantic authority and deep integration seam
+   for domain planning, generation, isolated execution, replay, and typed domain
+   assessment. The shared framework retains final cumulative release
+   qualification and external-authority verification.
 
 7. **Dataset Assembly and Lineage**
    Emits versioned training examples with environment, tool, task, trajectory, verifier, quality metrics, and provenance metadata.
@@ -58,6 +62,7 @@ only the top-level system and package map.
 - [docs/design-docs/algorithm-flow-and-architecture.md](docs/design-docs/algorithm-flow-and-architecture.md): explanatory walkthrough of the current algorithm flow and architecture layers.
 - [docs/design-docs/architecture-explainers.md](docs/design-docs/architecture-explainers.md): detailed explanations of architecture and algorithm concepts.
 - [docs/design-docs/domain-aware-representative-generation.md](docs/design-docs/domain-aware-representative-generation.md): domain-owned remote generation and representative eligibility boundary.
+- [docs/design-docs/outcome-validated-domain-pack.md](docs/design-docs/outcome-validated-domain-pack.md): target Domain Pack interface, identity/version binding, compatibility, cumulative qualification, and Workspace tracer design.
 - [docs/adr/README.md](docs/adr/README.md): accepted system-wide architecture decisions.
 
 ## Architectural Position

@@ -24,6 +24,7 @@ the configured issue tracker.
 
 ## Deep Design
 
+- [design-docs/outcome-validated-domain-pack.md](design-docs/outcome-validated-domain-pack.md): target Domain Pack lifecycle, canonical capability identity, compatibility projections, cumulative qualification mechanics, and Workspace tracer topology.
 - [design-docs/agent-data-synthesis-framework.md](design-docs/agent-data-synthesis-framework.md): full framework architecture.
 - [design-docs/algorithm-flow-and-architecture.md](design-docs/algorithm-flow-and-architecture.md): explanatory walkthrough of the current algorithm flow, architecture layers, gates, and dataset artifacts.
 - [design-docs/architecture-explainers.md](design-docs/architecture-explainers.md): detailed explanations of architecture and algorithm concepts such as the AWM environment model.
@@ -34,6 +35,7 @@ the configured issue tracker.
 
 ## Product Specs
 
+- [product-specs/outcome-validated-domain-pack.md](product-specs/outcome-validated-domain-pack.md): desired behavior and acceptance for Domain Pack semantic authority, cumulative release qualification, compatibility evidence, and the Workspace proof tracer.
 - [product-specs/framework-mvp.md](product-specs/framework-mvp.md): MVP scope and acceptance criteria.
 - [product-specs/coverage-driven-representative-synthesis.md](product-specs/coverage-driven-representative-synthesis.md): domain-owned coverage catalogs, operator-light profiles, deterministic deficit scheduling, bounded backfill, and representative coverage evidence.
 - [product-specs/semantic-mutation-admission.md](product-specs/semantic-mutation-admission.md): pre-execution authorization, provenance, independent semantic judgment, calibration, and enforcement for state-changing candidates.
@@ -44,6 +46,8 @@ the configured issue tracker.
 
 - [adr/README.md](adr/README.md): index of accepted system-wide architecture decisions.
 - [adr/0001-independent-semantic-mutation-admission.md](adr/0001-independent-semantic-mutation-admission.md): require independent, pre-execution semantic mutation admission for release-grade state-changing candidates.
+- [adr/0002-domain-pack-semantic-authority-and-deep-interface.md](adr/0002-domain-pack-semantic-authority-and-deep-interface.md): make the versioned Domain Pack the semantic authority and deep integration interface.
+- [adr/0003-separate-evidence-verification-from-external-authority.md](adr/0003-separate-evidence-verification-from-external-authority.md): keep framework evidence verification separate from human publication authority and external model training.
 
 ## References
 
