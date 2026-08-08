@@ -4,23 +4,23 @@
 
 **Blocked by:** None — can start immediately
 
-**Status:** ready-for-agent
+**Status:** completed
 
-**Assignee:** Unassigned
+**Assignee:** Codex
 
 **Parent spec:** [Outcome-Validated Domain Pack](../../../docs/product-specs/outcome-validated-domain-pack.md)
 
 ## Acceptance criteria
 
-- [ ] Exact Domain Pack references bind logical id, immutable composition version, and canonical content hash; reused versions with changed bytes fail closed.
-- [ ] Exact capability references bind logical pack id, stable pack-local key, and capability contract version without aliasing task, tool, coverage, held-out, mutation, or runtime labels.
-- [ ] Initial descriptors declare the canonical capability catalogs for Contacts, Mobile Messages, and Workspace Tasks and select exact component and runtime contracts.
-- [ ] Pure planning produces byte-stable canonical output and a stable plan id for identical admitted inputs without provider calls, runtime creation, or file mutation.
-- [ ] Planning rejects unknown, duplicate, cross-pack, ambiguous, unsupported-version, and internally inconsistent references with bounded reason codes.
-- [ ] Compatibility mappings are keyed by source schema/version and projection kind and cannot apply one global string alias across semantic and runtime fields.
-- [ ] Domain assessment and qualification-subject contracts can represent exact evidence or insufficiency without granting a qualification implicitly.
-- [ ] Existing run profiles and default local execution preserve their observable behavior while the new contracts are not yet selected by consumers.
-- [ ] Focused contract tests cover canonical hashing, version reuse, unsafe or oversized records, secret-like fields, and deterministic bounded failures.
+- [x] Exact Domain Pack references bind logical id, immutable composition version, and canonical content hash; reused versions with changed bytes fail closed.
+- [x] Exact capability references bind logical pack id, stable pack-local key, and capability contract version without aliasing task, tool, coverage, held-out, mutation, or runtime labels.
+- [x] Initial descriptors declare the canonical capability catalogs for Contacts, Mobile Messages, and Workspace Tasks and select exact component and runtime contracts.
+- [x] Pure planning produces byte-stable canonical output and a stable plan id for identical admitted inputs without provider calls, runtime creation, or file mutation.
+- [x] Planning rejects unknown, duplicate, cross-pack, ambiguous, unsupported-version, and internally inconsistent references with bounded reason codes.
+- [x] Compatibility mappings are keyed by source schema/version and projection kind and cannot apply one global string alias across semantic and runtime fields.
+- [x] Domain assessment and qualification-subject contracts can represent exact evidence or insufficiency without granting a qualification implicitly.
+- [x] Existing run profiles and default local execution preserve their observable behavior while the new contracts are not yet selected by consumers.
+- [x] Focused contract tests cover canonical hashing, version reuse, unsafe or oversized records, secret-like fields, and deterministic bounded failures.
 
 ## Scope guard
 

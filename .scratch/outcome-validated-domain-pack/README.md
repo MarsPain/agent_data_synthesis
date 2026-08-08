@@ -13,9 +13,9 @@ and ticket-local scope.
 
 ## Tickets
 
-1. [Establish canonical Domain Pack identity and planning contracts](issues/01-canonical-identity-and-planning-contracts.md) — ready for agent
-2. [Introduce the deep Domain Pack lifecycle through Workspace](issues/02-deep-domain-pack-workspace-lifecycle.md) — ready for agent; blocked by 01
-3. [Freeze and preserve Contacts and Mobile compatibility](issues/03-contacts-mobile-compatibility-corpus.md) — ready for agent; blocked by 01
+1. [Establish canonical Domain Pack identity and planning contracts](issues/01-canonical-identity-and-planning-contracts.md) — completed
+2. [Introduce the deep Domain Pack lifecycle through Workspace](issues/02-deep-domain-pack-workspace-lifecycle.md) — ready for agent
+3. [Freeze and preserve Contacts and Mobile compatibility](issues/03-contacts-mobile-compatibility-corpus.md) — ready for agent
 4. [Carry canonical Workspace capabilities to Release Candidate evidence](issues/04-workspace-capability-release-candidate.md) — ready for agent; blocked by 02
 5. [Add cumulative qualification and Workspace Release Candidate](issues/05-cumulative-qualification-release-candidate.md) — ready for agent; blocked by 04
 6. [Verify publishability evidence and external authority](issues/06-publishability-evidence-authority.md) — ready for agent; blocked by 05
@@ -25,9 +25,9 @@ and ticket-local scope.
 
 ## Frontier
 
-Ticket 01 is the current implementation frontier. Ticket numbering is a valid
-dependency order; later tickets remain `ready-for-agent` but cannot be claimed
-until their listed blockers are completed.
+Tickets 02 and 03 are the current implementation frontier. Ticket numbering is
+a valid dependency order; later tickets remain `ready-for-agent` but cannot be
+claimed until their listed blockers are completed.
 
 ## Provenance
 

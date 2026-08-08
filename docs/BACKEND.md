@@ -82,6 +82,12 @@ The first backend should be a local Python pipeline with explicit modules and du
   descriptor construction and default registry selection. Domain-specific
   rebuild seeds stay here rather than in `awm_runtime`; runtime-facing code uses
   this module for repository-owned default descriptor lookup.
+- `synthesis.domain_pack`: additive, provider-free contracts for logical
+  hash-bound Domain Pack references and descriptors, exact capability/runtime
+  references, deterministic plans, projection-scoped compatibility mappings,
+  typed domain assessments, and immutable qualification subjects. The initial
+  Contacts, Mobile Messages, and Workspace Tasks descriptors are not yet
+  selected by the existing runtime pipeline.
 - `synthesis.rollouts`: diagnostic local rollout collection over runtime
   sessions. It executes scripted policies through action envelopes, enforces
   max-step limits, exports sanitized `episode_log_v1` records, and does not
