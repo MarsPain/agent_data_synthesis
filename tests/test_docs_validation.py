@@ -5,7 +5,12 @@ import sys
 import unittest
 from pathlib import Path
 
-from scripts.validate_docs import resolve_link, strip_fenced_blocks
+from scripts.validate_docs import (
+    is_wayfinder_map,
+    is_wayfinder_map_path,
+    resolve_link,
+    strip_fenced_blocks,
+)
 
 
 class DocumentationValidationTest(unittest.TestCase):
@@ -26,6 +31,28 @@ class DocumentationValidationTest(unittest.TestCase):
         source = Path("docs/example.md")
         self.assertIsNone(resolve_link(source, "https://example.test/doc"))
         self.assertIsNone(resolve_link(source, "#local-heading"))
+
+    def test_wayfinder_map_is_distinct_from_feature_index(self) -> None:
+        self.assertTrue(
+            is_wayfinder_map(
+                "# Decision Map\n\n- **Status:** open\n"
+                "- **Label:** `wayfinder:map`\n"
+                "- **Assignee:** Unassigned\n"
+            )
+        )
+        self.assertFalse(is_wayfinder_map("# Implementation Feature\n"))
+
+    def test_wayfinder_map_path_is_explicitly_suffixed(self) -> None:
+        self.assertTrue(
+            is_wayfinder_map_path(
+                Path(".scratch/outcome-validated-domain-pack-wayfinding/README.md")
+            )
+        )
+        self.assertFalse(
+            is_wayfinder_map_path(
+                Path(".scratch/outcome-validated-domain-pack/README.md")
+            )
+        )
 
 
 if __name__ == "__main__":

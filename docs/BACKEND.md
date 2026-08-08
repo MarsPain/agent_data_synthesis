@@ -460,9 +460,10 @@ same-dataset report reference reconstructs manifest bytes whose SHA-256 and byte
 count exactly match the manifest record locked in the pack. Missing, malformed,
 extra, dataset-mismatched, or otherwise drifting content fails verification.
 
-The run-profile boundary is declarative and synchronous. `--run-profile` supports
-the existing foundation fixture, remote LLM-backed generation when `--use-llm` is
-also supplied, a deterministic contacts scale probe, and `run_profile_v2`
+The run-profile boundary is declarative. Execution remains synchronous unless
+the operator explicitly enables the durable local runner. `--run-profile`
+supports the existing foundation fixture, remote LLM-backed generation when
+`--use-llm` is also supplied, a deterministic contacts scale probe, and
 profile-local domain sources for contacts, mobile messages, and workspace
 tasks. Profile-local source declarations conflict with `--enable-network-source`
 and with the external source-governance fixture; they write only source kind,
@@ -470,9 +471,10 @@ source id, content hash, license label, and source-policy hash to manifest
 metadata and per-record attribution.
 Per-record attribution omits target candidate counts, feature lists, profile
 paths, source paths, payload rows, prompts, headers, API keys, and arbitrary
-profile content. This path does not activate `synthesis.orchestration`, durable
-queues, cancellation, resumption, external MCP servers, arbitrary file
-ingestion, or generated environment/tool/verifier handlers.
+profile content. A profile alone does not activate `synthesis.orchestration`;
+the explicit async CLI or programmatic opt-in does. Neither execution mode
+activates external MCP servers, arbitrary file ingestion, or generated
+environment/tool/verifier handlers.
 
 The controlled network path is available from the CLI only with
 `--enable-network-source`, `--source-url`, `--source-license-label`, and at least
@@ -500,20 +502,20 @@ report without admitting generated handlers into the normal tool registry.
 
 ## Scaling Direction
 
-Use synchronous run profiles and deterministic contacts scale probes before
-activating a local async runner. Move to an actor or queue-based runner only when
-profiled synchronous runs cannot satisfy throughput goals. The Matrix pattern
-from the PDF should guide the later distributed form: task state travels with
-messages; workers stay role-specific and mostly stateless. Scaling should
-increase pipeline throughput and provider-call routing without adding local LLM
-cluster deployment as a project responsibility.
+Use synchronous run profiles for small jobs and opt into the durable local
+runner when interruption recovery, bounded concurrency, or provider-usage
+attribution has operational value. Move to an actor or queue-based runner only
+when the completed local runner cannot satisfy measured throughput goals. The
+Matrix pattern from the PDF should guide the later distributed form: task state
+travels with messages; workers stay role-specific and mostly stateless. Scaling
+should increase pipeline throughput and provider-call routing without adding
+local LLM cluster deployment as a project responsibility.
 
 Plan 0020 added an opt-in profile decision report above existing artifacts. The
 report reads the synchronous manifest and quality report, applies explicit
-thresholds, and preserves the rationale for keeping async orchestration and
-semantic duplicate detection deferred until their documented triggers are met.
-It does not activate `synthesis.orchestration` or change candidate-processing
-behavior.
+thresholds, and records when async orchestration or semantic duplicate
+detection reaches its documented activation trigger. The report itself does
+not activate `synthesis.orchestration` or change candidate-processing behavior.
 
 Plan 0021 hardened the candidate-processing boundary for a future local async
 runner without activating `synthesis.orchestration`. The synchronous pipeline now
@@ -587,12 +589,14 @@ deterministic dataset bytes. Journal mutation and provider-attempt reservation
 are protected for overlapping local work, while candidate-local environment
 and checkpoint handling remain owned by the existing pipeline.
 
-Cancellation, CLI exposure, and per-role usage remain later tickets. The
-default synchronous command and programmatic path remain unchanged. Desired
-broader behavior is defined by the
+Tickets 06 through 08 complete cooperative cancellation and safe resumption,
+sanitized per-role provider usage, explicit CLI enablement, signal handling,
+and deterministic sync-versus-async parity across contacts, mobile messages,
+and workspace tasks. The default synchronous command and programmatic path
+remain unchanged. The complete behavior is defined by the
 [async local orchestration spec](product-specs/async-local-orchestration.md),
-while current disposition lives only in
-[ISSUE-0001](../.scratch/ISSUE-0001-async-local-orchestration.md).
+operator workflows live in [OPERATIONS.md](OPERATIONS.md), and completion state
+lives only in [ISSUE-0001](../.scratch/ISSUE-0001-async-local-orchestration.md).
 
 Plan 0042 adds two offline consumers above the artifact boundary.
 `synthesis.scale_evidence` validates and aggregates exactly one contacts,
@@ -607,7 +611,7 @@ Plan 0030 stabilizes the internal runtime contract before any AWM runtime
 package extraction. Contacts and mobile environments now satisfy the same
 runtime protocol and accepted executions can produce sanitized in-memory episode
 logs. This remains local synchronous behavior; reward model training, Agentic
-RL rollout collection, external MCP environment servers, and durable async
+RL rollout collection, external MCP environment servers, and distributed async
 workers remain deferred.
 
 Plan 0031 adds the first repo-local non-synthesis consumer of those episode

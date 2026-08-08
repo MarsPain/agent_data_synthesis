@@ -5,10 +5,9 @@
   merge and artifact semantics, supports cooperative cancellation and bounded
   concurrency, and reports sanitized per-role provider usage.
 - **Blocked by:** None; the runtime activation trigger has been observed.
-- **Dependencies:** None; existing candidate-processing and deterministic merge
-  seams are implementation-ready.
-- **Status:** ready-for-agent
-- **Assignee:** Unassigned
+- **Dependencies:** None; implementation is complete.
+- **Status:** completed
+- **Assignee:** Codex
 - **Parent spec:** [Async Local Orchestration](../docs/product-specs/async-local-orchestration.md)
 - **Legacy record:** [Plan 0014](../docs/exec-plans/deferred/0014-async-local-orchestration-with-durable-queues.md)
 
@@ -27,33 +26,37 @@ Start implementation when at least one condition is observed:
 The target-30 representative coverage campaign recorded contacts runtime of
 738.273 seconds and mobile-messages runtime of 662.632 seconds, exceeding the
 rough ten-minute activation threshold. The scale evidence also emitted the
-`async_orchestration` signal. Implementation is now ready to be assigned, but
-remains outside coverage campaign ticket 06. Keep the default runner
-synchronous until the opt-in orchestration path is implemented and validated.
+`async_orchestration` signal. Implementation is complete through
+[feature tickets 01 through 08](async-local-orchestration/README.md). The
+default command remains synchronous; validated run profiles can explicitly opt
+into provider-safe resumable local execution, bounded concurrency, cooperative
+cancellation, sanitized per-role usage evidence, and deterministic
+three-domain parity through the documented
+[operator workflow](../docs/OPERATIONS.md).
 
 ## Acceptance criteria
 
-- [ ] The default command remains synchronous; async execution requires an
+- [x] The default command remains synchronous; async execution requires an
   explicit programmatic or CLI opt-in and defaults to concurrency one.
-- [ ] Versioned job, work-item, event-journal, and usage-summary contracts fail
+- [x] Versioned job, work-item, event-journal, and usage-summary contracts fail
   closed on invalid identities, transitions, schemas, or configuration drift.
-- [ ] A resumable serial tracer bullet persists work intent before side effects,
+- [x] A resumable serial tracer bullet persists work intent before side effects,
   checkpoints validated generated task contracts, and skips completed work.
-- [ ] Coverage-driven jobs reconstruct assignment reconciliation and bounded
+- [x] Coverage-driven jobs reconstruct assignment reconciliation and bounded
   backfill from durable terminal outcomes without changing coverage semantics.
-- [ ] Known and ambiguous provider attempts consume one cumulative logical-call
+- [x] Known and ambiguous provider attempts consume one cumulative logical-call
   budget across the original run and every resume; retries remain bounded.
-- [ ] Bounded concurrency preserves stable sequence merge, duplicate admission,
+- [x] Bounded concurrency preserves stable sequence merge, duplicate admission,
   coverage fulfillment, and deterministic core artifact content.
-- [ ] Cooperative cancellation stops new work pickup and leaves a valid,
+- [x] Cooperative cancellation stops new work pickup and leaves a valid,
   diagnostic, resumable job without presenting partial output as complete.
-- [ ] Existing source, remote-context, sandbox, mutation, role, provider-host,
+- [x] Existing source, remote-context, sandbox, mutation, role, provider-host,
   verification, quality, and release controls are unchanged and cannot be
   bypassed by async mode.
-- [ ] Orchestration artifacts contain no credentials, headers, raw prompts, raw
+- [x] Orchestration artifacts contain no credentials, headers, raw prompts, raw
   provider responses, private source payloads, environment variables, or local
   absolute paths.
-- [ ] Deterministic sync-versus-async equivalence, interruption recovery,
+- [x] Deterministic sync-versus-async equivalence, interruption recovery,
   provider ambiguity, cancellation, journal corruption, lock, usage, CLI,
   documentation, and full-suite validation pass.
 

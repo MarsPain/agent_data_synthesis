@@ -46,7 +46,7 @@ only the top-level system and package map.
    Validates source provenance, license policy, network policy, sandbox policy, and sanitized source-event auditing before external-like material can affect environments or dataset exports.
 
 9. **Orchestration and Scaling**
-   Starts with local async orchestration and evolves toward distributed actor-based execution when throughput demands justify it. Scaling orchestration does not imply deploying a local LLM cluster.
+   Provides opt-in local async orchestration with durable resumption, bounded concurrency, cooperative cancellation, and sanitized usage evidence. It may evolve toward distributed actor-based execution only when throughput demands justify it. Scaling orchestration does not imply deploying a local LLM cluster.
 
 ## Canonical Design Docs
 

@@ -25,10 +25,13 @@ Agent training data is scarce because real interactions rarely expose complete o
 
 ## MVP Acceptance
 
-- Works through a local synchronous runner without distributed infrastructure or local LLM cluster deployment.
+- Uses a local synchronous runner by default and supports explicit opt-in
+  durable async execution without distributed infrastructure or local LLM
+  cluster deployment.
 - Uses a remote OpenAI-compatible LLM API for LLM-backed generation.
 - Supports deterministic foundation, contacts scale-probe, and profile-local
-  governed source profiles before async orchestration is activated.
+  governed source profiles through the synchronous default and validated async
+  runner boundary.
 - Supports local release-candidate evidence packs for contacts, mobile
   messages, and workspace tasks through explicit evaluation, profile decision,
   dataset release, release pack, release audit, and release card artifacts.

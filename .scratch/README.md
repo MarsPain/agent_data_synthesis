@@ -15,6 +15,7 @@ triggers, and technical debt. Tracker configuration lives in
 
 ## Closed
 
+- [Outcome-Validated Domain Pack — Wayfinding](outcome-validated-domain-pack-wayfinding/README.md) — route complete; resolved Domain Pack semantics and interface, cumulative release qualification, Workspace tracer proof, compatibility evidence, and the canonical specification handoff
 - [Coverage-Driven Representative Synthesis](coverage-driven-representative-synthesis/README.md) — campaign completed with `revise-catalog`; contacts remains a demonstration domain and further scenario expansion is deferred
 - [Async Local Orchestration](async-local-orchestration/README.md) — tickets 01 through 08 completed
 

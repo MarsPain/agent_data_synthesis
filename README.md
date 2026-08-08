@@ -6,15 +6,15 @@ instruction-response expander: accepted records are grounded in executable
 environment state, tool calls, observations, verifier results, lineage, and
 quality evidence.
 
-The repository is still early-stage, but it now has a working synchronous
-pipeline with three deterministic domains, source governance, profile-based runs,
-runtime episode evidence, replay checks, reward-label export, and release
-admission artifacts. Canonical design detail lives in [docs/](docs/).
+The repository is still early-stage, but it now has a working local-first
+pipeline with a synchronous default, opt-in durable async execution, three
+deterministic domains, source governance, profile-based runs, runtime episode evidence,
+replay checks, reward-label export, and release admission artifacts. Canonical design detail lives in [docs/](docs/).
 
 ## What Works Now
 
-- `main.py` runs the local synchronous foundation pipeline and writes outputs
-  under `artifacts/foundation/` by default.
+- `main.py` runs the local foundation pipeline synchronously by default and writes
+  outputs under `artifacts/foundation/`; validated run profiles can opt into durable local orchestration.
 - Contacts, synthetic mobile-message, and workspace-task domains run through a
   shared domain pipeline boundary.
 - Stable runtime and episode primitives are available through the in-repository

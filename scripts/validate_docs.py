@@ -18,12 +18,29 @@ ENTRYPOINT_LINE_BUDGETS = {
 IGNORED_PARTS = {".git", ".venv", "artifacts"}
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 ISSUE_FIELD_RE = re.compile(
-    r"^(?:- )?\*\*(Status|Assignee|Parent spec|Dependencies|What to build|Blocked by):\*\*\s*(.+)$",
+    r"^(?:- )?\*\*(Status|Assignee|Label|Parent map|Parent spec|Dependencies|What to build|Blocked by):\*\*\s*(.+)$",
     re.MULTILINE,
 )
 MARKDOWN_TARGET_RE = re.compile(r"\[[^\]]+\]\(([^)#]+)(?:#[^)]+)?\)")
 FEATURE_TICKET_STATUSES = {"ready-for-agent", "in-progress", "blocked", "completed"}
 FEATURE_TICKET_TITLE_RE = re.compile(r"^# (\d{2}) — \S.+$", re.MULTILINE)
+WAYFINDER_MAP_STATUSES = {"open", "closed"}
+WAYFINDER_DECISION_STATUSES = {"open", "closed"}
+WAYFINDER_DIRECTORY_SUFFIX = "-wayfinding"
+WAYFINDER_DECISIONS_DIRECTORY = "decisions"
+WAYFINDER_DECISION_LABELS = {
+    "`wayfinder:research`",
+    "`wayfinder:prototype`",
+    "`wayfinder:grilling`",
+    "`wayfinder:task`",
+}
+WAYFINDER_MAP_SECTIONS = (
+    "Destination",
+    "Notes",
+    "Decisions so far",
+    "Not yet specified",
+    "Out of scope",
+)
 
 
 @dataclass(frozen=True)
@@ -76,6 +93,109 @@ def resolve_link(source: Path, target: str) -> Path | None:
     if not clean_target:
         return None
     return (source.parent / clean_target).resolve()
+
+
+def is_wayfinder_map(text: str) -> bool:
+    return dict(ISSUE_FIELD_RE.findall(text)).get("Label") == "`wayfinder:map`"
+
+
+def is_wayfinder_map_path(map_path: Path) -> bool:
+    return (
+        map_path.name == "README.md"
+        and map_path.parent.name.endswith(WAYFINDER_DIRECTORY_SUFFIX)
+    )
+
+
+def validate_wayfinder_map(
+    map_path: Path,
+    text: str,
+    errors: list[str],
+) -> None:
+    fields = dict(ISSUE_FIELD_RE.findall(text))
+    for field in ("Status", "Assignee", "Label"):
+        if field not in fields:
+            errors.append(
+                f"{map_path.relative_to(ROOT)} missing wayfinder map field: {field}"
+            )
+    if fields.get("Status") not in WAYFINDER_MAP_STATUSES:
+        errors.append(
+            f"{map_path.relative_to(ROOT)} has unsupported wayfinder map status: "
+            f"{fields.get('Status', '<missing>')}"
+        )
+    for section in WAYFINDER_MAP_SECTIONS:
+        if not re.search(rf"^## {re.escape(section)}\s*$", text, re.MULTILINE):
+            errors.append(
+                f"{map_path.relative_to(ROOT)} missing wayfinder map section: {section}"
+            )
+
+
+def validate_wayfinder_decision(
+    decision: Path,
+    *,
+    map_path: Path,
+    decisions_dir: Path,
+    errors: list[str],
+) -> None:
+    text = decision.read_text(encoding="utf-8")
+    fields = dict(ISSUE_FIELD_RE.findall(text))
+    for field in ("Status", "Assignee", "Label", "Parent map", "Blocked by"):
+        if field not in fields:
+            errors.append(
+                f"{decision.relative_to(ROOT)} missing wayfinder decision field: {field}"
+            )
+    if fields.get("Status") not in WAYFINDER_DECISION_STATUSES:
+        errors.append(
+            f"{decision.relative_to(ROOT)} has unsupported wayfinder decision status: "
+            f"{fields.get('Status', '<missing>')}"
+        )
+    if fields.get("Label") not in WAYFINDER_DECISION_LABELS:
+        errors.append(
+            f"{decision.relative_to(ROOT)} has unsupported wayfinder decision label: "
+            f"{fields.get('Label', '<missing>')}"
+        )
+    if not re.search(r"^# \S.+$", text, re.MULTILINE):
+        errors.append(f"{decision.relative_to(ROOT)} must have a named decision title")
+    if not re.search(r"^## Question\s*$", text, re.MULTILINE):
+        errors.append(f"{decision.relative_to(ROOT)} must declare one Question section")
+    if fields.get("Status") == "closed" and not re.search(
+        r"^## Resolution comment\s*$",
+        text,
+        re.MULTILINE,
+    ):
+        errors.append(
+            f"{decision.relative_to(ROOT)} closed wayfinder decision must have a Resolution comment"
+        )
+
+    parent = fields.get("Parent map", "")
+    parent_match = MARKDOWN_TARGET_RE.search(parent)
+    parent_target = (
+        resolve_link(decision, parent_match.group(1)) if parent_match else None
+    )
+    if parent_target != map_path.resolve():
+        errors.append(
+            f"{decision.relative_to(ROOT)} parent map must link to "
+            f"{map_path.relative_to(ROOT)}"
+        )
+
+    decision_number = decision.name[:2]
+    blocked_by = fields.get("Blocked by", "")
+    for blocker_match in MARKDOWN_TARGET_RE.finditer(blocked_by):
+        blocker = resolve_link(decision, blocker_match.group(1))
+        if (
+            blocker is None
+            or blocker.parent != decisions_dir.resolve()
+            or not blocker.is_file()
+        ):
+            errors.append(
+                f"{decision.relative_to(ROOT)} blockers must be decisions in the same map"
+            )
+            continue
+        blocker_number = blocker.name[:2]
+        if not blocker_number.isdigit() or blocker_number >= decision_number:
+            errors.append(
+                f"{decision.relative_to(ROOT)} blocker must have a lower decision number: "
+                f"{blocker.name}"
+            )
 
 
 def discover_artifacts(errors: list[str]) -> ArtifactRegistry:
@@ -248,6 +368,54 @@ def validate_issue_tracker(registry: ArtifactRegistry, errors: list[str]) -> Non
                 )
 
         scratch_index_text = (scratch / "README.md").read_text(encoding="utf-8")
+
+        wayfinder_map_dirs: set[Path] = set()
+        for map_index in sorted(scratch.glob("*/README.md")):
+            map_text = map_index.read_text(encoding="utf-8")
+            if not is_wayfinder_map(map_text):
+                continue
+
+            map_dir = map_index.parent
+            wayfinder_map_dirs.add(map_dir.resolve())
+            if not is_wayfinder_map_path(map_index):
+                errors.append(
+                    f"Wayfinder map directory must end with "
+                    f"{WAYFINDER_DIRECTORY_SUFFIX}: {map_dir.relative_to(ROOT)}"
+                )
+            if map_dir.name + "/README.md" not in scratch_index_text:
+                errors.append(
+                    f".scratch/README.md must link wayfinder map: "
+                    f"{map_index.relative_to(ROOT)}"
+                )
+
+            validate_wayfinder_map(map_index, map_text, errors)
+            decisions_dir = map_dir / WAYFINDER_DECISIONS_DIRECTORY
+            if not decisions_dir.is_dir():
+                errors.append(
+                    f"Wayfinder map requires a decisions directory: "
+                    f"{decisions_dir.relative_to(ROOT)}"
+                )
+                continue
+            for decision in sorted(decisions_dir.glob("*.md")):
+                if not re.fullmatch(r"\d{2}-[a-z0-9-]+\.md", decision.name):
+                    errors.append(
+                        f"Wayfinder decision filename must use NN-kebab-case.md: "
+                        f"{decision.relative_to(ROOT)}"
+                    )
+                validate_wayfinder_decision(
+                    decision,
+                    map_path=map_index,
+                    decisions_dir=decisions_dir,
+                    errors=errors,
+                )
+
+        for decisions_dir in sorted(scratch.glob("*/decisions")):
+            if decisions_dir.parent.resolve() not in wayfinder_map_dirs:
+                errors.append(
+                    f"Decision directory requires a wayfinder map index: "
+                    f"{decisions_dir.relative_to(ROOT)}"
+                )
+
         feature_issue_dirs = sorted(scratch.glob("*/issues"))
         for issues_dir in feature_issue_dirs:
             feature_dir = issues_dir.parent
@@ -263,6 +431,20 @@ def validate_issue_tracker(registry: ArtifactRegistry, errors: list[str]) -> Non
                 )
 
             feature_text = feature_index.read_text(encoding="utf-8")
+            if is_wayfinder_map(feature_text):
+                errors.append(
+                    f"Wayfinder decisions must use a {WAYFINDER_DIRECTORY_SUFFIX}/"
+                    f"{WAYFINDER_DECISIONS_DIRECTORY}/ layout, not "
+                    f"{issues_dir.relative_to(ROOT)}"
+                )
+                continue
+            if feature_dir.name.endswith(WAYFINDER_DIRECTORY_SUFFIX):
+                errors.append(
+                    f"Implementation feature directory must not use the wayfinder suffix: "
+                    f"{feature_dir.relative_to(ROOT)}"
+                )
+                continue
+
             for issue in sorted(issues_dir.glob("*.md")):
                 if not re.fullmatch(r"\d{2}-[a-z0-9-]+\.md", issue.name):
                     errors.append(

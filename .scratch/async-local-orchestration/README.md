@@ -3,7 +3,7 @@
 - **Status:** Completed
 - **Canonical spec:** [Async Local Orchestration](../../docs/product-specs/async-local-orchestration.md)
 - **Parent issue:** [ISSUE-0001](../ISSUE-0001-async-local-orchestration.md)
-- **Current phase:** Provider-safe resumable bounded local orchestration
+- **Current phase:** Completed provider-safe resumable bounded local orchestration
 
 This directory is the feature-level aggregation point for async local
 orchestration delivery state. Desired behavior and accepted implementation and
@@ -32,7 +32,7 @@ Tickets 04 through 06 form the execution branch after provider-safe resumption.
 Ticket 07 can proceed independently once provider-attempt evidence exists.
 Ticket 08 integrates both branches into the operator-facing workflow.
 
-## Frontier
+## Completion Summary
 
 Tickets 01 through 08 establish a complete, hardened local path with bounded
 concurrency, cooperative cancellation, sanitized usage evidence, an explicit

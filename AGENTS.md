@@ -49,7 +49,8 @@ uv run python -m unittest
 
 ## Current Implementation Shape
 
-- `main.py` runs the local foundation pipeline and writes runtime outputs to `artifacts/foundation/` by default.
+- `main.py` runs the local foundation pipeline synchronously by default and writes runtime outputs to `artifacts/foundation/`; validated run profiles can opt into durable local orchestration.
 - The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
 - Current work state is owned by the [local issue tracker](.scratch/README.md).
-- Latest completed work is documented in [docs/exec-plans/completed/0046-final-answer-grounding-and-generation-diversity.md](docs/exec-plans/completed/0046-final-answer-grounding-and-generation-diversity.md).
+- Async local orchestration is complete with resumable jobs, bounded concurrency, cooperative cancellation, sanitized usage evidence, CLI opt-in, and deterministic three-domain parity.
+- The latest completed historical execution plan is [docs/exec-plans/completed/0046-final-answer-grounding-and-generation-diversity.md](docs/exec-plans/completed/0046-final-answer-grounding-and-generation-diversity.md).

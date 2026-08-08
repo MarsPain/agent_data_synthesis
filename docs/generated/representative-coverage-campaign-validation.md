@@ -84,10 +84,10 @@ shadow-mode runs as `insufficient_evidence` and recommends
 `expand_representative_evidence`. The campaign therefore validates the
 campaign's bounded execution path but not the structural-growth hypothesis,
 release eligibility, or full representative eligibility. The scale evidence
-records contacts and mobile runtimes above 600 seconds; the resulting current
-activation disposition lives in the
-[local async-orchestration issue](../../.scratch/ISSUE-0001-async-local-orchestration.md).
-This campaign does not implement that out-of-scope work. Dataset release
+records contacts and mobile runtimes above 600 seconds. At campaign completion,
+the resulting activation disposition was recorded in the
+[local async-orchestration issue](../../.scratch/ISSUE-0001-async-local-orchestration.md);
+the campaign itself did not implement that out-of-scope work. Dataset release
 reports remain ineligible, release-quality audits remain `watch`, and no
 dataset was promoted. A scan of all 138 campaign files found no provider-secret
 fields, authorization headers, configured credential value, or local absolute
