@@ -40,11 +40,49 @@ def release_completeness_threshold_record(runtime_id: str | None) -> dict[str, o
     threshold = _RELEASE_COMPLETENESS_THRESHOLDS.get(normalized_runtime_id)
     if threshold is None:
         return None
+    required_task_types = threshold.get("required_task_types", ())
+    required_tool_combinations = threshold.get("required_tool_combinations", ())
+    required_capability_keys = threshold.get("required_capability_keys", ())
+    minimum_recovery_samples = threshold.get("minimum_recovery_samples", 0)
+    task_type_aliases = threshold.get("task_type_aliases", {})
+    recovery_task_type_alias = threshold.get("recovery_task_type_alias")
     return {
         "min_accepted_samples": threshold["min_accepted_samples"],
         "max_rejection_rate": threshold["max_rejection_rate"],
-        "required_task_types": list(threshold["required_task_types"]),
-        "required_tool_combinations": list(threshold["required_tool_combinations"]),
+        "required_task_types": (
+            list(required_task_types)
+            if isinstance(required_task_types, (list, tuple))
+            else []
+        ),
+        "required_tool_combinations": (
+            list(required_tool_combinations)
+            if isinstance(required_tool_combinations, (list, tuple))
+            else []
+        ),
+        "required_capability_keys": (
+            list(required_capability_keys)
+            if isinstance(required_capability_keys, (list, tuple))
+            else []
+        ),
+        "minimum_recovery_samples": (
+            int(minimum_recovery_samples)
+            if isinstance(minimum_recovery_samples, (int, float, str))
+            else 0
+        ),
+        "task_type_aliases": (
+            {
+                str(key): list(value)
+                for key, value in task_type_aliases.items()
+                if isinstance(key, str) and isinstance(value, (list, tuple))
+            }
+            if isinstance(task_type_aliases, dict)
+            else {}
+        ),
+        "recovery_task_type_alias": (
+            recovery_task_type_alias
+            if isinstance(recovery_task_type_alias, str)
+            else None
+        ),
     }
 
 
@@ -202,5 +240,18 @@ _RELEASE_COMPLETENESS_THRESHOLDS: dict[str, dict[str, object]] = {
             "search_workspace_items+create_workspace_task",
             "search_workspace_items+add_workspace_comment",
         ),
+        "required_capability_keys": (
+            "item_search",
+            "task_creation",
+            "comment_addition",
+            "item_search_recovery",
+        ),
+        "minimum_recovery_samples": 1,
+        "task_type_aliases": {
+            "workspace_item_search": ("workspace_item_lookup",),
+            "workspace_task_creation": ("workspace_task_creation",),
+            "workspace_comment_update": ("workspace_comment_update",),
+        },
+        "recovery_task_type_alias": "workspace_branch_fallback",
     },
 }

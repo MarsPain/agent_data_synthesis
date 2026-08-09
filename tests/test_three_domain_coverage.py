@@ -429,6 +429,73 @@ class ThreeDomainCoverageCatalogTest(unittest.TestCase):
                         ),
                         expected_cells,
                     )
+                    if profile.seed.domain == "workspace_tasks_fixture":
+                        samples = [
+                            json.loads(line)
+                            for line in result.samples_path.read_text(
+                                encoding="utf-8"
+                            ).splitlines()
+                            if line
+                        ]
+                        manifest = json.loads(
+                            result.manifest_path.read_text(encoding="utf-8")
+                        )
+                        quality = json.loads(
+                            result.quality_report_path.read_text(encoding="utf-8")
+                        )
+                        expected_capabilities = {
+                            "item_search",
+                            "task_creation",
+                            "comment_addition",
+                            "item_search_recovery",
+                            "missing_item_safe_failure",
+                        }
+                        self.assertEqual(
+                            {
+                                reference["capability_key"]
+                                for reference in manifest[
+                                    "domain_capability_evidence"
+                                ]["capability_references"]
+                            },
+                            expected_capabilities,
+                        )
+                        self.assertEqual(
+                            manifest["domain_capability_evidence"][
+                                "verified_recovery_samples"
+                            ],
+                            1,
+                        )
+                        for sample in samples:
+                            binding = sample["workspace_evidence"]
+                            task_refs = binding["task_capability_references"]
+                            self.assertEqual(
+                                binding["assignment_capability_references"],
+                                task_refs,
+                            )
+                            self.assertEqual(
+                                {
+                                    reference["capability_key"]
+                                    for reference in binding[
+                                        "capability_references"
+                                    ]
+                                },
+                                expected_capabilities,
+                            )
+                            self.assertIn("final_state_binding", sample)
+                            self.assertIn("verifier_binding", sample)
+                        self.assertEqual(
+                            set(
+                                quality["domain_capability_evidence"][
+                                    "accepted_counts"
+                                ]
+                            ),
+                            {
+                                "item_search",
+                                "task_creation",
+                                "comment_addition",
+                                "item_search_recovery",
+                            },
+                        )
 
     def test_fake_provider_reaches_more_cells_as_each_domain_target_grows(self) -> None:
         from synthesis.coverage_assignments import (

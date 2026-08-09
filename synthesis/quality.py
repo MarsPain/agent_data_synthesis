@@ -75,6 +75,9 @@ def build_quality_report(
         "sandbox_admission_outcomes": _sandbox_admission_outcomes(sandbox_audits),
         "slices": slices,
     }
+    domain_evidence = _domain_capability_evidence(samples, rejections)
+    if domain_evidence is not None:
+        report["domain_capability_evidence"] = domain_evidence
     if coverage_summary is not None:
         report["coverage"] = dict(coverage_summary)
     return report
@@ -300,6 +303,7 @@ def _build_slices(
         "task_type": {},
         "difficulty_level": {},
         "tool_combination": {},
+        "capability": {},
         "generator_role": {},
         "verifier_type": {},
         "rejection_cause": {},
@@ -345,6 +349,8 @@ def _build_slices(
         _add_slice(dimensions["difficulty_level"], _difficulty_level(_mapping(sample.get("task"))), accepted=True)
         _add_slice(dimensions["curriculum_level"], _difficulty_level(_mapping(sample.get("task"))), accepted=True)
         _add_slice(dimensions["tool_combination"], _tool_combination(sample), accepted=True)
+        for capability in _sample_domain_capabilities(sample):
+            _add_slice(dimensions["capability"], capability, accepted=True)
         _add_slice(dimensions["generator_role"], _generator_role(sample), accepted=True)
         _add_slice(dimensions["verifier_type"], _verifier_type(sample), accepted=True)
         _add_slice(dimensions["refinement_status"], _sample_refinement_status(sample), accepted=True)
@@ -386,6 +392,8 @@ def _build_slices(
         _add_slice(dimensions["difficulty_level"], _difficulty_level(task), accepted=False)
         _add_slice(dimensions["curriculum_level"], _difficulty_level(task), accepted=False)
         _add_slice(dimensions["tool_combination"], _rejection_tool_combination(task), accepted=False)
+        for capability in _rejection_domain_capabilities(rejection):
+            _add_slice(dimensions["capability"], capability, accepted=False)
         _add_slice(dimensions["rejection_cause"], cause, accepted=False)
         _add_slice(
             dimensions["refinement_status"],
@@ -964,6 +972,109 @@ def _tool_combination(sample: Mapping[str, Any]) -> str:
 def _rejection_tool_combination(task: Mapping[str, Any]) -> str:
     constraints = _mapping(task.get("constraints"))
     return str(constraints.get("must_use_tool", "unknown"))
+
+
+def _sample_domain_capabilities(sample: Mapping[str, Any]) -> tuple[str, ...]:
+    binding = _mapping(sample.get("domain_evidence"))
+    references = binding.get("task_capability_references")
+    if not isinstance(references, list):
+        return ()
+    return tuple(
+        str(reference.get("capability_key"))
+        for reference in references
+        if isinstance(reference, Mapping)
+        and isinstance(reference.get("capability_key"), str)
+    )
+
+
+def _rejection_domain_capabilities(
+    rejection: Mapping[str, Any],
+) -> tuple[str, ...]:
+    details = _mapping(rejection.get("details"))
+    binding = _mapping(details.get("domain_evidence"))
+    references = binding.get("task_capability_references")
+    if not isinstance(references, list):
+        return ()
+    return tuple(
+        str(reference.get("capability_key"))
+        for reference in references
+        if isinstance(reference, Mapping)
+        and isinstance(reference.get("capability_key"), str)
+    )
+
+
+def _domain_capability_evidence(
+    samples: list[dict[str, object]],
+    rejections: list[dict[str, object]],
+) -> dict[str, object] | None:
+    bindings: list[Mapping[str, object]] = []
+    for sample in samples:
+        binding = sample.get("domain_evidence")
+        if isinstance(binding, Mapping):
+            bindings.append(binding)
+    for rejection in rejections:
+        details = rejection.get("details")
+        binding = details.get("domain_evidence") if isinstance(details, Mapping) else None
+        if isinstance(binding, Mapping):
+            bindings.append(binding)
+    bindings = [
+        binding
+        for binding in bindings
+        if isinstance(binding.get("task_capability_references"), list)
+        and binding.get("task_capability_references")
+    ]
+    if not bindings:
+        return None
+    first = bindings[0]
+    catalog = first.get("capability_references")
+    plans = {
+        (
+            _mapping(binding.get("plan")).get("plan_id"),
+            _mapping(binding.get("plan")).get("plan_hash"),
+        )
+        for binding in bindings
+    }
+    counts: dict[str, dict[str, int]] = {}
+    for sample in samples:
+        for capability in _sample_domain_capabilities(sample):
+            current = counts.setdefault(capability, {"accepted": 0, "rejected": 0})
+            current["accepted"] += 1
+    for rejection in rejections:
+        for capability in _rejection_domain_capabilities(rejection):
+            current = counts.setdefault(capability, {"accepted": 0, "rejected": 0})
+            current["rejected"] += 1
+    return {
+        "schema_version": "domain_capability_evidence_v1",
+        "plan_bindings": [
+            {"plan_id": plan_id, "plan_hash": plan_hash}
+            for plan_id, plan_hash in sorted(plans, key=lambda value: str(value))
+        ],
+        "capability_references": list(catalog) if isinstance(catalog, list) else [],
+        "accepted_counts": {
+            key: value["accepted"] for key, value in sorted(counts.items())
+        },
+        "rejected_counts": {
+            key: value["rejected"] for key, value in sorted(counts.items())
+        },
+        "verified_recovery_samples": sum(
+            1
+            for sample in samples
+            if _domain_recovery_credit(sample)
+        ),
+    }
+
+
+def _domain_recovery_credit(sample: Mapping[str, Any]) -> bool:
+    binding = _mapping(sample.get("domain_evidence"))
+    references = binding.get("task_capability_references")
+    recovery = binding.get("recovery")
+    return (
+        isinstance(references, list)
+        and bool(references)
+        and binding.get("assignment") is not None
+        and isinstance(recovery, Mapping)
+        and recovery.get("verified") is True
+    )
 
 
 def _generator_role(sample: Mapping[str, Any]) -> str:

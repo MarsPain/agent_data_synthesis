@@ -818,6 +818,12 @@ def write_dataset_artifacts(
         "generator_config_hashes": _lineage_config_hashes(samples),
         "rejection_causes": quality_report["rejection_causes"],
     }
+    domain_capability_evidence = _domain_capability_manifest_evidence(
+        samples,
+        rejections,
+    )
+    if domain_capability_evidence is not None:
+        manifest["domain_capability_evidence"] = domain_capability_evidence
     if run_profile_metadata is not None:
         manifest["run_profile"] = dict(run_profile_metadata)
     if orchestration_status is not None:
@@ -892,6 +898,87 @@ def write_dataset_artifacts(
         coverage_evidence_path=coverage_evidence_path,
         accepted_count=len(samples),
         rejected_count=len(rejections),
+    )
+
+
+def _domain_capability_manifest_evidence(
+    samples: list[dict[str, object]],
+    rejections: list[dict[str, object]],
+) -> dict[str, object] | None:
+    bindings: list[Mapping[str, object]] = []
+    for sample in samples:
+        binding = sample.get("domain_evidence")
+        if isinstance(binding, Mapping):
+            bindings.append(binding)
+    for rejection in rejections:
+        details = rejection.get("details")
+        binding = details.get("domain_evidence") if isinstance(details, Mapping) else None
+        if isinstance(binding, Mapping):
+            bindings.append(binding)
+    bindings = [
+        binding
+        for binding in bindings
+        if isinstance(binding.get("task_capability_references"), list)
+        and binding.get("task_capability_references")
+    ]
+    if not bindings:
+        return None
+    first = bindings[0]
+    plan = first.get("plan")
+    catalog = first.get("capability_references")
+    accepted_capabilities: dict[str, int] = {}
+    for sample in samples:
+        binding = sample.get("domain_evidence")
+        references = (
+            binding.get("task_capability_references")
+            if isinstance(binding, Mapping)
+            else None
+        )
+        if not isinstance(references, list):
+            continue
+        for reference in references:
+            if isinstance(reference, Mapping) and isinstance(
+                reference.get("capability_key"),
+                str,
+            ):
+                key = str(reference["capability_key"])
+                accepted_capabilities[key] = accepted_capabilities.get(key, 0) + 1
+    recovery_samples = sum(
+        1
+        for sample in samples
+        if _domain_recovery_credit(sample)
+    )
+    return {
+        "schema_version": "domain_capability_manifest_evidence_v1",
+        "plan": dict(plan) if isinstance(plan, Mapping) else None,
+        "domain_pack_reference": (
+            dict(first["domain_pack_reference"])
+            if isinstance(first.get("domain_pack_reference"), Mapping)
+            else None
+        ),
+        "runtime_contract": (
+            dict(first["runtime_contract"])
+            if isinstance(first.get("runtime_contract"), Mapping)
+            else None
+        ),
+        "capability_references": list(catalog) if isinstance(catalog, list) else [],
+        "accepted_capability_counts": dict(sorted(accepted_capabilities.items())),
+        "verified_recovery_samples": recovery_samples,
+    }
+
+
+def _domain_recovery_credit(sample: Mapping[str, object]) -> bool:
+    binding = sample.get("domain_evidence")
+    if not isinstance(binding, Mapping):
+        return False
+    references = binding.get("task_capability_references")
+    recovery = binding.get("recovery")
+    return (
+        isinstance(references, list)
+        and bool(references)
+        and binding.get("assignment") is not None
+        and isinstance(recovery, Mapping)
+        and recovery.get("verified") is True
     )
 
 

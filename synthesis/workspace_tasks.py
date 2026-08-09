@@ -110,6 +110,7 @@ def build_workspace_generation_spec(
     registry: WorkspaceToolExporter,
     *,
     representative: bool = False,
+    domain_plan: object | None = None,
 ):
     from synthesis.domain_generation import (
         DOMAIN_GENERATION_SPEC_VERSION,
@@ -117,6 +118,23 @@ def build_workspace_generation_spec(
         DomainGenerationSpec,
         DomainTaskTypeSpec,
         validate_domain_generation_spec,
+    )
+    from synthesis.domain_pack import DomainPlan, initial_domain_pack_registry
+
+    if domain_plan is not None and not isinstance(domain_plan, DomainPlan):
+        raise ValueError("domain_plan must be a DomainPlan")
+    descriptor = initial_domain_pack_registry().descriptor_for("workspace_tasks")
+    projections = {
+        projection.task_type_key: projection
+        for projection in descriptor.task_capability_projections
+    }
+    workspace_capabilities = tuple(
+        sorted(descriptor.capability_references, key=lambda reference: reference.capability_key)
+    )
+    recovery_capabilities = tuple(
+        reference
+        for reference in workspace_capabilities
+        if reference.capability_key == "item_search_recovery"
     )
 
     if getattr(environment, "source_input", None) is not None:
@@ -144,14 +162,24 @@ def build_workspace_generation_spec(
             DomainTaskTypeSpec(
                 "workspace_item_search",
                 ("search_workspace_items",),
-                required_capabilities=("workspace_search",),
+                required_capabilities=("item_search",),
+                capability_references=projections["workspace_item_search"].capability_references,
+                capability_aliases=((
+                    ("workspace_search",),
+                    ("item_search",),
+                ),),
                 final_answer_fields=("item_id", "summary"),
             ),
             DomainTaskTypeSpec(
                 "workspace_task_creation",
                 ("search_workspace_items", "create_workspace_task"),
                 ("workspace_task",),
-                required_capabilities=("workspace_search", "workspace_task_creation"),
+                required_capabilities=("item_search", "task_creation"),
+                capability_references=projections["workspace_task_creation"].capability_references,
+                capability_aliases=((
+                    ("workspace_search", "workspace_task_creation"),
+                    ("item_search", "task_creation"),
+                ),),
                 expected_state_tool="create_workspace_task",
                 final_answer_source="state_tool_observation",
                 final_answer_fields=("task_id",),
@@ -161,7 +189,12 @@ def build_workspace_generation_spec(
                 "workspace_comment_update",
                 ("search_workspace_items", "add_workspace_comment"),
                 ("workspace_comment",),
-                required_capabilities=("workspace_search", "workspace_comment_update"),
+                required_capabilities=("item_search", "comment_addition"),
+                capability_references=projections["workspace_comment_update"].capability_references,
+                capability_aliases=((
+                    ("workspace_search", "workspace_comment_update"),
+                    ("item_search", "comment_addition"),
+                ),),
                 expected_state_tool="add_workspace_comment",
                 final_answer_source="state_tool_observation",
                 final_answer_fields=("comment_id",),
@@ -174,6 +207,20 @@ def build_workspace_generation_spec(
         context_policy=SYNTHETIC_CONTEXT_POLICY,
         max_candidates_per_call=2,
         grounding_window_size=2,
+        domain_pack_reference=(
+            domain_plan.domain_pack_reference
+            if domain_plan is not None
+            else descriptor.reference()
+        ),
+        plan_id=domain_plan.plan_id if domain_plan is not None else None,
+        plan_hash=domain_plan.plan_hash if domain_plan is not None else None,
+        capability_references=workspace_capabilities,
+        held_out_capability_references=(
+            tuple(domain_plan.held_out_capability_references)
+            if domain_plan is not None
+            else tuple(descriptor.held_out_capability_references)
+        ),
+        recovery_capability_references=recovery_capabilities,
     )
     validate_domain_generation_spec(spec)
     return spec

@@ -176,7 +176,110 @@ class WorkspaceDomainLifecycleTest(unittest.TestCase):
             )
             self.assertIsInstance(assessment, DomainAssessment)
             assert isinstance(assessment, DomainAssessment)
-            self.assertEqual(assessment.status, "established")
+        self.assertEqual(assessment.status, "established")
+
+    def test_workspace_release_generation_binds_the_full_canonical_catalog(self) -> None:
+        from synthesis.domain_generation import (
+            build_domain_generation_prompt,
+            build_generation_batch_context,
+            sanitized_generation_spec_metadata,
+        )
+        from synthesis.domain_pack import DomainPlan
+        from synthesis.domain_sources import build_domain_fixture_source_bundle
+        from synthesis.sources import validate_source_bundle
+        from synthesis.workspace_domain_pack import (
+            WorkspaceDomainRun,
+            WorkspaceRuntimeScope,
+            admitted_workspace_source,
+            build_workspace_domain_pack,
+            workspace_planning_intent,
+        )
+
+        source_bundle = build_domain_fixture_source_bundle("workspace_tasks_fixture")
+        source_result = validate_source_bundle(source_bundle)
+        admitted_source = admitted_workspace_source(source_bundle, source_result)
+        pack = build_workspace_domain_pack()
+        plan = pack.plan(workspace_planning_intent(pack), admitted_source)
+        self.assertIsInstance(plan, DomainPlan)
+        assert isinstance(plan, DomainPlan)
+        expected_keys = {
+            "item_search",
+            "task_creation",
+            "comment_addition",
+            "item_search_recovery",
+            "missing_item_safe_failure",
+        }
+        self.assertEqual(
+            {reference.capability_key for reference in plan.capability_references},
+            expected_keys,
+        )
+        self.assertEqual(
+            {reference.capability_key for reference in plan.held_out_capability_references},
+            expected_keys,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run = pack.open(
+                plan,
+                WorkspaceRuntimeScope(
+                    runtime_contract=plan.runtime_contract,
+                    admitted_source=admitted_source,
+                    source_bundle=source_bundle,
+                    source_result=source_result,
+                    output_dir=Path(tmpdir),
+                ),
+            )
+            self.assertIsInstance(run, WorkspaceDomainRun)
+            assert isinstance(run, WorkspaceDomainRun)
+            spec = run.generation_spec
+            self.assertIsNotNone(spec)
+            assert spec is not None
+            self.assertEqual(spec.plan_id, plan.plan_id)
+            self.assertEqual(spec.plan_hash, plan.plan_hash)
+            self.assertEqual(
+                {reference.capability_key for reference in spec.capability_references},
+                expected_keys,
+            )
+            required_capabilities = {
+                task.task_type: task.required_capabilities
+                for task in spec.task_types
+            }
+            self.assertEqual(
+                required_capabilities,
+                {
+                    "workspace_item_search": ("item_search",),
+                    "workspace_task_creation": ("item_search", "task_creation"),
+                    "workspace_comment_update": (
+                        "item_search",
+                        "comment_addition",
+                    ),
+                },
+            )
+            metadata = sanitized_generation_spec_metadata(spec)
+            self.assertEqual(
+                {
+                    reference["capability_key"]
+                    for reference in metadata["capability_references"]
+                },
+                expected_keys,
+            )
+            prompt = build_domain_generation_prompt(
+                spec,
+                requested_candidate_count=1,
+                batch_context=build_generation_batch_context(spec, batch_index=1),
+            )
+            payload = json.loads(prompt)
+            self.assertEqual(
+                {
+                    reference["capability_key"]
+                    for reference in payload["domain_plan_binding"][
+                        "capability_references"
+                    ]
+                },
+                expected_keys,
+            )
+            self.assertNotIn("workspace_search", prompt)
+            self.assertNotIn("workspace_item_lookup", prompt)
 
     def test_open_and_replay_reject_exact_contract_drift_with_bounded_reasons(
         self,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from synthesis.llm import LLMProviderError
 from synthesis.roles import (
@@ -12,6 +12,9 @@ from synthesis.roles import (
     default_role_registry,
 )
 from synthesis.seeds import DomainSeed, deterministic_seed_transformations
+
+if TYPE_CHECKING:
+    from synthesis.domain_pack import DomainCapabilityReference
 
 
 @dataclass(frozen=True)
@@ -95,6 +98,7 @@ class CandidateTask:
     task_editor_lineage: dict[str, object] | None = None
     editor_action: str | None = None
     mutation_authorization: dict[str, object] | None = None
+    capability_references: tuple["DomainCapabilityReference", ...] = ()
 
     def export(self) -> dict[str, object]:
         record: dict[str, object] = {

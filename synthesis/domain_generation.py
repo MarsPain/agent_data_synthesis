@@ -8,6 +8,7 @@ from pathlib import PurePath
 from typing import Callable, Mapping, Protocol
 
 from synthesis.contracts import LLM_RESPONSE_SCHEMA_DETAILS, LLM_RESPONSE_SCHEMA_REASONS
+from synthesis.domain_pack import DomainCapabilityReference, DomainPackReference
 from synthesis.llm import LLMProviderError
 from synthesis.profile_contracts import (
     REPRESENTATIVE_RUN_PROFILE_SCHEMA_VERSIONS,
@@ -58,6 +59,7 @@ _UNSAFE_STRING_PATTERNS = (
     re.compile(r"(?:^|\s)/(?:Users|home|private|var|tmp)/"),
     re.compile(r"[A-Za-z]:\\"),
 )
+_SHA256_HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True)
@@ -66,6 +68,11 @@ class DomainTaskTypeSpec:
     required_tools: tuple[str, ...]
     allowed_expected_state_checks: tuple[str, ...] = ()
     required_capabilities: tuple[str, ...] = ()
+    capability_references: tuple[DomainCapabilityReference, ...] = ()
+    capability_aliases: tuple[
+        tuple[tuple[str, ...], tuple[str, ...]],
+        ...
+    ] = ()
     expected_state_tool: str | None = None
     final_answer_source: str = "primary_observation"
     final_answer_fields: tuple[str, ...] = ()
@@ -83,6 +90,12 @@ class DomainGenerationSpec:
     context_policy: str
     max_candidates_per_call: int
     grounding_window_size: int | None = None
+    domain_pack_reference: DomainPackReference | None = None
+    plan_id: str | None = None
+    plan_hash: str | None = None
+    capability_references: tuple[DomainCapabilityReference, ...] = ()
+    held_out_capability_references: tuple[DomainCapabilityReference, ...] = ()
+    recovery_capability_references: tuple[DomainCapabilityReference, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -299,6 +312,21 @@ def validate_domain_generation_spec(spec: DomainGenerationSpec) -> None:
             item.required_capabilities,
             path=f"task_types.{task_type}.required_capabilities",
         )
+        if (
+            not isinstance(item.capability_references, tuple)
+            or any(
+                not isinstance(reference, DomainCapabilityReference)
+                for reference in item.capability_references
+            )
+            or len(set(item.capability_references)) != len(item.capability_references)
+        ):
+            raise ValueError(
+                f"task type {task_type} capability references are invalid"
+            )
+        _validate_safe_value(
+            [reference.to_record() for reference in item.capability_references],
+            path=f"task_types.{task_type}.capability_references",
+        )
         mutating_tools = tuple(
             tool_name
             for tool_name in item.required_tools
@@ -411,6 +439,57 @@ def validate_domain_generation_spec(spec: DomainGenerationSpec) -> None:
     if not spec.grounding_context:
         raise ValueError("grounding_context must not be empty")
     _validate_safe_value(spec.grounding_context, path="grounding_context")
+    if spec.domain_pack_reference is not None and not isinstance(
+        spec.domain_pack_reference,
+        DomainPackReference,
+    ):
+        raise ValueError("domain_pack_reference must be a DomainPackReference")
+    if (spec.plan_id is None) != (spec.plan_hash is None):
+        raise ValueError("plan_id and plan_hash must be supplied together")
+    if spec.plan_id is not None:
+        _required_text(spec.plan_id, "plan_id")
+        _required_text(spec.plan_hash, "plan_hash")
+        if not str(spec.plan_id).startswith("domain_plan_"):
+            raise ValueError("plan_id is not locally derived")
+        if not isinstance(spec.plan_hash, str) or not _SHA256_HASH_RE.fullmatch(
+            spec.plan_hash
+        ):
+            raise ValueError("plan_hash is invalid")
+    for field_name, references in (
+        ("capability_references", spec.capability_references),
+        ("held_out_capability_references", spec.held_out_capability_references),
+        ("recovery_capability_references", spec.recovery_capability_references),
+    ):
+        if not isinstance(references, tuple) or any(
+            not isinstance(reference, DomainCapabilityReference)
+            for reference in references
+        ):
+            raise ValueError(f"{field_name} must contain capability references")
+        if len(set(references)) != len(references):
+            raise ValueError(f"{field_name} must not contain duplicates")
+        if spec.domain_pack_reference is not None and any(
+            reference.domain_pack_id != spec.domain_pack_reference.domain_pack_id
+            for reference in references
+        ):
+            raise ValueError(f"{field_name} crosses the domain pack")
+    declared_references = set(spec.capability_references)
+    if any(
+        spec.domain_pack_reference is not None
+        and reference.domain_pack_id != spec.domain_pack_reference.domain_pack_id
+        for task_type in spec.task_types
+        for reference in task_type.capability_references
+    ):
+        raise ValueError("task capability references cross the domain pack")
+    if any(
+        reference not in declared_references
+        for task_type in spec.task_types
+        for reference in task_type.capability_references
+    ):
+        raise ValueError("task capability references are not in the spec catalog")
+    if not set(spec.held_out_capability_references) <= declared_references:
+        raise ValueError("held-out capability references are not in the spec catalog")
+    if not set(spec.recovery_capability_references) <= declared_references:
+        raise ValueError("recovery capability references are not in the spec catalog")
     if spec.grounding_window_size is not None:
         if (
             not isinstance(spec.grounding_window_size, int)
@@ -447,6 +526,32 @@ def sanitized_generation_spec_metadata(spec: DomainGenerationSpec) -> dict[str, 
         "context_policy": spec.context_policy,
         "grounding_context_hash": grounding_context_hash(spec),
         "max_candidates_per_call": spec.max_candidates_per_call,
+        "domain_pack_reference": (
+            spec.domain_pack_reference.to_record()
+            if spec.domain_pack_reference is not None
+            else None
+        ),
+        "plan_id": spec.plan_id,
+        "plan_hash": spec.plan_hash,
+        "capability_references": [
+            reference.to_record()
+            for reference in spec.capability_references
+        ],
+        "held_out_capability_references": [
+            reference.to_record()
+            for reference in spec.held_out_capability_references
+        ],
+        "recovery_capability_references": [
+            reference.to_record()
+            for reference in spec.recovery_capability_references
+        ],
+        "task_capability_references": {
+            task_type.task_type: [
+                reference.to_record()
+                for reference in task_type.capability_references
+            ]
+            for task_type in spec.task_types
+        },
     }
 
 
@@ -487,6 +592,27 @@ def build_domain_generation_prompt(
             "credential, prompt, or compatibility fields."
         ),
         "domain_id": spec.domain_id,
+        "domain_plan_binding": {
+            "domain_pack_reference": (
+                spec.domain_pack_reference.to_record()
+                if spec.domain_pack_reference is not None
+                else None
+            ),
+            "plan_id": spec.plan_id,
+            "plan_hash": spec.plan_hash,
+            "capability_references": [
+                reference.to_record()
+                for reference in spec.capability_references
+            ],
+            "held_out_capability_references": [
+                reference.to_record()
+                for reference in spec.held_out_capability_references
+            ],
+            "recovery_capability_references": [
+                reference.to_record()
+                for reference in spec.recovery_capability_references
+            ],
+        },
         "requested_candidate_count": requested_candidate_count,
         "batch_context": {
             "batch_index": batch_context.batch_index,
@@ -497,6 +623,10 @@ def build_domain_generation_prompt(
                 "task_type": focused_task_type.task_type,
                 "required_tools": list(focused_task_type.required_tools),
                 "required_capabilities": list(focused_task_type.required_capabilities),
+                "capability_references": [
+                    reference.to_record()
+                    for reference in focused_task_type.capability_references
+                ],
                 "allowed_expected_state_checks": list(
                     focused_task_type.allowed_expected_state_checks
                 ),
@@ -853,6 +983,7 @@ def task_contract_from_provider_record(
     capabilities = _provider_capabilities(
         raw.get("required_capabilities"),
         expected=task_spec.required_capabilities,
+        aliases=task_spec.capability_aliases,
     )
     final_answer = _provider_final_answer(
         raw.get("final_answer_contains"),
@@ -869,6 +1000,7 @@ def task_contract_from_provider_record(
                 task_type=task_type,
                 difficulty=difficulty,
                 required_capabilities=capabilities,
+                capability_references=tuple(task_spec.capability_references),
                 seed_ids=(seed.seed_id,),
                 lineage={"generation": dict(generation_lineage)},
             ),
@@ -1138,6 +1270,7 @@ def _provider_capabilities(
     value: object,
     *,
     expected: tuple[str, ...],
+    aliases: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (),
 ) -> tuple[str, ...]:
     if not isinstance(value, list):
         raise DomainGenerationValidationError(
@@ -1164,12 +1297,16 @@ def _provider_capabilities(
             "invalid_required_capabilities",
             detail="required_capabilities_duplicate",
         )
-    if capabilities != expected:
-        raise DomainGenerationValidationError(
-            "invalid_required_capabilities",
-            detail="required_capabilities_contract_mismatch",
-        )
-    return capabilities
+    if capabilities == expected:
+        return capabilities
+    # Compatibility is accepted only at the ingestion parser boundary.  The
+    # returned contract always uses the task type's canonical requirements.
+    if any(legacy == capabilities and canonical == expected for legacy, canonical in aliases):
+        return expected
+    raise DomainGenerationValidationError(
+        "invalid_required_capabilities",
+        detail="required_capabilities_contract_mismatch",
+    )
 
 
 def parse_domain_task_contracts(

@@ -29,6 +29,7 @@ from synthesis.domain_generation import (
     task_contract_from_provider_record,
     validate_domain_generation_spec,
 )
+from synthesis.domain_pack import DomainCapabilityReference
 from synthesis.domain_pipeline import DomainGenerationBoundary
 from synthesis.llm import LLMProviderError
 from synthesis.roles import TASK_GENERATION_ROLE, RoleRegistry, default_role_registry
@@ -72,11 +73,12 @@ class CoverageAssignment:
     grounding_unit_id: str | None
     difficulty_semantics: Mapping[str, object]
     branch_plan: Mapping[str, object] | None
+    capability_references: tuple[DomainCapabilityReference, ...] = ()
 
     def durable_record(self) -> dict[str, object]:
         """Return the locally issued assignment without grounding payloads."""
 
-        return {
+        record = {
             "schema_version": COVERAGE_ASSIGNMENT_VERSION,
             "assignment_id": self.assignment_id,
             "assignment_hash": self.assignment_hash,
@@ -98,6 +100,12 @@ class CoverageAssignment:
                 else None
             ),
         }
+        if self.capability_references:
+            record["capability_references"] = [
+                reference.to_record()
+                for reference in self.capability_references
+            ]
+        return record
 
     @classmethod
     def from_durable_record(
@@ -122,7 +130,10 @@ class CoverageAssignment:
             "difficulty_semantics",
             "branch_plan",
         }
-        if set(record) != expected_keys:
+        if set(record) not in (
+            expected_keys,
+            expected_keys | {"capability_references"},
+        ):
             raise ValueError("coverage assignment durable record keys mismatch")
         if record["schema_version"] != COVERAGE_ASSIGNMENT_VERSION:
             raise ValueError("coverage assignment durable schema is unsupported")
@@ -169,6 +180,9 @@ class CoverageAssignment:
         grounding_unit_id = record["grounding_unit_id"]
         if grounding_unit_id is not None and not isinstance(grounding_unit_id, str):
             raise ValueError("coverage assignment grounding unit id is invalid")
+        capability_references = _capability_references_from_record(
+            record.get("capability_references", ())
+        )
         assignment = cls(
             assignment_id=str(record["assignment_id"]),
             assignment_hash=str(record["assignment_hash"]),
@@ -185,17 +199,41 @@ class CoverageAssignment:
             grounding_unit_id=grounding_unit_id,
             difficulty_semantics=difficulty_semantics,
             branch_plan=dict(branch_plan) if isinstance(branch_plan, Mapping) else None,
+            capability_references=capability_references,
         )
         if assignment.assignment_id != (
             "coverage_assignment_"
             + assignment.assignment_hash.removeprefix("sha256:")[:16]
         ):
             raise ValueError("coverage assignment id is not locally derived")
+        if "capability_references" in record and canonical_coverage_hash(
+            _coverage_assignment_hash_payload(
+                assignment_ordinal=assignment.assignment_ordinal,
+                plan_id=assignment.plan_id,
+                plan_hash=assignment.plan_hash,
+                cell_id=assignment.cell_id,
+                dimensions=assignment.dimensions,
+                difficulty_semantics=assignment.difficulty_semantics,
+                branch_plan=assignment.branch_plan,
+                capability_references=assignment.capability_references,
+                grounding_scope={
+                    "context_key": assignment.grounding_context_key,
+                    "unit_index": assignment.grounding_unit_index,
+                    "grounding_hash": assignment.grounding_unit_hash,
+                    **(
+                        {"unit_id": assignment.grounding_unit_id}
+                        if assignment.grounding_unit_id is not None
+                        else {}
+                    ),
+                },
+            )
+        ) != assignment.assignment_hash:
+            raise ValueError("coverage assignment hash does not bind its fields")
         return assignment
 
     def provider_contract(self) -> dict[str, object]:
         required_tools = _required_tools_dimension(self.dimensions)
-        return {
+        contract = {
             "schema_version": COVERAGE_ASSIGNMENT_VERSION,
             "assignment_id": self.assignment_id,
             "assignment_hash": self.assignment_hash,
@@ -215,6 +253,11 @@ class CoverageAssignment:
                 "grounding_hash": self.grounding_unit_hash,
             },
         }
+        contract["capability_references"] = [
+            reference.to_record()
+            for reference in self.capability_references
+        ]
+        return contract
 
     def lineage(self) -> dict[str, object]:
         grounding_scope: dict[str, object] = {
@@ -224,6 +267,13 @@ class CoverageAssignment:
         }
         if self.grounding_unit_id is not None:
             grounding_scope["unit_id"] = self.grounding_unit_id
+        catalog = dict(self.catalog)
+        if self.capability_references:
+            catalog["capability_references"] = [
+                reference.to_record()
+                for reference in self.capability_references
+            ]
+        catalog["branch_plan_hash"] = canonical_coverage_hash(self.branch_plan)
         return {
             "schema_version": COVERAGE_ASSIGNMENT_LINEAGE_VERSION,
             "assignment_id": self.assignment_id,
@@ -232,7 +282,7 @@ class CoverageAssignment:
             "plan_id": self.plan_id,
             "plan_hash": self.plan_hash,
             "cell_id": self.cell_id,
-            "catalog": dict(self.catalog),
+            "catalog": catalog,
             "coverage_profile": dict(self.coverage_profile),
             "scheduler": {
                 "schema_version": COVERAGE_SCHEDULER_VERSION,
@@ -1130,21 +1180,18 @@ def _build_coverage_assignment(
         for semantics in catalog.difficulty_semantics
         if semantics.difficulty == cell.dimensions["difficulty"]
     )
-    assignment_payload = {
-        "schema_version": COVERAGE_ASSIGNMENT_VERSION,
-        "assignment_ordinal": assignment_ordinal,
-        "plan_id": plan.plan_id,
-        "plan_hash": plan.plan_hash,
-        "cell_id": cell.cell_id,
-        "dimensions": _canonical_dimensions(cell.dimensions),
-        "difficulty_semantics": difficulty_semantics,
-        "branch_plan": (
-            dict(cell.branch_plan)
-            if cell.branch_plan is not None
-            else None
-        ),
-        "grounding_scope": grounding_scope,
-    }
+    capability_references = _assignment_capability_references(spec, cell)
+    assignment_payload = _coverage_assignment_hash_payload(
+        assignment_ordinal=assignment_ordinal,
+        plan_id=plan.plan_id,
+        plan_hash=plan.plan_hash,
+        cell_id=cell.cell_id,
+        dimensions=cell.dimensions,
+        difficulty_semantics=difficulty_semantics,
+        branch_plan=cell.branch_plan,
+        capability_references=capability_references,
+        grounding_scope=grounding_scope,
+    )
     assignment_hash = canonical_coverage_hash(assignment_payload)
     return CoverageAssignment(
         assignment_id=(
@@ -1169,6 +1216,94 @@ def _build_coverage_assignment(
             if cell.branch_plan is not None
             else None
         ),
+        capability_references=capability_references,
+    )
+
+
+def _coverage_assignment_hash_payload(
+    *,
+    assignment_ordinal: int,
+    plan_id: str,
+    plan_hash: str,
+    cell_id: str,
+    dimensions: Mapping[str, object],
+    difficulty_semantics: Mapping[str, object],
+    branch_plan: Mapping[str, object] | None,
+    capability_references: tuple[DomainCapabilityReference, ...],
+    grounding_scope: Mapping[str, object],
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "schema_version": COVERAGE_ASSIGNMENT_VERSION,
+        "assignment_ordinal": assignment_ordinal,
+        "plan_id": plan_id,
+        "plan_hash": plan_hash,
+        "cell_id": cell_id,
+        "dimensions": _canonical_dimensions(dimensions),
+        "difficulty_semantics": dict(difficulty_semantics),
+        "branch_plan": dict(branch_plan) if branch_plan is not None else None,
+        "grounding_scope": dict(grounding_scope),
+    }
+    if capability_references:
+        payload["capability_references"] = [
+            reference.to_record()
+            for reference in capability_references
+        ]
+    return payload
+
+
+def _assignment_capability_references(
+    spec: DomainGenerationSpec,
+    cell: CoverageCell,
+) -> tuple[DomainCapabilityReference, ...]:
+    task_spec = next(
+        (
+            task_type
+            for task_type in spec.task_types
+            if task_type.task_type == cell.dimensions["task_type"]
+        ),
+        None,
+    )
+    references = list(task_spec.capability_references if task_spec else ())
+    if cell.dimensions.get("recovery") != "none":
+        references.extend(spec.recovery_capability_references)
+    return tuple(
+        sorted(
+            set(references),
+            key=lambda reference: (
+                reference.domain_pack_id,
+                reference.capability_key,
+                reference.capability_contract_version,
+            ),
+        )
+    )
+
+
+def _capability_references_from_record(
+    value: object,
+) -> tuple[DomainCapabilityReference, ...]:
+    if value in (None, ()):
+        return ()
+    if not isinstance(value, (list, tuple)):
+        raise ValueError("coverage assignment capability references must be a list")
+    try:
+        references = tuple(
+            DomainCapabilityReference.from_record(item)
+            for item in value
+            if isinstance(item, Mapping)
+        )
+    except (TypeError, ValueError, KeyError) as exc:
+        raise ValueError("coverage assignment capability references are invalid") from exc
+    if len(references) != len(value) or len(set(references)) != len(references):
+        raise ValueError("coverage assignment capability references are invalid")
+    return tuple(
+        sorted(
+            references,
+            key=lambda reference: (
+                reference.domain_pack_id,
+                reference.capability_key,
+                reference.capability_contract_version,
+            ),
+        )
     )
 
 
@@ -1284,7 +1419,7 @@ def _generate_coverage_assignments(
                 candidate_id_prefix=batch_context.candidate_id_prefix,
                 generation_lineage=generation_lineage,
             )
-            _validate_assignment_membership(
+            contract = _validate_assignment_membership(
                 raw_record=raw_record,
                 contract=contract,
                 assignment=assignment,
@@ -1454,8 +1589,13 @@ def _assignment_generation_spec(
     assignment: CoverageAssignment,
 ) -> DomainGenerationSpec:
     task_type = str(assignment.dimensions["task_type"])
-    task_types = tuple(
-        item for item in spec.task_types if item.task_type == task_type
+    assignment_task_types = tuple(
+        replace(
+            item,
+            capability_references=assignment.capability_references,
+        )
+        for item in spec.task_types
+        if item.task_type == task_type
     )
     required_tools = _required_tools_dimension(assignment.dimensions)
     tools = tuple(
@@ -1464,7 +1604,7 @@ def _assignment_generation_spec(
     grounding_key, grounding_units = _single_grounding_collection(spec)
     return replace(
         spec,
-        task_types=task_types,
+        task_types=assignment_task_types,
         tools=tools,
         grounding_context={
             grounding_key: [
@@ -1485,14 +1625,11 @@ def _validate_assignment_membership(
     seed: DomainSeed,
     batch_context: DomainGenerationBatchContext,
     generation_lineage: Mapping[str, object],
-) -> None:
-    _validate_contract_assignment_membership(
-        contract=contract,
-        assignment=assignment,
-        assignment_spec=assignment_spec,
-    )
+) -> TaskContract:
+    if contract.intent.task_type != assignment.dimensions["task_type"]:
+        raise CoverageAssignmentMismatch("task_type_mismatch")
     try:
-        task_contract_from_provider_record(
+        assignment_contract = task_contract_from_provider_record(
             raw_record,
             seed=seed,
             spec=assignment_spec,
@@ -1501,6 +1638,12 @@ def _validate_assignment_membership(
         )
     except DomainGenerationValidationError as exc:
         raise CoverageAssignmentMismatch("grounding_scope_mismatch") from exc
+    _validate_contract_assignment_membership(
+        contract=assignment_contract,
+        assignment=assignment,
+        assignment_spec=assignment_spec,
+    )
+    return assignment_contract
 
 
 def _validate_contract_assignment_membership(
@@ -1509,6 +1652,10 @@ def _validate_contract_assignment_membership(
     assignment: CoverageAssignment,
     assignment_spec: DomainGenerationSpec,
 ) -> None:
+    if tuple(contract.intent.capability_references) != tuple(
+        assignment.capability_references
+    ):
+        raise CoverageAssignmentMismatch("capability_membership_mismatch")
     if contract.intent.task_type != assignment.dimensions["task_type"]:
         raise CoverageAssignmentMismatch("task_type_mismatch")
     if contract.policy_hint.required_tools != _required_tools_dimension(
@@ -1529,6 +1676,21 @@ def _validate_contract_assignment_membership(
     )
     if state_behavior != assignment.dimensions["state_behavior"]:
         raise CoverageAssignmentMismatch("state_behavior_mismatch")
+    if (assignment.branch_plan is None) != (
+        assignment.dimensions["recovery"] == "none"
+    ):
+        raise CoverageAssignmentMismatch("recovery_mismatch")
+    generation_lineage = contract.intent.lineage.get("generation")
+    lineage_assignment = (
+        generation_lineage.get("coverage_assignment")
+        if isinstance(generation_lineage, Mapping)
+        else None
+    )
+    if not isinstance(lineage_assignment, Mapping) or any(
+        lineage_assignment.get(field_name) != getattr(assignment, field_name)
+        for field_name in ("assignment_id", "assignment_hash", "plan_id", "plan_hash")
+    ):
+        raise CoverageAssignmentMismatch("assignment_lineage_mismatch")
     _, grounding_units = _single_grounding_collection(assignment_spec)
     grounding_unit = grounding_units[0]
     assigned_primary_arguments = (

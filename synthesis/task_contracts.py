@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from synthesis.contracts import ContractValidationError, validate_branch_plan_record
+from synthesis.domain_pack import DomainCapabilityReference
 from synthesis.tasks import CandidateTask
 
 
@@ -60,6 +61,7 @@ class TaskIntent:
     task_type: str
     difficulty: Mapping[str, object]
     required_capabilities: tuple[str, ...] = ()
+    capability_references: tuple[DomainCapabilityReference, ...] = ()
     seed_ids: tuple[str, ...] = ()
     lineage: Mapping[str, object] = field(default_factory=dict)
 
@@ -107,6 +109,7 @@ def task_contract_from_candidate(candidate: CandidateTask) -> TaskContract:
             required_capabilities=_string_tuple(
                 candidate.constraints.get("required_capabilities")
             ),
+            capability_references=tuple(candidate.capability_references),
             seed_ids=tuple(candidate.seed_ids),
             lineage=_candidate_lineage(candidate),
         ),
@@ -184,6 +187,7 @@ def candidate_from_task_contract(contract: TaskContract) -> CandidateTask:
             if contract.mutation_authorization is not None
             else None
         ),
+        capability_references=tuple(contract.intent.capability_references),
     )
 
 
@@ -197,11 +201,26 @@ def _validate_intent(intent: TaskIntent) -> None:
     if not isinstance(intent.difficulty, Mapping):
         raise ContractValidationError("intent.difficulty must be an object")
     _validate_string_tuple(intent.required_capabilities, "intent.required_capabilities")
+    if (
+        not isinstance(intent.capability_references, tuple)
+        or any(
+            not isinstance(reference, DomainCapabilityReference)
+            for reference in intent.capability_references
+        )
+        or len(set(intent.capability_references)) != len(intent.capability_references)
+    ):
+        raise ContractValidationError(
+            "intent.capability_references must contain unique references"
+        )
     _validate_string_tuple(intent.seed_ids, "intent.seed_ids")
     if not isinstance(intent.lineage, Mapping):
         raise ContractValidationError("intent.lineage must be an object")
     _reject_unsafe(intent.difficulty, "intent.difficulty")
     _reject_unsafe(intent.required_capabilities, "intent.required_capabilities")
+    _reject_unsafe(
+        [reference.to_record() for reference in intent.capability_references],
+        "intent.capability_references",
+    )
     _reject_unsafe(intent.seed_ids, "intent.seed_ids")
     _reject_unsafe(intent.lineage, "intent.lineage")
 

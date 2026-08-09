@@ -8,12 +8,12 @@ verifier remain private implementation details of this module.
 from __future__ import annotations
 
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 from typing import Mapping, cast
 
-from awm_runtime.episodes import episode_id_for_candidate
+from awm_runtime.episodes import deterministic_content_hash, episode_id_for_candidate
 from awm_runtime.runtime import RuntimeActionRequest, RuntimeSession
 from synthesis.candidate_processing import (
     CandidateExecutionRequest,
@@ -74,6 +74,11 @@ from synthesis.workspace_tasks import (
     workspace_semantic_mutation_judge,
 )
 from synthesis.workspace_tools import build_workspace_tool_registry
+from synthesis.workspace_evidence import (
+    build_workspace_evidence_binding,
+    canonical_capability_references,
+    workspace_task_contract_hash,
+)
 
 
 _WORKSPACE_PACK_ID = "workspace_tasks"
@@ -247,13 +252,12 @@ def workspace_planning_intent(pack: DomainPack) -> DomainPlanningIntent:
         for item in pack.descriptor.task_capability_projections
         if item.task_type_key in _CANONICAL_TASK_TYPES
     )
+    # The plan is the canonical catalog boundary.  Recovery and safe-failure
+    # capabilities are deliberately retained even though they are not ordinary
+    # generated task projections; held-out evaluation owns their execution proof.
     selected_capabilities = tuple(
         sorted(
-            {
-                capability
-                for projection in projections
-                for capability in projection.capability_references
-            },
+            pack.descriptor.capability_references,
             key=lambda item: (
                 item.domain_pack_id,
                 item.capability_key,
@@ -410,6 +414,7 @@ class _WorkspaceLifecycle:
                     environment,
                     registry,
                     representative=runtime_scope.representative_fixture,
+                    domain_plan=plan,
                 )
                 if runtime_scope.domain_environment_input is None
                 else None
@@ -628,7 +633,12 @@ class WorkspaceDomainRun:
         ):
             return WorkspaceReplayResult("rejected", "verifier_drift")
         try:
-            episode_hash = canonical_domain_pack_hash(subject.episode)
+            # Episode records are already sanitized by the episode builder, but
+            # Workspace evidence may carry provider/mutation metadata whose
+            # field names are intentionally outside the Domain Pack contract
+            # vocabulary.  Use the runtime's content hash for this opaque
+            # replay payload rather than the strict Domain Pack hash.
+            episode_hash = deterministic_content_hash(subject.episode)
             validate_episode_log_record(subject.episode)
         except (ContractValidationError, DomainPackContractError):
             return WorkspaceReplayResult("rejected", "episode_drift")
@@ -646,6 +656,13 @@ class WorkspaceDomainRun:
             return WorkspaceReplayResult("rejected", "candidate_contract_drift")
         if candidate_contract_hash != subject.candidate_contract_hash:
             return WorkspaceReplayResult("rejected", "candidate_contract_drift")
+        if not _workspace_episode_binding_matches(
+            subject.episode,
+            plan=self._plan,
+            candidate=subject.candidate,
+            verifier=self._verifier,
+        ):
+            return WorkspaceReplayResult("rejected", "replay_evidence_mismatch")
         runtime = subject.episode.get("runtime")
         if not isinstance(runtime, Mapping) or (
             runtime.get("runtime_id") != self._plan.runtime_contract.runtime_id
@@ -751,18 +768,97 @@ class WorkspaceDomainRun:
             return "tool_membership_mismatch"
         if contract.policy_hint.primary_tool != expected_tools[0]:
             return "primary_tool_membership_mismatch"
+        if tuple(contract.intent.required_capabilities) != tuple(
+            task_spec.required_capabilities
+        ):
+            return "capability_membership_mismatch"
 
+        generation_lineage = contract.intent.lineage.get("generation")
+        assignment = (
+            generation_lineage.get("coverage_assignment")
+            if isinstance(generation_lineage, Mapping)
+            else None
+        )
+        if not isinstance(assignment, Mapping):
+            return "assignment_membership_mismatch"
+        if any(
+            not isinstance(assignment.get(field_name), str)
+            or not str(assignment.get(field_name)).strip()
+            for field_name in (
+                "assignment_id",
+                "assignment_hash",
+                "plan_id",
+                "plan_hash",
+            )
+        ):
+            return "assignment_membership_mismatch"
+
+        expected_capability_references = tuple(projection.capability_references)
+        recovery_paths = contract.intent.difficulty.get("recovery_paths")
+        if (
+            isinstance(recovery_paths, int)
+            and not isinstance(recovery_paths, bool)
+            and recovery_paths > 0
+        ) or contract.policy_hint.branch_plan is not None:
+            recovery_reference = next(
+                (
+                    reference
+                    for reference in self._plan.capability_references
+                    if reference.capability_key == "item_search_recovery"
+                ),
+                None,
+            )
+            if recovery_reference is not None:
+                expected_capability_references = tuple(
+                    sorted(
+                        {
+                            *expected_capability_references,
+                            recovery_reference,
+                        },
+                        key=lambda reference: (
+                            reference.domain_pack_id,
+                            reference.capability_key,
+                            reference.capability_contract_version,
+                        ),
+                    )
+                )
         plan_capability_keys = tuple(
-            item.capability_key for item in projection.capability_references
+            item.capability_key for item in expected_capability_references
         )
         if plan_capability_keys != _PLAN_CAPABILITY_KEYS_BY_TASK_TYPE[projection_key]:
-            return "capability_contract_drift"
-        declared_capabilities = tuple(contract.intent.required_capabilities)
-        if declared_capabilities not in {
-            plan_capability_keys,
-            tuple(task_spec.required_capabilities),
-        }:
+            # Recovery is a task capability augmentation, so the projection
+            # itself remains the non-recovery contract.
+            if tuple(
+                item.capability_key for item in projection.capability_references
+            ) != _PLAN_CAPABILITY_KEYS_BY_TASK_TYPE[projection_key]:
+                return "capability_contract_drift"
+        if canonical_capability_references(
+            tuple(contract.intent.capability_references)
+        ) != canonical_capability_references(expected_capability_references):
             return "capability_membership_mismatch"
+        assignment_catalog = assignment.get("catalog")
+        assignment_capabilities = (
+            assignment_catalog.get("capability_references")
+            if isinstance(assignment_catalog, Mapping)
+            else None
+        )
+        assignment_branch_plan_hash = (
+            assignment_catalog.get("branch_plan_hash")
+            if isinstance(assignment_catalog, Mapping)
+            else None
+        )
+        if assignment_capabilities != canonical_capability_references(
+            tuple(contract.intent.capability_references)
+        ):
+            return "assignment_membership_mismatch"
+        if assignment_branch_plan_hash != canonical_hash(
+            contract.policy_hint.branch_plan
+        ):
+            return "recovery_assignment_mismatch"
+        if canonical_capability_references(tuple(task_spec.capability_references)) != (
+            canonical_capability_references(tuple(projection.capability_references))
+        ):
+            return "capability_contract_drift"
 
         tools_by_name = {
             str(tool["name"]): tool for tool in self._generation_spec.tools
@@ -1085,6 +1181,12 @@ class WorkspaceCandidateRun:
             context=context,
             options=options or CandidateProcessingOptions(),
         )
+        outcome = _bind_workspace_outcome(
+            plan=self._domain_run.plan,
+            verifier=self._domain_run._verifier,
+            candidate=prepared,
+            outcome=outcome,
+        )
         replay_subject = _replay_subject_from_outcome(
             plan=self._domain_run.plan,
             verifier=self._domain_run._verifier,
@@ -1092,6 +1194,7 @@ class WorkspaceCandidateRun:
             outcome=outcome,
         )
         episode_hash = replay_subject.episode_hash if replay_subject is not None else None
+        evidence_binding = _outcome_workspace_binding(outcome)
         outcome_status = "accepted" if outcome.sample is not None else "rejected"
         return WorkspaceAttemptResult(
             outcome=outcome,
@@ -1101,8 +1204,164 @@ class WorkspaceCandidateRun:
                 candidate_id=outcome.candidate_id,
                 episode_hash=episode_hash,
                 outcome_status=outcome_status,
+                binding_hash=(
+                    canonical_hash(evidence_binding)
+                    if evidence_binding is not None
+                    else None
+                ),
             ),
         )
+
+
+def _bind_workspace_outcome(
+    *,
+    plan: DomainPlan,
+    verifier: ExactAnswerVerifier,
+    candidate: CandidateTask,
+    outcome: ProvisionalCandidateOutcome,
+) -> ProvisionalCandidateOutcome:
+    assignment = _candidate_assignment_lineage(candidate)
+    if outcome.sample is not None:
+        try:
+            core_episode = outcome.episode_log
+            core_episode_hash = (
+                deterministic_content_hash(core_episode)
+                if core_episode is not None
+                else None
+            )
+            binding = build_workspace_evidence_binding(
+                plan=plan,
+                candidate=candidate,
+                verifier_id=verifier.verifier_id,
+                verifier_version=verifier.version,
+                sample=outcome.sample,
+                episode=core_episode,
+                episode_hash=core_episode_hash,
+                assignment=assignment,
+            )
+            sample = dict(outcome.sample)
+            _attach_workspace_binding_to_sample(sample, binding)
+            episode = (
+                dict(core_episode)
+                if isinstance(core_episode, Mapping)
+                else None
+            )
+            if episode is not None:
+                episode["workspace_evidence"] = dict(binding)
+            return replace(
+                outcome,
+                sample=sample,
+                episode_log=episode,
+            )
+        except (ContractValidationError, DomainPackContractError, ValueError):
+            # A successful generic outcome that cannot be bound to the opened
+            # plan must not receive release credit.
+            return replace(
+                outcome,
+                sample=None,
+                rejection={
+                    "candidate_id": outcome.candidate_id,
+                    "cause": "domain_plan_membership_rejected",
+                    "task": candidate.export(),
+                    "details": {
+                        "membership_reason": "evidence_binding_failed",
+                        "workspace_evidence": _minimal_workspace_binding(plan),
+                        "domain_evidence": _minimal_workspace_binding(plan),
+                    },
+                },
+            )
+
+    rejection = dict(outcome.rejection or {})
+    raw_details = rejection.get("details")
+    details = dict(raw_details) if isinstance(raw_details, Mapping) else {}
+    try:
+        contract = candidate.contract()
+    except ContractValidationError:
+        details["workspace_evidence"] = _minimal_workspace_binding(plan)
+        details["domain_evidence"] = _minimal_workspace_binding(plan)
+    else:
+        binding = build_workspace_evidence_binding(
+            plan=plan,
+            candidate=candidate,
+            verifier_id=verifier.verifier_id,
+            verifier_version=verifier.version,
+            sample={},
+            episode=outcome.episode_log,
+            episode_hash=(
+                deterministic_content_hash(outcome.episode_log)
+                if outcome.episode_log is not None
+                else None
+            ),
+            assignment=assignment,
+        )
+        details["workspace_evidence"] = binding
+        details["domain_evidence"] = binding
+    rejection["details"] = details
+    return replace(outcome, rejection=rejection)
+
+
+def _attach_workspace_binding_to_sample(
+    sample: dict[str, object],
+    binding: Mapping[str, object],
+) -> None:
+    sample["workspace_evidence"] = dict(binding)
+    sample["domain_evidence"] = dict(binding)
+    for field_name in (
+        "domain_pack_reference",
+        "plan",
+        "runtime_contract",
+        "verifier",
+    ):
+        value = binding.get(field_name)
+        if isinstance(value, Mapping):
+            sample[
+                "verifier_binding" if field_name == "verifier" else field_name
+            ] = dict(value)
+    for field_name in ("capability_references", "task_capability_references"):
+        value = binding.get(field_name)
+        if isinstance(value, list):
+            sample[field_name] = list(value)
+    episode = binding.get("episode")
+    if isinstance(episode, Mapping):
+        sample["episode_binding"] = dict(episode)
+    final_state = binding.get("final_state")
+    if not isinstance(final_state, Mapping):
+        final_state = binding.get("grounding")
+    if isinstance(final_state, Mapping):
+        sample["final_state_binding"] = dict(final_state)
+
+
+def _candidate_assignment_lineage(
+    candidate: CandidateTask,
+) -> Mapping[str, object] | None:
+    lineage = candidate.generation_lineage
+    if not isinstance(lineage, Mapping):
+        return None
+    assignment = lineage.get("coverage_assignment")
+    return assignment if isinstance(assignment, Mapping) else None
+
+
+def _outcome_workspace_binding(
+    outcome: ProvisionalCandidateOutcome,
+) -> Mapping[str, object] | None:
+    if outcome.sample is not None:
+        binding = outcome.sample.get("workspace_evidence")
+        return binding if isinstance(binding, Mapping) else None
+    details = outcome.rejection.get("details") if outcome.rejection else None
+    binding = details.get("workspace_evidence") if isinstance(details, Mapping) else None
+    return binding if isinstance(binding, Mapping) else None
+
+
+def _minimal_workspace_binding(plan: DomainPlan) -> dict[str, object]:
+    return {
+        "schema_version": "workspace_evidence_binding_v1",
+        "domain_pack_reference": plan.domain_pack_reference.to_record(),
+        "plan": {"plan_id": plan.plan_id, "plan_hash": plan.plan_hash},
+        "runtime_contract": plan.runtime_contract.to_record(),
+        "capability_references": [
+            reference.to_record() for reference in plan.capability_references
+        ],
+    }
 
 
 def _workspace_adapter_shim(
@@ -1163,7 +1422,83 @@ def _replay_subject_from_outcome(
         candidate=candidate,
         candidate_contract_hash=_candidate_contract_hash(candidate),
         episode=dict(episode),
-        episode_hash=canonical_domain_pack_hash(episode),
+        episode_hash=deterministic_content_hash(episode),
+    )
+
+
+def _workspace_episode_binding_matches(
+    episode: Mapping[str, object],
+    *,
+    plan: DomainPlan,
+    candidate: CandidateTask,
+    verifier: ExactAnswerVerifier,
+) -> bool:
+    binding = episode.get("workspace_evidence")
+    if not isinstance(binding, Mapping):
+        return False
+    if binding.get("schema_version") != "workspace_evidence_binding_v1":
+        return False
+    if binding.get("domain_pack_reference") != plan.domain_pack_reference.to_record():
+        return False
+    plan_binding = binding.get("plan")
+    if not isinstance(plan_binding, Mapping) or plan_binding.get("plan_id") != plan.plan_id or plan_binding.get("plan_hash") != plan.plan_hash:
+        return False
+    if binding.get("runtime_contract") != plan.runtime_contract.to_record():
+        return False
+    if binding.get("capability_references") != [
+        reference.to_record() for reference in plan.capability_references
+    ]:
+        return False
+    verifier_binding = binding.get("verifier")
+    if verifier_binding != {"id": verifier.verifier_id, "version": verifier.version}:
+        return False
+    task_binding = binding.get("task_contract")
+    if not isinstance(task_binding, Mapping):
+        return False
+    try:
+        contract = candidate.contract()
+    except ContractValidationError:
+        return False
+    assignment = binding.get("assignment")
+    if assignment is not None:
+        if not isinstance(assignment, Mapping):
+            return False
+        if binding.get("assignment_capability_references") != (
+            canonical_capability_references(
+                tuple(contract.intent.capability_references)
+            )
+        ):
+            return False
+    final_state = binding.get("final_state")
+    if not isinstance(final_state, Mapping):
+        return False
+    expected_state = [
+        {
+            "check_type": state_check.check_type,
+            "expected": dict(state_check.expected),
+        }
+        for state_check in contract.expected_state
+    ]
+    if final_state.get("expected_state_hash") != canonical_domain_pack_hash(
+        expected_state
+    ):
+        return False
+    binding_episode = binding.get("episode")
+    core_episode = dict(episode)
+    core_episode.pop("workspace_evidence", None)
+    return (
+        task_binding.get("candidate_id") == contract.intent.candidate_id
+        and task_binding.get("task_type") == contract.intent.task_type
+        and task_binding.get("contract_hash") == workspace_task_contract_hash(candidate)
+        and binding.get("task_capability_references")
+        == canonical_capability_references(
+            tuple(contract.intent.capability_references)
+        )
+        and isinstance(binding_episode, Mapping)
+        and binding_episode.get("episode_id") == episode.get("episode_id")
+        and binding_episode.get("episode_hash")
+        == deterministic_content_hash(core_episode)
+        and binding_episode.get("core_episode_hash") == canonical_hash(core_episode)
     )
 
 
@@ -1180,6 +1515,10 @@ def _candidate_contract_hash(candidate: CandidateTask) -> str:
                 "task_type": contract.intent.task_type,
                 "difficulty": dict(contract.intent.difficulty),
                 "required_capabilities": list(contract.intent.required_capabilities),
+                "capability_references": [
+                    reference.to_record()
+                    for reference in contract.intent.capability_references
+                ],
                 "seed_ids": list(contract.intent.seed_ids),
                 "lineage": dict(contract.intent.lineage),
             },
@@ -1219,6 +1558,7 @@ def _attempt_evidence_hash(
     candidate_id: str,
     episode_hash: str | None,
     outcome_status: str,
+    binding_hash: str | None = None,
 ) -> str:
     return canonical_domain_pack_hash(
         {
@@ -1227,6 +1567,7 @@ def _attempt_evidence_hash(
             "candidate_id": candidate_id,
             "episode_hash": episode_hash,
             "outcome_status": outcome_status,
+            "binding_hash": binding_hash,
         }
     )
 

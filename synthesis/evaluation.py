@@ -4,7 +4,7 @@ import json
 import tempfile
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 from synthesis.contracts import (
     validate_evaluation_report_record,
@@ -17,6 +17,9 @@ from synthesis.seeds import DomainSeed
 from synthesis.tasks import CandidateTask
 from synthesis.workspace_tasks import generate_workspace_fixture_candidates
 
+if TYPE_CHECKING:
+    from synthesis.domain_pack import DomainCapabilityReference
+
 
 EVALUATION_REPORT_SCHEMA_VERSION = "evaluation_report_v1"
 CONTACTS_HELDOUT_SUITE_ID = "contacts_heldout_v1"
@@ -27,6 +30,7 @@ class HeldoutTask:
     task_id: str
     candidate: CandidateTask
     capability_tags: tuple[str, ...]
+    capability_references: tuple["DomainCapabilityReference", ...] = ()
     expected_outcome: str = "passed"
     expected_failure_cause: str | None = None
 
@@ -37,6 +41,7 @@ class HeldoutSuite:
     suite_version: str
     domain_id: str
     tasks: tuple[HeldoutTask, ...]
+    capability_references: tuple["DomainCapabilityReference", ...] = ()
 
 
 @dataclass(frozen=True)
@@ -47,11 +52,16 @@ class HeldoutTaskResult:
     failure_cause: str | None
     expected_outcome: str
     observed_failure_cause: str | None
+    capability_references: tuple["DomainCapabilityReference", ...] = ()
 
     def export(self) -> dict[str, object]:
         return {
             "task_id": self.task_id,
             "capability_tags": list(self.capability_tags),
+            "capability_references": [
+                reference.to_record()
+                for reference in self.capability_references
+            ],
             "status": self.status,
             "failure_cause": self.failure_cause,
             "expected_outcome": self.expected_outcome,
@@ -266,10 +276,15 @@ def workspace_tasks_heldout_suite() -> HeldoutSuite:
         str(candidate.constraints.get("task_type")): candidate
         for candidate in generate_workspace_fixture_candidates(_workspace_heldout_seed())
     }
+    capability_references = _workspace_capability_references()
+    capabilities = {
+        reference.capability_key: reference for reference in capability_references
+    }
     tasks = (
         HeldoutTask(
             task_id="heldout_workspace_lookup_launch",
             capability_tags=("workspace_item_lookup",),
+            capability_references=(capabilities["item_search"],),
             candidate=_heldout_workspace_candidate(
                 generated["workspace_item_lookup"],
                 candidate_id="heldout_workspace_lookup_launch",
@@ -279,6 +294,10 @@ def workspace_tasks_heldout_suite() -> HeldoutSuite:
         HeldoutTask(
             task_id="heldout_workspace_task_creation_launch",
             capability_tags=("workspace_task_creation",),
+            capability_references=(
+                capabilities["item_search"],
+                capabilities["task_creation"],
+            ),
             candidate=_heldout_workspace_candidate(
                 generated["workspace_task_creation"],
                 candidate_id="heldout_workspace_task_creation_launch",
@@ -288,6 +307,10 @@ def workspace_tasks_heldout_suite() -> HeldoutSuite:
         HeldoutTask(
             task_id="heldout_workspace_comment_update_launch",
             capability_tags=("workspace_comment_update",),
+            capability_references=(
+                capabilities["item_search"],
+                capabilities["comment_addition"],
+            ),
             candidate=_heldout_workspace_candidate(
                 generated["workspace_comment_update"],
                 candidate_id="heldout_workspace_comment_update_launch",
@@ -297,6 +320,10 @@ def workspace_tasks_heldout_suite() -> HeldoutSuite:
         HeldoutTask(
             task_id="heldout_workspace_branch_fallback_launch",
             capability_tags=("workspace_branching",),
+            capability_references=(
+                capabilities["item_search"],
+                capabilities["item_search_recovery"],
+            ),
             candidate=_heldout_workspace_candidate(
                 generated["workspace_branch_fallback"],
                 candidate_id="heldout_workspace_branch_fallback_launch",
@@ -306,6 +333,7 @@ def workspace_tasks_heldout_suite() -> HeldoutSuite:
         HeldoutTask(
             task_id="heldout_workspace_missing_item",
             capability_tags=("workspace_missing_item",),
+            capability_references=(capabilities["missing_item_safe_failure"],),
             expected_outcome="controlled_failure",
             expected_failure_cause="verification_failed",
             candidate=CandidateTask(
@@ -337,6 +365,7 @@ def workspace_tasks_heldout_suite() -> HeldoutSuite:
         suite_version="workspace_tasks_heldout_v1",
         domain_id="workspace_tasks_fixture",
         tasks=tasks,
+        capability_references=capability_references,
     )
 
 
@@ -365,6 +394,11 @@ def _default_thresholds_for_domain(domain_id: str) -> EvaluationThresholds:
     if domain_id == "workspace_tasks_fixture":
         return EvaluationThresholds(
             min_capability_pass_rates={
+                "comment_addition": 1.0,
+                "item_search": 1.0,
+                "item_search_recovery": 1.0,
+                "missing_item_safe_failure": 1.0,
+                "task_creation": 1.0,
                 "workspace_branching": 1.0,
                 "workspace_comment_update": 1.0,
                 "workspace_item_lookup": 1.0,
@@ -419,6 +453,9 @@ def build_evaluation_report(
             "domain_id": suite.domain_id,
             "source": "manifest.run_profile.seed.domain",
         },
+        "capability_references": [
+            reference.to_record() for reference in suite.capability_references
+        ],
         "inputs": {
             "manifest_path": manifest_path.name,
             "quality_report_path": quality_report_path.name,
@@ -473,6 +510,11 @@ def _run_suite(suite: HeldoutSuite) -> list[HeldoutTaskResult]:
         for task in suite.tasks:
             observed_failure_cause: str | None = None
             observed_passed = False
+            checkpoint_before = (
+                bundle.environment.checkpoint()
+                if hasattr(bundle.environment, "checkpoint")
+                else None
+            )
             try:
                 execution = execute_candidate(
                     task.candidate,
@@ -487,6 +529,13 @@ def _run_suite(suite: HeldoutSuite) -> list[HeldoutTaskResult]:
                 )
             except Exception as exc:
                 observed_failure_cause = _failure_cause(exc, task)
+                if (
+                    task.expected_outcome == "controlled_failure"
+                    and checkpoint_before is not None
+                    and hasattr(bundle.environment, "checkpoint")
+                    and bundle.environment.checkpoint() != checkpoint_before
+                ):
+                    observed_failure_cause = "unexpected_state_change"
                 results.append(_task_result(task, observed_passed, observed_failure_cause))
                 continue
             failed_check = next(
@@ -499,6 +548,20 @@ def _run_suite(suite: HeldoutSuite) -> list[HeldoutTaskResult]:
                 if verification.passed
                 else str(failed_check.get("cause") or "verification_failed")
             )
+            if observed_passed and _task_requires_recovery(task) and not _heldout_recovery_verified(
+                execution,
+                task.candidate,
+            ):
+                observed_passed = False
+                observed_failure_cause = "recovery_evidence_missing"
+            if (
+                task.expected_outcome == "controlled_failure"
+                and checkpoint_before is not None
+                and hasattr(bundle.environment, "checkpoint")
+                and bundle.environment.checkpoint() != checkpoint_before
+            ):
+                observed_passed = False
+                observed_failure_cause = "unexpected_state_change"
             results.append(_task_result(task, observed_passed, observed_failure_cause))
     return results
 
@@ -529,6 +592,86 @@ def _task_result(
         failure_cause=None if status == "passed" else observed_failure_cause,
         expected_outcome=task.expected_outcome,
         observed_failure_cause=observed_failure_cause,
+        capability_references=task.capability_references,
+    )
+
+
+def _task_requires_recovery(task: HeldoutTask) -> bool:
+    return any(
+        reference.capability_key == "item_search_recovery"
+        for reference in task.capability_references
+    )
+
+
+def _heldout_recovery_verified(execution: object, candidate: CandidateTask) -> bool:
+    outcomes = getattr(execution, "branch_outcomes", None)
+    if not isinstance(outcomes, list):
+        return False
+    failed = next(
+        (
+            outcome
+            for outcome in outcomes
+            if isinstance(outcome, Mapping)
+            and outcome.get("selected") is False
+            and outcome.get("failure_cause") in {
+                "tool_runtime_error",
+                "tool_schema_error",
+            }
+        ),
+        None,
+    )
+    selected = next(
+        (
+            outcome
+            for outcome in outcomes
+            if isinstance(outcome, Mapping) and outcome.get("selected") is True
+        ),
+        None,
+    )
+    if not isinstance(failed, Mapping) or not isinstance(selected, Mapping):
+        return False
+    failed_trajectory = failed.get("trajectory")
+    selected_trajectory = selected.get("trajectory")
+    if not isinstance(failed_trajectory, list) or not isinstance(
+        selected_trajectory,
+        list,
+    ):
+        return False
+    branches = candidate.branch_plan.get("branches") if candidate.branch_plan else None
+    branch_by_id = {
+        branch.get("branch_id"): branch
+        for branch in branches
+        if isinstance(branch, Mapping) and isinstance(branch.get("branch_id"), str)
+    } if isinstance(branches, list) else {}
+    failed_branch_id = failed.get("branch_id")
+    selected_branch_id = selected.get("branch_id")
+    selected_branch = branch_by_id.get(selected_branch_id)
+    selected_observations: list[Mapping[str, object]] = []
+    for event in selected_trajectory:
+        if not isinstance(event, Mapping) or event.get("type") != "observation":
+            continue
+        observation = event.get("observation")
+        if isinstance(observation, Mapping):
+            selected_observations.append(observation)
+    grounded_result = any(
+        candidate.expected_answer in str(observation.get(field_name))
+        for observation in selected_observations
+        for field_name in ("item_id", "summary")
+        if isinstance(observation.get(field_name), str)
+    )
+    return (
+        any(
+            isinstance(event, Mapping) and event.get("type") == "action"
+            for event in failed_trajectory
+        )
+        and any(
+            isinstance(event, Mapping) and event.get("type") == "observation"
+            for event in selected_trajectory
+        )
+        and failed_branch_id != selected_branch_id
+        and isinstance(selected_branch, Mapping)
+        and selected_branch.get("parent_id") == failed_branch_id
+        and grounded_result
     )
 
 
@@ -619,6 +762,18 @@ def _workspace_heldout_seed() -> DomainSeed:
     )
 
 
+def _workspace_capability_references() -> tuple["DomainCapabilityReference", ...]:
+    from synthesis.domain_pack import initial_domain_pack_registry
+
+    descriptor = initial_domain_pack_registry().descriptor_for("workspace_tasks")
+    return tuple(
+        sorted(
+            descriptor.capability_references,
+            key=lambda reference: reference.capability_key,
+        )
+    )
+
+
 def _suite_seed(suite: HeldoutSuite) -> DomainSeed:
     if suite.domain_id == "contacts_fixture":
         return DomainSeed(
@@ -689,6 +844,14 @@ def _capability_slices(task_results: list[HeldoutTaskResult]) -> dict[str, dict[
     for result in task_results:
         for tag in result.capability_tags:
             current = slices.setdefault(tag, {"total": 0, "passed": 0, "failed": 0})
+            current["total"] += 1
+            current[result.status] += 1
+        for reference in result.capability_references:
+            capability_key = reference.capability_key
+            current = slices.setdefault(
+                capability_key,
+                {"total": 0, "passed": 0, "failed": 0},
+            )
             current["total"] += 1
             current[result.status] += 1
     return {

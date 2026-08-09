@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,10 @@ class ReleaseCompletenessThresholds:
     max_rejection_rate: float
     required_task_types: tuple[str, ...]
     required_tool_combinations: tuple[str, ...]
+    required_capability_keys: tuple[str, ...] = ()
+    minimum_recovery_samples: int = 0
+    task_type_aliases: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    recovery_task_type_alias: str | None = None
 
     def export(self) -> dict[str, object]:
         return {
@@ -34,6 +38,13 @@ class ReleaseCompletenessThresholds:
             "max_rejection_rate": self.max_rejection_rate,
             "required_task_types": list(self.required_task_types),
             "required_tool_combinations": list(self.required_tool_combinations),
+            "required_capability_keys": list(self.required_capability_keys),
+            "minimum_recovery_samples": self.minimum_recovery_samples,
+            "task_type_aliases": {
+                key: list(value)
+                for key, value in sorted(self.task_type_aliases.items())
+            },
+            "recovery_task_type_alias": self.recovery_task_type_alias,
         }
 
 
@@ -83,6 +94,7 @@ def build_dataset_release_report(
         profile_decision_report=profile_decision_report,
     )
     release_completeness = _release_completeness(
+        manifest=manifest,
         quality_report=quality_report,
         observed=observed,
         domain_id=manifest_domain_id(manifest),
@@ -401,6 +413,7 @@ def _observed_summary(
 
 def _release_completeness(
     *,
+    manifest: Mapping[str, Any],
     quality_report: Mapping[str, Any],
     observed: Mapping[str, object],
     domain_id: str | None,
@@ -417,18 +430,38 @@ def _release_completeness(
         _normalize_tool_combination(key)
         for key in _accepted_slice_keys(_mapping_or_empty(slices.get("tool_combination")))
     )
+    canonical_capability_evidence = _canonical_capability_evidence(
+        manifest=manifest,
+        quality_report=quality_report,
+    )
+    capability_keys = sorted(
+        _accepted_capability_keys(canonical_capability_evidence)
+    )
+    recovery_samples = _optional_int(
+        canonical_capability_evidence.get("verified_recovery_samples"),
+        0,
+    )
+    thresholds = _release_completeness_thresholds(
+        domain_id,
+        task_types=task_types,
+        tool_combinations=tool_combinations,
+    )
+    coverage_task_types = _compatibility_task_type_keys(
+        task_types,
+        recovery_samples,
+        thresholds.task_type_aliases,
+        thresholds.recovery_task_type_alias,
+    )
     observed_summary = {
         "accepted": accepted,
         "rejected": rejected,
         "rejection_rate": rejection_rate,
         "task_types": task_types,
         "tool_combinations": tool_combinations,
+        "capability_keys": capability_keys,
+        "verified_recovery_samples": recovery_samples,
+        "capability_evidence_available": bool(canonical_capability_evidence),
     }
-    thresholds = _release_completeness_thresholds(
-        domain_id,
-        task_types=task_types,
-        tool_combinations=tool_combinations,
-    )
     return {
         "thresholds": thresholds.export(),
         "observed": observed_summary,
@@ -436,8 +469,11 @@ def _release_completeness(
             thresholds=thresholds,
             accepted=accepted,
             rejection_rate=rejection_rate,
-            task_types=task_types,
+            task_types=coverage_task_types,
             tool_combinations=tool_combinations,
+            capability_keys=capability_keys,
+            recovery_samples=recovery_samples,
+            capability_evidence_available=bool(canonical_capability_evidence),
         ),
     }
 
@@ -467,6 +503,22 @@ def _release_completeness_thresholds(
                 threshold_record.get("required_tool_combinations"),
                 "required_tool_combinations",
             ),
+            required_capability_keys=_threshold_strings(
+                threshold_record.get("required_capability_keys", []),
+                "required_capability_keys",
+            ),
+            minimum_recovery_samples=_threshold_nonnegative_int(
+                threshold_record.get("minimum_recovery_samples", 0),
+                "minimum_recovery_samples",
+            ),
+            task_type_aliases=_threshold_aliases(
+                threshold_record.get("task_type_aliases", {}),
+                "task_type_aliases",
+            ),
+            recovery_task_type_alias=_threshold_optional_string(
+                threshold_record.get("recovery_task_type_alias"),
+                "recovery_task_type_alias",
+            ),
         )
     return ReleaseCompletenessThresholds(
         min_accepted_samples=FALLBACK_RELEASE_COMPLETENESS_THRESHOLDS.min_accepted_samples,
@@ -476,6 +528,20 @@ def _release_completeness_thresholds(
     )
 
 
+def _compatibility_task_type_keys(
+    task_types: list[str],
+    recovery_samples: int,
+    aliases: Mapping[str, tuple[str, ...]],
+    recovery_alias: str | None,
+) -> list[str]:
+    normalized = set(task_types)
+    for task_type in task_types:
+        normalized.update(aliases.get(task_type, ()))
+    if recovery_samples > 0 and recovery_alias is not None:
+        normalized.add(recovery_alias)
+    return sorted(normalized)
+
+
 def _release_completeness_decision(
     *,
     thresholds: ReleaseCompletenessThresholds,
@@ -483,6 +549,9 @@ def _release_completeness_decision(
     rejection_rate: float,
     task_types: list[str],
     tool_combinations: list[str],
+    capability_keys: list[str],
+    recovery_samples: int,
+    capability_evidence_available: bool,
 ) -> dict[str, object]:
     reasons: list[str] = []
     triggered_by: list[str] = []
@@ -536,6 +605,37 @@ def _release_completeness_decision(
     else:
         reasons.append("required tool combinations are covered")
 
+    if thresholds.required_capability_keys:
+        if not capability_evidence_available:
+            reasons.append("canonical capability evidence is unavailable")
+            # Preserve the pre-domain-pack compatibility path for historical
+            # reports; current domain writers always emit this evidence.
+        else:
+            missing_capabilities = sorted(
+                set(thresholds.required_capability_keys).difference(capability_keys)
+            )
+            if missing_capabilities:
+                reasons.append(
+                    "required capabilities are missing: "
+                    + ", ".join(missing_capabilities)
+                )
+                triggered_by.append("capability_coverage")
+            else:
+                reasons.append("required capabilities are covered")
+
+    if recovery_samples >= thresholds.minimum_recovery_samples:
+        reasons.append(
+            f"verified recovery samples {recovery_samples} meet minimum "
+            f"{thresholds.minimum_recovery_samples}"
+        )
+    else:
+        reasons.append(
+            f"verified recovery samples {recovery_samples} are below minimum "
+            f"{thresholds.minimum_recovery_samples}"
+        )
+        if capability_evidence_available:
+            triggered_by.append("recovery_coverage")
+
     if triggered_by:
         return {
             "status": "insufficient_evidence",
@@ -550,6 +650,8 @@ def _release_completeness_decision(
             "rejection_rate",
             "task_type_coverage",
             "tool_combination_coverage",
+            "capability_coverage",
+            "recovery_coverage",
         ],
     }
 
@@ -563,6 +665,46 @@ def _accepted_slice_keys(slices: Mapping[str, Any]) -> list[str]:
         if _optional_int(slice_record.get("accepted"), 0) > 0:
             keys.append(raw_key)
     return keys
+
+
+def _canonical_capability_evidence(
+    *,
+    manifest: Mapping[str, Any],
+    quality_report: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    manifest_evidence = manifest.get("domain_capability_evidence")
+    if isinstance(manifest_evidence, Mapping):
+        return manifest_evidence
+    quality_evidence = quality_report.get("domain_capability_evidence")
+    if isinstance(quality_evidence, Mapping):
+        return quality_evidence
+    slices = _mapping_or_empty(quality_report.get("slices"))
+    capability_slices = slices.get("capability")
+    if isinstance(capability_slices, Mapping) and capability_slices:
+        return {
+            "accepted_capability_counts": {
+                str(key): _optional_int(
+                    _mapping_or_empty(value).get("accepted"),
+                    0,
+                )
+                for key, value in capability_slices.items()
+            },
+            "verified_recovery_samples": 0,
+        }
+    return {}
+
+
+def _accepted_capability_keys(evidence: Mapping[str, Any]) -> set[str]:
+    counts = evidence.get("accepted_capability_counts")
+    if not isinstance(counts, Mapping):
+        counts = evidence.get("accepted_counts")
+    if not isinstance(counts, Mapping):
+        return set()
+    return {
+        str(key)
+        for key, value in counts.items()
+        if _optional_int(value, 0) > 0
+    }
 
 
 def _normalize_tool_combination(raw: str) -> str:
@@ -643,6 +785,12 @@ def _threshold_int(raw: object, path: str) -> int:
     raise ValueError(f"release threshold {path} must be a positive integer")
 
 
+def _threshold_nonnegative_int(raw: object, path: str) -> int:
+    if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 0:
+        return raw
+    raise ValueError(f"release threshold {path} must be a non-negative integer")
+
+
 def _threshold_number(raw: object, path: str) -> float:
     if isinstance(raw, (int, float)) and not isinstance(raw, bool) and float(raw) >= 0.0:
         return float(raw)
@@ -658,3 +806,25 @@ def _threshold_strings(raw: object, path: str) -> tuple[str, ...]:
             raise ValueError(f"release threshold {path}.{index} must be a non-empty string")
         values.append(value)
     return tuple(values)
+
+
+def _threshold_optional_string(raw: object, path: str) -> str | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError(f"release threshold {path} must be a non-empty string")
+    return raw
+
+
+def _threshold_aliases(
+    raw: object,
+    path: str,
+) -> dict[str, tuple[str, ...]]:
+    if not isinstance(raw, Mapping):
+        raise ValueError(f"release threshold {path} must be an object")
+    aliases: dict[str, tuple[str, ...]] = {}
+    for key, values in raw.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError(f"release threshold {path} contains an invalid key")
+        aliases[key] = _threshold_strings(values, f"{path}.{key}")
+    return aliases

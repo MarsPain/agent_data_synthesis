@@ -78,6 +78,9 @@ def build_coverage_evidence(
                     for record in assignment_records
                 ]
             ),
+            "capability_references": _assignment_capability_catalog(
+                assignment_records
+            ),
         },
         "accepted_samples": {
             "count": len(sample_identities),
@@ -354,6 +357,9 @@ def verify_coverage_evidence(
                     for record in assignment_records
                 ]
             ),
+            "capability_references": _assignment_capability_catalog(
+                assignment_records
+            ),
         },
         "accepted_samples": {
             "count": len(sample_identities),
@@ -487,6 +493,7 @@ def _sample_identity(sample: Mapping[str, object]) -> dict[str, object]:
             else None
         ),
         "grounding_hash": _grounding_hash(assignment),
+        "capability_references": _assignment_capability_references(assignment),
     }
 
 
@@ -515,6 +522,7 @@ def _rejection_identity(
         ),
         "grounding_hash": _grounding_hash(assignment),
         "generated": generated,
+        "capability_references": _assignment_capability_references(assignment),
     }
 
 
@@ -540,6 +548,12 @@ def _assignment_records(
             or not cell_id
         ):
             continue
+        raw_references = identity.get("capability_references")
+        capability_references = (
+            [dict(reference) for reference in raw_references if isinstance(reference, Mapping)]
+            if isinstance(raw_references, list)
+            else []
+        )
         record = {
             "assignment_id": assignment_id,
             "assignment_hash": assignment_hash,
@@ -556,6 +570,7 @@ def _assignment_records(
                 if accepted
                 else identity.get("cause")
             ),
+            "capability_references": capability_references,
         }
         if assignment_id in by_id:
             raise ValueError("coverage assignment identity is duplicated")
@@ -563,6 +578,45 @@ def _assignment_records(
     return [
         by_id[assignment_id]
         for assignment_id in sorted(by_id)
+    ]
+
+
+def _assignment_capability_catalog(
+    assignment_records: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    references: dict[str, dict[str, object]] = {}
+    for assignment in assignment_records:
+        raw_references = assignment.get("capability_references")
+        if not isinstance(raw_references, list):
+            continue
+        for reference in raw_references:
+            if not isinstance(reference, Mapping):
+                continue
+            key = json.dumps(reference, sort_keys=True, separators=(",", ":"))
+            references[key] = dict(reference)
+    return [
+        references[key]
+        for key in sorted(references)
+    ]
+
+
+def _assignment_capability_references(
+    assignment: Mapping[str, object] | None,
+) -> list[dict[str, object]]:
+    if assignment is None:
+        return []
+    catalog = assignment.get("catalog")
+    raw_references = (
+        catalog.get("capability_references")
+        if isinstance(catalog, Mapping)
+        else assignment.get("capability_references")
+    )
+    if not isinstance(raw_references, list):
+        return []
+    return [
+        dict(reference)
+        for reference in raw_references
+        if isinstance(reference, Mapping)
     ]
 
 
