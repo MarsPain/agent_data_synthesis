@@ -1,0 +1,98 @@
+{
+  "counts": {
+    "accepted": 3,
+    "evidence_records": 5,
+    "missing_evidence": 0,
+    "read_only": 3,
+    "rejected": 2,
+    "state_changing": 2
+  },
+  "dataset_version": "dataset_mobile_mutation_compatibility_v2",
+  "dimensions": {
+    "action": [
+      {
+        "count": 1,
+        "value": "create_phone_reminder"
+      },
+      {
+        "count": 1,
+        "value": "draft_message_reply"
+      },
+      {
+        "count": 3,
+        "value": "not_applicable"
+      }
+    ],
+    "domain": [
+      {
+        "count": 5,
+        "value": "mobile_messages_fixture"
+      }
+    ],
+    "model_independence": [
+      {
+        "count": 2,
+        "value": "independent"
+      },
+      {
+        "count": 3,
+        "value": "not_evaluated"
+      }
+    ],
+    "provenance": [
+      {
+        "count": 3,
+        "value": "not_applicable"
+      },
+      {
+        "count": 2,
+        "value": "not_available"
+      }
+    ],
+    "provider_outcome": [
+      {
+        "count": 3,
+        "value": "not_called"
+      },
+      {
+        "count": 2,
+        "value": "unavailable"
+      }
+    ],
+    "reason": [
+      {
+        "count": 5,
+        "value": "none"
+      }
+    ],
+    "task_type": [
+      {
+        "count": 1,
+        "value": "mobile_branch_fallback"
+      },
+      {
+        "count": 1,
+        "value": "mobile_draft_reply"
+      },
+      {
+        "count": 2,
+        "value": "mobile_message_lookup"
+      },
+      {
+        "count": 1,
+        "value": "mobile_message_to_reminder"
+      }
+    ],
+    "verdict": [
+      {
+        "count": 2,
+        "value": "judge_unavailable"
+      },
+      {
+        "count": 3,
+        "value": "not_applicable"
+      }
+    ]
+  },
+  "schema_version": "mutation_admission_report_v1"
+}

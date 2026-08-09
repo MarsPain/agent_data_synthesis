@@ -1,0 +1,86 @@
+{
+  "dataset_version": "dataset_contacts_mutation_compatibility_v2",
+  "decisions": {
+    "async_orchestration": {
+      "reasons": [
+        "total_candidates 25 is below async_candidate_count 100",
+        "runtime_seconds 0.06519937491975725 is below async_runtime_seconds 600.0"
+      ],
+      "status": "defer",
+      "triggered_by": []
+    },
+    "mvp_quality_floor": {
+      "reasons": [
+        "historical machine floor recorded"
+      ],
+      "status": "passed",
+      "triggered_by": []
+    },
+    "profile_promotion": {
+      "reasons": [
+        "historical profile promotion recorded"
+      ],
+      "status": "passed",
+      "triggered_by": []
+    },
+    "semantic_duplicate_detection": {
+      "reasons": [
+        "total_candidates 25 is below semantic_duplicate_min_candidates 100",
+        "watch exact_duplicate_rate 0.12 is at or above semantic_duplicate_exact_rate 0.1 but volume is below activation threshold"
+      ],
+      "status": "defer",
+      "triggered_by": [
+        "exact_duplicate_rate"
+      ]
+    }
+  },
+  "evaluation": {
+    "decision_status": "passed",
+    "domain_id": "contacts_fixture",
+    "failed_capabilities": [],
+    "heldout_pass_rate": 1.0,
+    "regression_count": 0,
+    "suite_id": "contacts_heldout_v1"
+  },
+  "inputs": {
+    "evaluation_report_path": "evaluation_report.json",
+    "manifest_path": "manifest.json",
+    "parent_comparison_path": null,
+    "quality_report_path": "quality_report.json"
+  },
+  "observed": {
+    "accepted": 6,
+    "exact_duplicate_count": 3,
+    "exact_duplicate_rate": 0.12,
+    "executable_rate": 0.68,
+    "infrastructure_rejection_count": 0,
+    "infrastructure_rejection_rate": 0.0,
+    "profile_slice_count": 3,
+    "rejected": 19,
+    "runtime_seconds": 0.06519937491975725,
+    "source_policy_rejection_count": 0,
+    "source_policy_rejection_rate": 0.0,
+    "success_rate": 0.35294117647058826,
+    "total_candidates": 25
+  },
+  "profile": {
+    "config_hash": "sha256:e31b90ac8057ae832f8041c49bdf06b3fb7b3dc6ff6151d35a80d08a7e51c674",
+    "domain": "contacts_fixture",
+    "generation_mode": "deterministic_scale_probe",
+    "profile_id": "contacts_mutation_compatibility_v2",
+    "profile_purpose": "release_candidate",
+    "schema_version": "run_profile_v4",
+    "target_candidate_count": 25
+  },
+  "schema_version": "profile_decision_report_v1",
+  "thresholds": {
+    "async_candidate_count": 100,
+    "async_runtime_seconds": 600.0,
+    "mvp_max_infrastructure_rejection_rate": 0.0,
+    "mvp_max_source_policy_rejection_rate": 0.0,
+    "mvp_min_executable_rate": 0.8,
+    "mvp_min_success_rate": 0.5,
+    "semantic_duplicate_exact_rate": 0.1,
+    "semantic_duplicate_min_candidates": 100
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "dataset_version": "dataset_mobile_mutation_compatibility_v2",
+  "decisions": {
+    "dataset_release": {
+      "reasons": [
+        "historical dataset release decision recorded"
+      ],
+      "status": "passed",
+      "triggered_by": [
+        "profile_promotion"
+      ]
+    }
+  },
+  "inputs": {
+    "evaluation_report_path": "evaluation_report.json",
+    "manifest_path": "manifest.json",
+    "profile_decision_report_path": "profile_decision_report.json",
+    "quality_report_path": "quality_report.json"
+  },
+  "observed": {
+    "accepted": 3,
+    "async_orchestration_status": "defer",
+    "executable_rate": 0.6,
+    "heldout_status": "passed",
+    "profile_promotion_status": "passed",
+    "rejected": 2,
+    "semantic_duplicate_detection_status": "defer",
+    "source_policy_rejection_rate": 0.0,
+    "success_rate": 1.0
+  },
+  "profile": {
+    "config_hash": "sha256:516ca7e32bf4b0c55708191a0f7f4e260ba987a3678b7c1408ff245c6991b8ac",
+    "generation_mode": "mobile_fixture",
+    "profile_id": "mobile_mutation_compatibility_v2",
+    "profile_purpose": "release_candidate",
+    "schema_version": "run_profile_v4",
+    "target_candidate_count": null
+  },
+  "release_artifacts": {
+    "evaluation_report": "evaluation_report.json",
+    "profile_decision_report": "profile_decision_report.json",
+    "quality_report": "quality_report.json",
+    "rejections": "rejections.jsonl",
+    "samples": "samples.jsonl"
+  },
+  "release_completeness": {
+    "decision": {
+      "reasons": [
+        "historical release completeness recorded"
+      ],
+      "status": "passed",
+      "triggered_by": [
+        "accepted",
+        "rejection_rate",
+        "task_type_coverage",
+        "tool_combination_coverage"
+      ]
+    },
+    "observed": {
+      "accepted": 3,
+      "rejected": 2,
+      "rejection_rate": 0.4,
+      "task_types": [
+        "mobile_branch_fallback",
+        "mobile_message_lookup"
+      ],
+      "tool_combinations": [
+        "search_phone_messages"
+      ]
+    },
+    "thresholds": {
+      "max_rejection_rate": 0.2,
+      "min_accepted_samples": 5,
+      "required_task_types": [
+        "mobile_message_lookup",
+        "mobile_message_to_reminder",
+        "mobile_draft_reply",
+        "mobile_branch_fallback"
+      ],
+      "required_tool_combinations": [
+        "search_phone_messages",
+        "search_phone_messages+create_phone_reminder",
+        "search_phone_messages+draft_message_reply"
+      ]
+    }
+  },
+  "schema_version": "dataset_release_report_v1"
+}

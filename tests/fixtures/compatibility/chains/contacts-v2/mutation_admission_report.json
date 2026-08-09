@@ -1,0 +1,90 @@
+{
+  "counts": {
+    "accepted": 6,
+    "evidence_records": 25,
+    "missing_evidence": 0,
+    "read_only": 17,
+    "rejected": 19,
+    "state_changing": 8
+  },
+  "dataset_version": "dataset_contacts_mutation_compatibility_v2",
+  "dimensions": {
+    "action": [
+      {
+        "count": 17,
+        "value": "not_applicable"
+      },
+      {
+        "count": 8,
+        "value": "record_contact_followup"
+      }
+    ],
+    "domain": [
+      {
+        "count": 6,
+        "value": "contacts_fixture"
+      },
+      {
+        "count": 19,
+        "value": "not_available"
+      }
+    ],
+    "model_independence": [
+      {
+        "count": 8,
+        "value": "independent"
+      },
+      {
+        "count": 17,
+        "value": "not_evaluated"
+      }
+    ],
+    "provenance": [
+      {
+        "count": 17,
+        "value": "not_applicable"
+      },
+      {
+        "count": 8,
+        "value": "not_available"
+      }
+    ],
+    "provider_outcome": [
+      {
+        "count": 17,
+        "value": "not_called"
+      },
+      {
+        "count": 8,
+        "value": "unavailable"
+      }
+    ],
+    "reason": [
+      {
+        "count": 25,
+        "value": "none"
+      }
+    ],
+    "task_type": [
+      {
+        "count": 8,
+        "value": "contact_followup"
+      },
+      {
+        "count": 17,
+        "value": "contact_lookup"
+      }
+    ],
+    "verdict": [
+      {
+        "count": 8,
+        "value": "judge_unavailable"
+      },
+      {
+        "count": 17,
+        "value": "not_applicable"
+      }
+    ]
+  },
+  "schema_version": "mutation_admission_report_v1"
+}

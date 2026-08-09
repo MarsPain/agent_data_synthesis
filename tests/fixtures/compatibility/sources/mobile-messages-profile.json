@@ -1,0 +1,32 @@
+{
+  "threads": [
+    {"thread_id": "thread_maya", "participant": "Maya"},
+    {"thread_id": "thread_alex", "participant": "Alex"},
+    {"thread_id": "thread_delivery", "participant": "Delivery"}
+  ],
+  "messages": [
+    {
+      "message_id": "msg_maya_project_update",
+      "thread_id": "thread_maya",
+      "sender": "Maya",
+      "body": "Can you remind me to send the project update tomorrow at 9 AM?",
+      "received_at": "2026-06-12T08:00:00Z"
+    },
+    {
+      "message_id": "msg_alex_late_reply",
+      "thread_id": "thread_alex",
+      "sender": "Alex",
+      "body": "Please reply that I will be five minutes late.",
+      "received_at": "2026-06-12T08:05:00Z"
+    },
+    {
+      "message_id": "msg_delivery_pickup_code",
+      "thread_id": "thread_delivery",
+      "sender": "Delivery",
+      "body": "Your pickup code is 4821. Ask the desk if the sender is missing.",
+      "received_at": "2026-06-12T08:10:00Z"
+    }
+  ],
+  "reminders": [],
+  "draft_replies": []
+}

@@ -1,0 +1,72 @@
+{
+  "artifacts": {
+    "dataset_release_report": {
+      "byte_count": 2879,
+      "path": "dataset_release_report.json",
+      "sha256": "sha256:9a867e4874e4291cffb2f2462e6586736f7f043fa7b9b2f0b7e5af2d07a15f50"
+    },
+    "evaluation_report": {
+      "byte_count": 4417,
+      "path": "evaluation_report.json",
+      "sha256": "sha256:4dbf6f05ebfbedede4d1420de2cb81e80fc8786354b3d246e537aae6945d6ac3"
+    },
+    "manifest": {
+      "byte_count": 1564,
+      "path": "manifest.json",
+      "sha256": "sha256:7aaa80125bee91bb0b5c4484e28574d10af24543b8c8a55475571db8b074a659"
+    },
+    "profile_decision_report": {
+      "byte_count": 3286,
+      "path": "profile_decision_report.json",
+      "sha256": "sha256:dde01b08421a5de24a28c1342229b81f12ac11087bb052bb5e1d128474f2555a"
+    },
+    "quality_report": {
+      "byte_count": 6764,
+      "path": "quality_report.json",
+      "sha256": "sha256:c5fe9be69759fee23cab1d351871542fec35b16629c37df30f36a9a865ab1ac8"
+    },
+    "rejections": {
+      "byte_count": 0,
+      "path": "rejections.jsonl",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "samples": {
+      "byte_count": 28570,
+      "path": "samples.jsonl",
+      "sha256": "sha256:6edb49c920f8270f798834ad65341a733785de385552a63c1ca69eb4a96df83e"
+    }
+  },
+  "dataset_version": "dataset_mobile_messages_release_candidate",
+  "evidence": {
+    "accepted": 5,
+    "async_orchestration_status": "defer",
+    "dataset_release_status": "passed",
+    "heldout_status": "passed",
+    "profile_promotion_status": "passed",
+    "rejected": 0,
+    "release_completeness_status": "passed",
+    "semantic_duplicate_detection_status": "defer"
+  },
+  "inputs": {
+    "dataset_release_report_path": "dataset_release_report.json",
+    "manifest_path": "manifest.json"
+  },
+  "profile": {
+    "config_hash": "sha256:4f2b7db1294e3de73a929361ef292648d2e488978d9bf35240ff5b28a65e0629",
+    "generation_mode": "mobile_fixture",
+    "profile_id": "mobile_messages_release_candidate",
+    "profile_purpose": "release_candidate",
+    "schema_version": "run_profile_v1",
+    "target_candidate_count": null
+  },
+  "release_id": "dataset_mobile_messages_release_candidate:sha256:f8f8eac105041573b98e33ed5bde16370a251066b65fd2be973e46b5129e8c1f",
+  "schema_version": "dataset_release_pack_v1",
+  "verification": {
+    "reasons": [
+      "all required artifacts are present",
+      "artifact hashes are recorded",
+      "dataset release admission passed"
+    ],
+    "status": "passed"
+  }
+}

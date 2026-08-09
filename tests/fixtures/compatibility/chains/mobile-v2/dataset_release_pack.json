@@ -1,0 +1,83 @@
+{
+  "artifacts": {
+    "dataset_release_report": {
+      "byte_count": 2497,
+      "path": "dataset_release_report.json",
+      "sha256": "sha256:8465a7ff435b7cbc85cb11d5c1e40477bc9ab1c42ae786a9d4ffe2c723407c4c"
+    },
+    "evaluation_report": {
+      "byte_count": 4415,
+      "path": "evaluation_report.json",
+      "sha256": "sha256:ac73cbcde675c43974afcd8655f025bd7e5d5b7cd5f70ebdc7d620e079e258cd"
+    },
+    "manifest": {
+      "byte_count": 3008,
+      "path": "manifest.json",
+      "sha256": "sha256:82ac151a063ce1b4d67f66e2bd7d285a8333985e523a7622d365653c0e7cbf69"
+    },
+    "mutation_admission_report": {
+      "byte_count": 1743,
+      "path": "mutation_admission_report.json",
+      "sha256": "sha256:6658f5255e99760553f941eecd3a791cab7f4ea57153e66c07745d88ae649745"
+    },
+    "profile_decision_report": {
+      "byte_count": 2507,
+      "path": "profile_decision_report.json",
+      "sha256": "sha256:d4300d471cc5a45459d693b6cb81d58cfe18675e04d98d6cd73b4b0a43d14b6e"
+    },
+    "quality_report": {
+      "byte_count": 6747,
+      "path": "quality_report.json",
+      "sha256": "sha256:3d4168c7978ab03bfab2d4c6fa905a201c7a31ec208001d8a15823f40328aa32"
+    },
+    "rejections": {
+      "byte_count": 7477,
+      "path": "rejections.jsonl",
+      "sha256": "sha256:45903e2dd93a9a3719f8f8ac11b0557e06a22b4b85989e22701c4a826eb0e4cd"
+    },
+    "samples": {
+      "byte_count": 19306,
+      "path": "samples.jsonl",
+      "sha256": "sha256:25b72a0007df90d52bd87382e8ab9c478fe1f3830015a160350ac1de6865e7b8"
+    }
+  },
+  "dataset_version": "dataset_mobile_mutation_compatibility_v2",
+  "evidence": {
+    "accepted": 3,
+    "async_orchestration_status": "defer",
+    "dataset_release_status": "passed",
+    "heldout_status": "passed",
+    "profile_promotion_status": "passed",
+    "rejected": 2,
+    "release_completeness_status": "passed",
+    "semantic_duplicate_detection_status": "defer"
+  },
+  "inputs": {
+    "dataset_release_report_path": "dataset_release_report.json",
+    "manifest_path": "manifest.json"
+  },
+  "mutation_admission": {
+    "manifest_schema_version": "dataset_manifest_v2",
+    "mode": "enforce",
+    "report_schema_version": "mutation_admission_report_v1",
+    "status": "passed"
+  },
+  "profile": {
+    "config_hash": "sha256:516ca7e32bf4b0c55708191a0f7f4e260ba987a3678b7c1408ff245c6991b8ac",
+    "generation_mode": "mobile_fixture",
+    "profile_id": "mobile_mutation_compatibility_v2",
+    "profile_purpose": "release_candidate",
+    "schema_version": "run_profile_v4",
+    "target_candidate_count": null
+  },
+  "release_id": "dataset_mobile_mutation_compatibility_v2:sha256:d78d9ad9c2244d158ce39a32ea05dc3a776cf1145f38dd5e8208a2a36abc0eb3",
+  "schema_version": "dataset_release_pack_v2",
+  "verification": {
+    "reasons": [
+      "all required artifacts are present",
+      "artifact hashes are recorded",
+      "dataset release admission passed"
+    ],
+    "status": "passed"
+  }
+}

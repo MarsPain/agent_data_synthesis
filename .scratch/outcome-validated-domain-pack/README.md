@@ -4,7 +4,7 @@
 - **Canonical spec:** [Outcome-Validated Domain Pack](../../docs/product-specs/outcome-validated-domain-pack.md)
 - **Deep design:** [Outcome-Validated Domain Pack Deep Design](../../docs/design-docs/outcome-validated-domain-pack.md)
 - **Architecture decisions:** [ADR 0002](../../docs/adr/0002-domain-pack-semantic-authority-and-deep-interface.md), [ADR 0003](../../docs/adr/0003-separate-evidence-verification-from-external-authority.md)
-- **Current phase:** Implementation — Workspace lifecycle complete
+- **Current phase:** Implementation — Contacts/Mobile compatibility corpus complete
 
 This directory is the delivery aggregation point. The product spec owns desired
 behavior and acceptance, the deep design owns target mechanics, the ADRs own
@@ -15,7 +15,7 @@ and ticket-local scope.
 
 1. [Establish canonical Domain Pack identity and planning contracts](issues/01-canonical-identity-and-planning-contracts.md) — completed
 2. [Introduce the deep Domain Pack lifecycle through Workspace](issues/02-deep-domain-pack-workspace-lifecycle.md) — completed
-3. [Freeze and preserve Contacts and Mobile compatibility](issues/03-contacts-mobile-compatibility-corpus.md) — ready for agent
+3. [Freeze and preserve Contacts and Mobile compatibility](issues/03-contacts-mobile-compatibility-corpus.md) — completed
 4. [Carry canonical Workspace capabilities to Release Candidate evidence](issues/04-workspace-capability-release-candidate.md) — ready for agent
 5. [Add cumulative qualification and Workspace Release Candidate](issues/05-cumulative-qualification-release-candidate.md) — ready for agent; blocked by 04
 6. [Verify publishability evidence and external authority](issues/06-publishability-evidence-authority.md) — ready for agent; blocked by 05
@@ -25,9 +25,9 @@ and ticket-local scope.
 
 ## Frontier
 
-Ticket 03 is the current implementation frontier. Ticket 04 is now unblocked
-by Ticket 02; later tickets remain `ready-for-agent` but cannot be claimed
-until their listed blockers are completed.
+Ticket 03 is complete. Ticket 04 is the current implementation frontier and is
+unblocked by Ticket 02; later tickets remain `ready-for-agent` but cannot be
+claimed until their listed blockers are completed.
 
 ## Provenance
 

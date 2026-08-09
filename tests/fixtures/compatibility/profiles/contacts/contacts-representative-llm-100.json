@@ -1,0 +1,28 @@
+{
+  "schema_version": "run_profile_v4",
+  "profile_id": "contacts_representative_llm_100",
+  "dataset_version": "dataset_contacts_representative_llm_100_v1",
+  "profile_purpose": "benchmark",
+  "seed": {
+    "seed_id": "seed_contacts_representative_llm_100",
+    "domain": "contacts_fixture",
+    "description": "Generate grounded executable contacts tasks.",
+    "task_taxonomy": ["contact_lookup", "contact_followup"]
+  },
+  "generation": {
+    "mode": "llm",
+    "target_candidate_count": 100,
+    "context_policy": "synthetic_fixture"
+  },
+  "features": {},
+  "mutation_admission": {
+    "mode": "enforce",
+    "judge": {
+      "role": "mutation_admission_judge",
+      "provider": "openai_compatible",
+      "model": "independent-judge-model",
+      "timeout_seconds": 30.0,
+      "max_retries": 1
+    }
+  }
+}

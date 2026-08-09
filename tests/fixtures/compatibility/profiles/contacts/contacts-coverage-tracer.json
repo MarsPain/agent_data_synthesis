@@ -1,0 +1,28 @@
+{
+  "schema_version": "run_profile_v4",
+  "profile_id": "contacts_coverage_tracer",
+  "dataset_version": "dataset_contacts_coverage_tracer_v1",
+  "profile_purpose": "diagnostic_probe",
+  "seed": {
+    "seed_id": "seed_contacts_coverage_tracer",
+    "domain": "contacts_fixture",
+    "description": "Run the contacts coverage assignment tracer.",
+    "task_taxonomy": [
+      "contact_lookup",
+      "contact_followup"
+    ]
+  },
+  "generation": {
+    "mode": "llm",
+    "target_candidate_count": 3
+  },
+  "features": {},
+  "mutation_admission": {
+    "mode": "shadow"
+  },
+  "coverage_profile": {
+    "profile_id": "contacts_smoke",
+    "version": "contacts_smoke_v1",
+    "target_accepted_sample_count": 2
+  }
+}

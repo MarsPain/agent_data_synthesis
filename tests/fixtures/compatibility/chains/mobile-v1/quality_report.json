@@ -1,0 +1,312 @@
+{
+  "branch_failure_causes": {
+    "tool_runtime_error": 1
+  },
+  "branch_outcomes": {
+    "accepted": 1,
+    "rejected": 1
+  },
+  "counts": {
+    "accepted": 5,
+    "branch_attempts": 2,
+    "branch_selected": 1,
+    "capability_gaps": 0,
+    "executable": 5,
+    "refined_accepted": 0,
+    "refined_attempted": 0,
+    "refined_rejected": 0,
+    "rejected": 0,
+    "seed_transformations": 0,
+    "task_edits": 0,
+    "task_suggestions": 0,
+    "tool_proposals": 0,
+    "total": 5
+  },
+  "dataset_version": "dataset_mobile_messages_release_candidate",
+  "edit_rejection_causes": {},
+  "editor_actions": {},
+  "rates": {
+    "executable_rate": 1.0,
+    "success_rate": 1.0
+  },
+  "rejection_causes": {},
+  "role_outcomes": {
+    "scripted_mobile_solution_policy": {
+      "accepted": 5,
+      "attempted": 5,
+      "cost": {},
+      "output_types": [
+        "solution_policy"
+      ],
+      "rejected": 0,
+      "retry_count": 0,
+      "tokens": {}
+    },
+    "scripted_task_generation": {
+      "accepted": 5,
+      "attempted": 5,
+      "cost": {},
+      "output_types": [
+        "candidate_tasks"
+      ],
+      "rejected": 0,
+      "retry_count": 0,
+      "tokens": {}
+    }
+  },
+  "sandbox_admission_outcomes": {},
+  "schema_version": "quality_report_v1",
+  "slices": {
+    "adapter_execution_outcome": {},
+    "adapter_id": {},
+    "adapter_protocol": {},
+    "adapter_rejection_cause": {},
+    "branch_depth": {
+      "2": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      }
+    },
+    "branch_outcome": {
+      "accepted": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      },
+      "rejected": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      }
+    },
+    "capability_gap_type": {},
+    "curriculum_level": {
+      "easy": {
+        "accepted": 3,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 3
+      },
+      "medium": {
+        "accepted": 2,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 2
+      }
+    },
+    "dataset_version": {
+      "dataset_mobile_messages_release_candidate": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      }
+    },
+    "difficulty_level": {
+      "easy": {
+        "accepted": 3,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 3
+      },
+      "medium": {
+        "accepted": 2,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 2
+      }
+    },
+    "domain": {
+      "mobile_messages": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      }
+    },
+    "edit_rejection_cause": {},
+    "editor_action": {},
+    "environment_source_admission": {},
+    "external_source_eligibility": {
+      "ineligible": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      }
+    },
+    "fallback_count": {
+      "1": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      }
+    },
+    "generation_mode": {
+      "mobile_fixture": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      }
+    },
+    "generator_role": {
+      "scripted_task_generation": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      }
+    },
+    "license_policy_outcome": {
+      "allowed": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      }
+    },
+    "proposed_tool": {},
+    "proposed_tool_side_effect": {},
+    "refinement_status": {
+      "unrefined": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      }
+    },
+    "rejection_cause": {},
+    "role_name": {
+      "scripted_mobile_solution_policy": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      },
+      "scripted_task_generation": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      }
+    },
+    "role_output_type": {
+      "candidate_tasks": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      },
+      "solution_policy": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      }
+    },
+    "run_profile_id": {
+      "mobile_messages_release_candidate": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      }
+    },
+    "run_profile_schema_version": {
+      "run_profile_v1": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      }
+    },
+    "sandbox_admission_outcome": {},
+    "sandbox_artifact_kind": {},
+    "sandbox_execution_status": {},
+    "sandbox_rejection_cause": {},
+    "sandbox_scan_status": {},
+    "seed_transformation_type": {},
+    "selected_branch": {
+      "broader_thread_search": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      }
+    },
+    "source_kind": {
+      "fixture": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      }
+    },
+    "source_rejection_cause": {},
+    "suggestion_outcome": {},
+    "task_type": {
+      "mobile_branch_fallback": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      },
+      "mobile_draft_reply": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      },
+      "mobile_message_lookup": {
+        "accepted": 2,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 2
+      },
+      "mobile_message_to_reminder": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      }
+    },
+    "taxonomy_node": {},
+    "tool_combination": {
+      "search_phone_messages": {
+        "accepted": 3,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 3
+      },
+      "search_phone_messages > create_phone_reminder": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      },
+      "search_phone_messages > draft_message_reply": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      }
+    },
+    "tool_proposal_outcome": {},
+    "verifier_type": {
+      "exact_answer_verifier": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      }
+    }
+  },
+  "suggestion_outcomes": {},
+  "tool_proposal_outcomes": {}
+}

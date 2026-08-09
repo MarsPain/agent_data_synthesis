@@ -1,0 +1,1405 @@
+{
+  "chain_count": 4,
+  "chains": [
+    {
+      "chain_id": "contacts_historical_v1",
+      "claim_scope": "historical_only",
+      "current_evidence_status": "insufficient_evidence",
+      "domain_pack_id": "contacts",
+      "historical_decision": "passed",
+      "historical_profile_config_hash": "sha256:7ae3c60d24adb0cf0753a5e45596f74f8dfb5a3e4269a132e633f6c18f1813cd",
+      "historical_profile_id": "foundation_release_candidate",
+      "historical_profile_schema_version": "run_profile_v1",
+      "manifest_schema_version": "dataset_manifest_v1",
+      "release_pack_schema_version": "dataset_release_pack_v1",
+      "root_path": "chains/contacts-v1",
+      "schema_version": "compatibility_chain_v1"
+    },
+    {
+      "chain_id": "mobile_historical_v1",
+      "claim_scope": "historical_only",
+      "current_evidence_status": "insufficient_evidence",
+      "domain_pack_id": "mobile_messages",
+      "historical_decision": "passed",
+      "historical_profile_config_hash": "sha256:4f2b7db1294e3de73a929361ef292648d2e488978d9bf35240ff5b28a65e0629",
+      "historical_profile_id": "mobile_messages_release_candidate",
+      "historical_profile_schema_version": "run_profile_v1",
+      "manifest_schema_version": "dataset_manifest_v1",
+      "release_pack_schema_version": "dataset_release_pack_v1",
+      "root_path": "chains/mobile-v1",
+      "schema_version": "compatibility_chain_v1"
+    },
+    {
+      "chain_id": "contacts_mutation_aware_v2",
+      "claim_scope": "historical_only",
+      "current_evidence_status": "insufficient_evidence",
+      "domain_pack_id": "contacts",
+      "historical_decision": "passed",
+      "historical_profile_config_hash": "sha256:e31b90ac8057ae832f8041c49bdf06b3fb7b3dc6ff6151d35a80d08a7e51c674",
+      "historical_profile_id": "contacts_mutation_compatibility_v2",
+      "historical_profile_schema_version": "run_profile_v4",
+      "manifest_schema_version": "dataset_manifest_v2",
+      "release_pack_schema_version": "dataset_release_pack_v2",
+      "root_path": "chains/contacts-v2",
+      "schema_version": "compatibility_chain_v1"
+    },
+    {
+      "chain_id": "mobile_mutation_aware_v2",
+      "claim_scope": "historical_only",
+      "current_evidence_status": "insufficient_evidence",
+      "domain_pack_id": "mobile_messages",
+      "historical_decision": "passed",
+      "historical_profile_config_hash": "sha256:516ca7e32bf4b0c55708191a0f7f4e260ba987a3678b7c1408ff245c6991b8ac",
+      "historical_profile_id": "mobile_mutation_compatibility_v2",
+      "historical_profile_schema_version": "run_profile_v4",
+      "manifest_schema_version": "dataset_manifest_v2",
+      "release_pack_schema_version": "dataset_release_pack_v2",
+      "root_path": "chains/mobile-v2",
+      "schema_version": "compatibility_chain_v1"
+    }
+  ],
+  "corpus_id": "contacts_mobile_compatibility_corpus",
+  "corpus_version": "contacts_mobile_compatibility_corpus_v1",
+  "declared_cutoff": "2026-08-09",
+  "files": [
+    {
+      "byte_count": 585,
+      "path": "chains/contacts-v1/chain_metadata.json",
+      "sha256": "sha256:3826513883096565500b0e8418341ee8e0a378e5c2d08e873b8ed5ab2cacfee3"
+    },
+    {
+      "byte_count": 2514,
+      "path": "chains/contacts-v1/dataset_release_pack.json",
+      "sha256": "sha256:1cfe28f0fec6e7b248d7f66c1d80aef9233d18b470418b869e81154459a4e8fc"
+    },
+    {
+      "byte_count": 2734,
+      "path": "chains/contacts-v1/dataset_release_report.json",
+      "sha256": "sha256:0ef4577474a8ffc96b3fd157022dff9f9b76dd24d87c9ac900800adb4fcee4af"
+    },
+    {
+      "byte_count": 3932,
+      "path": "chains/contacts-v1/evaluation_report.json",
+      "sha256": "sha256:e83eebd062571107f9a2cc1a5aac4b75c409c8215dd9d81cb4bc59a33a1c8690"
+    },
+    {
+      "byte_count": 1674,
+      "path": "chains/contacts-v1/manifest.json",
+      "sha256": "sha256:ede0a9eefc6a30bb94dc25773347c2c102b3becc867c5e7a2ba90fdc47347574"
+    },
+    {
+      "byte_count": 3287,
+      "path": "chains/contacts-v1/profile_decision_report.json",
+      "sha256": "sha256:de09a7344e2371670c312e8f85d5a34c1e7e86eac50cf5ec384cbe79f2afdb8b"
+    },
+    {
+      "byte_count": 9838,
+      "path": "chains/contacts-v1/quality_report.json",
+      "sha256": "sha256:7772fc846ee51bf2233b6660edd45669df81bae8d3e49cd5886169a2e5cd72a1"
+    },
+    {
+      "byte_count": 3101,
+      "path": "chains/contacts-v1/rejections.jsonl",
+      "sha256": "sha256:720f6680f0a54ae8f58750cc9c28e48c4347605cc87f5fea580ed388adf10198"
+    },
+    {
+      "byte_count": 26913,
+      "path": "chains/contacts-v1/samples.jsonl",
+      "sha256": "sha256:eaeb6a553c05b9ded5a82e0c4f68eacc5418624e982641776b7200ef625a69fb"
+    },
+    {
+      "byte_count": 595,
+      "path": "chains/contacts-v2/chain_metadata.json",
+      "sha256": "sha256:0c99c11f75b291f10cd8e394ab66776a10309f996fb285ac5a053b03d032f98f"
+    },
+    {
+      "byte_count": 2937,
+      "path": "chains/contacts-v2/dataset_release_pack.json",
+      "sha256": "sha256:cc8b69da55281fa565bd02f760fd7b5e7ccc1129bdbba1fc2158af9593a41d7e"
+    },
+    {
+      "byte_count": 2375,
+      "path": "chains/contacts-v2/dataset_release_report.json",
+      "sha256": "sha256:d28dafcfe25d2f94793494de1eeb24a062f460fd709f57c8aaccd025bd09164d"
+    },
+    {
+      "byte_count": 3949,
+      "path": "chains/contacts-v2/evaluation_report.json",
+      "sha256": "sha256:d27a6a056842afe9089017a43b8b8e4c7c5a4df7da7ed46c9480ff31a29c337e"
+    },
+    {
+      "byte_count": 3025,
+      "path": "chains/contacts-v2/manifest.json",
+      "sha256": "sha256:9a39016d5e0ee2c0312d8dbd77e58dfc77dd5f905ee26283a691154669e62a68"
+    },
+    {
+      "byte_count": 1574,
+      "path": "chains/contacts-v2/mutation_admission_report.json",
+      "sha256": "sha256:331ae981650089afe86dc89342e28cc430591faa14f7c0607219dcbdf245c924"
+    },
+    {
+      "byte_count": 2692,
+      "path": "chains/contacts-v2/profile_decision_report.json",
+      "sha256": "sha256:7089539c6c28568eb7420c8f1652311bcc8bde3e7bbc954f387d4ca6c1124876"
+    },
+    {
+      "byte_count": 6378,
+      "path": "chains/contacts-v2/quality_report.json",
+      "sha256": "sha256:aaecde3569eaf59baf48e7eabbef5ceb69256f1d9605137e1ffa81220941b538"
+    },
+    {
+      "byte_count": 62550,
+      "path": "chains/contacts-v2/rejections.jsonl",
+      "sha256": "sha256:02228f69b644db46169f396038cc5443b40b7054def1aa7afb31a33a85ac5d2a"
+    },
+    {
+      "byte_count": 32176,
+      "path": "chains/contacts-v2/samples.jsonl",
+      "sha256": "sha256:be4a7db5c5b947b235255b5b3e80dc9ac192b8c58274b8eec3012bf13fe748bd"
+    },
+    {
+      "byte_count": 595,
+      "path": "chains/mobile-v1/chain_metadata.json",
+      "sha256": "sha256:533822c4d2303b0b85d6115f6d7eb8877dff6fa6670ba20f3634aa64805bee0c"
+    },
+    {
+      "byte_count": 2522,
+      "path": "chains/mobile-v1/dataset_release_pack.json",
+      "sha256": "sha256:7aa3ade2a58ba0871a3dd581bb8dbe4a99f0bf3df1c6cad64fa2a6559867a7a5"
+    },
+    {
+      "byte_count": 2879,
+      "path": "chains/mobile-v1/dataset_release_report.json",
+      "sha256": "sha256:9a867e4874e4291cffb2f2462e6586736f7f043fa7b9b2f0b7e5af2d07a15f50"
+    },
+    {
+      "byte_count": 4417,
+      "path": "chains/mobile-v1/evaluation_report.json",
+      "sha256": "sha256:4dbf6f05ebfbedede4d1420de2cb81e80fc8786354b3d246e537aae6945d6ac3"
+    },
+    {
+      "byte_count": 1564,
+      "path": "chains/mobile-v1/manifest.json",
+      "sha256": "sha256:7aaa80125bee91bb0b5c4484e28574d10af24543b8c8a55475571db8b074a659"
+    },
+    {
+      "byte_count": 3286,
+      "path": "chains/mobile-v1/profile_decision_report.json",
+      "sha256": "sha256:dde01b08421a5de24a28c1342229b81f12ac11087bb052bb5e1d128474f2555a"
+    },
+    {
+      "byte_count": 6764,
+      "path": "chains/mobile-v1/quality_report.json",
+      "sha256": "sha256:c5fe9be69759fee23cab1d351871542fec35b16629c37df30f36a9a865ab1ac8"
+    },
+    {
+      "byte_count": 0,
+      "path": "chains/mobile-v1/rejections.jsonl",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "byte_count": 28570,
+      "path": "chains/mobile-v1/samples.jsonl",
+      "sha256": "sha256:6edb49c920f8270f798834ad65341a733785de385552a63c1ca69eb4a96df83e"
+    },
+    {
+      "byte_count": 598,
+      "path": "chains/mobile-v2/chain_metadata.json",
+      "sha256": "sha256:936a1e3cd372a57d7fd0f09285272e7d7f2bce87904c95e6074ee225f3f72159"
+    },
+    {
+      "byte_count": 2920,
+      "path": "chains/mobile-v2/dataset_release_pack.json",
+      "sha256": "sha256:2c8486bdb9dfc6762001034bdd810aa353c6f19b4383481aa93f10031dd7874e"
+    },
+    {
+      "byte_count": 2497,
+      "path": "chains/mobile-v2/dataset_release_report.json",
+      "sha256": "sha256:8465a7ff435b7cbc85cb11d5c1e40477bc9ab1c42ae786a9d4ffe2c723407c4c"
+    },
+    {
+      "byte_count": 4415,
+      "path": "chains/mobile-v2/evaluation_report.json",
+      "sha256": "sha256:ac73cbcde675c43974afcd8655f025bd7e5d5b7cd5f70ebdc7d620e079e258cd"
+    },
+    {
+      "byte_count": 3008,
+      "path": "chains/mobile-v2/manifest.json",
+      "sha256": "sha256:82ac151a063ce1b4d67f66e2bd7d285a8333985e523a7622d365653c0e7cbf69"
+    },
+    {
+      "byte_count": 1743,
+      "path": "chains/mobile-v2/mutation_admission_report.json",
+      "sha256": "sha256:6658f5255e99760553f941eecd3a791cab7f4ea57153e66c07745d88ae649745"
+    },
+    {
+      "byte_count": 2507,
+      "path": "chains/mobile-v2/profile_decision_report.json",
+      "sha256": "sha256:d4300d471cc5a45459d693b6cb81d58cfe18675e04d98d6cd73b4b0a43d14b6e"
+    },
+    {
+      "byte_count": 6747,
+      "path": "chains/mobile-v2/quality_report.json",
+      "sha256": "sha256:3d4168c7978ab03bfab2d4c6fa905a201c7a31ec208001d8a15823f40328aa32"
+    },
+    {
+      "byte_count": 7477,
+      "path": "chains/mobile-v2/rejections.jsonl",
+      "sha256": "sha256:45903e2dd93a9a3719f8f8ac11b0557e06a22b4b85989e22701c4a826eb0e4cd"
+    },
+    {
+      "byte_count": 19306,
+      "path": "chains/mobile-v2/samples.jsonl",
+      "sha256": "sha256:25b72a0007df90d52bd87382e8ab9c478fe1f3830015a160350ac1de6865e7b8"
+    },
+    {
+      "byte_count": 12462,
+      "path": "expected/projections/contacts_compatibility_bridge_v3.json",
+      "sha256": "sha256:87e68acd732c9234a3572caa78514cb7c52f8da8e08bea9296dff588a6844c62"
+    },
+    {
+      "byte_count": 12652,
+      "path": "expected/projections/contacts_coverage_backfill.json",
+      "sha256": "sha256:cef9b82a53d8b9d9f2404873fc0318eb11c651527804a6da2150352a466b163a"
+    },
+    {
+      "byte_count": 12672,
+      "path": "expected/projections/contacts_coverage_campaign_30.json",
+      "sha256": "sha256:6587e6d05820829a58eb91a553e6a0ef934e41af3e353a73688e24de932a8700"
+    },
+    {
+      "byte_count": 12666,
+      "path": "expected/projections/contacts_coverage_catalog_probe.json",
+      "sha256": "sha256:59ea5d921c3481d1d8308498f6f22fd2e24913a97ffd9cb033753a2cd3d0095a"
+    },
+    {
+      "byte_count": 12663,
+      "path": "expected/projections/contacts_coverage_pilot_12.json",
+      "sha256": "sha256:d4de7e657e4ff00cc7da255eeadb29f6206571ed28f7e5d08f5159a1f88fcfa8"
+    },
+    {
+      "byte_count": 12719,
+      "path": "expected/projections/contacts_coverage_smoke.json",
+      "sha256": "sha256:7fed6a70c174e25133c37b8492e2fa187014d2ccd6ce5d869d59251be8bc1486"
+    },
+    {
+      "byte_count": 12705,
+      "path": "expected/projections/contacts_coverage_structural_campaign_30.json",
+      "sha256": "sha256:8d28c70534f2c9f6f524b0e6055b0df77ae90ce1ffa8656ec98c3e8ab05d2840"
+    },
+    {
+      "byte_count": 12696,
+      "path": "expected/projections/contacts_coverage_structural_pilot_12.json",
+      "sha256": "sha256:b8d30da7a1c6774faf0517965ca06b79c4069cd683b02d2ee9025d1d7ed34dee"
+    },
+    {
+      "byte_count": 12646,
+      "path": "expected/projections/contacts_coverage_tracer.json",
+      "sha256": "sha256:d97ba28928f3ce42ac4f5293100d819d63d618d5a42fef8308d33db330ab56fe"
+    },
+    {
+      "byte_count": 12729,
+      "path": "expected/projections/contacts_representative_llm_100.json",
+      "sha256": "sha256:34bbd6c5f563cfe896710a926a584990a2bc52908dc35e0848b9d128072b0ff1"
+    },
+    {
+      "byte_count": 12479,
+      "path": "expected/projections/foundation_fixture_profile.json",
+      "sha256": "sha256:fd8ad67b9a966cc7009c997bf402ce3353e4b53d377478660017f626660d8b62"
+    },
+    {
+      "byte_count": 12530,
+      "path": "expected/projections/foundation_profile_local_contacts.json",
+      "sha256": "sha256:dfc4b4328b26a8dd321df4bdfd1f469d50d28f18ccd4e4cb3694c857f55f1def"
+    },
+    {
+      "byte_count": 12448,
+      "path": "expected/projections/foundation_scale_probe_25.json",
+      "sha256": "sha256:9fda9a547f525eb15d2f68db09f485ee627aa9cc9f8f19b1bc89d7917bb51757"
+    },
+    {
+      "byte_count": 13828,
+      "path": "expected/projections/mobile_agent_fixture.json",
+      "sha256": "sha256:71bcbec6b37388b9baf3fffd0a06ce284716ac48164f5d9be313712b8548fce2"
+    },
+    {
+      "byte_count": 13719,
+      "path": "expected/projections/mobile_coverage_catalog_probe.json",
+      "sha256": "sha256:14aa96b267c3b350ee22f9db3009d0c460a82c6ec304498166721c8e1579d086"
+    },
+    {
+      "byte_count": 13515,
+      "path": "expected/projections/mobile_messages_compatibility_bridge_v3.json",
+      "sha256": "sha256:fc4013876fa31903c769e5122c463fd0b7de748ae59382218c027348a55c25e2"
+    },
+    {
+      "byte_count": 13752,
+      "path": "expected/projections/mobile_messages_coverage_campaign_30.json",
+      "sha256": "sha256:adeb4ae202dc7525ce86bbfcde2ccaee20966d367f072ddaf98be72de92571d7"
+    },
+    {
+      "byte_count": 13743,
+      "path": "expected/projections/mobile_messages_coverage_pilot_12.json",
+      "sha256": "sha256:6919c0c9cb3c69d5f1706b7a1e4fbafad4e1aecc47e79a93546b8a926ed7759b"
+    },
+    {
+      "byte_count": 13785,
+      "path": "expected/projections/mobile_messages_coverage_structural_campaign_30.json",
+      "sha256": "sha256:67cf8703a700ce8d993f8a31920774d5ca1486c1956696d47ad9a2c1cc7c9aa3"
+    },
+    {
+      "byte_count": 13776,
+      "path": "expected/projections/mobile_messages_coverage_structural_pilot_12.json",
+      "sha256": "sha256:5b70eef1a819ca54a7a99feb1bdb581c95464452708b3a6040b2414a4a88ad74"
+    },
+    {
+      "byte_count": 13868,
+      "path": "expected/projections/mobile_messages_release_candidate.json",
+      "sha256": "sha256:d8d53594fd46230e07f6e92cc8194e6e89afc7f9b281618064905564ea6dde5f"
+    },
+    {
+      "byte_count": 13795,
+      "path": "expected/projections/mobile_messages_representative_llm_100.json",
+      "sha256": "sha256:9de39ba2f78ee3231f33fb8749a0cf0064ccaeee8f3ed9b38857c8c79e3fd849"
+    },
+    {
+      "byte_count": 13951,
+      "path": "expected/projections/profile_local_mobile_messages.json",
+      "sha256": "sha256:e3cbdfc2df78e3d54d4966ccafae1e1ef906154c7f54ef03f31e4058f4d0b612"
+    },
+    {
+      "byte_count": 541,
+      "path": "profiles/contacts/contacts-compatibility-bridge-v3.json",
+      "sha256": "sha256:484b5d4a1699479fcfa465919ecb9dd5b9d6714f01f58cf27c6747a5eebe9459"
+    },
+    {
+      "byte_count": 719,
+      "path": "profiles/contacts/contacts-coverage-backfill.json",
+      "sha256": "sha256:b7361ccaef3e0c4bca0e538c25bf9d02a4ea2c5ae7e1bd7ffb67161da63aa278"
+    },
+    {
+      "byte_count": 830,
+      "path": "profiles/contacts/contacts-coverage-campaign-30.json",
+      "sha256": "sha256:3a5f3aedc14862d02fb984f1273bc57630825fb39dd825ad12ce5444dae5a3e3"
+    },
+    {
+      "byte_count": 764,
+      "path": "profiles/contacts/contacts-coverage-catalog-probe.json",
+      "sha256": "sha256:c2da326ced119346b7af73d9be0da2c24c1654d9b3301343ff308aea547abe3c"
+    },
+    {
+      "byte_count": 818,
+      "path": "profiles/contacts/contacts-coverage-pilot-12.json",
+      "sha256": "sha256:343db91cc4c2f86f19271d66aa28200bb166cda350ea3dd999c3f23c4c41de6d"
+    },
+    {
+      "byte_count": 781,
+      "path": "profiles/contacts/contacts-coverage-smoke.json",
+      "sha256": "sha256:89f96e6da093a4c39683c56362df3efdd35e11bcd5d57607c17101b6b5ab4c96"
+    },
+    {
+      "byte_count": 860,
+      "path": "profiles/contacts/contacts-coverage-structural-campaign-30.json",
+      "sha256": "sha256:ad86f307ec0b6fb8220f0ec7a8632af13e003635e29b35b1dc387747c5456d04"
+    },
+    {
+      "byte_count": 848,
+      "path": "profiles/contacts/contacts-coverage-structural-pilot-12.json",
+      "sha256": "sha256:cdc7b23f0ee8dd83bbdb28cdfddb2243b2907561e9e5acfad8c2df6a6bd46e77"
+    },
+    {
+      "byte_count": 713,
+      "path": "profiles/contacts/contacts-coverage-tracer.json",
+      "sha256": "sha256:6a0898e868c8731de3677c5d78331eb685676d53654512f644332f066b4ea9e1"
+    },
+    {
+      "byte_count": 115,
+      "path": "profiles/contacts/contacts-profile-bad-schema.json",
+      "sha256": "sha256:4abfa74f744206d096a4508032d83d07aa0b3d6fb2e7ea50dca09881cf7ee36a"
+    },
+    {
+      "byte_count": 374,
+      "path": "profiles/contacts/contacts-profile.json",
+      "sha256": "sha256:d2fd92b6b29fea866eedcbe69fdc8ac07dd1ae076d80eb2a77208887a4228433"
+    },
+    {
+      "byte_count": 815,
+      "path": "profiles/contacts/contacts-representative-llm-100.json",
+      "sha256": "sha256:4e3caa752304297dceb0436fa5a76b9fc49bdefb29ac529d0d8fc3119d34942d"
+    },
+    {
+      "byte_count": 741,
+      "path": "profiles/contacts/foundation-fixture.json",
+      "sha256": "sha256:985b36c64232bf780523d379df918a8304a247a54a15babf1a7d862a126237d2"
+    },
+    {
+      "byte_count": 828,
+      "path": "profiles/contacts/foundation-release-candidate.json",
+      "sha256": "sha256:122a9a969b47d9d68b27f2cfed0cc507c271ed594b87bbc007390a5bd7a1457a"
+    },
+    {
+      "byte_count": 742,
+      "path": "profiles/contacts/foundation-scale-probe-25.json",
+      "sha256": "sha256:6e9e6449e3468ebb0243f1e2a0cc924cc8791c2cd62adddc01e043442a15cba5"
+    },
+    {
+      "byte_count": 956,
+      "path": "profiles/contacts/profile-local-contacts-bad-license.json",
+      "sha256": "sha256:9ee72828db6c7d0e8da58f22879d7441cd2987f35c980da009cec79f2f556ba0"
+    },
+    {
+      "byte_count": 966,
+      "path": "profiles/contacts/profile-local-contacts-bad-schema.json",
+      "sha256": "sha256:ba35a1a5ddff10c470211c2d8a3e28df7c5e01bc23a786569618c419ba470d7c"
+    },
+    {
+      "byte_count": 964,
+      "path": "profiles/contacts/profile-local-contacts-missing-file.json",
+      "sha256": "sha256:0664054d7abca82ed68629c75d9797efbe2d4281aee7fb2c93094bd417ceb312"
+    },
+    {
+      "byte_count": 900,
+      "path": "profiles/contacts/profile-local-contacts.json",
+      "sha256": "sha256:13fefba7bb24a2f49879eaeb76327762ff0a800690436720c46982ddca9b6167"
+    },
+    {
+      "byte_count": 796,
+      "path": "profiles/mobile/mobile-agent-fixture.json",
+      "sha256": "sha256:2995b3320a4378b294658f5c38331ed6001c55280d787c6d69ff1ac99075a09a"
+    },
+    {
+      "byte_count": 608,
+      "path": "profiles/mobile/mobile-compatibility-bridge-v3.json",
+      "sha256": "sha256:525351a913ddbd0c360343063900c68ad57f58a80671f6de606956cafc305fb4"
+    },
+    {
+      "byte_count": 828,
+      "path": "profiles/mobile/mobile-coverage-catalog-probe.json",
+      "sha256": "sha256:601f725bbec6a190fa90417476f4169c10fea23908a181caa798248df8476755"
+    },
+    {
+      "byte_count": 922,
+      "path": "profiles/mobile/mobile-messages-coverage-campaign-30.json",
+      "sha256": "sha256:4e5c8178645cb2336e333a031103575616dcc9d754f2d4111a4410e26a03b9ea"
+    },
+    {
+      "byte_count": 910,
+      "path": "profiles/mobile/mobile-messages-coverage-pilot-12.json",
+      "sha256": "sha256:63c7bea1688802ebd4387fc76d7de748683fcb894160ea3af8dbb5459fd022df"
+    },
+    {
+      "byte_count": 952,
+      "path": "profiles/mobile/mobile-messages-coverage-structural-campaign-30.json",
+      "sha256": "sha256:5eb8adebc968389d7fd4e113b18984cb03107f41046126404dd6dc567cd3b6f9"
+    },
+    {
+      "byte_count": 940,
+      "path": "profiles/mobile/mobile-messages-coverage-structural-pilot-12.json",
+      "sha256": "sha256:3730fd767cfaa6cc18ec58eb6825839dc0a4dd971de5cc44bb305a04f9faed6d"
+    },
+    {
+      "byte_count": 980,
+      "path": "profiles/mobile/mobile-messages-profile.json",
+      "sha256": "sha256:526986add4f1a8cba189cb0c12e50f6594d8d0c358975c780e56d63fabd47c19"
+    },
+    {
+      "byte_count": 823,
+      "path": "profiles/mobile/mobile-messages-release-candidate.json",
+      "sha256": "sha256:48256a9ee854380dbc48e28e4973df76ba023d7f26e1a9f2d9d2d2478f92e173"
+    },
+    {
+      "byte_count": 886,
+      "path": "profiles/mobile/mobile-messages-representative-llm-100.json",
+      "sha256": "sha256:ea98c9110635f2aea8bb8d16602a86b1c26f7ed59ae22b4a0bb0cd64dc9ee1a0"
+    },
+    {
+      "byte_count": 851,
+      "path": "profiles/mobile/profile-local-mobile-messages-bad-schema.json",
+      "sha256": "sha256:6ee5b4e724a7e234b32d39fd874d32eee575cdd7f71185a4de097b83f10fdcf4"
+    },
+    {
+      "byte_count": 804,
+      "path": "profiles/mobile/profile-local-mobile-messages.json",
+      "sha256": "sha256:28d15ce561656bca890c5ba522bb84b561f1aeb0dfee0b17a5dbbfc87954e82b"
+    },
+    {
+      "byte_count": 374,
+      "path": "sources/contacts-profile.json",
+      "sha256": "sha256:d2fd92b6b29fea866eedcbe69fdc8ac07dd1ae076d80eb2a77208887a4228433"
+    },
+    {
+      "byte_count": 980,
+      "path": "sources/mobile-messages-profile.json",
+      "sha256": "sha256:526986add4f1a8cba189cb0c12e50f6594d8d0c358975c780e56d63fabd47c19"
+    }
+  ],
+  "historical_profile_count": 26,
+  "profile_count": 28,
+  "profiles": [
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/foundation_fixture_profile.json",
+      "file": {
+        "byte_count": 741,
+        "path": "profiles/contacts/foundation-fixture.json",
+        "sha256": "sha256:985b36c64232bf780523d379df918a8304a247a54a15babf1a7d862a126237d2"
+      },
+      "profile_id": "foundation_fixture_profile",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/contacts/foundation-fixture.json",
+      "source_schema_version": "run_profile_v1"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "current_pack_reference_missing",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "unsupported_network_work",
+          "status": "failed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_missing",
+          "status": "insufficient_evidence"
+        }
+      },
+      "file": {
+        "byte_count": 828,
+        "path": "profiles/contacts/foundation-release-candidate.json",
+        "sha256": "sha256:122a9a969b47d9d68b27f2cfed0cc507c271ed594b87bbc007390a5bd7a1457a"
+      },
+      "profile_id": "foundation_release_candidate",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/contacts/foundation-release-candidate.json",
+      "source_schema_version": "run_profile_v1"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/foundation_scale_probe_25.json",
+      "file": {
+        "byte_count": 742,
+        "path": "profiles/contacts/foundation-scale-probe-25.json",
+        "sha256": "sha256:6e9e6449e3468ebb0243f1e2a0cc924cc8791c2cd62adddc01e043442a15cba5"
+      },
+      "profile_id": "foundation_scale_probe_25",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/contacts/foundation-scale-probe-25.json",
+      "source_schema_version": "run_profile_v1"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/contacts_coverage_smoke.json",
+      "file": {
+        "byte_count": 781,
+        "path": "profiles/contacts/contacts-coverage-smoke.json",
+        "sha256": "sha256:89f96e6da093a4c39683c56362df3efdd35e11bcd5d57607c17101b6b5ab4c96"
+      },
+      "profile_id": "contacts_coverage_smoke",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/contacts/contacts-coverage-smoke.json",
+      "source_schema_version": "run_profile_v1"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/foundation_profile_local_contacts.json",
+      "file": {
+        "byte_count": 900,
+        "path": "profiles/contacts/profile-local-contacts.json",
+        "sha256": "sha256:13fefba7bb24a2f49879eaeb76327762ff0a800690436720c46982ddca9b6167"
+      },
+      "profile_id": "foundation_profile_local_contacts",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/contacts/profile-local-contacts.json",
+      "source_schema_version": "run_profile_v2"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "current_pack_reference_missing",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "invalid_source_license",
+          "status": "failed"
+        },
+        "runnability": {
+          "reason_code": "invalid_source_license",
+          "status": "insufficient_evidence"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_missing",
+          "status": "insufficient_evidence"
+        }
+      },
+      "file": {
+        "byte_count": 956,
+        "path": "profiles/contacts/profile-local-contacts-bad-license.json",
+        "sha256": "sha256:9ee72828db6c7d0e8da58f22879d7441cd2987f35c980da009cec79f2f556ba0"
+      },
+      "profile_id": "foundation_profile_local_contacts_bad_license",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/contacts/profile-local-contacts-bad-license.json",
+      "source_schema_version": "run_profile_v2"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "current_pack_reference_missing",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "source_schema_invalid",
+          "status": "failed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_missing",
+          "status": "insufficient_evidence"
+        }
+      },
+      "file": {
+        "byte_count": 966,
+        "path": "profiles/contacts/profile-local-contacts-bad-schema.json",
+        "sha256": "sha256:ba35a1a5ddff10c470211c2d8a3e28df7c5e01bc23a786569618c419ba470d7c"
+      },
+      "profile_id": "foundation_profile_local_contacts_bad_schema",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/contacts/profile-local-contacts-bad-schema.json",
+      "source_schema_version": "run_profile_v2"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "current_pack_reference_missing",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "source_missing",
+          "status": "failed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_missing",
+          "status": "insufficient_evidence"
+        }
+      },
+      "file": {
+        "byte_count": 964,
+        "path": "profiles/contacts/profile-local-contacts-missing-file.json",
+        "sha256": "sha256:0664054d7abca82ed68629c75d9797efbe2d4281aee7fb2c93094bd417ceb312"
+      },
+      "profile_id": "foundation_profile_local_contacts_missing_file",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/contacts/profile-local-contacts-missing-file.json",
+      "source_schema_version": "run_profile_v2"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/contacts_coverage_pilot_12.json",
+      "file": {
+        "byte_count": 818,
+        "path": "profiles/contacts/contacts-coverage-pilot-12.json",
+        "sha256": "sha256:343db91cc4c2f86f19271d66aa28200bb166cda350ea3dd999c3f23c4c41de6d"
+      },
+      "profile_id": "contacts_coverage_pilot_12",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/contacts/contacts-coverage-pilot-12.json",
+      "source_schema_version": "run_profile_v4"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/contacts_coverage_campaign_30.json",
+      "file": {
+        "byte_count": 830,
+        "path": "profiles/contacts/contacts-coverage-campaign-30.json",
+        "sha256": "sha256:3a5f3aedc14862d02fb984f1273bc57630825fb39dd825ad12ce5444dae5a3e3"
+      },
+      "profile_id": "contacts_coverage_campaign_30",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/contacts/contacts-coverage-campaign-30.json",
+      "source_schema_version": "run_profile_v4"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/contacts_coverage_structural_pilot_12.json",
+      "file": {
+        "byte_count": 848,
+        "path": "profiles/contacts/contacts-coverage-structural-pilot-12.json",
+        "sha256": "sha256:cdc7b23f0ee8dd83bbdb28cdfddb2243b2907561e9e5acfad8c2df6a6bd46e77"
+      },
+      "profile_id": "contacts_coverage_structural_pilot_12",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/contacts/contacts-coverage-structural-pilot-12.json",
+      "source_schema_version": "run_profile_v4"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/contacts_coverage_structural_campaign_30.json",
+      "file": {
+        "byte_count": 860,
+        "path": "profiles/contacts/contacts-coverage-structural-campaign-30.json",
+        "sha256": "sha256:ad86f307ec0b6fb8220f0ec7a8632af13e003635e29b35b1dc387747c5456d04"
+      },
+      "profile_id": "contacts_coverage_structural_campaign_30",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/contacts/contacts-coverage-structural-campaign-30.json",
+      "source_schema_version": "run_profile_v4"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/contacts_representative_llm_100.json",
+      "file": {
+        "byte_count": 815,
+        "path": "profiles/contacts/contacts-representative-llm-100.json",
+        "sha256": "sha256:4e3caa752304297dceb0436fa5a76b9fc49bdefb29ac529d0d8fc3119d34942d"
+      },
+      "profile_id": "contacts_representative_llm_100",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/contacts/contacts-representative-llm-100.json",
+      "source_schema_version": "run_profile_v4"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/contacts_coverage_backfill.json",
+      "file": {
+        "byte_count": 719,
+        "path": "profiles/contacts/contacts-coverage-backfill.json",
+        "sha256": "sha256:b7361ccaef3e0c4bca0e538c25bf9d02a4ea2c5ae7e1bd7ffb67161da63aa278"
+      },
+      "profile_id": "contacts_coverage_backfill",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/contacts/contacts-coverage-backfill.json",
+      "source_schema_version": "run_profile_v4"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/contacts_coverage_catalog_probe.json",
+      "file": {
+        "byte_count": 764,
+        "path": "profiles/contacts/contacts-coverage-catalog-probe.json",
+        "sha256": "sha256:c2da326ced119346b7af73d9be0da2c24c1654d9b3301343ff308aea547abe3c"
+      },
+      "profile_id": "contacts_coverage_catalog_probe",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/contacts/contacts-coverage-catalog-probe.json",
+      "source_schema_version": "run_profile_v4"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/contacts_coverage_tracer.json",
+      "file": {
+        "byte_count": 713,
+        "path": "profiles/contacts/contacts-coverage-tracer.json",
+        "sha256": "sha256:6a0898e868c8731de3677c5d78331eb685676d53654512f644332f066b4ea9e1"
+      },
+      "profile_id": "contacts_coverage_tracer",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/contacts/contacts-coverage-tracer.json",
+      "source_schema_version": "run_profile_v4"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/mobile_messages_release_candidate.json",
+      "file": {
+        "byte_count": 823,
+        "path": "profiles/mobile/mobile-messages-release-candidate.json",
+        "sha256": "sha256:48256a9ee854380dbc48e28e4973df76ba023d7f26e1a9f2d9d2d2478f92e173"
+      },
+      "profile_id": "mobile_messages_release_candidate",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/mobile/mobile-messages-release-candidate.json",
+      "source_schema_version": "run_profile_v1"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/mobile_agent_fixture.json",
+      "file": {
+        "byte_count": 796,
+        "path": "profiles/mobile/mobile-agent-fixture.json",
+        "sha256": "sha256:2995b3320a4378b294658f5c38331ed6001c55280d787c6d69ff1ac99075a09a"
+      },
+      "profile_id": "mobile_agent_fixture",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/mobile/mobile-agent-fixture.json",
+      "source_schema_version": "run_profile_v1"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/profile_local_mobile_messages.json",
+      "file": {
+        "byte_count": 804,
+        "path": "profiles/mobile/profile-local-mobile-messages.json",
+        "sha256": "sha256:28d15ce561656bca890c5ba522bb84b561f1aeb0dfee0b17a5dbbfc87954e82b"
+      },
+      "profile_id": "profile_local_mobile_messages",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/mobile/profile-local-mobile-messages.json",
+      "source_schema_version": "run_profile_v2"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "current_pack_reference_missing",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "source_schema_invalid",
+          "status": "failed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_missing",
+          "status": "insufficient_evidence"
+        }
+      },
+      "file": {
+        "byte_count": 851,
+        "path": "profiles/mobile/profile-local-mobile-messages-bad-schema.json",
+        "sha256": "sha256:6ee5b4e724a7e234b32d39fd874d32eee575cdd7f71185a4de097b83f10fdcf4"
+      },
+      "profile_id": "profile_local_mobile_messages_bad_schema",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/mobile/profile-local-mobile-messages-bad-schema.json",
+      "source_schema_version": "run_profile_v2"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/mobile_coverage_catalog_probe.json",
+      "file": {
+        "byte_count": 828,
+        "path": "profiles/mobile/mobile-coverage-catalog-probe.json",
+        "sha256": "sha256:601f725bbec6a190fa90417476f4169c10fea23908a181caa798248df8476755"
+      },
+      "profile_id": "mobile_coverage_catalog_probe",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/mobile/mobile-coverage-catalog-probe.json",
+      "source_schema_version": "run_profile_v4"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/mobile_messages_coverage_pilot_12.json",
+      "file": {
+        "byte_count": 910,
+        "path": "profiles/mobile/mobile-messages-coverage-pilot-12.json",
+        "sha256": "sha256:63c7bea1688802ebd4387fc76d7de748683fcb894160ea3af8dbb5459fd022df"
+      },
+      "profile_id": "mobile_messages_coverage_pilot_12",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/mobile/mobile-messages-coverage-pilot-12.json",
+      "source_schema_version": "run_profile_v4"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/mobile_messages_coverage_campaign_30.json",
+      "file": {
+        "byte_count": 922,
+        "path": "profiles/mobile/mobile-messages-coverage-campaign-30.json",
+        "sha256": "sha256:4e5c8178645cb2336e333a031103575616dcc9d754f2d4111a4410e26a03b9ea"
+      },
+      "profile_id": "mobile_messages_coverage_campaign_30",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/mobile/mobile-messages-coverage-campaign-30.json",
+      "source_schema_version": "run_profile_v4"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/mobile_messages_coverage_structural_pilot_12.json",
+      "file": {
+        "byte_count": 940,
+        "path": "profiles/mobile/mobile-messages-coverage-structural-pilot-12.json",
+        "sha256": "sha256:3730fd767cfaa6cc18ec58eb6825839dc0a4dd971de5cc44bb305a04f9faed6d"
+      },
+      "profile_id": "mobile_messages_coverage_structural_pilot_12",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/mobile/mobile-messages-coverage-structural-pilot-12.json",
+      "source_schema_version": "run_profile_v4"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/mobile_messages_coverage_structural_campaign_30.json",
+      "file": {
+        "byte_count": 952,
+        "path": "profiles/mobile/mobile-messages-coverage-structural-campaign-30.json",
+        "sha256": "sha256:5eb8adebc968389d7fd4e113b18984cb03107f41046126404dd6dc567cd3b6f9"
+      },
+      "profile_id": "mobile_messages_coverage_structural_campaign_30",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/mobile/mobile-messages-coverage-structural-campaign-30.json",
+      "source_schema_version": "run_profile_v4"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "historical_only",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/mobile_messages_representative_llm_100.json",
+      "file": {
+        "byte_count": 886,
+        "path": "profiles/mobile/mobile-messages-representative-llm-100.json",
+        "sha256": "sha256:ea98c9110635f2aea8bb8d16602a86b1c26f7ed59ae22b4a0bb0cd64dc9ee1a0"
+      },
+      "profile_id": "mobile_messages_representative_llm_100",
+      "role": "historical_input",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/mobile/mobile-messages-representative-llm-100.json",
+      "source_schema_version": "run_profile_v4"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "synthetic_compatibility_evidence",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/contacts_compatibility_bridge_v3.json",
+      "file": {
+        "byte_count": 541,
+        "path": "profiles/contacts/contacts-compatibility-bridge-v3.json",
+        "sha256": "sha256:484b5d4a1699479fcfa465919ecb9dd5b9d6714f01f58cf27c6747a5eebe9459"
+      },
+      "profile_id": "contacts_compatibility_bridge_v3",
+      "role": "synthetic_compatibility_evidence",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/contacts/contacts-compatibility-bridge-v3.json",
+      "source_schema_version": "run_profile_v3"
+    },
+    {
+      "expected": {
+        "evidence_admissibility": {
+          "reason_code": "synthetic_compatibility_evidence",
+          "status": "insufficient_evidence"
+        },
+        "readability": {
+          "reason_code": "legacy_record_readable",
+          "status": "passed"
+        },
+        "runnability": {
+          "reason_code": "supported_profile_compiled",
+          "status": "passed"
+        },
+        "semantic_equivalence": {
+          "reason_code": "canonical_projection_matches_reviewed_oracle",
+          "status": "passed"
+        }
+      },
+      "expected_projection": "expected/projections/mobile_messages_compatibility_bridge_v3.json",
+      "file": {
+        "byte_count": 608,
+        "path": "profiles/mobile/mobile-compatibility-bridge-v3.json",
+        "sha256": "sha256:525351a913ddbd0c360343063900c68ad57f58a80671f6de606956cafc305fb4"
+      },
+      "profile_id": "mobile_messages_compatibility_bridge_v3",
+      "role": "synthetic_compatibility_evidence",
+      "schema_version": "compatibility_profile_entry_v1",
+      "source_path": "profiles/mobile/mobile-compatibility-bridge-v3.json",
+      "source_schema_version": "run_profile_v3"
+    }
+  ],
+  "schema_version": "compatibility_corpus_manifest_v1",
+  "synthetic_bridge_count": 2
+}

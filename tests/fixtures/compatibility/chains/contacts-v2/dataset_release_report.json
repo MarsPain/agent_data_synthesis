@@ -1,0 +1,84 @@
+{
+  "dataset_version": "dataset_contacts_mutation_compatibility_v2",
+  "decisions": {
+    "dataset_release": {
+      "reasons": [
+        "historical dataset release decision recorded"
+      ],
+      "status": "passed",
+      "triggered_by": [
+        "profile_promotion"
+      ]
+    }
+  },
+  "inputs": {
+    "evaluation_report_path": "evaluation_report.json",
+    "manifest_path": "manifest.json",
+    "profile_decision_report_path": "profile_decision_report.json",
+    "quality_report_path": "quality_report.json"
+  },
+  "observed": {
+    "accepted": 6,
+    "async_orchestration_status": "defer",
+    "executable_rate": 0.68,
+    "heldout_status": "passed",
+    "profile_promotion_status": "passed",
+    "rejected": 19,
+    "semantic_duplicate_detection_status": "defer",
+    "source_policy_rejection_rate": 0.0,
+    "success_rate": 0.35294117647058826
+  },
+  "profile": {
+    "config_hash": "sha256:e31b90ac8057ae832f8041c49bdf06b3fb7b3dc6ff6151d35a80d08a7e51c674",
+    "generation_mode": "deterministic_scale_probe",
+    "profile_id": "contacts_mutation_compatibility_v2",
+    "profile_purpose": "release_candidate",
+    "schema_version": "run_profile_v4",
+    "target_candidate_count": 25
+  },
+  "release_artifacts": {
+    "evaluation_report": "evaluation_report.json",
+    "profile_decision_report": "profile_decision_report.json",
+    "quality_report": "quality_report.json",
+    "rejections": "rejections.jsonl",
+    "samples": "samples.jsonl"
+  },
+  "release_completeness": {
+    "decision": {
+      "reasons": [
+        "historical release completeness recorded"
+      ],
+      "status": "passed",
+      "triggered_by": [
+        "rejection_rate",
+        "task_type_coverage",
+        "tool_combination_coverage"
+      ]
+    },
+    "observed": {
+      "accepted": 6,
+      "rejected": 19,
+      "rejection_rate": 0.76,
+      "task_types": [
+        "contact_lookup"
+      ],
+      "tool_combinations": [
+        "lookup_contact_email"
+      ]
+    },
+    "thresholds": {
+      "max_rejection_rate": 0.2,
+      "min_accepted_samples": 5,
+      "required_task_types": [
+        "lookup_contact_email",
+        "contact_followup",
+        "contact_branch_fallback"
+      ],
+      "required_tool_combinations": [
+        "lookup_contact_email",
+        "lookup_contact_email+record_contact_followup"
+      ]
+    }
+  },
+  "schema_version": "dataset_release_report_v1"
+}

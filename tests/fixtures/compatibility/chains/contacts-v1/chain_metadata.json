@@ -1,0 +1,13 @@
+{
+  "schema_version": "compatibility_chain_v1",
+  "chain_id": "contacts_historical_v1",
+  "domain_pack_id": "contacts",
+  "historical_profile_id": "foundation_release_candidate",
+  "historical_profile_schema_version": "run_profile_v1",
+  "historical_profile_config_hash": "sha256:7ae3c60d24adb0cf0753a5e45596f74f8dfb5a3e4269a132e633f6c18f1813cd",
+  "manifest_schema_version": "dataset_manifest_v1",
+  "release_pack_schema_version": "dataset_release_pack_v1",
+  "historical_decision": "passed",
+  "current_evidence_status": "insufficient_evidence",
+  "claim_scope": "historical_only"
+}

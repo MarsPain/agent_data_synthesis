@@ -1,0 +1,154 @@
+{
+  "capability_slices": {
+    "branching": {
+      "failed": 0,
+      "pass_rate": 1.0,
+      "passed": 1,
+      "total": 1
+    },
+    "contact_lookup": {
+      "failed": 0,
+      "pass_rate": 1.0,
+      "passed": 2,
+      "total": 2
+    },
+    "missing_contact": {
+      "failed": 0,
+      "pass_rate": 1.0,
+      "passed": 1,
+      "total": 1
+    },
+    "state_change": {
+      "failed": 0,
+      "pass_rate": 1.0,
+      "passed": 1,
+      "total": 1
+    }
+  },
+  "counts": {
+    "failed": 0,
+    "improved": 0,
+    "passed": 5,
+    "regressed": 0,
+    "total": 5,
+    "unchanged": 5
+  },
+  "dataset_version": "dataset_foundation_release_candidate",
+  "decision": {
+    "reasons": [
+      "pass_rate 1.0 is at or above mvp_min_heldout_pass_rate 0.8",
+      "regressed 0 is at or below max_regression_count 0",
+      "capability branching pass_rate 1.0 is at or above minimum 1.0",
+      "capability contact_lookup pass_rate 1.0 is at or above minimum 1.0",
+      "capability missing_contact pass_rate 1.0 is at or above minimum 1.0",
+      "capability state_change pass_rate 1.0 is at or above minimum 1.0"
+    ],
+    "status": "passed",
+    "triggered_by": [
+      "pass_rate",
+      "regressed",
+      "capability:branching",
+      "capability:contact_lookup",
+      "capability:missing_contact",
+      "capability:state_change"
+    ]
+  },
+  "domain": {
+    "domain_id": "contacts_fixture",
+    "source": "manifest.run_profile.seed.domain"
+  },
+  "inputs": {
+    "manifest_path": "manifest.json",
+    "parent_evaluation_report_path": null,
+    "quality_report_path": "quality_report.json"
+  },
+  "parent_comparison": {
+    "improved": 0,
+    "missing_parent_task_ids": [],
+    "regressed": 0,
+    "supplied": false,
+    "task_changes": [],
+    "unchanged": 5
+  },
+  "profile": {
+    "config_hash": "sha256:7ae3c60d24adb0cf0753a5e45596f74f8dfb5a3e4269a132e633f6c18f1813cd",
+    "domain": "contacts_fixture",
+    "generation_mode": "foundation_fixture",
+    "profile_id": "foundation_release_candidate",
+    "profile_purpose": "release_candidate",
+    "schema_version": "run_profile_v1",
+    "target_candidate_count": null
+  },
+  "rates": {
+    "pass_rate": 1.0
+  },
+  "schema_version": "evaluation_report_v1",
+  "suite": {
+    "domain_id": "contacts_fixture",
+    "suite_id": "contacts_heldout_v1",
+    "suite_version": "contacts_heldout_v1",
+    "task_count": 5
+  },
+  "task_results": [
+    {
+      "capability_tags": [
+        "contact_lookup"
+      ],
+      "expected_outcome": "passed",
+      "failure_cause": null,
+      "observed_failure_cause": null,
+      "status": "passed",
+      "task_id": "heldout_contacts_lookup_alice"
+    },
+    {
+      "capability_tags": [
+        "contact_lookup"
+      ],
+      "expected_outcome": "passed",
+      "failure_cause": null,
+      "observed_failure_cause": null,
+      "status": "passed",
+      "task_id": "heldout_contacts_lookup_ben"
+    },
+    {
+      "capability_tags": [
+        "state_change"
+      ],
+      "expected_outcome": "passed",
+      "failure_cause": null,
+      "observed_failure_cause": null,
+      "status": "passed",
+      "task_id": "heldout_contacts_followup_ben"
+    },
+    {
+      "capability_tags": [
+        "branching"
+      ],
+      "expected_outcome": "passed",
+      "failure_cause": null,
+      "observed_failure_cause": null,
+      "status": "passed",
+      "task_id": "heldout_contacts_branch_fallback_alice"
+    },
+    {
+      "capability_tags": [
+        "missing_contact"
+      ],
+      "expected_outcome": "controlled_failure",
+      "failure_cause": null,
+      "observed_failure_cause": "verification_failed",
+      "status": "passed",
+      "task_id": "heldout_contacts_missing_contact"
+    }
+  ],
+  "thresholds": {
+    "max_regression_count": 0,
+    "min_capability_pass_rates": {
+      "branching": 1.0,
+      "contact_lookup": 1.0,
+      "missing_contact": 1.0,
+      "state_change": 1.0
+    },
+    "mvp_min_heldout_pass_rate": 0.8
+  }
+}

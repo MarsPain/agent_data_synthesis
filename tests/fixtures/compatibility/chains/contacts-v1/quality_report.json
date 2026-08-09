@@ -1,0 +1,461 @@
+{
+  "branch_failure_causes": {
+    "tool_runtime_error": 1
+  },
+  "branch_outcomes": {
+    "accepted": 1,
+    "rejected": 1
+  },
+  "counts": {
+    "accepted": 5,
+    "branch_attempts": 2,
+    "branch_selected": 1,
+    "capability_gaps": 0,
+    "executable": 5,
+    "refined_accepted": 1,
+    "refined_attempted": 1,
+    "refined_rejected": 0,
+    "rejected": 1,
+    "seed_transformations": 2,
+    "task_edits": 1,
+    "task_suggestions": 2,
+    "tool_proposals": 0,
+    "total": 6
+  },
+  "dataset_version": "dataset_foundation_release_candidate",
+  "edit_rejection_causes": {
+    "unsupported_taxonomy_node": 1
+  },
+  "editor_actions": {
+    "created_candidate": 1
+  },
+  "rates": {
+    "executable_rate": 0.8333333333333334,
+    "success_rate": 1.0
+  },
+  "rejection_causes": {
+    "task_suggestion_rejected": 1
+  },
+  "role_outcomes": {
+    "local_critic_refinement": {
+      "accepted": 1,
+      "attempted": 1,
+      "cost": {},
+      "output_types": [
+        "refinement_attempt"
+      ],
+      "rejected": 0,
+      "retry_count": 0,
+      "tokens": {}
+    },
+    "scripted_solution_policy": {
+      "accepted": 5,
+      "attempted": 5,
+      "cost": {},
+      "output_types": [
+        "solution_policy"
+      ],
+      "rejected": 0,
+      "retry_count": 0,
+      "tokens": {}
+    },
+    "scripted_task_generation": {
+      "accepted": 5,
+      "attempted": 5,
+      "cost": {},
+      "output_types": [
+        "candidate_tasks"
+      ],
+      "rejected": 0,
+      "retry_count": 0,
+      "tokens": {}
+    },
+    "task_editor": {
+      "accepted": 1,
+      "attempted": 1,
+      "cost": {},
+      "output_types": [
+        "edited_task"
+      ],
+      "rejected": 0,
+      "retry_count": 0,
+      "tokens": {}
+    },
+    "task_suggester": {
+      "accepted": 1,
+      "attempted": 2,
+      "cost": {},
+      "output_types": [
+        "task_suggestion"
+      ],
+      "rejected": 1,
+      "retry_count": 0,
+      "tokens": {}
+    }
+  },
+  "sandbox_admission_outcomes": {},
+  "schema_version": "quality_report_v1",
+  "slices": {
+    "adapter_execution_outcome": {},
+    "adapter_id": {},
+    "adapter_protocol": {},
+    "adapter_rejection_cause": {},
+    "branch_depth": {
+      "2": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      }
+    },
+    "branch_outcome": {
+      "accepted": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      },
+      "rejected": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      }
+    },
+    "capability_gap_type": {},
+    "curriculum_level": {
+      "easy": {
+        "accepted": 2,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 2
+      },
+      "medium": {
+        "accepted": 3,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 3
+      },
+      "unspecified": {
+        "accepted": 0,
+        "rejected": 1,
+        "success_rate": 0.0,
+        "total": 1
+      }
+    },
+    "dataset_version": {
+      "dataset_foundation_release_candidate": {
+        "accepted": 5,
+        "rejected": 1,
+        "success_rate": 0.8333333333333334,
+        "total": 6
+      }
+    },
+    "difficulty_level": {
+      "easy": {
+        "accepted": 2,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 2
+      },
+      "medium": {
+        "accepted": 3,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 3
+      },
+      "unspecified": {
+        "accepted": 0,
+        "rejected": 1,
+        "success_rate": 0.0,
+        "total": 1
+      }
+    },
+    "domain": {
+      "contacts": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      }
+    },
+    "edit_rejection_cause": {
+      "unsupported_taxonomy_node": {
+        "accepted": 0,
+        "rejected": 1,
+        "success_rate": 0.0,
+        "total": 1
+      }
+    },
+    "editor_action": {
+      "created_candidate": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      }
+    },
+    "environment_source_admission": {},
+    "external_source_eligibility": {
+      "ineligible": {
+        "accepted": 5,
+        "rejected": 1,
+        "success_rate": 0.8333333333333334,
+        "total": 6
+      }
+    },
+    "fallback_count": {
+      "1": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      }
+    },
+    "generation_mode": {
+      "foundation_fixture": {
+        "accepted": 5,
+        "rejected": 1,
+        "success_rate": 0.8333333333333334,
+        "total": 6
+      }
+    },
+    "generator_role": {
+      "scripted_task_generation": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      }
+    },
+    "license_policy_outcome": {
+      "allowed": {
+        "accepted": 5,
+        "rejected": 1,
+        "success_rate": 0.8333333333333334,
+        "total": 6
+      }
+    },
+    "proposed_tool": {},
+    "proposed_tool_side_effect": {},
+    "refinement_status": {
+      "refined_accepted": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      },
+      "unrefined": {
+        "accepted": 4,
+        "rejected": 1,
+        "success_rate": 0.8,
+        "total": 5
+      }
+    },
+    "rejection_cause": {
+      "task_suggestion_rejected": {
+        "accepted": 0,
+        "rejected": 1,
+        "success_rate": 0.0,
+        "total": 1
+      }
+    },
+    "role_name": {
+      "local_critic_refinement": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      },
+      "scripted_solution_policy": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      },
+      "scripted_task_generation": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      },
+      "task_editor": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      },
+      "task_suggester": {
+        "accepted": 1,
+        "rejected": 1,
+        "success_rate": 0.5,
+        "total": 2
+      }
+    },
+    "role_output_type": {
+      "candidate_tasks": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      },
+      "edited_task": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      },
+      "refinement_attempt": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      },
+      "solution_policy": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      },
+      "task_suggestion": {
+        "accepted": 1,
+        "rejected": 1,
+        "success_rate": 0.5,
+        "total": 2
+      }
+    },
+    "run_profile_id": {
+      "foundation_release_candidate": {
+        "accepted": 5,
+        "rejected": 1,
+        "success_rate": 0.8333333333333334,
+        "total": 6
+      }
+    },
+    "run_profile_schema_version": {
+      "run_profile_v1": {
+        "accepted": 5,
+        "rejected": 1,
+        "success_rate": 0.8333333333333334,
+        "total": 6
+      }
+    },
+    "sandbox_admission_outcome": {},
+    "sandbox_artifact_kind": {},
+    "sandbox_execution_status": {},
+    "sandbox_rejection_cause": {},
+    "sandbox_scan_status": {},
+    "seed_transformation_type": {
+      "taxonomy_expansion": {
+        "accepted": 1,
+        "rejected": 1,
+        "success_rate": 0.5,
+        "total": 2
+      }
+    },
+    "selected_branch": {
+      "fallback_full_name": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      }
+    },
+    "source_kind": {
+      "fixture": {
+        "accepted": 5,
+        "rejected": 1,
+        "success_rate": 0.8333333333333334,
+        "total": 6
+      }
+    },
+    "source_rejection_cause": {},
+    "suggestion_outcome": {
+      "accepted": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      },
+      "rejected": {
+        "accepted": 0,
+        "rejected": 1,
+        "success_rate": 0.0,
+        "total": 1
+      }
+    },
+    "task_type": {
+      "contact_branch_fallback": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      },
+      "contact_followup": {
+        "accepted": 2,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 2
+      },
+      "lookup_contact_email": {
+        "accepted": 2,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 2
+      },
+      "network_contact_research": {
+        "accepted": 0,
+        "rejected": 1,
+        "success_rate": 0.0,
+        "total": 1
+      }
+    },
+    "taxonomy_node": {
+      "contact_followup": {
+        "accepted": 1,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 1
+      },
+      "unsupported_network_research": {
+        "accepted": 0,
+        "rejected": 2,
+        "success_rate": 0.0,
+        "total": 2
+      }
+    },
+    "tool_combination": {
+      "lookup_contact_email": {
+        "accepted": 3,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 3
+      },
+      "lookup_contact_email > record_contact_followup": {
+        "accepted": 2,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 2
+      },
+      "unknown": {
+        "accepted": 0,
+        "rejected": 1,
+        "success_rate": 0.0,
+        "total": 1
+      }
+    },
+    "tool_proposal_outcome": {},
+    "verifier_type": {
+      "exact_answer_verifier": {
+        "accepted": 5,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 5
+      }
+    }
+  },
+  "suggestion_outcomes": {
+    "rejected": 1
+  },
+  "tool_proposal_outcomes": {}
+}

@@ -1,0 +1,289 @@
+{
+  "profile_id": "mobile_agent_fixture",
+  "projection": {
+    "diagnostic_labels": [],
+    "domain_pack_reference": {
+      "domain_pack_id": "mobile_messages",
+      "pack_hash": "sha256:b1bbbd2b96be99a1a446db1e14185f10a2feea8e59ec78384849b4576c23e94a",
+      "pack_version": "mobile_messages_pack_v1",
+      "schema_version": "domain_pack_reference_v1"
+    },
+    "migration_lineage": {
+      "derivation_reason": "explicit_projection_scoped_legacy_mapping",
+      "mapping_set": {
+        "mapping_set_hash": "sha256:c2d29abe9351edd16ad8a35f5c4395ef7c0e1ef3a83ff51993c9d9211ffbe531",
+        "mapping_set_id": "mobile_messages_compatibility_mapping_set_v1",
+        "mapping_set_version": "mobile_messages_compatibility_mapping_set_v1"
+      },
+      "schema_version": "domain_migration_lineage_v1",
+      "selected_mapping": {
+        "mapping_hash": "sha256:6664ab0d7cd0349a621bb24889b1299f1191b2c4ec584251b802eefcace5f64f",
+        "mapping_id": "compatibility_mapping_6664ab0d7cd0349a",
+        "mapping_version": "mobile_messages_semantic_domain_mapping_v1"
+      },
+      "source_path": "profiles/mobile/mobile-agent-fixture.json",
+      "source_profile_byte_count": 796,
+      "source_profile_hash": "sha256:2995b3320a4378b294658f5c38331ed6001c55280d787c6d69ff1ac99075a09a",
+      "source_profile_id": "mobile_agent_fixture",
+      "source_schema_version": "run_profile_v1"
+    },
+    "profile": {
+      "features": {
+        "enable_branching": false,
+        "enable_mcp_adapter": false,
+        "enable_refinement": false,
+        "enable_sandbox_fixture": false,
+        "enable_source_governance_fixture": false,
+        "enable_task_expansion": false
+      },
+      "generation_mode": "mobile_fixture",
+      "profile_purpose": "diagnostic_probe",
+      "schema_version": "run_profile_v1"
+    },
+    "runtime": {
+      "runtime_contract_hash": "sha256:7e3b3c56ed8e706d165f52b00ab373dc2ea127796f36d391481c0b762980dcb1",
+      "runtime_contract_version": "mobile_messages_runtime_contract_v1",
+      "runtime_id": "mobile_messages_fixture",
+      "runtime_version": "mobile_messages_fixture_v1"
+    },
+    "schema_version": "canonical_domain_projection_v1",
+    "semantic": {
+      "capability_references": [
+        {
+          "capability_contract_version": "mobile_messages_draft_reply_contract_v1",
+          "capability_key": "draft_reply",
+          "domain_pack_id": "mobile_messages",
+          "schema_version": "domain_capability_reference_v1"
+        },
+        {
+          "capability_contract_version": "mobile_messages_message_search_contract_v1",
+          "capability_key": "message_search",
+          "domain_pack_id": "mobile_messages",
+          "schema_version": "domain_capability_reference_v1"
+        },
+        {
+          "capability_contract_version": "mobile_messages_message_search_recovery_contract_v1",
+          "capability_key": "message_search_recovery",
+          "domain_pack_id": "mobile_messages",
+          "schema_version": "domain_capability_reference_v1"
+        },
+        {
+          "capability_contract_version": "mobile_messages_reminder_creation_contract_v1",
+          "capability_key": "reminder_creation",
+          "domain_pack_id": "mobile_messages",
+          "schema_version": "domain_capability_reference_v1"
+        }
+      ],
+      "component_contracts": [
+        {
+          "component_hash": "sha256:d5e9fe25fbcdb07ab626523ed4fab531e11a13ad023cb9bbbe30269c30e51cc6",
+          "component_id": "mobile_messages_assessment_schema",
+          "component_kind": "assessment_schema",
+          "component_version": "mobile_messages_assessment_schema_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:ad10f2849543d25398bc9fe4880763a155b0626ea46fe300e1b3336bfeb460d6",
+          "component_id": "mobile_messages_assignment_policy",
+          "component_kind": "assignment_policy",
+          "component_version": "mobile_messages_assignment_policy_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:202380a2b4c06d050c432a448ecc4f364dd7be77eebec450cb7dc2e640529d95",
+          "component_id": "mobile_messages_capability_evidence_floors",
+          "component_kind": "capability_evidence_floors",
+          "component_version": "mobile_messages_capability_evidence_floors_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:67436c4f80b470efd6cc2ea1de1fec8c45b6c44f4ce03fb275bb836ffa37ee2c",
+          "component_id": "mobile_messages_compatibility_mapping_set",
+          "component_kind": "compatibility_mapping_set",
+          "component_version": "mobile_messages_compatibility_mapping_set_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:e5bded1368bfeb3ac07259cc8309bb39e00650d32745adc78e8a2210d864fc5c",
+          "component_id": "mobile_messages_compiled_coverage_plan",
+          "component_kind": "compiled_coverage_plan",
+          "component_version": "mobile_messages_compiled_coverage_plan_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:9850bd903600f709168aa0894a2d06e76c6433b52dfdbb7675fc1450afd45f44",
+          "component_id": "mobile_messages_coverage_catalog",
+          "component_kind": "coverage_catalog",
+          "component_version": "mobile_messages_coverage_catalog_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:b6044f494b2198f9d07571b5e9fa7ccd4e1446959d54980dd25bf5e3f19bc6ad",
+          "component_id": "mobile_messages_coverage_profile",
+          "component_kind": "coverage_profile",
+          "component_version": "mobile_messages_coverage_profile_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:272dccfba746f5c8e68a1ea33a03316edd7b41caa703c7a546f31f972db7f749",
+          "component_id": "mobile_messages_expected_state_contract",
+          "component_kind": "expected_state_contract",
+          "component_version": "mobile_messages_expected_state_contract_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:15a95984e30b4b64c5a46240d0cf3e5d6f4261c95925ca6290d4bb2b57c1c0cf",
+          "component_id": "mobile_messages_generation",
+          "component_kind": "generation",
+          "component_version": "mobile_messages_generation_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:e7c2d583622b3944f7f510db5a5966208120e54795249538752d7a43e7a655ba",
+          "component_id": "mobile_messages_grounding_contract",
+          "component_kind": "grounding_contract",
+          "component_version": "mobile_messages_grounding_contract_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:267d1f22c397150a1e0c45fd8c4cc05913dd30cb23d6ba9bbcf35c4d77cc1c0a",
+          "component_id": "mobile_messages_held_out_suite",
+          "component_kind": "held_out_suite",
+          "component_version": "mobile_messages_held_out_suite_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:606020b2844f089a2f4ef396c37011cb0a7083656cedbf5289586814d9cf0035",
+          "component_id": "mobile_messages_held_out_tasks",
+          "component_kind": "held_out_tasks",
+          "component_version": "mobile_messages_held_out_tasks_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:1b390ac511ecfcf599953152fe7754bd0309dae558b032ba0d438892e546b435",
+          "component_id": "mobile_messages_held_out_thresholds",
+          "component_kind": "held_out_thresholds",
+          "component_version": "mobile_messages_held_out_thresholds_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:fe288dc0edbafed3201eb009fd60e658fa4c41070f6b1472375cc7b0661ffab5",
+          "component_id": "mobile_messages_membership_contract",
+          "component_kind": "membership_contract",
+          "component_version": "mobile_messages_membership_contract_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:9418b654b83881330aa94d00110b0b2138f613d3215c125fe430682c410f71e0",
+          "component_id": "mobile_messages_mutation_admission_mode",
+          "component_kind": "mutation_admission_mode",
+          "component_version": "mobile_messages_mutation_admission_mode_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:3ddd344ff49f644a114ac00f335f8cfaf3ad97e5a29a3b2d6f4dd1992bf04417",
+          "component_id": "mobile_messages_mutation_policy",
+          "component_kind": "mutation_policy",
+          "component_version": "mobile_messages_mutation_policy_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:725840bc28b3428f387190f3c475b87e21c8ce6886fea9b91eb33ecb7ff88e12",
+          "component_id": "mobile_messages_parser_contract",
+          "component_kind": "parser_contract",
+          "component_version": "mobile_messages_parser_contract_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:875b625bef66e312dca60ec89923472c70bf74fd098696ddf36c17613ca74440",
+          "component_id": "mobile_messages_plan_schema",
+          "component_kind": "plan_schema",
+          "component_version": "mobile_messages_plan_schema_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:e277227b7b1c24d4c9ec3e176afda987537f4c6c11d900021c0203fa77eac20d",
+          "component_id": "mobile_messages_release_completeness",
+          "component_kind": "release_completeness",
+          "component_version": "mobile_messages_release_completeness_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:4560a09e41be3d48ef126df378d77cb6d48b75dfb16dfe358aeef2ad7badedc0",
+          "component_id": "mobile_messages_release_machine_gates",
+          "component_kind": "release_machine_gates",
+          "component_version": "mobile_messages_release_machine_gates_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:5c483520a6e5c232440224a032115c1e4045f03aac39c477172d675ff8be70ca",
+          "component_id": "mobile_messages_task_taxonomy",
+          "component_kind": "task_taxonomy",
+          "component_version": "mobile_messages_task_taxonomy_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        }
+      ],
+      "domain_pack_reference": {
+        "domain_pack_id": "mobile_messages",
+        "pack_hash": "sha256:b1bbbd2b96be99a1a446db1e14185f10a2feea8e59ec78384849b4576c23e94a",
+        "pack_version": "mobile_messages_pack_v1",
+        "schema_version": "domain_pack_reference_v1"
+      },
+      "held_out_capability_references": [
+        {
+          "capability_contract_version": "mobile_messages_draft_reply_contract_v1",
+          "capability_key": "draft_reply",
+          "domain_pack_id": "mobile_messages",
+          "schema_version": "domain_capability_reference_v1"
+        },
+        {
+          "capability_contract_version": "mobile_messages_message_search_contract_v1",
+          "capability_key": "message_search",
+          "domain_pack_id": "mobile_messages",
+          "schema_version": "domain_capability_reference_v1"
+        },
+        {
+          "capability_contract_version": "mobile_messages_message_search_recovery_contract_v1",
+          "capability_key": "message_search_recovery",
+          "domain_pack_id": "mobile_messages",
+          "schema_version": "domain_capability_reference_v1"
+        },
+        {
+          "capability_contract_version": "mobile_messages_missing_message_safe_failure_contract_v1",
+          "capability_key": "missing_message_safe_failure",
+          "domain_pack_id": "mobile_messages",
+          "schema_version": "domain_capability_reference_v1"
+        },
+        {
+          "capability_contract_version": "mobile_messages_reminder_creation_contract_v1",
+          "capability_key": "reminder_creation",
+          "domain_pack_id": "mobile_messages",
+          "schema_version": "domain_capability_reference_v1"
+        }
+      ],
+      "task_type_references": [
+        {
+          "task_type_key": "mobile_draft_reply"
+        },
+        {
+          "task_type_key": "mobile_message_search"
+        },
+        {
+          "task_type_key": "mobile_message_search_recovery"
+        },
+        {
+          "task_type_key": "mobile_reminder_creation"
+        }
+      ]
+    },
+    "source": {
+      "admission_policy_hash": "sha256:04e95263eb3bb34e153d1f3eb543ee3cb0dbc7cbcd1fe4eb36443d7e875d26fb",
+      "admission_policy_id": "mobile_messages_compatibility_policy_v1",
+      "source_content_hash": "sha256:2995b3320a4378b294658f5c38331ed6001c55280d787c6d69ff1ac99075a09a",
+      "source_id": "legacy_profile_2995b3320a4378b294658f5c",
+      "source_schema_version": "run_profile_v1"
+    }
+  },
+  "review_status": "reviewed",
+  "schema_version": "reviewed_canonical_projection_v1"
+}

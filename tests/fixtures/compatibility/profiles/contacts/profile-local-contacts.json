@@ -1,0 +1,33 @@
+{
+  "schema_version": "run_profile_v2",
+  "profile_id": "foundation_profile_local_contacts",
+  "dataset_version": "dataset_profile_local_contacts",
+  "seed": {
+    "seed_id": "seed_contacts_profile_local_v1",
+    "domain": "contacts",
+    "description": "Profile-driven contacts source run.",
+    "task_taxonomy": [
+      "contact_lookup",
+      "contact_followup"
+    ]
+  },
+  "generation": {
+    "mode": "foundation_fixture",
+    "target_candidate_count": null
+  },
+  "features": {
+    "enable_branching": false,
+    "enable_task_expansion": false,
+    "enable_refinement": false,
+    "enable_mcp_adapter": false,
+    "enable_sandbox_fixture": false,
+    "enable_source_governance_fixture": false
+  },
+  "source": {
+    "kind": "local_contacts_json",
+    "source_id": "source_profile_contacts_v1",
+    "path": "contacts-profile.json",
+    "license_label": "cc-by-4.0",
+    "max_bytes": 65536
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "accepted_count": 5,
+  "artifacts": {
+    "dataset_release_pack": "dataset_release_pack.json",
+    "dataset_release_report": "dataset_release_report.json",
+    "evaluation_report": "evaluation_report.json",
+    "profile_decision_report": "profile_decision_report.json",
+    "quality_report": "quality_report.json",
+    "rejections": "rejections.jsonl",
+    "samples": "samples.jsonl"
+  },
+  "dataset_version": "dataset_mobile_messages_release_candidate",
+  "environment_versions": [
+    "env_mobile_messages_v1"
+  ],
+  "generator_config_hashes": [
+    "mobile-fixture-task-generation-v1",
+    "mobile-fixture-policy-v1"
+  ],
+  "parent_dataset_version": null,
+  "quality": {
+    "executable_rate": 1.0,
+    "success_rate": 1.0
+  },
+  "rejected_count": 0,
+  "rejection_causes": {},
+  "run_profile": {
+    "config_hash": "sha256:4f2b7db1294e3de73a929361ef292648d2e488978d9bf35240ff5b28a65e0629",
+    "enabled_features": [],
+    "generation_mode": "mobile_fixture",
+    "profile_id": "mobile_messages_release_candidate",
+    "profile_purpose": "release_candidate",
+    "schema_version": "run_profile_v1",
+    "seed": {
+      "domain": "mobile_messages_fixture"
+    },
+    "target_candidate_count": null
+  },
+  "schema_version": "dataset_manifest_v1",
+  "source_policy_hashes": [
+    "sha256:572e428cc1b420d813771cf16fbaa3c6a7872bff0bdd4a2b8f7e9dbb9606aace"
+  ],
+  "tool_versions": [
+    "tool_search_phone_messages_v1",
+    "tool_create_phone_reminder_v1",
+    "tool_draft_message_reply_v1"
+  ],
+  "verifier_versions": [
+    "verifier_exact_answer_state_v2"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "schema_version": "run_profile_v1",
+  "profile_id": "mobile_messages_release_candidate",
+  "dataset_version": "dataset_mobile_messages_release_candidate",
+  "profile_purpose": "release_candidate",
+  "seed": {
+    "seed_id": "seed_mobile_messages_v1",
+    "domain": "mobile_messages_fixture",
+    "description": "Synthetic phone messages, reminders, and draft replies.",
+    "task_taxonomy": [
+      "mobile_message_lookup",
+      "mobile_message_to_reminder",
+      "mobile_draft_reply",
+      "mobile_branch_fallback"
+    ]
+  },
+  "generation": {
+    "mode": "mobile_fixture"
+  },
+  "features": {
+    "enable_branching": false,
+    "enable_task_expansion": false,
+    "enable_refinement": false,
+    "enable_mcp_adapter": false,
+    "enable_sandbox_fixture": false,
+    "enable_source_governance_fixture": false
+  }
+}

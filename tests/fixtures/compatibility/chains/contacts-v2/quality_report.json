@@ -1,0 +1,285 @@
+{
+  "branch_failure_causes": {},
+  "branch_outcomes": {},
+  "counts": {
+    "accepted": 6,
+    "branch_attempts": 0,
+    "branch_selected": 0,
+    "capability_gaps": 0,
+    "executable": 17,
+    "refined_accepted": 0,
+    "refined_attempted": 0,
+    "refined_rejected": 0,
+    "rejected": 19,
+    "seed_transformations": 0,
+    "task_edits": 0,
+    "task_suggestions": 0,
+    "tool_proposals": 0,
+    "total": 25
+  },
+  "dataset_version": "dataset_contacts_mutation_compatibility_v2",
+  "edit_rejection_causes": {},
+  "editor_actions": {},
+  "rates": {
+    "executable_rate": 0.68,
+    "success_rate": 0.35294117647058826
+  },
+  "rejection_causes": {
+    "mutation_admission_failed": 8,
+    "quality_duplicate": 3,
+    "solution_logic_error": 4,
+    "verification_failed": 4
+  },
+  "role_outcomes": {
+    "scripted_solution_policy": {
+      "accepted": 6,
+      "attempted": 25,
+      "cost": {},
+      "output_types": [
+        "solution_policy"
+      ],
+      "rejected": 19,
+      "retry_count": 0,
+      "tokens": {}
+    },
+    "scripted_task_generation": {
+      "accepted": 6,
+      "attempted": 25,
+      "cost": {},
+      "output_types": [
+        "candidate_tasks"
+      ],
+      "rejected": 19,
+      "retry_count": 0,
+      "tokens": {}
+    }
+  },
+  "sandbox_admission_outcomes": {},
+  "schema_version": "quality_report_v1",
+  "slices": {
+    "adapter_execution_outcome": {},
+    "adapter_id": {},
+    "adapter_protocol": {},
+    "adapter_rejection_cause": {},
+    "branch_depth": {},
+    "branch_outcome": {},
+    "capability_gap_type": {},
+    "curriculum_level": {
+      "easy": {
+        "accepted": 6,
+        "rejected": 7,
+        "success_rate": 0.46153846153846156,
+        "total": 13
+      },
+      "medium": {
+        "accepted": 0,
+        "rejected": 12,
+        "success_rate": 0.0,
+        "total": 12
+      }
+    },
+    "dataset_version": {
+      "dataset_contacts_mutation_compatibility_v2": {
+        "accepted": 6,
+        "rejected": 19,
+        "success_rate": 0.24,
+        "total": 25
+      }
+    },
+    "difficulty_level": {
+      "easy": {
+        "accepted": 6,
+        "rejected": 7,
+        "success_rate": 0.46153846153846156,
+        "total": 13
+      },
+      "medium": {
+        "accepted": 0,
+        "rejected": 12,
+        "success_rate": 0.0,
+        "total": 12
+      }
+    },
+    "domain": {
+      "contacts": {
+        "accepted": 6,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 6
+      }
+    },
+    "edit_rejection_cause": {},
+    "editor_action": {},
+    "environment_source_admission": {},
+    "external_source_eligibility": {
+      "ineligible": {
+        "accepted": 6,
+        "rejected": 19,
+        "success_rate": 0.24,
+        "total": 25
+      }
+    },
+    "fallback_count": {},
+    "generation_mode": {
+      "deterministic_scale_probe": {
+        "accepted": 6,
+        "rejected": 19,
+        "success_rate": 0.24,
+        "total": 25
+      }
+    },
+    "generator_role": {
+      "scripted_task_generation": {
+        "accepted": 6,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 6
+      }
+    },
+    "license_policy_outcome": {
+      "allowed": {
+        "accepted": 6,
+        "rejected": 19,
+        "success_rate": 0.24,
+        "total": 25
+      }
+    },
+    "proposed_tool": {},
+    "proposed_tool_side_effect": {},
+    "refinement_status": {
+      "unrefined": {
+        "accepted": 6,
+        "rejected": 19,
+        "success_rate": 0.24,
+        "total": 25
+      }
+    },
+    "rejection_cause": {
+      "mutation_admission_failed": {
+        "accepted": 0,
+        "rejected": 8,
+        "success_rate": 0.0,
+        "total": 8
+      },
+      "quality_duplicate": {
+        "accepted": 0,
+        "rejected": 3,
+        "success_rate": 0.0,
+        "total": 3
+      },
+      "solution_logic_error": {
+        "accepted": 0,
+        "rejected": 4,
+        "success_rate": 0.0,
+        "total": 4
+      },
+      "verification_failed": {
+        "accepted": 0,
+        "rejected": 4,
+        "success_rate": 0.0,
+        "total": 4
+      }
+    },
+    "role_name": {
+      "scripted_solution_policy": {
+        "accepted": 6,
+        "rejected": 19,
+        "success_rate": 0.24,
+        "total": 25
+      },
+      "scripted_task_generation": {
+        "accepted": 6,
+        "rejected": 19,
+        "success_rate": 0.24,
+        "total": 25
+      }
+    },
+    "role_output_type": {
+      "candidate_tasks": {
+        "accepted": 6,
+        "rejected": 19,
+        "success_rate": 0.24,
+        "total": 25
+      },
+      "solution_policy": {
+        "accepted": 6,
+        "rejected": 19,
+        "success_rate": 0.24,
+        "total": 25
+      }
+    },
+    "run_profile_id": {
+      "contacts_mutation_compatibility_v2": {
+        "accepted": 6,
+        "rejected": 19,
+        "success_rate": 0.24,
+        "total": 25
+      }
+    },
+    "run_profile_schema_version": {
+      "run_profile_v4": {
+        "accepted": 6,
+        "rejected": 19,
+        "success_rate": 0.24,
+        "total": 25
+      }
+    },
+    "sandbox_admission_outcome": {},
+    "sandbox_artifact_kind": {},
+    "sandbox_execution_status": {},
+    "sandbox_rejection_cause": {},
+    "sandbox_scan_status": {},
+    "seed_transformation_type": {},
+    "selected_branch": {},
+    "source_kind": {
+      "fixture": {
+        "accepted": 6,
+        "rejected": 19,
+        "success_rate": 0.24,
+        "total": 25
+      }
+    },
+    "source_rejection_cause": {},
+    "suggestion_outcome": {},
+    "task_type": {
+      "contact_followup": {
+        "accepted": 0,
+        "rejected": 8,
+        "success_rate": 0.0,
+        "total": 8
+      },
+      "contact_lookup": {
+        "accepted": 6,
+        "rejected": 11,
+        "success_rate": 0.35294117647058826,
+        "total": 17
+      }
+    },
+    "taxonomy_node": {},
+    "tool_combination": {
+      "lookup_contact_email": {
+        "accepted": 6,
+        "rejected": 11,
+        "success_rate": 0.35294117647058826,
+        "total": 17
+      },
+      "unknown": {
+        "accepted": 0,
+        "rejected": 8,
+        "success_rate": 0.0,
+        "total": 8
+      }
+    },
+    "tool_proposal_outcome": {},
+    "verifier_type": {
+      "exact_answer_verifier": {
+        "accepted": 6,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "total": 6
+      }
+    }
+  },
+  "suggestion_outcomes": {},
+  "tool_proposal_outcomes": {}
+}

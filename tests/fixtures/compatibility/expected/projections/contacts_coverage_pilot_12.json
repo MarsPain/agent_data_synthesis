@@ -1,0 +1,273 @@
+{
+  "profile_id": "contacts_coverage_pilot_12",
+  "projection": {
+    "diagnostic_labels": [],
+    "domain_pack_reference": {
+      "domain_pack_id": "contacts",
+      "pack_hash": "sha256:531ec12a0f45019bdb6595b7a5e4c02a1492685781e8a8fa799e47e0f4efffc0",
+      "pack_version": "contacts_pack_v1",
+      "schema_version": "domain_pack_reference_v1"
+    },
+    "migration_lineage": {
+      "derivation_reason": "explicit_projection_scoped_legacy_mapping",
+      "mapping_set": {
+        "mapping_set_hash": "sha256:b1952b86636116d59156f7b1efd889386e2d0d8e90170444205c6b7048dc2ea7",
+        "mapping_set_id": "contacts_compatibility_mapping_set_v1",
+        "mapping_set_version": "contacts_compatibility_mapping_set_v1"
+      },
+      "schema_version": "domain_migration_lineage_v1",
+      "selected_mapping": {
+        "mapping_hash": "sha256:b7fc3f4c4d4a0a0632763c6cc5da58c301223c1b26e5e06ea8239d4613fa3d77",
+        "mapping_id": "compatibility_mapping_b7fc3f4c4d4a0a06",
+        "mapping_version": "contacts_semantic_domain_mapping_v1"
+      },
+      "source_path": "profiles/contacts/contacts-coverage-pilot-12.json",
+      "source_profile_byte_count": 818,
+      "source_profile_hash": "sha256:343db91cc4c2f86f19271d66aa28200bb166cda350ea3dd999c3f23c4c41de6d",
+      "source_profile_id": "contacts_coverage_pilot_12",
+      "source_schema_version": "run_profile_v4"
+    },
+    "profile": {
+      "coverage_profile": {
+        "profile_id": "contacts_representative",
+        "target_accepted_sample_count": 12,
+        "version": "contacts_representative_v1"
+      },
+      "features": {
+        "enable_branching": true,
+        "enable_mcp_adapter": false,
+        "enable_refinement": false,
+        "enable_sandbox_fixture": false,
+        "enable_source_governance_fixture": false,
+        "enable_task_expansion": false
+      },
+      "generation_mode": "llm",
+      "mutation_admission": {
+        "mode": "shadow"
+      },
+      "profile_purpose": "benchmark",
+      "schema_version": "run_profile_v4"
+    },
+    "runtime": {
+      "runtime_contract_hash": "sha256:648c585238880a47159dca076cb54f95965e5904584e1e270f32e15249ac74b8",
+      "runtime_contract_version": "contacts_runtime_contract_v1",
+      "runtime_id": "contacts_fixture",
+      "runtime_version": "contacts_fixture_v1"
+    },
+    "schema_version": "canonical_domain_projection_v1",
+    "semantic": {
+      "capability_references": [
+        {
+          "capability_contract_version": "contacts_contact_lookup_contract_v1",
+          "capability_key": "contact_lookup",
+          "domain_pack_id": "contacts",
+          "schema_version": "domain_capability_reference_v1"
+        },
+        {
+          "capability_contract_version": "contacts_followup_recording_contract_v1",
+          "capability_key": "followup_recording",
+          "domain_pack_id": "contacts",
+          "schema_version": "domain_capability_reference_v1"
+        }
+      ],
+      "component_contracts": [
+        {
+          "component_hash": "sha256:d827eb61f1b086e1006b6d7e356d9919168b0b40d689977022c0b35c899da9f4",
+          "component_id": "contacts_assessment_schema",
+          "component_kind": "assessment_schema",
+          "component_version": "contacts_assessment_schema_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:ca11f887c0e510eff85cea9afe1669240831969c5dd4adbfe93d0b9ba238beea",
+          "component_id": "contacts_assignment_policy",
+          "component_kind": "assignment_policy",
+          "component_version": "contacts_assignment_policy_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:c77b352e5ad96f1af9ba933dd4831490cd1a2a16b6ccf3ddc97281260426c69b",
+          "component_id": "contacts_capability_evidence_floors",
+          "component_kind": "capability_evidence_floors",
+          "component_version": "contacts_capability_evidence_floors_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:b6d1887a21919e190fbacf51214728bb62e5d1dc1d8f0c56db252bf4256dbcd9",
+          "component_id": "contacts_compatibility_mapping_set",
+          "component_kind": "compatibility_mapping_set",
+          "component_version": "contacts_compatibility_mapping_set_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:7207cdfcf979a615c8173149f4e92cb49dc643ea6d247c743dc24830fb24be6a",
+          "component_id": "contacts_compiled_coverage_plan",
+          "component_kind": "compiled_coverage_plan",
+          "component_version": "contacts_compiled_coverage_plan_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:c048a10c4f346f33c662a634e216cce2e5a8baecf3e2170489763a4bc416c4bd",
+          "component_id": "contacts_coverage_catalog",
+          "component_kind": "coverage_catalog",
+          "component_version": "contacts_coverage_catalog_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:b19bcf361710d273166f65813f1ed53ad2f7f04c66a991576dfe26f9eb61113b",
+          "component_id": "contacts_coverage_profile",
+          "component_kind": "coverage_profile",
+          "component_version": "contacts_coverage_profile_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:e4e9c21d9836750781a6463972b2ff75f98d649f1ee786637bcde3cd3e4a88f3",
+          "component_id": "contacts_expected_state_contract",
+          "component_kind": "expected_state_contract",
+          "component_version": "contacts_expected_state_contract_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:8174191f3efa5cf82311919ca98ce0a99d400d2be731f56f5a2d5262a0f4a934",
+          "component_id": "contacts_generation",
+          "component_kind": "generation",
+          "component_version": "contacts_generation_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:3f7ff0bf1b647a0e3be584ba8c0a78eb25aee5af98b827ca4e684c0301103245",
+          "component_id": "contacts_grounding_contract",
+          "component_kind": "grounding_contract",
+          "component_version": "contacts_grounding_contract_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:820bf2473cd48a22fb626d8f81943f7e3cbad1825774e04c1d7da5fd7eb1fbce",
+          "component_id": "contacts_held_out_suite",
+          "component_kind": "held_out_suite",
+          "component_version": "contacts_held_out_suite_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:a60f8672ef90634697b9a609b5e60ea40f10f4ec99943c0dedbc49038d6dccb0",
+          "component_id": "contacts_held_out_tasks",
+          "component_kind": "held_out_tasks",
+          "component_version": "contacts_held_out_tasks_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:e234561c3861de9026c704ddf3eb035f89ae7ca989cd6aa2e1bd5b10b41b81bd",
+          "component_id": "contacts_held_out_thresholds",
+          "component_kind": "held_out_thresholds",
+          "component_version": "contacts_held_out_thresholds_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:644f0ad989cb4732228ac63582d0ad096abe1a1441549c612c06f64f2911a5c5",
+          "component_id": "contacts_membership_contract",
+          "component_kind": "membership_contract",
+          "component_version": "contacts_membership_contract_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:2e96a54e850aea4a21bda5fb7282e01d6562941312e1c548e5bc9220d1693ed0",
+          "component_id": "contacts_mutation_admission_mode",
+          "component_kind": "mutation_admission_mode",
+          "component_version": "contacts_mutation_admission_mode_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:368711a261f55b795fa630ba6b9af42521138f472a391dbc0f834e14b09daddb",
+          "component_id": "contacts_mutation_policy",
+          "component_kind": "mutation_policy",
+          "component_version": "contacts_mutation_policy_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:0e19b33a7aeb2985345707fc67138ef0f2b0defbb4bc312f7bb38e473cb548ba",
+          "component_id": "contacts_parser_contract",
+          "component_kind": "parser_contract",
+          "component_version": "contacts_parser_contract_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:ec926bb86560117e5c6954312490835b9c23e686a55a2b256b9f49ebe962b1d3",
+          "component_id": "contacts_plan_schema",
+          "component_kind": "plan_schema",
+          "component_version": "contacts_plan_schema_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:0f4c317a6de3526476db734c8899daca138eb8401f1f6f84616457a391e22a46",
+          "component_id": "contacts_release_completeness",
+          "component_kind": "release_completeness",
+          "component_version": "contacts_release_completeness_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:92f25b5d7399af02cc28920db1985b74882e7a0ba17842dfbb33ce62198c8a62",
+          "component_id": "contacts_release_machine_gates",
+          "component_kind": "release_machine_gates",
+          "component_version": "contacts_release_machine_gates_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        },
+        {
+          "component_hash": "sha256:c8beb3a9cc46f2653f6bb2becdd9a457131c4b14dc7c7ac0b3ca8d3dbfe0c76d",
+          "component_id": "contacts_task_taxonomy",
+          "component_kind": "task_taxonomy",
+          "component_version": "contacts_task_taxonomy_v1",
+          "schema_version": "domain_component_contract_reference_v1"
+        }
+      ],
+      "domain_pack_reference": {
+        "domain_pack_id": "contacts",
+        "pack_hash": "sha256:531ec12a0f45019bdb6595b7a5e4c02a1492685781e8a8fa799e47e0f4efffc0",
+        "pack_version": "contacts_pack_v1",
+        "schema_version": "domain_pack_reference_v1"
+      },
+      "held_out_capability_references": [
+        {
+          "capability_contract_version": "contacts_contact_lookup_contract_v1",
+          "capability_key": "contact_lookup",
+          "domain_pack_id": "contacts",
+          "schema_version": "domain_capability_reference_v1"
+        },
+        {
+          "capability_contract_version": "contacts_contact_lookup_recovery_contract_v1",
+          "capability_key": "contact_lookup_recovery",
+          "domain_pack_id": "contacts",
+          "schema_version": "domain_capability_reference_v1"
+        },
+        {
+          "capability_contract_version": "contacts_followup_recording_contract_v1",
+          "capability_key": "followup_recording",
+          "domain_pack_id": "contacts",
+          "schema_version": "domain_capability_reference_v1"
+        },
+        {
+          "capability_contract_version": "contacts_missing_contact_safe_failure_contract_v1",
+          "capability_key": "missing_contact_safe_failure",
+          "domain_pack_id": "contacts",
+          "schema_version": "domain_capability_reference_v1"
+        }
+      ],
+      "task_type_references": [
+        {
+          "task_type_key": "contact_followup"
+        },
+        {
+          "task_type_key": "contact_lookup"
+        }
+      ]
+    },
+    "source": {
+      "admission_policy_hash": "sha256:2cd6f1e0a913aa24352cc0b3c75a9f8043e35939ddf56e3307cba81cc27a050e",
+      "admission_policy_id": "contacts_compatibility_policy_v1",
+      "source_content_hash": "sha256:343db91cc4c2f86f19271d66aa28200bb166cda350ea3dd999c3f23c4c41de6d",
+      "source_id": "legacy_profile_343db91cc4c2f86f19271d66",
+      "source_schema_version": "run_profile_v4"
+    }
+  },
+  "review_status": "reviewed",
+  "schema_version": "reviewed_canonical_projection_v1"
+}

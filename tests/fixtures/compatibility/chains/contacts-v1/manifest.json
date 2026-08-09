@@ -1,0 +1,57 @@
+{
+  "accepted_count": 5,
+  "artifacts": {
+    "dataset_release_pack": "dataset_release_pack.json",
+    "dataset_release_report": "dataset_release_report.json",
+    "evaluation_report": "evaluation_report.json",
+    "profile_decision_report": "profile_decision_report.json",
+    "quality_report": "quality_report.json",
+    "rejections": "rejections.jsonl",
+    "samples": "samples.jsonl"
+  },
+  "dataset_version": "dataset_foundation_release_candidate",
+  "environment_versions": [
+    "env_contacts_v2"
+  ],
+  "generator_config_hashes": [
+    "scripted_task_generation_v1",
+    "scripted_solution_policy_v1",
+    "deterministic_refinement_v1"
+  ],
+  "parent_dataset_version": null,
+  "quality": {
+    "executable_rate": 0.8333333333333334,
+    "success_rate": 1.0
+  },
+  "rejected_count": 1,
+  "rejection_causes": {
+    "task_suggestion_rejected": 1
+  },
+  "run_profile": {
+    "config_hash": "sha256:7ae3c60d24adb0cf0753a5e45596f74f8dfb5a3e4269a132e633f6c18f1813cd",
+    "enabled_features": [
+      "enable_branching",
+      "enable_task_expansion",
+      "enable_refinement"
+    ],
+    "generation_mode": "foundation_fixture",
+    "profile_id": "foundation_release_candidate",
+    "profile_purpose": "release_candidate",
+    "schema_version": "run_profile_v1",
+    "seed": {
+      "domain": "contacts"
+    },
+    "target_candidate_count": null
+  },
+  "schema_version": "dataset_manifest_v1",
+  "source_policy_hashes": [
+    "sha256:18909372c41280205109c4ace86190ad88b2a2a1a68e56944ce1fbe3e2e465ca"
+  ],
+  "tool_versions": [
+    "tool_lookup_contact_email_v1",
+    "tool_record_contact_followup_v1"
+  ],
+  "verifier_versions": [
+    "verifier_exact_answer_state_v2"
+  ]
+}

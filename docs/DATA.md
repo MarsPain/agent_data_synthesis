@@ -543,6 +543,27 @@ persisted candidate lineage carries only the integer
 Evaluation, profile-decision, release, and release-pack artifacts preserve the
 same validated mapping so campaign evidence can reject metadata drift.
 
+### Contacts/Mobile Compatibility Corpus Contract
+
+The checked-in [Contacts/Mobile compatibility corpus](../tests/fixtures/compatibility/corpus_manifest.json)
+uses `compatibility_corpus_manifest_v1`. It freezes 26 historical input
+profiles at one declared cutoff, plus one explicitly labeled
+`synthetic_compatibility_evidence` `run_profile_v3` bridge for each domain.
+Each profile row binds a relative path, source schema, SHA-256 digest, byte
+count, and independent expected results for `readability`, `runnability`,
+`semantic_equivalence`, and `evidence_admissibility`. The adapter uses a
+closed reason-code vocabulary and fails closed on unsupported, ambiguous,
+cross-pack, unknown, or tampered inputs.
+
+The corpus also freezes four self-contained `compatibility_chain_v1` golden
+chains: Contacts and Mobile historical v1, and mutation-aware v2. Their
+manifests, reports, release packs, mutation reports where applicable, and
+referenced dependencies are hash-bound and re-verified. Reproduced historical
+decisions remain `historical_only` and `insufficient_evidence` for current
+Release Candidate, Publishable, and Training Recommended claims. Expected
+canonical projections are checked-in reviewed fixtures; they are not produced
+by corpus verification.
+
 Coverage-enabled profile preview does not write a dataset manifest. Each
 domain's v1 catalog declares its original reachable cells, v2 expands
 representative grounding capacity, and v3 adds executable structural-recovery

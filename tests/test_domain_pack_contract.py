@@ -59,6 +59,7 @@ class DomainPackContractTest(unittest.TestCase):
             "synthesis/domain_pack.py",
             "synthesis/coverage_registry.py",
             "synthesis/domain_sources.py",
+            "synthesis/compatibility.py",
             "synthesis/pipeline.py",
             "synthesis/scale_evidence.py",
             "synthesis/task_contracts.py",

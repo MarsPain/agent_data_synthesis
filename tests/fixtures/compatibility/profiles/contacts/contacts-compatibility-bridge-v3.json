@@ -1,0 +1,19 @@
+{
+  "schema_version": "run_profile_v3",
+  "profile_id": "contacts_compatibility_bridge_v3",
+  "dataset_version": "dataset_contacts_compatibility_bridge_v3",
+  "profile_purpose": "diagnostic_probe",
+  "seed": {
+    "seed_id": "seed_contacts_compatibility_bridge_v3",
+    "domain": "contacts_fixture",
+    "description": "Synthetic compatibility schema bridge; not historical input.",
+    "task_taxonomy": [
+      "contact_lookup",
+      "contact_followup"
+    ]
+  },
+  "generation": {
+    "mode": "foundation_fixture"
+  },
+  "features": {}
+}

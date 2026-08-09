@@ -1,0 +1,13 @@
+{
+  "schema_version": "compatibility_chain_v1",
+  "chain_id": "mobile_historical_v1",
+  "domain_pack_id": "mobile_messages",
+  "historical_profile_id": "mobile_messages_release_candidate",
+  "historical_profile_schema_version": "run_profile_v1",
+  "historical_profile_config_hash": "sha256:4f2b7db1294e3de73a929361ef292648d2e488978d9bf35240ff5b28a65e0629",
+  "manifest_schema_version": "dataset_manifest_v1",
+  "release_pack_schema_version": "dataset_release_pack_v1",
+  "historical_decision": "passed",
+  "current_evidence_status": "insufficient_evidence",
+  "claim_scope": "historical_only"
+}

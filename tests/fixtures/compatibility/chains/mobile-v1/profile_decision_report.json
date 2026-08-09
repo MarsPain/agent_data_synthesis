@@ -1,0 +1,100 @@
+{
+  "dataset_version": "dataset_mobile_messages_release_candidate",
+  "decisions": {
+    "async_orchestration": {
+      "reasons": [
+        "total_candidates 5 is below async_candidate_count 100",
+        "runtime_seconds 0.027717833989299834 is below async_runtime_seconds 600.0"
+      ],
+      "status": "defer",
+      "triggered_by": []
+    },
+    "mvp_quality_floor": {
+      "reasons": [
+        "success_rate 1.0 is at or above mvp_min_success_rate 0.5",
+        "executable_rate 1.0 is at or above mvp_min_executable_rate 0.8",
+        "infrastructure_rejection_rate 0.0 is at or below mvp_max_infrastructure_rejection_rate 0.0",
+        "source_policy_rejection_rate 0.0 is at or below mvp_max_source_policy_rejection_rate 0.0",
+        "held-out evaluation decision passed"
+      ],
+      "status": "passed",
+      "triggered_by": [
+        "success_rate",
+        "executable_rate",
+        "infrastructure_rejection_rate",
+        "source_policy_rejection_rate",
+        "heldout_evaluation"
+      ]
+    },
+    "profile_promotion": {
+      "reasons": [
+        "mvp_quality_floor passed",
+        "held-out evaluation passed",
+        "async_orchestration remains deferred by scale thresholds",
+        "semantic_duplicate_detection remains deferred by volume threshold"
+      ],
+      "status": "passed",
+      "triggered_by": [
+        "mvp_quality_floor",
+        "heldout_evaluation",
+        "scale_deferral"
+      ]
+    },
+    "semantic_duplicate_detection": {
+      "reasons": [
+        "total_candidates 5 is below semantic_duplicate_min_candidates 100"
+      ],
+      "status": "defer",
+      "triggered_by": []
+    }
+  },
+  "evaluation": {
+    "decision_status": "passed",
+    "domain_id": "mobile_messages_fixture",
+    "failed_capabilities": [],
+    "heldout_pass_rate": 1.0,
+    "regression_count": 0,
+    "suite_id": "mobile_messages_heldout_v1"
+  },
+  "inputs": {
+    "evaluation_report_path": "evaluation_report.json",
+    "manifest_path": "manifest.json",
+    "parent_comparison_path": null,
+    "quality_report_path": "quality_report.json"
+  },
+  "observed": {
+    "accepted": 5,
+    "exact_duplicate_count": 0,
+    "exact_duplicate_rate": 0.0,
+    "executable_rate": 1.0,
+    "infrastructure_rejection_count": 0,
+    "infrastructure_rejection_rate": 0.0,
+    "profile_slice_count": 3,
+    "rejected": 0,
+    "runtime_seconds": 0.027717833989299834,
+    "source_policy_rejection_count": 0,
+    "source_policy_rejection_rate": 0.0,
+    "success_rate": 1.0,
+    "total_candidates": 5
+  },
+  "profile": {
+    "config_hash": "sha256:4f2b7db1294e3de73a929361ef292648d2e488978d9bf35240ff5b28a65e0629",
+    "domain": "mobile_messages_fixture",
+    "generation_mode": "mobile_fixture",
+    "profile_id": "mobile_messages_release_candidate",
+    "profile_purpose": "release_candidate",
+    "schema_version": "run_profile_v1",
+    "target_candidate_count": null
+  },
+  "schema_version": "profile_decision_report_v1",
+  "thresholds": {
+    "async_candidate_count": 100,
+    "async_runtime_seconds": 600.0,
+    "mvp_max_infrastructure_rejection_rate": 0.0,
+    "mvp_max_source_policy_rejection_rate": 0.0,
+    "mvp_min_executable_rate": 0.8,
+    "mvp_min_success_rate": 0.5,
+    "semantic_duplicate_exact_rate": 0.1,
+    "semantic_duplicate_min_candidates": 100
+  }
+}

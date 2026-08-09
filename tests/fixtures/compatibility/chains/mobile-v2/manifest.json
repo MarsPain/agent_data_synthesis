@@ -1,0 +1,104 @@
+{
+  "accepted_count": 3,
+  "admission_artifacts": {
+    "mutation_admission_report": {
+      "byte_count": 1743,
+      "path": "mutation_admission_report.json",
+      "sha256": "sha256:6658f5255e99760553f941eecd3a791cab7f4ea57153e66c07745d88ae649745"
+    },
+    "rejections": {
+      "byte_count": 7477,
+      "path": "rejections.jsonl",
+      "sha256": "sha256:45903e2dd93a9a3719f8f8ac11b0557e06a22b4b85989e22701c4a826eb0e4cd"
+    },
+    "samples": {
+      "byte_count": 19306,
+      "path": "samples.jsonl",
+      "sha256": "sha256:25b72a0007df90d52bd87382e8ab9c478fe1f3830015a160350ac1de6865e7b8"
+    }
+  },
+  "admission_contract_versions": {
+    "authorization": [
+      "mutation_authorization_record_v1"
+    ],
+    "domain_policy": [
+      "mobile_draft_reply_mutation_policy_v1",
+      "mobile_reminder_mutation_policy_v1",
+      "not_applicable"
+    ],
+    "evidence": [
+      "mutation_admission_evidence_v2"
+    ],
+    "report": [
+      "mutation_admission_report_v1"
+    ],
+    "semantic_verdict": [
+      "semantic_mutation_verdict_v1"
+    ]
+  },
+  "artifacts": {
+    "dataset_release_report": "dataset_release_report.json",
+    "evaluation_report": "evaluation_report.json",
+    "mutation_admission_report": "mutation_admission_report.json",
+    "profile_decision_report": "profile_decision_report.json",
+    "quality_report": "quality_report.json",
+    "rejections": "rejections.jsonl",
+    "samples": "samples.jsonl"
+  },
+  "dataset_version": "dataset_mobile_mutation_compatibility_v2",
+  "environment_versions": [
+    "env_mobile_messages_v1"
+  ],
+  "generator_config_hashes": [
+    "mobile-fixture-task-generation-v1",
+    "mobile-fixture-policy-v1"
+  ],
+  "parent_dataset_version": null,
+  "quality": {
+    "executable_rate": 0.6,
+    "success_rate": 1.0
+  },
+  "rejected_count": 2,
+  "rejection_causes": {
+    "mutation_admission_failed": 2
+  },
+  "run_profile": {
+    "config_hash": "sha256:516ca7e32bf4b0c55708191a0f7f4e260ba987a3678b7c1408ff245c6991b8ac",
+    "enabled_features": [
+      "enable_branching"
+    ],
+    "generation_mode": "mobile_fixture",
+    "mutation_admission": {
+      "judge": {
+        "max_retries": 1,
+        "model": "independent-release-judge",
+        "provider": "openai_compatible",
+        "role": "mutation_admission_judge",
+        "timeout_seconds": 5.0
+      },
+      "mode": "enforce"
+    },
+    "profile_id": "mobile_mutation_compatibility_v2",
+    "profile_purpose": "release_candidate",
+    "schema_version": "run_profile_v4",
+    "seed": {
+      "domain": "mobile_messages_fixture"
+    },
+    "target_candidate_count": null
+  },
+  "sample_contract_versions": [
+    "dataset_sample_v2"
+  ],
+  "schema_version": "dataset_manifest_v2",
+  "source_policy_hashes": [
+    "sha256:572e428cc1b420d813771cf16fbaa3c6a7872bff0bdd4a2b8f7e9dbb9606aace"
+  ],
+  "tool_versions": [
+    "tool_search_phone_messages_v1",
+    "tool_create_phone_reminder_v1",
+    "tool_draft_message_reply_v1"
+  ],
+  "verifier_versions": [
+    "verifier_exact_answer_state_v2"
+  ]
+}

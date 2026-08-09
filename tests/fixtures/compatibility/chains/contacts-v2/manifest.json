@@ -1,0 +1,105 @@
+{
+  "accepted_count": 6,
+  "admission_artifacts": {
+    "mutation_admission_report": {
+      "byte_count": 1574,
+      "path": "mutation_admission_report.json",
+      "sha256": "sha256:331ae981650089afe86dc89342e28cc430591faa14f7c0607219dcbdf245c924"
+    },
+    "rejections": {
+      "byte_count": 62550,
+      "path": "rejections.jsonl",
+      "sha256": "sha256:02228f69b644db46169f396038cc5443b40b7054def1aa7afb31a33a85ac5d2a"
+    },
+    "samples": {
+      "byte_count": 32176,
+      "path": "samples.jsonl",
+      "sha256": "sha256:be4a7db5c5b947b235255b5b3e80dc9ac192b8c58274b8eec3012bf13fe748bd"
+    }
+  },
+  "admission_contract_versions": {
+    "authorization": [
+      "mutation_authorization_record_v1"
+    ],
+    "domain_policy": [
+      "contact_followup_mutation_policy_v1",
+      "not_applicable"
+    ],
+    "evidence": [
+      "mutation_admission_evidence_v2"
+    ],
+    "report": [
+      "mutation_admission_report_v1"
+    ],
+    "semantic_verdict": [
+      "semantic_mutation_verdict_v1"
+    ]
+  },
+  "artifacts": {
+    "dataset_release_report": "dataset_release_report.json",
+    "evaluation_report": "evaluation_report.json",
+    "mutation_admission_report": "mutation_admission_report.json",
+    "profile_decision_report": "profile_decision_report.json",
+    "quality_report": "quality_report.json",
+    "rejections": "rejections.jsonl",
+    "samples": "samples.jsonl"
+  },
+  "dataset_version": "dataset_contacts_mutation_compatibility_v2",
+  "environment_versions": [
+    "env_contacts_v2"
+  ],
+  "generator_config_hashes": [
+    "scale-probe-local-v1",
+    "scripted_solution_policy_v1"
+  ],
+  "parent_dataset_version": null,
+  "quality": {
+    "executable_rate": 0.68,
+    "success_rate": 0.35294117647058826
+  },
+  "rejected_count": 19,
+  "rejection_causes": {
+    "mutation_admission_failed": 8,
+    "quality_duplicate": 3,
+    "solution_logic_error": 4,
+    "verification_failed": 4
+  },
+  "run_profile": {
+    "config_hash": "sha256:e31b90ac8057ae832f8041c49bdf06b3fb7b3dc6ff6151d35a80d08a7e51c674",
+    "enabled_features": [
+      "enable_branching"
+    ],
+    "generation_mode": "deterministic_scale_probe",
+    "mutation_admission": {
+      "judge": {
+        "max_retries": 1,
+        "model": "independent-release-judge",
+        "provider": "openai_compatible",
+        "role": "mutation_admission_judge",
+        "timeout_seconds": 5.0
+      },
+      "mode": "enforce"
+    },
+    "profile_id": "contacts_mutation_compatibility_v2",
+    "profile_purpose": "release_candidate",
+    "schema_version": "run_profile_v4",
+    "seed": {
+      "domain": "contacts_fixture"
+    },
+    "target_candidate_count": 25
+  },
+  "sample_contract_versions": [
+    "dataset_sample_v2"
+  ],
+  "schema_version": "dataset_manifest_v2",
+  "source_policy_hashes": [
+    "sha256:18909372c41280205109c4ace86190ad88b2a2a1a68e56944ce1fbe3e2e465ca"
+  ],
+  "tool_versions": [
+    "tool_lookup_contact_email_v1",
+    "tool_record_contact_followup_v1"
+  ],
+  "verifier_versions": [
+    "verifier_exact_answer_state_v2"
+  ]
+}

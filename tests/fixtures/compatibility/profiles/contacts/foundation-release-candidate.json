@@ -1,0 +1,29 @@
+{
+  "schema_version": "run_profile_v1",
+  "profile_id": "foundation_release_candidate",
+  "dataset_version": "dataset_foundation_release_candidate",
+  "profile_purpose": "release_candidate",
+  "seed": {
+    "seed_id": "seed_contacts_v1",
+    "domain": "contacts",
+    "description": "Synthetic contact lookup, follow-up, and branch fallback tasks.",
+    "task_taxonomy": [
+      "single_tool_lookup",
+      "verification_failure_fixture",
+      "contact_followup",
+      "branch_fallback",
+      "unsupported_network_research"
+    ]
+  },
+  "generation": {
+    "mode": "foundation_fixture"
+  },
+  "features": {
+    "enable_branching": true,
+    "enable_task_expansion": true,
+    "enable_refinement": true,
+    "enable_mcp_adapter": false,
+    "enable_sandbox_fixture": false,
+    "enable_source_governance_fixture": false
+  }
+}

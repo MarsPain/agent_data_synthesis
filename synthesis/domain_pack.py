@@ -576,10 +576,15 @@ class TaskCapabilityProjection:
         return cls(
             task_type_key=_require_text(record["task_type_key"], "task_type_key"),
             capability_references=tuple(
-                DomainCapabilityReference.from_record(item)
-                for item in _require_record_sequence(
-                    record["capability_references"],
-                    "capability_references",
+                sorted(
+                    (
+                        DomainCapabilityReference.from_record(item)
+                        for item in _require_record_sequence(
+                            record["capability_references"],
+                            "capability_references",
+                        )
+                    ),
+                    key=_capability_sort_key,
                 )
             ),
         )
@@ -2254,7 +2259,13 @@ class DomainPack:
             ),
             None,
         )
-        if selected != self.compatibility_mapping_set.contract_reference():
+        if (
+            selected != self.compatibility_mapping_set.contract_reference()
+            and not _compatibility_mapping_set_scoped_to_descriptor(
+                self.compatibility_mapping_set,
+                self.descriptor,
+            )
+        ):
             raise DomainPackContractError("incompatible_compatibility_mapping_set")
 
     def plan(
@@ -2572,7 +2583,14 @@ def _normalize_plan_selection_against_descriptor(
                 for item in task_capability_projections
             )
             or len(task_capability_projections) != len(selected_projections)
-            or set(task_capability_projections) != set(selected_projections)
+            or {
+                (item.task_type_key, frozenset(item.capability_references))
+                for item in task_capability_projections
+            }
+            != {
+                (item.task_type_key, frozenset(item.capability_references))
+                for item in selected_projections
+            }
         ):
             raise DomainPackContractError("capability_projection_mismatch")
     selected_capabilities = tuple(
@@ -2626,7 +2644,13 @@ def _validate_stored_compatibility_mapping(
         ),
         None,
     )
-    if selected_mapping_reference != compatibility_mapping_set.contract_reference():
+    if (
+        selected_mapping_reference != compatibility_mapping_set.contract_reference()
+        and not _compatibility_mapping_set_scoped_to_descriptor(
+            compatibility_mapping_set,
+            descriptor,
+        )
+    ):
         raise DomainPackContractError("compatibility_mapping_target_mismatch")
     resolved_mapping = compatibility_mapping_set.resolve(
         source_schema_version=mapping.source_schema_version,
@@ -2693,6 +2717,35 @@ def _compatibility_target_matches_plan(
     if isinstance(target, DomainComponentContractReference):
         return target in descriptor.component_contracts
     return False
+
+
+def _compatibility_mapping_set_scoped_to_descriptor(
+    mapping_set: CompatibilityMappingSet,
+    descriptor: DomainPackDescriptor,
+) -> bool:
+    """Allow an external legacy map only when every target is pack-local.
+
+    Initial descriptors retain a no-legacy-projection component reference for
+    ordinary planning.  Compatibility readers may provide a versioned mapping
+    set at the boundary, but that set must still be wholly scoped to the
+    descriptor before a plan can be validated or opened.
+    """
+
+    if not mapping_set.mappings:
+        return False
+    capability_references = (
+        *descriptor.capability_references,
+        *descriptor.held_out_capability_references,
+    )
+    return all(
+        _compatibility_target_matches_plan(
+            target=item.target,
+            descriptor=descriptor,
+            capability_references=capability_references,
+            runtime_contract=descriptor.runtime_contracts[0],
+        )
+        for item in mapping_set.mappings
+    )
 
 
 def _domain_plan_content_record(

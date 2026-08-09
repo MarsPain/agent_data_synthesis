@@ -1,0 +1,163 @@
+{
+  "capability_slices": {
+    "mobile_branching": {
+      "failed": 0,
+      "pass_rate": 1.0,
+      "passed": 1,
+      "total": 1
+    },
+    "mobile_draft_reply": {
+      "failed": 0,
+      "pass_rate": 1.0,
+      "passed": 1,
+      "total": 1
+    },
+    "mobile_message_lookup": {
+      "failed": 0,
+      "pass_rate": 1.0,
+      "passed": 1,
+      "total": 1
+    },
+    "mobile_message_to_reminder": {
+      "failed": 0,
+      "pass_rate": 1.0,
+      "passed": 1,
+      "total": 1
+    },
+    "mobile_missing_message": {
+      "failed": 0,
+      "pass_rate": 1.0,
+      "passed": 1,
+      "total": 1
+    }
+  },
+  "counts": {
+    "failed": 0,
+    "improved": 0,
+    "passed": 5,
+    "regressed": 0,
+    "total": 5,
+    "unchanged": 5
+  },
+  "dataset_version": "dataset_mobile_mutation_compatibility_v2",
+  "decision": {
+    "reasons": [
+      "pass_rate 1.0 is at or above mvp_min_heldout_pass_rate 0.8",
+      "regressed 0 is at or below max_regression_count 0",
+      "capability mobile_branching pass_rate 1.0 is at or above minimum 1.0",
+      "capability mobile_draft_reply pass_rate 1.0 is at or above minimum 1.0",
+      "capability mobile_message_lookup pass_rate 1.0 is at or above minimum 1.0",
+      "capability mobile_message_to_reminder pass_rate 1.0 is at or above minimum 1.0",
+      "capability mobile_missing_message pass_rate 1.0 is at or above minimum 1.0"
+    ],
+    "status": "passed",
+    "triggered_by": [
+      "pass_rate",
+      "regressed",
+      "capability:mobile_branching",
+      "capability:mobile_draft_reply",
+      "capability:mobile_message_lookup",
+      "capability:mobile_message_to_reminder",
+      "capability:mobile_missing_message"
+    ]
+  },
+  "domain": {
+    "domain_id": "mobile_messages_fixture",
+    "source": "manifest.run_profile.seed.domain"
+  },
+  "inputs": {
+    "manifest_path": "manifest.json",
+    "parent_evaluation_report_path": null,
+    "quality_report_path": "quality_report.json"
+  },
+  "parent_comparison": {
+    "improved": 0,
+    "missing_parent_task_ids": [],
+    "regressed": 0,
+    "supplied": false,
+    "task_changes": [],
+    "unchanged": 5
+  },
+  "profile": {
+    "config_hash": "sha256:516ca7e32bf4b0c55708191a0f7f4e260ba987a3678b7c1408ff245c6991b8ac",
+    "domain": "mobile_messages_fixture",
+    "generation_mode": "mobile_fixture",
+    "profile_id": "mobile_mutation_compatibility_v2",
+    "profile_purpose": "release_candidate",
+    "schema_version": "run_profile_v4",
+    "target_candidate_count": null
+  },
+  "rates": {
+    "pass_rate": 1.0
+  },
+  "schema_version": "evaluation_report_v1",
+  "suite": {
+    "domain_id": "mobile_messages_fixture",
+    "suite_id": "mobile_messages_heldout_v1",
+    "suite_version": "mobile_messages_heldout_v1",
+    "task_count": 5
+  },
+  "task_results": [
+    {
+      "capability_tags": [
+        "mobile_message_lookup"
+      ],
+      "expected_outcome": "passed",
+      "failure_cause": null,
+      "observed_failure_cause": null,
+      "status": "passed",
+      "task_id": "heldout_mobile_lookup_maya"
+    },
+    {
+      "capability_tags": [
+        "mobile_message_to_reminder"
+      ],
+      "expected_outcome": "passed",
+      "failure_cause": null,
+      "observed_failure_cause": null,
+      "status": "passed",
+      "task_id": "heldout_mobile_reminder_maya"
+    },
+    {
+      "capability_tags": [
+        "mobile_draft_reply"
+      ],
+      "expected_outcome": "passed",
+      "failure_cause": null,
+      "observed_failure_cause": null,
+      "status": "passed",
+      "task_id": "heldout_mobile_draft_reply_alex"
+    },
+    {
+      "capability_tags": [
+        "mobile_branching"
+      ],
+      "expected_outcome": "passed",
+      "failure_cause": null,
+      "observed_failure_cause": null,
+      "status": "passed",
+      "task_id": "heldout_mobile_branch_fallback_delivery"
+    },
+    {
+      "capability_tags": [
+        "mobile_missing_message"
+      ],
+      "expected_outcome": "controlled_failure",
+      "failure_cause": null,
+      "observed_failure_cause": "verification_failed",
+      "status": "passed",
+      "task_id": "heldout_mobile_missing_message"
+    }
+  ],
+  "thresholds": {
+    "max_regression_count": 0,
+    "min_capability_pass_rates": {
+      "mobile_branching": 1.0,
+      "mobile_draft_reply": 1.0,
+      "mobile_message_lookup": 1.0,
+      "mobile_message_to_reminder": 1.0,
+      "mobile_missing_message": 1.0
+    },
+    "mvp_min_heldout_pass_rate": 0.8
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "schema_version": "run_profile_v3",
+  "profile_id": "mobile_messages_compatibility_bridge_v3",
+  "dataset_version": "dataset_mobile_messages_compatibility_bridge_v3",
+  "profile_purpose": "diagnostic_probe",
+  "seed": {
+    "seed_id": "seed_mobile_messages_compatibility_bridge_v3",
+    "domain": "mobile_messages_fixture",
+    "description": "Synthetic compatibility schema bridge; not historical input.",
+    "task_taxonomy": [
+      "mobile_message_search",
+      "mobile_reminder_creation",
+      "mobile_draft_reply"
+    ]
+  },
+  "generation": {
+    "mode": "mobile_fixture"
+  },
+  "features": {}
+}
