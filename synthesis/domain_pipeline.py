@@ -2,19 +2,38 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Mapping, Protocol
 
 from awm_runtime.runtime import EnvironmentRuntime, RuntimeSession
+from synthesis.candidate_processing import (
+    CandidateExecutionRequest,
+    CandidateProcessingOptions,
+    PolicyGenerator as CandidateProcessingPolicyGenerator,
+    ProvisionalCandidateOutcome,
+)
 from synthesis.contact_mutations import (
     build_contact_followup_semantic_mutation_judge,
     contact_followup_mutation_policies,
     prepare_contact_candidate,
 )
-from synthesis.domain_generation import DomainGenerationSpec
+from synthesis.domain_generation import (
+    DomainGenerationGroundingRequest,
+    DomainGenerationRequest,
+    DomainGenerationResult,
+    DomainGenerationSpec,
+    generate_domain_llm_candidates,
+    _resolve_read_only_generation_grounding,
+)
 from synthesis.environments import ContactEnvironment, ContactsEnvironmentInput
 from synthesis.execution import SolutionPolicy, scripted_solution_policy
+from synthesis.llm import LLMConfig
 from synthesis.mcp import LocalRuntimeAdapterShim
-from synthesis.mutation_admission import MutationActionPolicy, SemanticMutationJudge
+from synthesis.mutation_admission import (
+    CandidateAdmissionEvaluator,
+    MutationActionPolicy,
+    SemanticMutationJudge,
+    build_local_candidate_admission_evaluator,
+)
 from synthesis.mobile_environment import (
     MobileMessagesEnvironment,
     MobileMessagesEnvironmentInput,
@@ -32,6 +51,7 @@ from synthesis.mobile_tasks import (
 from synthesis.mobile_tools import build_mobile_tool_registry
 from synthesis.runtime_registry import runtime_descriptor
 from synthesis.seeds import DomainSeed
+from synthesis.sources import SourceBundle, SourceGovernanceResult
 from synthesis.tasks import CandidateTask, build_contacts_generation_spec, generate_foundation_candidates
 from synthesis.tools import ToolRegistry, build_contact_tool_registry
 from synthesis.verification import ExactAnswerVerifier
@@ -51,6 +71,63 @@ CandidateGenerator = Callable[[DomainSeed], list[CandidateTask]]
 PolicyGenerator = Callable[[CandidateTask], SolutionPolicy]
 RegistryBuilder = Callable[[EnvironmentRuntime], ToolRegistry]
 CandidatePreparer = Callable[[CandidateTask], CandidateTask]
+
+
+class DomainGenerationBoundary(Protocol):
+    """Narrow generation surface shared by orchestration consumers."""
+
+    @property
+    def generation_spec(self) -> DomainGenerationSpec | None: ...
+
+    def generate(
+        self,
+        request: DomainGenerationRequest | DomainSeed,
+        provider_adapter: object | None = None,
+    ) -> list[CandidateTask] | DomainGenerationResult: ...
+
+    def resolve_generation_grounding(
+        self,
+        request: DomainGenerationGroundingRequest,
+    ) -> dict[str, object]: ...
+
+
+class DomainAttemptResult(Protocol):
+    @property
+    def outcome(self) -> ProvisionalCandidateOutcome: ...
+
+
+class DomainLifecycleRun(DomainGenerationBoundary, Protocol):
+    """The public execution surface supplied by a planned Domain Pack."""
+
+    def default_mutation_judge(self) -> SemanticMutationJudge | None: ...
+
+    def build_admission_evaluator(
+        self,
+        *,
+        mode: str,
+        judge: SemanticMutationJudge | None,
+    ) -> CandidateAdmissionEvaluator: ...
+
+    def foundation_gate_failure(self) -> str | None: ...
+
+    def attempt(
+        self,
+        request: CandidateExecutionRequest,
+        *,
+        dataset_version: str,
+        llm_config: LLMConfig | None = None,
+        policy_generator: CandidateProcessingPolicyGenerator | None = None,
+        admission_evaluator: CandidateAdmissionEvaluator,
+        options: CandidateProcessingOptions | None = None,
+    ) -> DomainAttemptResult: ...
+
+
+class DomainRunOpenError(ValueError):
+    """Bounded failure returned while opening a planned Domain run."""
+
+    def __init__(self, reason_code: str) -> None:
+        super().__init__(reason_code)
+        self.reason_code = reason_code
 
 
 def preserve_candidate(candidate: CandidateTask) -> CandidateTask:
@@ -86,6 +163,46 @@ class DomainPipelineBundle:
             environment=self.environment,
             registry=self.registry,
             registry_builder=self.registry_builder,
+        )
+
+    def generate(
+        self,
+        request: DomainGenerationRequest | DomainSeed,
+        provider_adapter: object | None = None,
+    ) -> list[CandidateTask] | DomainGenerationResult:
+        """Provide the same narrow generation seam as an opened Domain run."""
+        if isinstance(request, DomainSeed):
+            seed = request
+            target_candidate_count = None
+            role_registry = None
+        elif isinstance(request, DomainGenerationRequest):
+            seed = request.seed
+            target_candidate_count = request.target_candidate_count
+            role_registry = request.role_registry
+        else:
+            raise ValueError("invalid_domain_generation_request")
+        if provider_adapter is None:
+            return self.candidate_generator(seed)
+        if self.generation_spec is None:
+            raise ValueError("source_backed_remote_context_not_allowed")
+        if target_candidate_count is None:
+            raise ValueError("target_candidate_count_required")
+        return generate_domain_llm_candidates(
+            seed,
+            provider_adapter,
+            spec=self.generation_spec,
+            target_candidate_count=target_candidate_count,
+            role_registry=role_registry,
+        )
+
+    def resolve_generation_grounding(
+        self,
+        request: DomainGenerationGroundingRequest,
+    ) -> dict[str, object]:
+        return _resolve_read_only_generation_grounding(
+            self.generation_spec,
+            request,
+            executor=self.registry.execute,
         )
 
 
@@ -139,6 +256,42 @@ def build_domain_pipeline_bundle(
             representative_fixture=representative_fixture,
         )
     raise ValueError(f"Unsupported seed domain: {seed.domain}")
+
+
+def open_domain_run(
+    seed: DomainSeed,
+    output_dir: Path,
+    *,
+    source_bundle: SourceBundle,
+    source_result: SourceGovernanceResult,
+    source_provenance: Mapping[str, object] | None = None,
+    domain_environment_input: object | None = None,
+    enable_mcp_adapter: bool = False,
+    representative_fixture: bool = False,
+) -> DomainLifecycleRun | None:
+    """Open a planned run when a domain has adopted the lifecycle seam.
+
+    ``None`` preserves the established bundle path for domains that have not
+    migrated yet.  The Workspace adapter is intentionally selected here, at
+    the domain-routing boundary, rather than by shared orchestration code.
+    """
+    if seed.domain != "workspace_tasks_fixture":
+        return None
+    from synthesis.domain_pack import OpenFailure
+    from synthesis.workspace_domain_pack import open_workspace_domain_run
+
+    run = open_workspace_domain_run(
+        source_bundle=source_bundle,
+        source_result=source_result,
+        output_dir=output_dir,
+        source_provenance=source_provenance,
+        domain_environment_input=domain_environment_input,
+        enable_mcp_adapter=enable_mcp_adapter,
+        representative_fixture=representative_fixture,
+    )
+    if isinstance(run, OpenFailure):
+        raise DomainRunOpenError(run.reason_code)
+    return run
 
 
 def rebuild_domain_pipeline_bundle(

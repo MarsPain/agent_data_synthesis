@@ -21,6 +21,7 @@ from synthesis.coverage import (
 from synthesis.datasets import assemble_generation_stage_rejection
 from synthesis.domain_generation import (
     DomainGenerationBatchContext,
+    DomainGenerationGroundingRequest,
     DomainGenerationSpec,
     DomainGenerationValidationError,
     build_domain_generation_prompt,
@@ -28,7 +29,7 @@ from synthesis.domain_generation import (
     task_contract_from_provider_record,
     validate_domain_generation_spec,
 )
-from synthesis.domain_pipeline import DomainPipelineBundle
+from synthesis.domain_pipeline import DomainGenerationBoundary
 from synthesis.llm import LLMProviderError
 from synthesis.roles import TASK_GENERATION_ROLE, RoleRegistry, default_role_registry
 from synthesis.seeds import DomainSeed
@@ -283,7 +284,7 @@ CoverageGenerationRejectionCallback = Callable[
 
 
 CoverageAssignmentSchedulerFactory = Callable[
-    [DomainPipelineBundle, CoveragePlan, CoverageCatalog],
+    [DomainGenerationBoundary, CoveragePlan, CoverageCatalog],
     "CoverageAssignmentScheduler",
 ]
 
@@ -998,19 +999,31 @@ def build_coverage_assignment_scheduler_factory(
     max_concurrency = validate_concurrency(max_concurrency)
 
     def factory(
-        bundle: DomainPipelineBundle,
+        boundary: DomainGenerationBoundary,
         plan: CoveragePlan,
         catalog: CoverageCatalog,
     ) -> CoverageAssignmentScheduler:
-        if bundle.generation_spec is None:
+        if boundary.generation_spec is None:
             raise ValueError("source_backed_remote_context_not_allowed")
+
+        def execute_grounding(
+            tool_name: str,
+            arguments: dict[str, object],
+        ) -> dict[str, object]:
+            return boundary.resolve_generation_grounding(
+                DomainGenerationGroundingRequest(
+                    tool_name=tool_name,
+                    arguments=arguments,
+                )
+            )
+
         return CoverageAssignmentScheduler(
             client=client,
-            spec=bundle.generation_spec,
+            spec=boundary.generation_spec,
             plan=plan,
             catalog=catalog,
             role_registry=registry,
-            execute_tool=bundle.registry.execute,
+            execute_tool=execute_grounding,
             assignment_wave_callback=assignment_wave_callback,
             attempt_observer_factory=attempt_observer_factory,
             generation_rejection_callback=generation_rejection_callback,

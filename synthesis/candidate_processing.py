@@ -56,6 +56,7 @@ from synthesis.verification import verify_contract
 
 PolicyGenerator = Callable[[CandidateTask], SolutionPolicy]
 ToolProposalGenerator = Callable[[CapabilityGap], ToolProposal]
+CandidateMembershipValidator = Callable[[CandidateTask], str | None]
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,7 @@ class CandidateProcessingContext:
     llm_config: LLMConfig
     generate_policy: PolicyGenerator
     admission_evaluator: CandidateAdmissionEvaluator = permit_candidate_execution
+    membership_validator: CandidateMembershipValidator | None = None
 
 
 @dataclass(frozen=True)
@@ -365,6 +367,21 @@ def _run_candidate_attempt(
     refinement_attempt: RefinementAttempt | None = None,
     tool_expansion: dict[str, object] | None = None,
 ) -> _CandidateAttemptResult:
+    if context.membership_validator is not None:
+        membership_reason = context.membership_validator(task)
+        if membership_reason is not None:
+            return _CandidateAttemptResult(
+                sample=None,
+                rejection=assemble_quality_gate_rejection(
+                    task=task,
+                    cause="domain_plan_membership_rejected",
+                    message="Candidate does not satisfy the opened Domain plan.",
+                    details={"membership_reason": membership_reason},
+                ),
+                signature=None,
+                policy=None,
+                capability_gap=None,
+            )
     try:
         task_contract = task.contract()
     except ContractValidationError as exc:
@@ -749,7 +766,8 @@ def _attach_tool_proposal_to_rejection(
     proposal_record: dict[str, object],
 ) -> dict[str, object]:
     updated = dict(rejection)
-    details = dict(updated.get("details", {}))
+    raw_details = updated.get("details")
+    details = dict(raw_details) if isinstance(raw_details, dict) else {}
     details["tool_proposal"] = proposal_record
     updated["details"] = details
     return updated
@@ -818,12 +836,16 @@ def _maybe_route_review(
     cause = str(rejection.get("cause", ""))
     if not route_reviewable_failures or not reviewable(cause):
         return
+    raw_task = rejection.get("task")
+    task = raw_task if isinstance(raw_task, dict) else {}
+    raw_details = rejection.get("details")
+    details = raw_details if isinstance(raw_details, dict) else {}
     review_records.append(
         build_review_record(
             candidate_id=str(rejection.get("candidate_id", "unknown_candidate")),
             cause=cause,
-            task=rejection.get("task", {}),
-            uncertainty_reason=str(rejection.get("details", {}).get("message", cause)),
+            task=task,
+            uncertainty_reason=str(details.get("message", cause)),
             source_artifact="rejections.jsonl",
         )
     )

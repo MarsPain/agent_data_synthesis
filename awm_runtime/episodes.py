@@ -106,7 +106,7 @@ def build_episode_log(
         for index, event in enumerate(trajectory, start=1)
     )
     return EpisodeLog(
-        episode_id=f"episode_sample_{candidate_id}",
+        episode_id=episode_id_for_candidate(candidate_id),
         candidate_id=candidate_id,
         runtime=runtime_metadata,
         policy=policy,
@@ -115,6 +115,18 @@ def build_episode_log(
         outcome_status=outcome_status,
         failure_cause=failure_cause,
     )
+
+
+def episode_id_for_candidate(candidate_id: str) -> str:
+    """Return the stable episode identity for a candidate execution.
+
+    Episode ids are an identity binding rather than incidental display text.
+    Keeping the derivation beside episode construction lets replay consumers
+    reject a record whose id was rewritten while leaving its other evidence
+    intact.
+    """
+
+    return f"episode_sample_{candidate_id}"
 
 
 def deterministic_content_hash(value: object) -> str:

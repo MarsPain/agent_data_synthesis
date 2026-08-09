@@ -2,7 +2,7 @@
 
 **What to build:** Carry the five canonical Workspace capability references unchanged from the Domain plan through coverage assignments, provider membership checks, task contracts, isolated attempts, episodes, verification, coverage evidence, held-out evaluation, Domain assessment, release completeness, manifests, and release packs for a coverage-driven LLM release-candidate profile.
 
-**Blocked by:** [02 — Introduce the deep Domain Pack lifecycle through Workspace](02-deep-domain-pack-workspace-lifecycle.md)
+**Blocked by:** None (Ticket 02 completed)
 
 **Status:** ready-for-agent
 

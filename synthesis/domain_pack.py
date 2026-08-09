@@ -11,7 +11,8 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Protocol
 
 
 DOMAIN_PACK_REFERENCE_SCHEMA_VERSION = "domain_pack_reference_v1"
@@ -39,6 +40,10 @@ QUALIFICATION_ARTIFACT_REFERENCE_SCHEMA_VERSION = (
     "qualification_artifact_reference_v1"
 )
 QUALIFICATION_SUBJECT_SCHEMA_VERSION = "qualification_subject_v1"
+DOMAIN_OPEN_FAILURE_SCHEMA_VERSION = "domain_open_failure_v1"
+DOMAIN_CANDIDATE_SCOPE_SCHEMA_VERSION = "domain_candidate_scope_v1"
+DOMAIN_ASSESSMENT_EVIDENCE_SCHEMA_VERSION = "domain_assessment_evidence_v1"
+DOMAIN_ASSESSMENT_FAILURE_SCHEMA_VERSION = "domain_assessment_failure_v1"
 
 MAX_DOMAIN_PACK_RECORD_BYTES = 64 * 1024
 MAX_DOMAIN_PACK_RECORD_DEPTH = 16
@@ -162,6 +167,29 @@ DOMAIN_ASSESSMENT_INSUFFICIENCY_REASONS = frozenset(
         "evidence_identity_mismatch",
         "capability_evidence_incomplete",
         "plan_identity_mismatch",
+    }
+)
+
+OPEN_FAILURE_REASON_CODES = frozenset(
+    {
+        "invalid_domain_plan",
+        "plan_contract_drift",
+        "domain_pack_drift",
+        "runtime_contract_drift",
+        "source_drift",
+        "invalid_runtime_scope",
+        "runtime_scope_unavailable",
+        "runtime_construction_failed",
+    }
+)
+
+ASSESSMENT_FAILURE_REASON_CODES = frozenset(
+    {
+        "invalid_domain_plan",
+        "plan_contract_drift",
+        "domain_pack_drift",
+        "invalid_assessment_evidence",
+        "assessment_plan_drift",
     }
 )
 
@@ -2070,11 +2098,148 @@ class QualificationSubject:
 
 
 @dataclass(frozen=True)
+class OpenFailure:
+    """A bounded failure returned before a Domain run is constructed."""
+
+    reason_code: str
+    schema_version: str = DOMAIN_OPEN_FAILURE_SCHEMA_VERSION
+    status: str = "rejected"
+
+    def __post_init__(self) -> None:
+        if self.schema_version != DOMAIN_OPEN_FAILURE_SCHEMA_VERSION:
+            raise DomainPackContractError("unsupported_domain_open_failure_schema")
+        if self.status != "rejected" or self.reason_code not in OPEN_FAILURE_REASON_CODES:
+            raise DomainPackContractError("invalid_domain_open_failure")
+
+    def to_record(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "status": self.status,
+            "reason_code": self.reason_code,
+        }
+
+
+@dataclass(frozen=True)
+class DomainCandidateScope:
+    """A plan-bound identity for one candidate-isolated Domain fork."""
+
+    plan_id: str
+    plan_hash: str
+    candidate_id: str
+    sequence_index: int
+    schema_version: str = DOMAIN_CANDIDATE_SCOPE_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.schema_version != DOMAIN_CANDIDATE_SCOPE_SCHEMA_VERSION:
+            raise DomainPackContractError("unsupported_domain_candidate_scope_schema")
+        _require_identifier(self.plan_id, "plan_id")
+        _require_hash(self.plan_hash, "plan_hash")
+        _require_identifier(self.candidate_id, "candidate_id")
+        if (
+            not isinstance(self.sequence_index, int)
+            or isinstance(self.sequence_index, bool)
+            or self.sequence_index < 0
+        ):
+            raise DomainPackContractError("invalid_domain_candidate_scope")
+
+    @classmethod
+    def for_plan(
+        cls,
+        plan: DomainPlan,
+        *,
+        candidate_id: str,
+        sequence_index: int,
+    ) -> "DomainCandidateScope":
+        if not isinstance(plan, DomainPlan):
+            raise DomainPackContractError("invalid_domain_candidate_scope_plan")
+        return cls(
+            plan_id=plan.plan_id,
+            plan_hash=plan.plan_hash,
+            candidate_id=candidate_id,
+            sequence_index=sequence_index,
+        )
+
+
+@dataclass(frozen=True)
+class DomainAssessmentEvidence:
+    """Exact evidence offered to a Domain Pack without qualification authority."""
+
+    evidence_references: tuple[DomainEvidenceReference, ...]
+    established_capability_references: tuple[DomainCapabilityReference, ...] = ()
+    insufficiency_reason: str | None = None
+    schema_version: str = DOMAIN_ASSESSMENT_EVIDENCE_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.schema_version != DOMAIN_ASSESSMENT_EVIDENCE_SCHEMA_VERSION:
+            raise DomainPackContractError("unsupported_domain_assessment_evidence_schema")
+        if (
+            not isinstance(self.evidence_references, tuple)
+            or not isinstance(self.established_capability_references, tuple)
+            or any(
+                not isinstance(item, DomainEvidenceReference)
+                for item in self.evidence_references
+            )
+            or any(
+                not isinstance(item, DomainCapabilityReference)
+                for item in self.established_capability_references
+            )
+            or len(set(self.evidence_references)) != len(self.evidence_references)
+            or len(set(self.established_capability_references))
+            != len(self.established_capability_references)
+        ):
+            raise DomainPackContractError("invalid_domain_assessment_evidence")
+        if self.insufficiency_reason is not None:
+            if (
+                self.insufficiency_reason
+                not in DOMAIN_ASSESSMENT_INSUFFICIENCY_REASONS
+                or self.established_capability_references
+            ):
+                raise DomainPackContractError("invalid_domain_assessment_evidence")
+
+
+@dataclass(frozen=True)
+class AssessmentFailure:
+    """A bounded failure when an assessment cannot bind its declared plan."""
+
+    reason_code: str
+    schema_version: str = DOMAIN_ASSESSMENT_FAILURE_SCHEMA_VERSION
+    status: str = "rejected"
+
+    def __post_init__(self) -> None:
+        if self.schema_version != DOMAIN_ASSESSMENT_FAILURE_SCHEMA_VERSION:
+            raise DomainPackContractError("unsupported_domain_assessment_failure_schema")
+        if (
+            self.status != "rejected"
+            or self.reason_code not in ASSESSMENT_FAILURE_REASON_CODES
+        ):
+            raise DomainPackContractError("invalid_domain_assessment_failure")
+
+    def to_record(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "status": self.status,
+            "reason_code": self.reason_code,
+        }
+
+
+class DomainPackLifecycle(Protocol):
+    """Runtime adapter selected by a Domain Pack without exposing its internals."""
+
+    def open(self, plan: DomainPlan, runtime_scope: object) -> object:
+        ...
+
+
+@dataclass(frozen=True)
 class DomainPack:
-    """The pure planning portion of the future deep Domain Pack interface."""
+    """The public plan/open/assess boundary for one immutable Domain Pack."""
 
     descriptor: DomainPackDescriptor
     compatibility_mapping_set: CompatibilityMappingSet | None = None
+    lifecycle: DomainPackLifecycle | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         if not isinstance(self.descriptor, DomainPackDescriptor):
@@ -2106,6 +2271,66 @@ class DomainPack:
             )
         except DomainPackContractError as error:
             return PlanFailure(_planning_reason_for(error.reason_code))
+
+    def open(self, plan: object, runtime_scope: object) -> object:
+        """Open a run only after the complete immutable plan has been rechecked."""
+
+        reason = _lifecycle_plan_failure_reason(
+            descriptor=self.descriptor,
+            compatibility_mapping_set=self.compatibility_mapping_set,
+            plan=plan,
+        )
+        if reason is not None:
+            return OpenFailure(reason)
+        assert isinstance(plan, DomainPlan)
+        if self.lifecycle is None:
+            return OpenFailure("runtime_scope_unavailable")
+        try:
+            return self.lifecycle.open(plan, runtime_scope)
+        except DomainPackContractError:
+            return OpenFailure("invalid_runtime_scope")
+        except Exception:
+            return OpenFailure("runtime_construction_failed")
+
+    def assess(
+        self,
+        plan: object,
+        exact_evidence: object,
+    ) -> DomainAssessment | AssessmentFailure:
+        """Bind exact evidence to one plan without granting a qualification."""
+
+        reason = _lifecycle_plan_failure_reason(
+            descriptor=self.descriptor,
+            compatibility_mapping_set=self.compatibility_mapping_set,
+            plan=plan,
+        )
+        if reason is not None:
+            return AssessmentFailure(reason)
+        assert isinstance(plan, DomainPlan)
+        if isinstance(exact_evidence, DomainAssessment):
+            try:
+                exact_evidence.validate_against_plan(plan)
+            except DomainPackContractError:
+                return AssessmentFailure("assessment_plan_drift")
+            return exact_evidence
+        if not isinstance(exact_evidence, DomainAssessmentEvidence):
+            return AssessmentFailure("invalid_assessment_evidence")
+        try:
+            if exact_evidence.insufficiency_reason is not None:
+                return DomainAssessment.insufficient(
+                    plan,
+                    reason_code=exact_evidence.insufficiency_reason,
+                    evidence_references=exact_evidence.evidence_references,
+                )
+            return DomainAssessment.established(
+                plan,
+                evidence_references=exact_evidence.evidence_references,
+                established_capability_references=(
+                    exact_evidence.established_capability_references
+                ),
+            )
+        except DomainPackContractError:
+            return AssessmentFailure("invalid_assessment_evidence")
 
 
 @dataclass(frozen=True)
@@ -2177,6 +2402,26 @@ class DomainPackRegistry:
         except DomainPackContractError as error:
             return PlanFailure(_planning_reason_for(error.reason_code))
         return DomainPack(descriptor).plan(intent, admitted_source)
+
+
+def _lifecycle_plan_failure_reason(
+    *,
+    descriptor: DomainPackDescriptor,
+    compatibility_mapping_set: CompatibilityMappingSet | None,
+    plan: object,
+) -> str | None:
+    if not isinstance(plan, DomainPlan):
+        return "invalid_domain_plan"
+    if plan.domain_pack_reference != descriptor.reference():
+        return "domain_pack_drift"
+    try:
+        plan.validate_against_descriptor(
+            descriptor,
+            compatibility_mapping_set=compatibility_mapping_set,
+        )
+    except DomainPackContractError:
+        return "plan_contract_drift"
+    return None
 
 
 def _compile_domain_plan(

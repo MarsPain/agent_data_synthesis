@@ -42,6 +42,7 @@ REJECTION_CAUSES = {
     "unsafe_generated_code",
     "mutation_admission_failed",
     "coverage_assignment_mismatch",
+    "domain_plan_membership_rejected",
 }
 
 LLM_RESPONSE_SCHEMA_REASONS = {

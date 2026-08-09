@@ -8,8 +8,9 @@ triggers, and technical debt. Tracker configuration lives in
 ## Open
 
 - [Outcome-Validated Domain Pack](outcome-validated-domain-pack/README.md) —
-  ticketed; Workspace lifecycle and Contacts/Mobile compatibility are the
-  current frontier after canonical identity and planning contracts completed
+  ticketed; Workspace lifecycle is complete and Contacts/Mobile compatibility
+  is the current frontier after canonical identity and planning contracts
+  completed
 - [Semantic Mutation Admission](semantic-mutation-admission/README.md) — ticketed;
   runtime enforcement, release-artifact auditing, and calibration-corpus work
   are complete; activation evaluation is complete and the representative gate

@@ -3,7 +3,7 @@ from __future__ import annotations
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Callable, Mapping
+from typing import Callable, Mapping, Protocol
 
 import httpx
 
@@ -45,15 +45,19 @@ from synthesis.episode_quality import (
     write_episode_logs as write_episode_log_jsonl,
 )
 from synthesis.domain_pipeline import (
+    DomainGenerationBoundary,
+    DomainLifecycleRun,
     DomainPipelineBundle,
     build_domain_pipeline_bundle,
+    open_domain_run,
     rebuild_domain_pipeline_bundle,
 )
+from synthesis.environments import EnvironmentMetadata
 from synthesis.domain_sources import build_domain_fixture_source_bundle
 from synthesis.domain_generation import (
+    DomainGenerationRequest,
     DomainGenerationResult,
     build_generation_contract_evidence,
-    generate_domain_llm_candidates,
 )
 from synthesis.llm import LLMConfig, LLMProviderError, OpenAICompatibleClient
 from synthesis.mutation_admission import (
@@ -118,12 +122,16 @@ class PipelineResult:
 
 
 CandidateGenerator = Callable[[DomainSeed], list[CandidateTask] | DomainGenerationResult]
-CandidateGeneratorFactory = Callable[[DomainPipelineBundle], CandidateGenerator]
+CandidateGeneratorFactory = Callable[[DomainGenerationBoundary], CandidateGenerator]
 TaskExpansionGenerator = Callable[[DomainSeed], TaskExpansionResult]
 CandidateSetCallback = Callable[[tuple[CandidateTask, ...]], None]
 CandidateStartCallback = Callable[[CandidateExecutionRequest], None]
 CandidateOutcomeCallback = Callable[
     [CandidateExecutionRequest, ProvisionalCandidateOutcome], None
+]
+CandidateAttemptRunner = Callable[
+    [CandidateExecutionRequest, CandidateProcessingOptions],
+    ProvisionalCandidateOutcome,
 ]
 
 
@@ -145,6 +153,10 @@ class _CandidateWaveHooks:
 
 class FoundationGateError(RuntimeError):
     pass
+
+
+class FoundationEnvironment(Protocol):
+    def metadata(self) -> EnvironmentMetadata: ...
 
 
 def preview_coverage_plan(
@@ -206,15 +218,16 @@ def build_domain_llm_candidate_generator_factory(
     client = OpenAICompatibleClient(LLMConfig.from_env(), http_client=http_client)
     registry = role_registry or default_role_registry()
 
-    def factory(bundle: DomainPipelineBundle) -> CandidateGenerator:
-        if bundle.generation_spec is None:
+    def factory(boundary: DomainGenerationBoundary) -> CandidateGenerator:
+        if boundary.generation_spec is None:
             raise ValueError("source_backed_remote_context_not_allowed")
-        return lambda seed: generate_domain_llm_candidates(
-            seed,
-            client,
-            spec=bundle.generation_spec,
-            target_candidate_count=target_candidate_count,
-            role_registry=registry,
+        return lambda seed: boundary.generate(
+            DomainGenerationRequest(
+                seed=seed,
+                target_candidate_count=target_candidate_count,
+                role_registry=registry,
+            ),
+            provider_adapter=client,
         )
 
     return factory
@@ -367,7 +380,7 @@ def run_foundation_pipeline(
     except SourcePolicyError as exc:
         if enable_source_audit:
             source_event_records.extend(exc.result.events)
-        rejections = [
+        source_rejections = [
             assemble_source_policy_rejection(
                 source_governance=exc.result.provenance,
                 message=str(exc),
@@ -377,7 +390,7 @@ def run_foundation_pipeline(
             output_dir=output_dir,
             dataset_version=dataset_version,
             samples=[],
-            rejections=rejections,
+            rejections=source_rejections,
             parent_artifact_path=parent_artifact_path,
             review_records=[],
             tool_proposals=[],
@@ -390,18 +403,31 @@ def run_foundation_pipeline(
         source_event_records.extend(source_result.events)
 
     source_provenance = dict(source_result.provenance)
+    domain_bundle: DomainPipelineBundle | None = None
+    domain_run: DomainLifecycleRun | None = None
     if domain_environment_input is not None:
         source_provenance["environment_source_admission"] = "accepted"
         try:
-            domain_bundle = build_domain_pipeline_bundle(
+            domain_run = open_domain_run(
                 seed,
-                output_dir / "environment",
+                output_dir,
+                source_bundle=selected_source_bundle,
+                source_result=source_result,
                 source_provenance=source_provenance,
                 domain_environment_input=domain_environment_input,
                 enable_mcp_adapter=enable_mcp_adapter,
-                include_branching=enable_branching,
                 representative_fixture=representative_fixture,
             )
+            if domain_run is None:
+                domain_bundle = build_domain_pipeline_bundle(
+                    seed,
+                    output_dir / "environment",
+                    source_provenance=source_provenance,
+                    domain_environment_input=domain_environment_input,
+                    enable_mcp_adapter=enable_mcp_adapter,
+                    include_branching=enable_branching,
+                    representative_fixture=representative_fixture,
+                )
         except Exception as exc:
             rejected_provenance = dict(source_result.provenance)
             rejected_provenance["policy_outcome"] = "rejected"
@@ -416,7 +442,7 @@ def run_foundation_pipeline(
                         rejection_causes=["environment_source_rejected"],
                     )
                 )
-            rejections = [
+            source_rejections = [
                 assemble_source_policy_rejection(
                     source_governance=rejected_provenance,
                     message=f"environment source rejected: {type(exc).__name__}",
@@ -426,7 +452,7 @@ def run_foundation_pipeline(
                 output_dir=output_dir,
                 dataset_version=dataset_version,
                 samples=[],
-                rejections=rejections,
+                rejections=source_rejections,
                 parent_artifact_path=parent_artifact_path,
                 review_records=[],
                 tool_proposals=[],
@@ -445,17 +471,29 @@ def run_foundation_pipeline(
                 )
             )
     else:
-        domain_bundle = build_domain_pipeline_bundle(
+        domain_run = open_domain_run(
             seed,
-            output_dir / "environment",
+            output_dir,
+            source_bundle=selected_source_bundle,
+            source_result=source_result,
             source_provenance=source_provenance,
             enable_mcp_adapter=enable_mcp_adapter,
-            include_branching=enable_branching,
             representative_fixture=representative_fixture,
         )
-    environment = domain_bundle.environment
-    registry = domain_bundle.registry
-    verifier = domain_bundle.verifier
+        if domain_run is None:
+            domain_bundle = build_domain_pipeline_bundle(
+                seed,
+                output_dir / "environment",
+                source_provenance=source_provenance,
+                enable_mcp_adapter=enable_mcp_adapter,
+                include_branching=enable_branching,
+                representative_fixture=representative_fixture,
+            )
+    if domain_run is not None:
+        generation_boundary: DomainGenerationBoundary = domain_run
+    else:
+        assert domain_bundle is not None
+        generation_boundary = domain_bundle
     coverage_plan: CoveragePlan | None = None
     coverage_plan_path: Path | None = None
     coverage_scheduler: CoverageAssignmentScheduler | None = None
@@ -486,21 +524,31 @@ def run_foundation_pipeline(
             str(coverage_plan.catalog["version"])
         )
         coverage_scheduler = coverage_scheduler_factory(
-            domain_bundle,
+            generation_boundary,
             coverage_plan,
             catalog,
         )
         if coverage_recovery is not None:
             coverage_scheduler.restore_assignments(coverage_recovery)
     elif candidate_generator_factory is not None:
-        generate_candidates = candidate_generator_factory(domain_bundle)
+        generate_candidates = candidate_generator_factory(generation_boundary)
     elif candidate_generator is None:
-        generate_candidates = domain_bundle.candidate_generator
+        if domain_run is not None:
+            generate_candidates = domain_run.generate
+        else:
+            assert domain_bundle is not None
+            generate_candidates = domain_bundle.candidate_generator
     else:
         generate_candidates = candidate_generator
     llm_config = LLMConfig.from_env()
     generate_task_expansion = task_expansion_generator or generate_deterministic_task_expansion
-    generate_policy = policy_generator or domain_bundle.policy_generator
+    generate_policy: PolicyGenerator | None
+    if policy_generator is not None:
+        generate_policy = policy_generator
+    elif domain_bundle is not None:
+        generate_policy = domain_bundle.policy_generator
+    else:
+        generate_policy = None
     selected_admission_evaluator = admission_evaluator
     if (
         admission_evaluator is permit_candidate_execution
@@ -508,7 +556,11 @@ def run_foundation_pipeline(
     ):
         mutation_admission = getattr(run_profile, "mutation_admission", None)
         mode = getattr(mutation_admission, "mode", "disabled")
-        judge = domain_bundle.mutation_judge
+        if domain_run is not None:
+            judge = domain_run.default_mutation_judge()
+        else:
+            assert domain_bundle is not None
+            judge = domain_bundle.mutation_judge
         judge_config = getattr(mutation_admission, "judge", None)
         if judge_config is not None:
             provider_config = LLMConfig.from_env()
@@ -526,32 +578,65 @@ def run_foundation_pipeline(
                 max_retries=int(getattr(judge_config, "max_retries")),
                 attempt_observer=mutation_judge_attempt_observer,
             )
-        state_changing_tools = tuple(
-            str(tool["name"])
-            for tool in registry.export()
-            if tool.get("side_effects") == "state_mutating"
+        if domain_run is not None:
+            selected_admission_evaluator = domain_run.build_admission_evaluator(
+                mode=mode,
+                judge=judge,
+            )
+        else:
+            assert domain_bundle is not None
+            state_changing_tools = tuple(
+                str(tool["name"])
+                for tool in domain_bundle.registry.export()
+                if tool.get("side_effects") == "state_mutating"
+            )
+            selected_admission_evaluator = build_local_candidate_admission_evaluator(
+                mode=mode,
+                policies=domain_bundle.mutation_policies,
+                state_changing_tools=state_changing_tools,
+                judge=judge,
+            )
+    candidate_context: CandidateProcessingContext | None = None
+    if domain_bundle is not None:
+        assert generate_policy is not None
+        candidate_context = CandidateProcessingContext(
+            dataset_version=dataset_version,
+            environment=domain_bundle.environment,
+            registry=domain_bundle.registry,
+            adapter_shim=domain_bundle.adapter_shim,
+            verifier=domain_bundle.verifier,
+            llm_config=llm_config,
+            generate_policy=generate_policy,
+            admission_evaluator=selected_admission_evaluator,
         )
-        selected_admission_evaluator = build_local_candidate_admission_evaluator(
-            mode=mode,
-            policies=domain_bundle.mutation_policies,
-            state_changing_tools=state_changing_tools,
-            judge=judge,
-        )
-    candidate_context = CandidateProcessingContext(
-        dataset_version=dataset_version,
-        environment=environment,
-        registry=registry,
-        adapter_shim=domain_bundle.adapter_shim,
-        verifier=verifier,
-        llm_config=llm_config,
-        generate_policy=generate_policy,
-        admission_evaluator=selected_admission_evaluator,
-    )
     candidate_options = CandidateProcessingOptions(
         route_reviewable_failures=route_reviewable_failures,
         refiner=refiner,
         tool_proposal_generator=tool_proposal_generator,
     )
+
+    candidate_attempt_runner: CandidateAttemptRunner | None = None
+    if domain_run is not None:
+        def run_candidate_attempt(
+            request: CandidateExecutionRequest,
+            options: CandidateProcessingOptions,
+        ) -> ProvisionalCandidateOutcome:
+            return domain_run.attempt(
+                request,
+                dataset_version=dataset_version,
+                llm_config=llm_config,
+                policy_generator=generate_policy,
+                admission_evaluator=selected_admission_evaluator,
+                options=options,
+            ).outcome
+
+        candidate_attempt_runner = run_candidate_attempt
+
+    def prepare_candidate_for_attempt(raw_task: CandidateTask) -> CandidateTask:
+        if domain_run is not None:
+            return raw_task
+        assert domain_bundle is not None
+        return domain_bundle.candidate_preparer(raw_task)
 
     samples: list[dict[str, object]] = []
     rejections: list[dict[str, object]] = []
@@ -561,7 +646,17 @@ def run_foundation_pipeline(
     accepted_signatures: frozenset[tuple[str, tuple[str, ...]]] = frozenset()
     coverage_reconciliation: Mapping[str, object] | None = None
     try:
-        _run_foundation_quality_gates(domain_bundle.domain_id, environment, registry)
+        if domain_run is not None:
+            gate_failure = domain_run.foundation_gate_failure()
+            if gate_failure is not None:
+                raise FoundationGateError(gate_failure)
+        else:
+            assert domain_bundle is not None
+            _run_foundation_quality_gates(
+                domain_bundle.domain_id,
+                domain_bundle.environment,
+                domain_bundle.registry,
+            )
     except FoundationGateError as exc:
         rejections.append(assemble_pipeline_gate_rejection(error=exc))
         _attach_source_governance_to_rejections(rejections, source_provenance)
@@ -671,7 +766,7 @@ def run_foundation_pipeline(
                     )
                 rejections.extend(coverage_wave.rejections)
                 wave_tasks = [
-                    domain_bundle.candidate_preparer(raw_task)
+                    prepare_candidate_for_attempt(raw_task)
                     for raw_task in coverage_wave.candidates
                 ]
                 assignments_by_id = {
@@ -698,6 +793,7 @@ def run_foundation_pipeline(
                         requests=wave_requests,
                         domain_bundle=domain_bundle,
                         candidate_context=candidate_context,
+                        candidate_attempt_runner=candidate_attempt_runner,
                         candidate_options=candidate_options,
                         output_dir=output_dir,
                         enable_mcp_adapter=enable_mcp_adapter,
@@ -776,7 +872,7 @@ def run_foundation_pipeline(
                 )
             rejections.extend(coverage_wave.rejections)
             wave_tasks = [
-                domain_bundle.candidate_preparer(raw_task)
+                prepare_candidate_for_attempt(raw_task)
                 for raw_task in coverage_wave.candidates
             ]
             assignments_by_id = {
@@ -803,6 +899,7 @@ def run_foundation_pipeline(
                     requests=wave_requests,
                     domain_bundle=domain_bundle,
                     candidate_context=candidate_context,
+                    candidate_attempt_runner=candidate_attempt_runner,
                     candidate_options=candidate_options,
                     output_dir=output_dir,
                     enable_mcp_adapter=enable_mcp_adapter,
@@ -885,7 +982,7 @@ def run_foundation_pipeline(
             if cancellation_check is not None and cancellation_check():
                 return finalize_pipeline(orchestration_status="cancelled")
             base_tasks = [
-                domain_bundle.candidate_preparer(raw_task)
+                prepare_candidate_for_attempt(raw_task)
                 for raw_task in base_tasks
             ]
         except PipelineCancellation:
@@ -915,6 +1012,7 @@ def run_foundation_pipeline(
                 start_index=0,
                 domain_bundle=domain_bundle,
                 candidate_context=candidate_context,
+                candidate_attempt_runner=candidate_attempt_runner,
                 candidate_options=candidate_options,
                 output_dir=output_dir,
                 enable_mcp_adapter=enable_mcp_adapter,
@@ -962,22 +1060,27 @@ def run_foundation_pipeline(
         expanded_outcomes = []
         start_index = processed_candidate_count
         for offset, expanded_task in enumerate(expansion.candidates):
-            expanded_task = domain_bundle.candidate_preparer(expanded_task)
+            expanded_task = prepare_candidate_for_attempt(expanded_task)
             request = CandidateExecutionRequest(
                 sequence_index=start_index + offset,
                 raw_task=expanded_task,
             )
-            outcome = process_candidate_through_gates(
-                request=request,
-                context=_candidate_context_for_request(
-                    base_bundle=domain_bundle,
-                    base_context=candidate_context,
-                    output_dir=output_dir,
+            if candidate_attempt_runner is not None:
+                outcome = candidate_attempt_runner(request, candidate_options)
+            else:
+                assert domain_bundle is not None
+                assert candidate_context is not None
+                outcome = process_candidate_through_gates(
                     request=request,
-                    enable_mcp_adapter=enable_mcp_adapter,
-                ),
-                options=candidate_options,
-            )
+                    context=_candidate_context_for_request(
+                        base_bundle=domain_bundle,
+                        base_context=candidate_context,
+                        output_dir=output_dir,
+                        request=request,
+                        enable_mcp_adapter=enable_mcp_adapter,
+                    ),
+                    options=candidate_options,
+                )
             expanded_outcomes.append(outcome)
         expanded_merge = merge_candidate_outcomes(
             tuple(expanded_outcomes),
@@ -1084,8 +1187,9 @@ def _process_candidate_wave(
     *,
     raw_tasks: list[CandidateTask],
     start_index: int,
-    domain_bundle: DomainPipelineBundle,
-    candidate_context: CandidateProcessingContext,
+    domain_bundle: DomainPipelineBundle | None,
+    candidate_context: CandidateProcessingContext | None,
+    candidate_attempt_runner: CandidateAttemptRunner | None,
     candidate_options: CandidateProcessingOptions,
     output_dir: Path,
     enable_mcp_adapter: bool,
@@ -1106,6 +1210,7 @@ def _process_candidate_wave(
         requests=requests,
         domain_bundle=domain_bundle,
         candidate_context=candidate_context,
+        candidate_attempt_runner=candidate_attempt_runner,
         candidate_options=candidate_options,
         output_dir=output_dir,
         enable_mcp_adapter=enable_mcp_adapter,
@@ -1120,8 +1225,9 @@ def _process_candidate_wave(
 def _process_candidate_requests(
     *,
     requests: list[CandidateExecutionRequest],
-    domain_bundle: DomainPipelineBundle,
-    candidate_context: CandidateProcessingContext,
+    domain_bundle: DomainPipelineBundle | None,
+    candidate_context: CandidateProcessingContext | None,
+    candidate_attempt_runner: CandidateAttemptRunner | None,
     candidate_options: CandidateProcessingOptions,
     output_dir: Path,
     enable_mcp_adapter: bool,
@@ -1152,17 +1258,22 @@ def _process_candidate_requests(
                         request.raw_task.candidate_id,
                     ),
                 )
-            outcome = process_candidate_through_gates(
-                request=request,
-                context=_candidate_context_for_request(
-                    base_bundle=domain_bundle,
-                    base_context=candidate_context,
-                    output_dir=output_dir,
+            if candidate_attempt_runner is not None:
+                outcome = candidate_attempt_runner(request, request_options)
+            else:
+                assert domain_bundle is not None
+                assert candidate_context is not None
+                outcome = process_candidate_through_gates(
                     request=request,
-                    enable_mcp_adapter=enable_mcp_adapter,
-                ),
-                options=request_options,
-            )
+                    context=_candidate_context_for_request(
+                        base_bundle=domain_bundle,
+                        base_context=candidate_context,
+                        output_dir=output_dir,
+                        request=request,
+                        enable_mcp_adapter=enable_mcp_adapter,
+                    ),
+                    options=request_options,
+                )
             if hooks.outcome is not None:
                 if hooks.should_stop is None or not hooks.should_stop():
                     hooks.outcome(request, outcome)
@@ -1324,6 +1435,7 @@ def _candidate_context_for_request(
         llm_config=base_context.llm_config,
         generate_policy=base_context.generate_policy,
         admission_evaluator=base_context.admission_evaluator,
+        membership_validator=base_context.membership_validator,
     )
 
 
@@ -1342,8 +1454,11 @@ def _attach_source_governance_to_rejections(
         details = rejection.get("details")
         if not isinstance(details, dict):
             continue
-        if "local_file" in source_provenance.get("source_kinds", []):
-            details.update(_redact_source_payload_values(details))
+        source_kinds = source_provenance.get("source_kinds")
+        if isinstance(source_kinds, list) and "local_file" in source_kinds:
+            redacted_details = _redact_source_payload_values(details)
+            if isinstance(redacted_details, dict):
+                details.update(redacted_details)
         details.setdefault("source_governance", dict(source_provenance))
 
 
@@ -1362,7 +1477,7 @@ def _redact_source_payload_values(value: object) -> object:
 
 def _run_foundation_quality_gates(
     domain_id: str,
-    environment: object,
+    environment: FoundationEnvironment,
     registry: ToolRegistry,
 ) -> None:
     metadata = environment.metadata()
@@ -1395,18 +1510,5 @@ def _run_foundation_quality_gates(
             raise FoundationGateError(f"search_phone_messages smoke check failed: {exc}") from exc
         if result.get("message_id") != "msg_maya_project_update":
             raise FoundationGateError("search_phone_messages smoke check returned unexpected data")
-        return
-    if domain_id == "workspace_tasks_fixture":
-        if "search_workspace_items" not in names:
-            raise FoundationGateError("search_workspace_items is not registered")
-        try:
-            result = registry.execute(
-                "search_workspace_items",
-                {"query": "launch", "kind": "task"},
-            )
-        except Exception as exc:
-            raise FoundationGateError(f"search_workspace_items smoke check failed: {exc}") from exc
-        if result.get("item_id") != "task_launch_plan":
-            raise FoundationGateError("search_workspace_items smoke check returned unexpected data")
         return
     raise FoundationGateError(f"unsupported pipeline domain: {domain_id}")

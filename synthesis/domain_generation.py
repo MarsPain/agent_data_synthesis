@@ -5,7 +5,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import PurePath
-from typing import Mapping, Protocol
+from typing import Callable, Mapping, Protocol
 
 from synthesis.contracts import LLM_RESPONSE_SCHEMA_DETAILS, LLM_RESPONSE_SCHEMA_REASONS
 from synthesis.llm import LLMProviderError
@@ -92,6 +92,72 @@ class DomainGenerationResult:
     generated_candidate_count: int
     provider_call_count: int
     spec_metadata: Mapping[str, object]
+
+
+@dataclass(frozen=True)
+class DomainGenerationRequest:
+    """Framework-owned request passed into a Domain run's generation seam."""
+
+    seed: DomainSeed
+    target_candidate_count: int | None = None
+    role_registry: RoleRegistry | None = None
+
+
+@dataclass(frozen=True)
+class DomainGenerationGroundingRequest:
+    """A typed request for read-only grounding owned by a Domain run.
+
+    Shared generation orchestration may validate a declared grounding lookup,
+    but it must not receive a tool registry or use this operation to mutate a
+    candidate environment.
+    """
+
+    tool_name: str
+    arguments: Mapping[str, object]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.tool_name, str) or not self.tool_name.strip():
+            raise ValueError("generation_grounding_tool_name_invalid")
+        if not isinstance(self.arguments, Mapping) or not all(
+            isinstance(key, str) for key in self.arguments
+        ):
+            raise ValueError("generation_grounding_arguments_invalid")
+
+
+def _resolve_read_only_generation_grounding(
+    spec: DomainGenerationSpec | None,
+    request: DomainGenerationGroundingRequest,
+    *,
+    executor: Callable[[str, dict[str, object]], Mapping[str, object]],
+) -> dict[str, object]:
+    """Resolve one declared read-only grounding operation through a Domain.
+
+    The registry remains private to the Domain implementation.  This helper
+    intentionally permits only a tool declared in the generation spec with a
+    read-only side-effect contract.
+    """
+
+    if not isinstance(request, DomainGenerationGroundingRequest):
+        raise ValueError("invalid_generation_grounding_request")
+    if spec is None:
+        raise ValueError("source_backed_remote_context_not_allowed")
+    validate_domain_generation_spec(spec)
+    definition = next(
+        (
+            tool
+            for tool in spec.tools
+            if tool.get("name") == request.tool_name
+        ),
+        None,
+    )
+    if definition is None:
+        raise ValueError("generation_grounding_tool_not_declared")
+    if definition.get("side_effects") != "read_only":
+        raise ValueError("generation_grounding_tool_not_read_only")
+    result = executor(request.tool_name, dict(request.arguments))
+    if not isinstance(result, Mapping):
+        raise ValueError("generation_grounding_result_invalid")
+    return dict(result)
 
 
 @dataclass(frozen=True)
