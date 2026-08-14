@@ -1356,7 +1356,15 @@ def _minimal_workspace_binding(plan: DomainPlan) -> dict[str, object]:
     return {
         "schema_version": "workspace_evidence_binding_v1",
         "domain_pack_reference": plan.domain_pack_reference.to_record(),
-        "plan": {"plan_id": plan.plan_id, "plan_hash": plan.plan_hash},
+        "plan": {
+            "plan_id": plan.plan_id,
+            "plan_hash": plan.plan_hash,
+            "plan_record": plan.to_record(),
+        },
+        "component_contracts": [
+            contract.to_record()
+            for contract in plan.component_contracts
+        ],
         "runtime_contract": plan.runtime_contract.to_record(),
         "capability_references": [
             reference.to_record() for reference in plan.capability_references

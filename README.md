@@ -89,7 +89,7 @@ uv run python main.py --enable-network-source --source-url https://allowed.examp
 # Release-candidate evidence packs
 uv run python main.py --run-profile tests/fixtures/run_profiles/foundation-release-candidate.json --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --write-dataset-release-pack --write-release-quality-audit --write-dataset-release-card --output-dir artifacts/foundation-release-candidate
 uv run python main.py --run-profile tests/fixtures/run_profiles/mobile-messages-release-candidate.json --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --write-dataset-release-pack --write-release-quality-audit --write-release-review-queue --write-dataset-release-card --output-dir artifacts/mobile-release-candidate
-uv run python main.py --run-profile tests/fixtures/run_profiles/workspace-tasks-release-candidate.json --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --write-dataset-release-pack --write-release-quality-audit --write-dataset-release-card --output-dir artifacts/workspace-release-candidate
+uv run python main.py --run-profile tests/fixtures/run_profiles/workspace-tasks-release-candidate.json --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --write-dataset-release-pack --write-release-quality-audit --write-qualification-report --write-dataset-release-card --output-dir artifacts/workspace-release-candidate
 uv run python scripts/verify_dataset_release.py --output-dir artifacts/foundation-release-candidate
 uv run python scripts/verify_dataset_release.py --output-dir artifacts/mobile-release-candidate
 uv run python scripts/verify_dataset_release.py --output-dir artifacts/workspace-release-candidate
@@ -161,7 +161,7 @@ paths, and host paths must not be written to public artifacts.
 - Evaluation and release artifacts: `evaluation_report.json`,
   `profile_decision_report.json`, `dataset_release_report.json`,
   `mutation_admission_report.json`, `dataset_release_pack.json`,
-  `release_quality_audit.json`,
+  `release_quality_audit.json`, and standalone `qualification_report.json`,
   `dataset_release_card.md`, opt-in `release_review_queue.jsonl`, and offline
   `review_resolution_report.json`.
 - Standalone evidence artifacts: `representative_scale_evidence.json`,

@@ -246,7 +246,12 @@ def build_workspace_evidence_binding(
         "plan": {
             "plan_id": plan.plan_id,
             "plan_hash": plan.plan_hash,
+            "plan_record": plan.to_record(),
         },
+        "component_contracts": [
+            contract.to_record()
+            for contract in plan.component_contracts
+        ],
         "runtime_contract": plan.runtime_contract.to_record(),
         "capability_references": canonical_capability_references(
             tuple(plan.capability_references)

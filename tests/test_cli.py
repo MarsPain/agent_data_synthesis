@@ -2719,6 +2719,7 @@ class FoundationCliTest(unittest.TestCase):
                     "--write-dataset-release-report",
                     "--write-dataset-release-pack",
                     "--write-release-quality-audit",
+                    "--write-qualification-report",
                     "--write-dataset-release-card",
                     "--output-dir",
                     str(output_dir),
@@ -2730,6 +2731,15 @@ class FoundationCliTest(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self._assert_release_artifact_set(output_dir)
+            qualification = json.loads(
+                (output_dir / "qualification_report.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(qualification["status"], "insufficient_evidence")
+            self.assertEqual(qualification["effective_qualification"], "unqualified")
+            self.assertIn(
+                "workspace_capability_evidence_incomplete",
+                qualification["decision"]["reason_codes"],
+            )
 
     def test_release_quality_audit_requires_dataset_release_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

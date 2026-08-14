@@ -330,6 +330,14 @@ and a quality report:
   direct-human label.
 - `dataset_release_pack.json`: optional hash-locked release pack written only
   when explicitly requested after a dataset release report passes.
+- `qualification_report.json`: optional standalone cumulative qualification
+  report written by `--write-qualification-report` after a verified release
+  pack and release-quality audit are available. It binds the exact artifact
+  subject, release-pack hash, Domain Pack plan, runtime, capabilities,
+  component contracts, profile, and evidence graph. It is not attached to the
+  manifest or included in the release pack, so evaluating it cannot mutate
+  release identity. Legacy fixture Workspace releases remain readable but
+  return bounded `insufficient_evidence` rather than a Release Candidate.
 - `dataset_release_card.md`: optional human-readable release card written only
   when explicitly requested after a dataset release report is available.
 - `episodes.jsonl`: optional internal episode evidence export written only when

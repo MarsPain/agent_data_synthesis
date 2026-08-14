@@ -77,6 +77,10 @@ from synthesis.release_review import (
     RELEASE_REVIEW_QUEUE_FILENAME,
     write_release_review_queue,
 )
+from synthesis.qualification import (
+    QUALIFICATION_REPORT_FILENAME,
+    write_release_candidate_qualification,
+)
 from synthesis.reward_labels import (
     REWARD_LABELS_FILENAME,
     REWARD_LABEL_REPORT_FILENAME,
@@ -336,6 +340,14 @@ def parse_args() -> argparse.Namespace:
         help="Write release_quality_audit.json with release evidence risk signals.",
     )
     parser.add_argument(
+        "--write-qualification-report",
+        action="store_true",
+        help=(
+            "Write qualification_report.json by evaluating the exact release "
+            "Release Candidate evidence boundary."
+        ),
+    )
+    parser.add_argument(
         "--write-release-review-queue",
         action="store_true",
         help="Write release_review_queue.jsonl for release-quality audit watch signals.",
@@ -350,6 +362,14 @@ def parse_args() -> argparse.Namespace:
         parser.error("--write-dataset-release-pack requires --write-dataset-release-report")
     if args.write_release_quality_audit and not args.write_dataset_release_report:
         parser.error("--write-release-quality-audit requires --write-dataset-release-report")
+    if args.write_qualification_report and not args.write_dataset_release_pack:
+        parser.error(
+            "--write-qualification-report requires --write-dataset-release-pack"
+        )
+    if args.write_qualification_report and not args.write_release_quality_audit:
+        parser.error(
+            "--write-qualification-report requires --write-release-quality-audit"
+        )
     if args.write_release_review_queue and not args.write_release_quality_audit:
         parser.error(
             "--write-release-review-queue requires --write-release-quality-audit"
@@ -777,6 +797,19 @@ def main() -> int:
                 print(str(exc), file=sys.stderr)
                 return 1
 
+    qualification_report_path = None
+    if args.write_qualification_report:
+        assert dataset_release_pack_path is not None
+        qualification_report_path = (
+            result.manifest_path.parent / QUALIFICATION_REPORT_FILENAME
+        )
+        qualification_report_path = write_release_candidate_qualification(
+            manifest_path=result.manifest_path,
+            release_pack_path=dataset_release_pack_path,
+            release_quality_audit_path=release_quality_audit_path,
+            output_path=qualification_report_path,
+        )
+
     print(
         "Foundation pipeline complete: "
         f"accepted={result.accepted_count} "
@@ -835,6 +868,11 @@ def main() -> int:
         + (
             f" dataset_release_card={dataset_release_card_path}"
             if dataset_release_card_path is not None
+            else ""
+        )
+        + (
+            f" qualification_report={qualification_report_path}"
+            if qualification_report_path is not None
             else ""
         )
     )

@@ -204,6 +204,13 @@ DATASET_RELEASE_STATUSES = {
 }
 RELEASE_COMPLETENESS_STATUSES = {"passed", "insufficient_evidence"}
 DATASET_RELEASE_PACK_STATUSES = {"passed", "failed", "insufficient_evidence"}
+QUALIFICATION_LEVELS = {
+    "unqualified",
+    "release_candidate",
+    "publishable",
+    "training_recommended",
+}
+QUALIFICATION_STATUSES = {"passed", "denied", "insufficient_evidence"}
 RELEASE_QUALITY_AUDIT_STATUSES = {
     "clear",
     "watch",
@@ -2231,6 +2238,27 @@ def validate_release_quality_audit_record(record: Mapping[str, Any]) -> None:
     triggered_by = _require_sequence(decision.get("triggered_by"), "decision.triggered_by")
     for index, trigger in enumerate(triggered_by):
         _require_non_empty_string(trigger, f"decision.triggered_by.{index}")
+
+
+def validate_qualification_report_record(record: Mapping[str, Any]) -> None:
+    """Validate the framework-owned cumulative qualification report.
+
+    The richer identity graph lives with the qualification module so the
+    existing generic contract registry does not become coupled to Domain Pack
+    implementations.  This adapter keeps callers on the repository's normal
+    ``ContractValidationError`` boundary.
+    """
+
+    try:
+        from synthesis.qualification import (
+            validate_qualification_report_record as _validate,
+        )
+
+        _validate(record)
+    except Exception as exc:
+        if isinstance(exc, ContractValidationError):
+            raise
+        raise ContractValidationError(str(exc)) from exc
 
 
 def validate_release_review_item_record(record: Mapping[str, Any]) -> None:
