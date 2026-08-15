@@ -271,29 +271,54 @@ class CumulativeQualificationTest(unittest.TestCase):
         )
         self.assertEqual(len(publishable_failure["historical_decisions"]), 2)
 
-        publishable_evidence = build_release_candidate_evidence(
-            binding=binding,
-            machine_gates=_passing_machine_gates(),
-            domain_assessment=_passing_domain_assessment(binding),
-            release_completeness=_release_completeness(),
-            release_quality_audit=_release_quality_audit(),
-            release_pack_verification=_release_pack_verification(),
+        from synthesis.publishability import (
+            build_publishable_qualification_evidence,
+            evaluate_publishability,
         )
-        publishable_evidence["qualification"] = "publishable"
-        publishable_evidence["gates"]["publishability"] = {
-            "schema_version": "qualification_publishability_v1",
-            "status": "passed",
-            **_gate_identity(binding),
-            "evidence_ids": ["publication_governance"],
-            "verification": {"status": "passed"},
-            "governance": {"status": "verified"},
-            "review": {"status": "verified"},
-            "authority": {"status": "verified"},
-        }
+        from tests.test_publishability import (
+            _authority_inputs,
+            _real_publishability_fixture,
+        )
+
+        publishability_fixture = _real_publishability_fixture()
+        publishability_decision = evaluate_publishability(
+            bundle=publishability_fixture["bundle"],
+            **_authority_inputs(publishability_fixture),
+            now="2026-08-15T00:00:00Z",
+        )
+        publishable_evidence = build_publishable_qualification_evidence(
+            binding=binding,
+            release_candidate_evidence=build_release_candidate_evidence(
+                binding=binding,
+                machine_gates=_passing_machine_gates(),
+                domain_assessment=_passing_domain_assessment(binding),
+                release_completeness=_release_completeness(),
+                release_quality_audit=_release_quality_audit(),
+                release_pack_verification=_release_pack_verification(),
+            ),
+            bundle=publishability_fixture["bundle"],
+            decision=publishability_decision,
+            **_authority_inputs(publishability_fixture),
+            now="2026-08-15T00:00:00Z",
+            evidence_class="real",
+        )
         publishable = evaluate_cumulative_qualification(
             subject=binding,
             history=release_candidate["historical_decisions"],
             evidence=publishable_evidence,
+            publishability_trusted_keys=_authority_inputs(publishability_fixture)[
+                "trusted_keys"
+            ],
+            publishability_trusted_policy_hashes=_authority_inputs(
+                publishability_fixture
+            )["trusted_policy_hashes"],
+            publishability_trusted_bundle_content_hashes=_authority_inputs(
+                publishability_fixture
+            )["trusted_bundle_content_hashes"],
+            publishability_trusted_release_pack_verification_hashes=_authority_inputs(
+                publishability_fixture
+            )["trusted_release_pack_verification_hashes"],
+            publishability_now="2026-08-15T00:00:00Z",
         )
         self.assertEqual(publishable["effective_qualification"], "publishable")
 
@@ -315,6 +340,19 @@ class CumulativeQualificationTest(unittest.TestCase):
             subject=binding,
             history=publishable["historical_decisions"],
             evidence=training_failure,
+            publishability_trusted_keys=_authority_inputs(publishability_fixture)[
+                "trusted_keys"
+            ],
+            publishability_trusted_policy_hashes=_authority_inputs(
+                publishability_fixture
+            )["trusted_policy_hashes"],
+            publishability_trusted_bundle_content_hashes=_authority_inputs(
+                publishability_fixture
+            )["trusted_bundle_content_hashes"],
+            publishability_trusted_release_pack_verification_hashes=_authority_inputs(
+                publishability_fixture
+            )["trusted_release_pack_verification_hashes"],
+            publishability_now="2026-08-15T00:00:00Z",
         )
         self.assertEqual(training_result["status"], "denied")
         self.assertEqual(

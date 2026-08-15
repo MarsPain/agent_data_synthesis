@@ -2261,6 +2261,70 @@ def validate_qualification_report_record(record: Mapping[str, Any]) -> None:
         raise ContractValidationError(str(exc)) from exc
 
 
+def _validate_publishability_delegate(
+    record: Mapping[str, Any],
+    validator_name: str,
+) -> None:
+    """Keep publishability contracts on the generic validation boundary."""
+
+    try:
+        from synthesis import publishability
+
+        validator = getattr(publishability, validator_name)
+        validator(record)
+    except Exception as exc:
+        if isinstance(exc, ContractValidationError):
+            raise
+        raise ContractValidationError(str(exc)) from exc
+
+
+def validate_publication_governance_record(record: Mapping[str, Any]) -> None:
+    _validate_publishability_delegate(
+        record,
+        "validate_publication_governance_record",
+    )
+
+
+def validate_authority_policy_record(record: Mapping[str, Any]) -> None:
+    _validate_publishability_delegate(record, "validate_authority_policy_record")
+
+
+def validate_authority_attestation_record(record: Mapping[str, Any]) -> None:
+    _validate_publishability_delegate(
+        record,
+        "validate_authority_attestation_record",
+    )
+
+
+def validate_risk_acceptance_record(record: Mapping[str, Any]) -> None:
+    _validate_publishability_delegate(record, "validate_risk_acceptance_record")
+
+
+def validate_publication_approval_record(record: Mapping[str, Any]) -> None:
+    _validate_publishability_delegate(record, "validate_publication_approval_record")
+
+
+def validate_revocation_evidence_record(record: Mapping[str, Any]) -> None:
+    _validate_publishability_delegate(
+        record,
+        "validate_revocation_evidence_record",
+    )
+
+
+def validate_publishability_bundle_record(record: Mapping[str, Any]) -> None:
+    _validate_publishability_delegate(
+        record,
+        "validate_publishability_bundle_record",
+    )
+
+
+def validate_publishability_decision_record(record: Mapping[str, Any]) -> None:
+    _validate_publishability_delegate(
+        record,
+        "validate_publishability_decision_record",
+    )
+
+
 def validate_release_review_item_record(record: Mapping[str, Any]) -> None:
     item = _require_mapping(record, "release_review_item")
     if _contains_raw_secret(item):

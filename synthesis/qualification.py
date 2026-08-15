@@ -30,7 +30,7 @@ from synthesis.domain_pack import (
     QualificationArtifactReference,
     QualificationSubject,
     canonical_domain_pack_json,
-    canonical_domain_pack_hash,
+    canonical_domain_pack_hash as _strict_canonical_domain_pack_hash,
 )
 
 
@@ -65,6 +65,39 @@ NON_QUALIFYING_EVIDENCE_CLASSES = {
     "synthetic_fixture",
 }
 
+
+def canonical_domain_pack_hash(value: object) -> str:
+    """Hash qualification evidence, including finite audit metrics safely."""
+
+    try:
+        return _strict_canonical_domain_pack_hash(value)
+    except DomainPackContractError:
+        if not _contains_finite_float(value):
+            raise
+        return _strict_canonical_domain_pack_hash(_normalize_float_values(value))
+
+
+def _contains_finite_float(value: object) -> bool:
+    if isinstance(value, float):
+        return math.isfinite(value)
+    if isinstance(value, Mapping):
+        return any(_contains_finite_float(child) for child in value.values())
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return any(_contains_finite_float(child) for child in value)
+    return False
+
+
+def _normalize_float_values(value: object) -> object:
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise QualificationContractError("evidence_malformed")
+        return {"__finite_float__": repr(value)}
+    if isinstance(value, Mapping):
+        return {key: _normalize_float_values(child) for key, child in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return [_normalize_float_values(child) for child in value]
+    return value
+
 RELEASE_CANDIDATE_MACHINE_GATES = (
     "contract",
     "execution",
@@ -91,9 +124,8 @@ _GATE_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "release_completeness": ("decision",),
     "release_quality_audit": ("decision",),
     "release_pack_verification": ("verification",),
-    # Higher-level evidence is intentionally only a contract boundary in this
-    # ticket.  The publishability and training protocol tickets own the
-    # contents of these evidence bundles; a bare status cannot advance state.
+    # Higher-level evidence remains explicit and content-bound; a bare status
+    # cannot advance cumulative qualification state.
     "publishability": (
         "evidence_ids",
         "verification",
@@ -569,9 +601,35 @@ def evaluate_cumulative_qualification(
     history: Sequence[Mapping[str, object]] | Mapping[str, object] = (),
     attempted_qualification: str | None = None,
     invalidated_evidence: Iterable[str] = (),
+    publishability_trusted_keys: Mapping[str, str | bytes] | None = None,
+    publishability_trusted_policy_hashes: Iterable[str] | None = None,
+    publishability_trusted_bundle_content_hashes: Iterable[str] | None = None,
+    publishability_trusted_release_pack_verification_hashes: Iterable[str] | None = None,
+    publishability_now: str | None = None,
 ) -> dict[str, object]:
     """Derive one current cumulative state without mutating prior decisions."""
 
+    if publishability_trusted_policy_hashes is not None:
+        try:
+            publishability_trusted_policy_hashes = tuple(
+                publishability_trusted_policy_hashes
+            )
+        except TypeError:
+            publishability_trusted_policy_hashes = ()
+    if publishability_trusted_bundle_content_hashes is not None:
+        try:
+            publishability_trusted_bundle_content_hashes = tuple(
+                publishability_trusted_bundle_content_hashes
+            )
+        except TypeError:
+            publishability_trusted_bundle_content_hashes = ()
+    if publishability_trusted_release_pack_verification_hashes is not None:
+        try:
+            publishability_trusted_release_pack_verification_hashes = tuple(
+                publishability_trusted_release_pack_verification_hashes
+            )
+        except TypeError:
+            publishability_trusted_release_pack_verification_hashes = ()
     binding = _coerce_binding(subject)
     evidence_malformed = evidence is not None and not isinstance(evidence, Mapping)
     if evidence is None:
@@ -580,7 +638,15 @@ def evaluate_cumulative_qualification(
         evidence_record = dict(evidence)
     else:
         evidence_record = {"evidence_malformed": True}
-    historical, history_error = _normalize_history(history, binding)
+    historical, history_error = _normalize_history(
+        history,
+        binding,
+        publishability_trusted_keys=publishability_trusted_keys,
+        publishability_trusted_policy_hashes=publishability_trusted_policy_hashes,
+        publishability_trusted_bundle_content_hashes=publishability_trusted_bundle_content_hashes,
+        publishability_trusted_release_pack_verification_hashes=publishability_trusted_release_pack_verification_hashes,
+        publishability_now=publishability_now,
+    )
     if history_error is not None:
         history_requested = attempted_qualification
         if history_requested is None and isinstance(
@@ -749,6 +815,12 @@ def evaluate_cumulative_qualification(
         binding=binding,
         gates=gates,
         required=tuple(required),
+        publishability_trusted_keys=publishability_trusted_keys,
+        publishability_trusted_policy_hashes=publishability_trusted_policy_hashes,
+        publishability_trusted_bundle_content_hashes=publishability_trusted_bundle_content_hashes,
+        publishability_trusted_release_pack_verification_hashes=publishability_trusted_release_pack_verification_hashes,
+        publishability_now=publishability_now,
+        verify_publishability_authority=True,
     )
     if gate_status != "passed":
         return _failed_transition_report(
@@ -1005,6 +1077,12 @@ def _validate_history_sequence(
 def _normalize_history(
     history: Sequence[Mapping[str, object]] | Mapping[str, object],
     binding: QualificationBinding,
+    *,
+    publishability_trusted_keys: Mapping[str, str | bytes] | None = None,
+    publishability_trusted_policy_hashes: Iterable[str] | None = None,
+    publishability_trusted_bundle_content_hashes: Iterable[str] | None = None,
+    publishability_trusted_release_pack_verification_hashes: Iterable[str] | None = None,
+    publishability_now: str | None = None,
 ) -> tuple[list[dict[str, object]], str | None]:
     if isinstance(history, Mapping):
         raw_history = history.get("historical_decisions")
@@ -1021,7 +1099,16 @@ def _normalize_history(
         if not isinstance(item, Mapping):
             return [], "historical decision is not an object"
         try:
-            _validate_decision_entry(item, None)
+            _validate_decision_entry(
+                item,
+                None,
+                publishability_trusted_keys=publishability_trusted_keys,
+                publishability_trusted_policy_hashes=publishability_trusted_policy_hashes,
+                publishability_trusted_bundle_content_hashes=publishability_trusted_bundle_content_hashes,
+                publishability_trusted_release_pack_verification_hashes=publishability_trusted_release_pack_verification_hashes,
+                publishability_now=publishability_now,
+                verify_publishability_authority=True,
+            )
         except QualificationContractError as exc:
             return [], f"historical decision is invalid: {exc.reason_code}"
         normalized.append(dict(item))
@@ -1031,6 +1118,13 @@ def _normalize_history(
 def _validate_decision_entry(
     entry: Mapping[str, object],
     binding: QualificationBinding | None,
+    *,
+    publishability_trusted_keys: Mapping[str, str | bytes] | None = None,
+    publishability_trusted_policy_hashes: Iterable[str] | None = None,
+    publishability_trusted_bundle_content_hashes: Iterable[str] | None = None,
+    publishability_trusted_release_pack_verification_hashes: Iterable[str] | None = None,
+    publishability_now: str | None = None,
+    verify_publishability_authority: bool = False,
 ) -> None:
     expected_keys = {
         "schema_version",
@@ -1140,6 +1234,12 @@ def _validate_decision_entry(
             binding=evidence_binding,
             gates=gates,
             required=tuple(required),
+            publishability_trusted_keys=publishability_trusted_keys,
+            publishability_trusted_policy_hashes=publishability_trusted_policy_hashes,
+            publishability_trusted_bundle_content_hashes=publishability_trusted_bundle_content_hashes,
+            publishability_trusted_release_pack_verification_hashes=publishability_trusted_release_pack_verification_hashes,
+            publishability_now=publishability_now,
+            verify_publishability_authority=verify_publishability_authority,
         )
         if gate_status != "passed":
             raise QualificationContractError("evidence_non_passing")
@@ -1269,6 +1369,12 @@ def _evaluate_required_gates(
     binding: QualificationBinding,
     gates: Mapping[str, object],
     required: tuple[str, ...],
+    publishability_trusted_keys: Mapping[str, str | bytes] | None = None,
+    publishability_trusted_policy_hashes: Iterable[str] | None = None,
+    publishability_trusted_bundle_content_hashes: Iterable[str] | None = None,
+    publishability_trusted_release_pack_verification_hashes: Iterable[str] | None = None,
+    publishability_now: str | None = None,
+    verify_publishability_authority: bool = False,
 ) -> tuple[str, list[str], list[str]]:
     reason_codes: list[str] = []
     reasons: list[str] = []
@@ -1296,6 +1402,12 @@ def _evaluate_required_gates(
                 raw_gate=raw_gate,
                 allowed_pass_statuses=allowed,
                 gate_name=gate_name,
+                publishability_trusted_keys=publishability_trusted_keys,
+                publishability_trusted_policy_hashes=publishability_trusted_policy_hashes,
+                publishability_trusted_bundle_content_hashes=publishability_trusted_bundle_content_hashes,
+                publishability_trusted_release_pack_verification_hashes=publishability_trusted_release_pack_verification_hashes,
+                publishability_now=publishability_now,
+                verify_publishability_authority=verify_publishability_authority,
             )
         reason_codes.extend(gate_codes)
         reasons.extend(f"{gate_name}: {reason}" for reason in gate_reasons)
@@ -1357,6 +1469,12 @@ def _evaluate_gate(
     raw_gate: object,
     allowed_pass_statuses: set[str],
     gate_name: str | None = None,
+    publishability_trusted_keys: Mapping[str, str | bytes] | None = None,
+    publishability_trusted_policy_hashes: Iterable[str] | None = None,
+    publishability_trusted_bundle_content_hashes: Iterable[str] | None = None,
+    publishability_trusted_release_pack_verification_hashes: Iterable[str] | None = None,
+    publishability_now: str | None = None,
+    verify_publishability_authority: bool = False,
 ) -> tuple[str, list[str], list[str]]:
     if not isinstance(raw_gate, Mapping):
         return "insufficient_evidence", ["evidence_malformed"], [
@@ -1375,7 +1493,16 @@ def _evaluate_gate(
         return "insufficient_evidence", [schema_reason], [
             "gate schema version is unknown or unsupported"
         ]
-    shape_reason = _gate_shape_reason(raw_gate, gate_name=gate_name)
+    shape_reason = _gate_shape_reason(
+        raw_gate,
+        gate_name=gate_name,
+        publishability_trusted_keys=publishability_trusted_keys,
+        publishability_trusted_policy_hashes=publishability_trusted_policy_hashes,
+        publishability_trusted_bundle_content_hashes=publishability_trusted_bundle_content_hashes,
+        publishability_trusted_release_pack_verification_hashes=publishability_trusted_release_pack_verification_hashes,
+        publishability_now=publishability_now,
+        verify_publishability_authority=verify_publishability_authority,
+    )
     if shape_reason is not None:
         return "insufficient_evidence", [shape_reason], [
             "gate evidence is missing required identity or verification fields"
@@ -1837,6 +1964,12 @@ def _gate_shape_reason(
     raw_gate: Mapping[str, object],
     *,
     gate_name: str | None,
+    publishability_trusted_keys: Mapping[str, str | bytes] | None = None,
+    publishability_trusted_policy_hashes: Iterable[str] | None = None,
+    publishability_trusted_bundle_content_hashes: Iterable[str] | None = None,
+    publishability_trusted_release_pack_verification_hashes: Iterable[str] | None = None,
+    publishability_now: str | None = None,
+    verify_publishability_authority: bool = False,
 ) -> str | None:
     required = set(_GATE_IDENTITY_FIELDS)
     if gate_name is not None:
@@ -1844,6 +1977,51 @@ def _gate_shape_reason(
     missing = sorted(field for field in required if field not in raw_gate)
     if missing:
         return "evidence_missing"
+    if gate_name == "publishability":
+        if "bundle" not in raw_gate or "decision" not in raw_gate:
+            return "evidence_incomplete"
+        if (
+            verify_publishability_authority
+            and (
+                publishability_trusted_keys is None
+                or publishability_trusted_policy_hashes is None
+                or publishability_trusted_bundle_content_hashes is None
+                or publishability_trusted_release_pack_verification_hashes is None
+                or publishability_now is None
+            )
+        ):
+            return "evidence_incomplete"
+        try:
+            from synthesis.publishability import _validate_publishability_gate_record
+
+            _validate_publishability_gate_record(
+                raw_gate,
+                trusted_keys=(
+                    publishability_trusted_keys
+                    if verify_publishability_authority
+                    else None
+                ),
+                trusted_policy_hashes=(
+                    publishability_trusted_policy_hashes
+                    if verify_publishability_authority
+                    else None
+                ),
+                trusted_bundle_content_hashes=(
+                    publishability_trusted_bundle_content_hashes
+                    if verify_publishability_authority
+                    else None
+                ),
+                trusted_release_pack_verification_hashes=(
+                    publishability_trusted_release_pack_verification_hashes
+                    if verify_publishability_authority
+                    else None
+                ),
+                now=publishability_now if verify_publishability_authority else None,
+                structural_only=not verify_publishability_authority,
+            )
+        except Exception:
+            return "evidence_incomplete"
+        return None
     higher_gate = (
         gate_name
         if isinstance(gate_name, str)

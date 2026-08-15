@@ -1254,6 +1254,72 @@ paths, or credentials. Review creation and resolution do not modify samples,
 rejections, quality reports, held-out evaluation, profile decisions, dataset
 release, semantic-duplicate or async decisions, or release-pack bytes.
 
+### Publishability Evidence and Authority Contract
+
+Publishability is a standalone, pure verification boundary. It consumes one
+`publishability_bundle_v1` containing the exact Release Candidate report and
+release-pack identity, independently verified pack evidence, a complete
+`publication_governance_v1` report, release-quality audit and review evidence,
+authenticated risk acceptances, a `publication_approval_v1`, an
+`authority_policy_v1` snapshot, `revocation_evidence_v1`, the requested scope,
+and an explicit validity interval. Every nested record and the bundle itself
+is content-hashed; filenames and reviewer aliases are never authority.
+
+The governance record requires explicit entries for artifact integrity,
+identity binding, source, license, export, retention, privacy,
+sensitive-material, and mutation-safety checks. A failed, blocked, watch, or
+unknown hard check cannot be waived by approval or risk acceptance. Audit
+clearance and review completion remain separate from publication approval. A
+watch finding must have either a versioned review item with clearance evidence
+that hashes to a bound review/governance record or a matching, authenticated,
+expiring `risk_acceptance_v1`; a review `accepted_risk` outcome alone is not
+authority. Pending, blocked, confirmed-issue, follow-up, and insufficient
+review evidence fail closed.
+
+Authority records contain opaque principal and key identifiers only. Verification
+checks the attestation, trust-root key fingerprint, principal grant, role,
+policy id/version/hash, issuance and expiry, scope, and current revocation
+state. Revocation snapshots are themselves authenticated by a policy-granted
+revocation authority and expire with the bound policy. External/public residual
+risk requires distinct risk-owner and publication-approver principals. Internal
+role combination is accepted only
+when the bound policy explicitly allows it. Requested audience, purpose,
+access, retention, and redistribution must be a machine-verifiable subset of
+the approved scope. Fixture evidence may pass conformance checks but can never
+produce an effective Publishable decision; the signed approval also binds the
+evidence class, so relabeling a fixture cannot turn it into real authority.
+
+`evaluate_publishability` returns only `passed`, `denied`, or
+`insufficient_evidence` in `publishability_decision_v1`; it never writes,
+copies, uploads, publishes, or changes access. To verify an existing bundle
+offline and optionally write the deterministic decision report, use:
+
+```bash
+uv run python scripts/verify_publishability.py \
+  --bundle artifacts/publishability/publishability_bundle.json \
+  --release-pack artifacts/publishability/dataset_release_pack.json \
+  --trusted-key approval-key=out-of-band-key \
+  --trusted-policy-hash sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+  --trusted-bundle-content-hash sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210 \
+  --trusted-release-pack-verification-hash sha256:00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff \
+  --now 2026-08-15T00:00:00Z \
+  --output artifacts/publishability/publishability_decision.json
+```
+
+The trusted key, policy hash, real-bundle content hash, release-pack
+verification hash, and evaluation time are supplied out of band and are not
+persisted in the bundle or decision. A local `--release-pack` path adds
+byte-level verification; a passed decision always also requires an exact
+out-of-band allowlist entry for the content-addressed Release Candidate
+pack-verification record. A qualifying evidence class must be allowlisted by
+its exact bundle content hash; fixture authority cannot promote itself by
+changing the class label. The standalone bundle and decision files are not
+default `main.py` outputs and do not establish publication by themselves.
+The qualification adapter carries the validated bundle in a versioned,
+deterministic compressed-chunk envelope: chunks are 2,048 ASCII bytes, with at
+most 128 chunks and a 2 MiB decompressed limit; malformed or oversized
+envelopes fail closed.
+
 ### Dataset Release Pack Contract
 
 Historical release packs use `dataset_release_pack_v1`. Admission-enabled
