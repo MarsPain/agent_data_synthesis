@@ -4,7 +4,7 @@
 - **Canonical spec:** [Outcome-Validated Domain Pack](../../docs/product-specs/outcome-validated-domain-pack.md)
 - **Deep design:** [Outcome-Validated Domain Pack Deep Design](../../docs/design-docs/outcome-validated-domain-pack.md)
 - **Architecture decisions:** [ADR 0002](../../docs/adr/0002-domain-pack-semantic-authority-and-deep-interface.md), [ADR 0003](../../docs/adr/0003-separate-evidence-verification-from-external-authority.md)
-- **Current phase:** Implementation — publishability evidence and external authority complete
+- **Current phase:** Implementation — Workspace training recommendation verification complete
 
 This directory is the delivery aggregation point. The product spec owns desired
 behavior and acceptance, the deep design owns target mechanics, the ADRs own
@@ -19,15 +19,14 @@ and ticket-local scope.
 4. [Carry canonical Workspace capabilities to Release Candidate evidence](issues/04-workspace-capability-release-candidate.md) — completed
 5. [Add cumulative qualification and Workspace Release Candidate](issues/05-cumulative-qualification-release-candidate.md) — completed
 6. [Verify publishability evidence and external authority](issues/06-publishability-evidence-authority.md) — completed
-7. [Verify the Workspace training recommendation protocol](issues/07-workspace-training-recommendation.md) — ready for agent; unblocked by 06
+7. [Verify the Workspace training recommendation protocol](issues/07-workspace-training-recommendation.md) — completed
 8. [Assemble the offline Workspace tracer proof](issues/08-offline-workspace-tracer-proof.md) — ready for agent; blocked by 03, 05, 06, and 07
 9. [Run live Workspace acceptance and freeze deterministic replay](issues/09-live-workspace-acceptance-replay.md) — ready for agent; blocked by 08
 
 ## Frontier
 
-Ticket 06 is complete. Ticket 07 is the current implementation frontier and is
-unblocked by Ticket 06; later tickets remain `ready-for-agent` but cannot be
-claimed until their listed blockers are completed.
+Tickets 06 and 07 are complete. Ticket 08 is the current implementation
+frontier; Ticket 09 remains blocked by the offline tracer proof.
 
 ## Provenance
 

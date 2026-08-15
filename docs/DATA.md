@@ -1320,6 +1320,51 @@ deterministic compressed-chunk envelope: chunks are 2,048 ASCII bytes, with at
 most 128 chunks and a 2 MiB decompressed limit; malformed or oversized
 envelopes fail closed.
 
+### Workspace Training Recommendation Contract
+
+Training recommendation is a verifier-only import boundary. The external
+experiment owner supplies six ordinary JSON artifacts: a
+`workspace_training_protocol_v1`, baseline and treatment arm manifests,
+evaluation manifest, paired binary results, and declaration-only leakage
+report. The protocol content-binds the exact Publishable release, model and
+tokenizer declarations, training identities, common inputs, control/release
+manifests, ordered sealed task identity, scoring hash, leakage method, result
+schemas, and the fixed bootstrap contract before training. The verifier never
+loads a model or tokenizer, starts training, reads sealed samples, or runs an
+overlap scan.
+
+The treatment replaces positive removed control records with positive inserted
+release records. It requires
+`abs(inserted - removed) / removed <= 0.10`, identical training identities and
+common inputs, exact ordered task membership, binary outcomes, and leakage
+declarations bound to the registered split and scoring hash. The paired
+percentile bootstrap uses 10,000 deterministic resamples and the SHA-256 draw
+rule from the Domain Pack deep design; nearest ranks are 250 and 9,750. A
+positive baseline is required and only a strict relative lower bound greater
+than `0.01` yields `training_recommended`.
+
+`import_training_recommendation_evidence` returns only
+`training_recommended`, `no_detected_meaningful_gain`, `invalid_experiment`, or
+`insufficient_evidence` for real `external_experiment` evidence. It writes a
+sanitized content-addressed evidence manifest containing basenames, byte
+counts, and SHA-256 digests, never raw external payloads. A
+`conformance_fixture` can pass the numerical path as
+`protocol_conformance_passed`, but its origin is permanently non-qualifying
+and it cannot establish effective Training Recommended qualification.
+
+To import an existing evidence set offline:
+
+```bash
+uv run python scripts/import_training_recommendation.py \
+  --protocol artifacts/training/workspace_training_protocol.json \
+  --baseline artifacts/training/workspace_training_baseline.json \
+  --treatment artifacts/training/workspace_training_treatment.json \
+  --evaluation artifacts/training/workspace_training_evaluation.json \
+  --paired-results artifacts/training/workspace_training_paired_results.json \
+  --leakage artifacts/training/workspace_training_leakage.json \
+  --output artifacts/training/training_recommendation_result.json
+```
+
 ### Dataset Release Pack Contract
 
 Historical release packs use `dataset_release_pack_v1`. Admission-enabled

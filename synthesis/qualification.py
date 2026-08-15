@@ -135,6 +135,7 @@ _GATE_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     ),
     "training_recommendation": (
         "evidence_ids",
+        "result",
         "verification",
         "protocol",
         "experiment",
@@ -2020,6 +2021,17 @@ def _gate_shape_reason(
                 structural_only=not verify_publishability_authority,
             )
         except Exception:
+            return "evidence_incomplete"
+        return None
+    if gate_name == "training_recommendation":
+        try:
+            from synthesis.training_recommendation import (
+                TrainingRecommendationContractError,
+                validate_training_recommendation_gate_record,
+            )
+
+            validate_training_recommendation_gate_record(raw_gate)
+        except (TrainingRecommendationContractError, TypeError, ValueError):
             return "evidence_incomplete"
         return None
     higher_gate = (

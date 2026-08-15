@@ -2325,6 +2325,87 @@ def validate_publishability_decision_record(record: Mapping[str, Any]) -> None:
     )
 
 
+def _validate_training_recommendation_delegate(
+    record: Mapping[str, Any],
+    validator_name: str,
+) -> None:
+    """Keep Workspace training evidence on the generic contract boundary."""
+
+    try:
+        from synthesis import training_recommendation
+
+        validator = getattr(training_recommendation, validator_name)
+        validator(record)
+    except Exception as exc:
+        if isinstance(exc, ContractValidationError):
+            raise
+        raise ContractValidationError(str(exc)) from exc
+
+
+def validate_training_recommendation_protocol_record(record: Mapping[str, Any]) -> None:
+    _validate_training_recommendation_delegate(
+        record,
+        "validate_training_recommendation_protocol_record",
+    )
+
+
+def validate_workspace_training_protocol_record(record: Mapping[str, Any]) -> None:
+    validate_training_recommendation_protocol_record(record)
+
+
+def validate_training_recommendation_arm_record(record: Mapping[str, Any]) -> None:
+    _validate_training_recommendation_delegate(
+        record,
+        "validate_training_recommendation_arm_record",
+    )
+
+
+def validate_training_recommendation_evaluation_record(record: Mapping[str, Any]) -> None:
+    _validate_training_recommendation_delegate(
+        record,
+        "validate_training_recommendation_evaluation_record",
+    )
+
+
+def validate_training_recommendation_paired_results_record(
+    record: Mapping[str, Any],
+) -> None:
+    _validate_training_recommendation_delegate(
+        record,
+        "validate_training_recommendation_paired_results_record",
+    )
+
+
+def validate_training_recommendation_leakage_record(record: Mapping[str, Any]) -> None:
+    _validate_training_recommendation_delegate(
+        record,
+        "validate_training_recommendation_leakage_record",
+    )
+
+
+def validate_training_recommendation_result_record(record: Mapping[str, Any]) -> None:
+    _validate_training_recommendation_delegate(
+        record,
+        "validate_training_recommendation_result_record",
+    )
+
+
+def validate_training_experiment_evidence_manifest_record(
+    record: Mapping[str, Any],
+) -> None:
+    _validate_training_recommendation_delegate(
+        record,
+        "validate_training_experiment_evidence_manifest_record",
+    )
+
+
+def validate_training_recommendation_gate_record(record: Mapping[str, Any]) -> None:
+    _validate_training_recommendation_delegate(
+        record,
+        "validate_training_recommendation_gate_record",
+    )
+
+
 def validate_release_review_item_record(record: Mapping[str, Any]) -> None:
     item = _require_mapping(record, "release_review_item")
     if _contains_raw_secret(item):
