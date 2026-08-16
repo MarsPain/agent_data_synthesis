@@ -49,6 +49,8 @@ PUBLISHABILITY_GATE_BUNDLE_CHUNK_SIZE = 2048
 PUBLISHABILITY_GATE_BUNDLE_MAX_CHUNKS = 128
 PUBLISHABILITY_GATE_BUNDLE_MAX_ENCODED_BYTES = 262144
 PUBLISHABILITY_GATE_BUNDLE_MAX_DECOMPRESSED_BYTES = 2_000_000
+RELEASE_CANDIDATE_REFERENCE_SCHEMA_VERSION = "release_candidate_reference_v1"
+RELEASE_CANDIDATE_INLINE_MAX_BYTES = 32768
 PUBLICATION_GOVERNANCE_FILENAME = "publication_governance.json"
 AUTHORITY_POLICY_FILENAME = "authority_policy.json"
 REVOCATION_EVIDENCE_FILENAME = "revocation_evidence.json"
@@ -648,6 +650,78 @@ def compute_publishability_evidence_hash(
     return canonical_domain_pack_hash(core)
 
 
+def _encode_release_candidate_record(
+    record: Mapping[str, object],
+) -> dict[str, object]:
+    """Keep large validated qualification reports bounded in bundle records."""
+
+    payload = json.dumps(
+        dict(record), ensure_ascii=True, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    if len(payload) <= RELEASE_CANDIDATE_INLINE_MAX_BYTES:
+        return dict(record)
+    encoded = base64.b64encode(zlib.compress(payload, 9)).decode("ascii")
+    chunks = [
+        encoded[index : index + PUBLISHABILITY_GATE_BUNDLE_CHUNK_SIZE]
+        for index in range(0, len(encoded), PUBLISHABILITY_GATE_BUNDLE_CHUNK_SIZE)
+    ]
+    if (
+        not chunks
+        or len(chunks) > PUBLISHABILITY_GATE_BUNDLE_MAX_CHUNKS
+        or len(encoded) > PUBLISHABILITY_GATE_BUNDLE_MAX_ENCODED_BYTES
+    ):
+        raise PublishabilityContractError("evidence_malformed")
+    return {
+        "schema_version": RELEASE_CANDIDATE_REFERENCE_SCHEMA_VERSION,
+        "record_hash": canonical_domain_pack_hash(dict(record)),
+        "chunks": chunks,
+    }
+
+
+def _decode_release_candidate_record(raw: object) -> dict[str, object]:
+    record = _mapping(raw, "evidence_malformed")
+    if record.get("schema_version") != RELEASE_CANDIDATE_REFERENCE_SCHEMA_VERSION:
+        return record
+    if set(record) != {"schema_version", "record_hash", "chunks"}:
+        raise PublishabilityContractError("evidence_malformed")
+    expected_hash = record.get("record_hash")
+    if not isinstance(expected_hash, str) or not _HASH_RE.fullmatch(expected_hash):
+        raise PublishabilityContractError("evidence_malformed")
+    chunks = record.get("chunks")
+    if (
+        not isinstance(chunks, list)
+        or not chunks
+        or len(chunks) > PUBLISHABILITY_GATE_BUNDLE_MAX_CHUNKS
+        or any(not isinstance(chunk, str) or not chunk for chunk in chunks)
+    ):
+        raise PublishabilityContractError("evidence_malformed")
+    encoded = "".join(chunks)
+    if len(encoded) > PUBLISHABILITY_GATE_BUNDLE_MAX_ENCODED_BYTES:
+        raise PublishabilityContractError("evidence_malformed")
+    try:
+        compressed = base64.b64decode(encoded, validate=True)
+        decompressor = zlib.decompressobj()
+        payload = decompressor.decompress(
+            compressed,
+            PUBLISHABILITY_GATE_BUNDLE_MAX_DECOMPRESSED_BYTES + 1,
+        )
+        if (
+            len(payload) > PUBLISHABILITY_GATE_BUNDLE_MAX_DECOMPRESSED_BYTES
+            or decompressor.unconsumed_tail
+            or not decompressor.eof
+        ):
+            raise PublishabilityContractError("evidence_malformed")
+        payload += decompressor.flush()
+        decoded = _mapping(json.loads(payload.decode("utf-8")), "evidence_malformed")
+    except PublishabilityContractError:
+        raise
+    except (ValueError, UnicodeError, zlib.error, json.JSONDecodeError) as exc:
+        raise PublishabilityContractError("evidence_malformed") from exc
+    if canonical_domain_pack_hash(decoded) != expected_hash:
+        raise PublishabilityContractError("evidence_hash_mismatch")
+    return decoded
+
+
 def build_publishability_bundle(
     *,
     release_candidate: Mapping[str, object],
@@ -748,7 +822,9 @@ def validate_publishability_bundle_record(record: Mapping[str, object]) -> None:
     if evidence_class not in PUBLISHABILITY_EVIDENCE_CLASSES:
         raise PublishabilityContractError("evidence_malformed")
     core = _bundle_core(
-        release_candidate=_record_field(_record_field(record, "release_candidate"), "record"),
+        release_candidate=_decode_release_candidate_record(
+            _record_field(_record_field(record, "release_candidate"), "record")
+        ),
         release_pack=_record_field(record, "release_pack"),
         release_pack_verification=_record_field(record, "release_pack_verification"),
         governance=_record_field(record, "governance"),
@@ -933,9 +1009,8 @@ def build_publishability_gate(
     governance = _mapping(bundle.get("governance"), "evidence_malformed")
     review = _mapping(bundle.get("review"), "evidence_malformed")
     policy = _mapping(bundle.get("authority_policy"), "evidence_malformed")
-    rc_binding = _mapping(
-        _mapping(bundle.get("release_candidate"), "evidence_malformed").get("record"),
-        "evidence_malformed",
+    rc_binding = _decode_release_candidate_record(
+        _mapping(bundle.get("release_candidate"), "evidence_malformed").get("record")
     )
     rc_binding = _mapping(rc_binding.get("qualification_binding"), "evidence_malformed")
     return {
@@ -1330,7 +1405,7 @@ def _bundle_core(
             raise PublishabilityContractError("authority_policy_mismatch")
     normalized_validity = _normalize_validity(validity)
     rc_reference = {
-        "record": dict(release_candidate),
+        "record": _encode_release_candidate_record(release_candidate),
         "record_hash": canonical_domain_pack_hash(dict(release_candidate)),
         "subject_id": subject["subject_id"],
         "subject_hash": subject["subject_hash"],
@@ -1360,7 +1435,9 @@ def _bundle_core(
 def _validate_bundle_nested_records(bundle: Mapping[str, object]) -> None:
     subject = _normalize_subject(_mapping(bundle.get("subject"), "evidence_malformed"))
     rc_ref = _mapping(bundle.get("release_candidate"), "evidence_malformed")
-    rc = _mapping(rc_ref.get("record"), "evidence_malformed")
+    rc = _decode_release_candidate_record(
+        _mapping(rc_ref.get("record"), "evidence_malformed")
+    )
     if rc_ref.get("record_hash") != canonical_domain_pack_hash(rc):
         raise PublishabilityContractError("evidence_hash_mismatch")
     if rc_ref.get("subject_hash") != subject["subject_hash"] or rc_ref.get("subject_id") != subject["subject_id"]:
@@ -1526,7 +1603,9 @@ def _validate_release_candidate_audit_binding(
 
 def _evaluate_release_candidate(bundle: Mapping[str, object]) -> list[tuple[str, str, str]]:
     rc_ref = _mapping(bundle["release_candidate"], "evidence_malformed")
-    record = _mapping(rc_ref.get("record"), "evidence_malformed")
+    record = _decode_release_candidate_record(
+        _mapping(rc_ref, "evidence_malformed").get("record")
+    )
     if record.get("status") != "passed" or record.get("effective_qualification") not in {
         "release_candidate",
         "publishable",
@@ -1607,7 +1686,12 @@ def _evaluate_release_pack_path(
     from synthesis.release_pack import verify_dataset_release_pack
 
     verification = verify_dataset_release_pack(release_pack_path)
-    status = verification.get("status")
+    nested_verification = verification.get("verification")
+    status = (
+        nested_verification.get("status")
+        if isinstance(nested_verification, Mapping)
+        else verification.get("status")
+    )
     if status != "passed":
         decision_status = "denied" if status == "failed" else "insufficient_evidence"
         return [

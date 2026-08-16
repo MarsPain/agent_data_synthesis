@@ -85,7 +85,6 @@ uv run python main.py --run-profile tests/fixtures/run_profiles/profile-local-wo
 
 # Controlled no-network test of the HTTPS source path
 uv run python main.py --enable-network-source --source-url https://allowed.example.test/contacts.json --source-license-label cc-by-4.0 --allowed-source-host allowed.example.test --mock-source-fixture tests/fixtures/contacts.json --output-dir artifacts/foundation-network-source
-
 # Release-candidate evidence packs
 uv run python main.py --run-profile tests/fixtures/run_profiles/foundation-release-candidate.json --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --write-dataset-release-pack --write-release-quality-audit --write-dataset-release-card --output-dir artifacts/foundation-release-candidate
 uv run python main.py --run-profile tests/fixtures/run_profiles/mobile-messages-release-candidate.json --write-evaluation-report --write-profile-decision-report --write-dataset-release-report --write-dataset-release-pack --write-release-quality-audit --write-release-review-queue --write-dataset-release-card --output-dir artifacts/mobile-release-candidate
@@ -93,7 +92,8 @@ uv run python main.py --run-profile tests/fixtures/run_profiles/workspace-tasks-
 uv run python scripts/verify_dataset_release.py --output-dir artifacts/foundation-release-candidate
 uv run python scripts/verify_dataset_release.py --output-dir artifacts/mobile-release-candidate
 uv run python scripts/verify_dataset_release.py --output-dir artifacts/workspace-release-candidate
-
+uv run python scripts/build_workspace_tracer_proof.py --output-dir artifacts/workspace-tracer-proof
+uv run python scripts/verify_workspace_tracer_proof.py artifacts/workspace-tracer-proof
 # After a reviewer creates the local, reviewer-owned decisions file
 uv run python scripts/write_review_resolution.py --output-dir artifacts/mobile-release-candidate --decisions-path artifacts/mobile-release-candidate/review_decisions.jsonl
 

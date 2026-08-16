@@ -66,7 +66,9 @@ class DomainPackContractTest(unittest.TestCase):
             "synthesis/task_contracts.py",
             "synthesis/training_recommendation.py",
             "synthesis/verification.py",
+            "scripts/build_workspace_tracer_proof.py",
             "scripts/import_training_recommendation.py",
+            "scripts/verify_workspace_tracer_proof.py",
         }
         for path in Path(".").glob("**/*.py"):
             if ".worktrees" in path.parts or ".git" in path.parts:

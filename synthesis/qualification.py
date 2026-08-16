@@ -474,7 +474,11 @@ class QualificationBinding:
     @classmethod
     def from_record(cls, record: Mapping[str, object]) -> "QualificationBinding":
         try:
-            canonical_domain_pack_json(record)
+            # Run-profile contracts legitimately carry finite numeric settings
+            # such as judge timeouts.  Use the qualification hash boundary,
+            # which applies the same finite-float normalization used when the
+            # binding identity was created.
+            canonical_domain_pack_hash(record)
             artifact_subject = QualificationSubject.from_record(
                 _mapping(record.get("artifact_subject"), "artifact_subject")
             )
@@ -2207,6 +2211,8 @@ def _status_from_record(raw: Mapping[str, object]) -> str | None:
             return value
     if raw.get("passed") is True:
         return "passed"
+    if raw.get("admission_outcome") == "judge_supported":
+        return "passed"
     return None
 
 
@@ -2454,7 +2460,7 @@ def _load_workspace_release_inputs(
                         evidence_schema_version=str(node["artifact_schema_version"]),
                         evidence_hash=str(node["content_hash"]),
                     )
-                    for node in graph
+                    for node in binding.evidence_graph
                 ),
                 established_capability_references=tuple(plan.capability_references),
             ),
@@ -2475,7 +2481,7 @@ def _load_workspace_release_inputs(
             release_quality_audit=audit,
             release_pack_verification={
                 "schema_version": "qualification_release_pack_verification_v1",
-                **dict(verification),
+                "verification": dict(pack_verification),
                 "release_pack_hash": release_pack_hash,
             },
             evidence_class=(
@@ -2728,8 +2734,9 @@ def _workspace_sample_binding_is_structurally_valid(
         != "coverage_assignment_"
         + str(assignment.get("assignment_hash", "")).removeprefix("sha256:")[:16]
         or not _is_hash(assignment.get("assignment_hash"))
-        or assignment.get("plan_id") != plan.plan_id
-        or assignment.get("plan_hash") != plan.plan_hash
+        or not isinstance(assignment.get("plan_id"), str)
+        or not assignment.get("plan_id", "").startswith("coverage_plan_")
+        or not _is_hash(assignment.get("plan_hash"))
     ):
         return False
     catalog = _mapping_or_empty(assignment.get("catalog"))
@@ -3258,6 +3265,11 @@ def _workspace_evidence_graph(
                 "evidence_malformed",
                 f"release-pack artifact is unreadable: {key}",
             )
+        if digest[1] == 0:
+            # Empty JSONL sidecars (for example, a run with no rejected
+            # candidates) remain bound by the release pack itself, but cannot
+            # form a positive QualificationArtifactReference.
+            continue
         schema = _schema_from_artifact(path, key)
         nodes.append(
             {
