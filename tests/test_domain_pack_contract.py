@@ -67,6 +67,7 @@ class DomainPackContractTest(unittest.TestCase):
             "synthesis/training_recommendation.py",
             "synthesis/verification.py",
             "scripts/build_workspace_tracer_proof.py",
+            "scripts/run_workspace_live_acceptance.py",
             "scripts/import_training_recommendation.py",
             "scripts/verify_workspace_tracer_proof.py",
         }

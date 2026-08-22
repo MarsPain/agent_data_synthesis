@@ -336,6 +336,7 @@ def run_foundation_pipeline(
     write_episode_logs: bool = False,
     mutation_judge_http_client: httpx.Client | None = None,
     mutation_judge_attempt_observer: SemanticJudgeAttemptObserver | None = None,
+    llm_config: LLMConfig | None = None,
     max_concurrency: int = 1,
     cancellation_check: Callable[[], bool] | None = None,
 ) -> PipelineResult:
@@ -540,7 +541,7 @@ def run_foundation_pipeline(
             generate_candidates = domain_bundle.candidate_generator
     else:
         generate_candidates = candidate_generator
-    llm_config = LLMConfig.from_env()
+    llm_config = llm_config or LLMConfig.from_env()
     generate_task_expansion = task_expansion_generator or generate_deterministic_task_expansion
     generate_policy: PolicyGenerator | None
     if policy_generator is not None:
@@ -563,7 +564,7 @@ def run_foundation_pipeline(
             judge = domain_bundle.mutation_judge
         judge_config = getattr(mutation_admission, "judge", None)
         if judge_config is not None:
-            provider_config = LLMConfig.from_env()
+            provider_config = llm_config
             judge = build_openai_compatible_semantic_mutation_judge(
                 config=LLMConfig(
                     base_url=provider_config.base_url,

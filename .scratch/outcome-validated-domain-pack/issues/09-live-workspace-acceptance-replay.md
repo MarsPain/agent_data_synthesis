@@ -28,3 +28,23 @@
 Do not run external training, request real publication approval, publish the
 dataset, broaden provider spending beyond the approved bound, or retain
 credentials and unrestricted provider/source content in fixtures.
+
+## Implementation
+
+Added an explicitly gated live Workspace acceptance runner with fixed
+release-candidate profile identity, candidate/attempt budgets, independent
+mutation-judge identity, injected LLM configuration, and isolated local
+execution. The runner records only bounded provider lineage, assignment
+lineage, request/response hashes, parser version, usage, retry counts, cost
+status, and non-accepted outcomes. Sanitized responses are frozen only after
+release-pack verification and Release Candidate qualification.
+
+Added provider-free replay through the production Domain parser and coverage
+membership checks, plus a live-shaped tracer-proof assembler that preserves
+fixture-only Publishable and Training conformance. The operator CLI requires
+`--authorize-live-provider` and explicit identity/budget arguments.
+
+The actual paid-provider acceptance was not invoked in this implementation
+turn; the focused injected-transport test exercises the complete live-shaped
+run, replay, and proof chain without network or credentials. A real run must
+be separately authorized using the CLI above.
