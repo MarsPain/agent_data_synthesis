@@ -36,6 +36,7 @@ the configured issue tracker.
 ## Product Specs
 
 - [product-specs/outcome-validated-domain-pack.md](product-specs/outcome-validated-domain-pack.md): desired behavior and acceptance for Domain Pack semantic authority, cumulative release qualification, compatibility evidence, and the Workspace proof tracer.
+- [product-specs/contacts-domain-pack-lifecycle.md](product-specs/contacts-domain-pack-lifecycle.md): operationalize Contacts as the second end-to-end Domain Pack and validate its current evidence path through a provider-free acceptance proof.
 - [product-specs/framework-mvp.md](product-specs/framework-mvp.md): MVP scope and acceptance criteria.
 - [product-specs/coverage-driven-representative-synthesis.md](product-specs/coverage-driven-representative-synthesis.md): domain-owned coverage catalogs, operator-light profiles, deterministic deficit scheduling, bounded backfill, and representative coverage evidence.
 - [product-specs/semantic-mutation-admission.md](product-specs/semantic-mutation-admission.md): pre-execution authorization, provenance, independent semantic judgment, calibration, and enforcement for state-changing candidates.

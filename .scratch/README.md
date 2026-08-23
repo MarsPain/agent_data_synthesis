@@ -7,6 +7,7 @@ triggers, and technical debt. Tracker configuration lives in
 
 ## Open
 
+- [Contacts Domain Pack Lifecycle and Second-Domain Validation](contacts-domain-pack-lifecycle/README.md) — ticketed; seven ready-for-agent tracer bullets lead from the Contacts deep lifecycle to a separately authorized live acceptance or no-go result
 - [Semantic Mutation Admission](semantic-mutation-admission/README.md) — ticketed;
   runtime enforcement, release-artifact auditing, and calibration-corpus work
   are complete; activation evaluation is complete and the representative gate
