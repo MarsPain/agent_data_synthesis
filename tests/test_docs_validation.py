@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from scripts.validate_docs import (
+    contains_top_link,
     is_wayfinder_map,
     is_wayfinder_map_path,
     resolve_link,
@@ -31,6 +32,24 @@ class DocumentationValidationTest(unittest.TestCase):
         source = Path("docs/example.md")
         self.assertIsNone(resolve_link(source, "https://example.test/doc"))
         self.assertIsNone(resolve_link(source, "#local-heading"))
+
+    def test_localized_readme_link_must_appear_near_the_top(self) -> None:
+        source = Path("README.md").resolve()
+        target = Path("README.zh.md").resolve()
+        self.assertTrue(
+            contains_top_link(
+                source,
+                target,
+                "# Agent Data Synthesis\n\n[简体中文](README.zh.md)\n",
+            )
+        )
+        self.assertFalse(
+            contains_top_link(
+                source,
+                target,
+                "\n" * 8 + "[简体中文](README.zh.md)\n",
+            )
+        )
 
     def test_wayfinder_map_is_distinct_from_feature_index(self) -> None:
         self.assertTrue(

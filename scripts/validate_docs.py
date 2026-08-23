@@ -15,6 +15,11 @@ ENTRYPOINT_LINE_BUDGETS = {
     "AGENTS.md": 140,
     "ARCHITECTURE.md": 140,
 }
+LANGUAGE_SWITCH_TARGETS = {
+    "README.md": "README.zh.md",
+    "README.zh.md": "README.md",
+}
+LANGUAGE_SWITCH_TOP_LINE_COUNT = 8
 IGNORED_PARTS = {".git", ".venv", "artifacts"}
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 ISSUE_FIELD_RE = re.compile(
@@ -93,6 +98,14 @@ def resolve_link(source: Path, target: str) -> Path | None:
     if not clean_target:
         return None
     return (source.parent / clean_target).resolve()
+
+
+def contains_top_link(source: Path, target: Path, text: str) -> bool:
+    top_text = "\n".join(text.splitlines()[:LANGUAGE_SWITCH_TOP_LINE_COUNT])
+    return any(
+        resolve_link(source, match.group(1)) == target.resolve()
+        for match in LINK_RE.finditer(top_text)
+    )
 
 
 def is_wayfinder_map(text: str) -> bool:
@@ -268,6 +281,24 @@ def validate_entrypoints(errors: list[str]) -> None:
         for target in targets:
             if target not in text:
                 errors.append(f"{rel_path} must link to {target}")
+
+
+def validate_language_switches(errors: list[str]) -> None:
+    for source_rel, target_rel in LANGUAGE_SWITCH_TARGETS.items():
+        source = ROOT / source_rel
+        target = ROOT / target_rel
+        if not source.is_file():
+            errors.append(f"Missing localized README: {source_rel}")
+            continue
+        if not target.is_file():
+            errors.append(f"Missing localized README: {target_rel}")
+            continue
+        text = source.read_text(encoding="utf-8")
+        if not contains_top_link(source, target, text):
+            errors.append(
+                f"{source_rel} must link to {target_rel} within its first "
+                f"{LANGUAGE_SWITCH_TOP_LINE_COUNT} lines"
+            )
 
 
 def validate_links(errors: list[str]) -> None:
@@ -572,6 +603,7 @@ def main() -> int:
     errors: list[str] = []
     registry = discover_artifacts(errors)
     validate_entrypoints(errors)
+    validate_language_switches(errors)
     validate_links(errors)
     validate_context(registry, errors)
     validate_docs_index(registry, errors)
