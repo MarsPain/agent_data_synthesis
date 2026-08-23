@@ -191,6 +191,14 @@ class WorkspaceLiveAcceptanceContractTest(unittest.TestCase):
             reason_code="llm_provider_error",
             usage={},
         )
+        recorder.set_mutation_judge_usage(
+            {
+                "attempts": 1,
+                "attempt_ceiling": 1,
+                "tokens": {},
+                "outcomes": {"response_received": 1},
+            }
+        )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "provider.json"
@@ -228,6 +236,246 @@ class WorkspaceLiveAcceptanceContractTest(unittest.TestCase):
         self.assertNotIn("api_key", json.dumps(evidence).lower())
         self.assertTrue(evidence["frozen"])
 
+    def test_unavailable_judge_fails_preflight_before_generation(self) -> None:
+        """A live retry must not spend generation budget on an unavailable judge."""
+
+        from synthesis.llm import LLMConfig
+        from synthesis.run_profiles import load_run_profile
+        from synthesis.workspace_live_acceptance import (
+            LiveWorkspaceAcceptanceAuthorization,
+            LiveWorkspaceAcceptanceError,
+            run_live_workspace_acceptance,
+        )
+
+        profile = load_run_profile(
+            Path(__file__).parent
+            / "fixtures"
+            / "run_profiles"
+            / "workspace-tasks-live-acceptance.json"
+        )
+        config = LLMConfig(
+            base_url="https://llm.example.test/v1",
+            api_key="test-key",
+            model="generator-test-model",
+        )
+        generator_calls: list[httpx.Request] = []
+
+        def response(content: object) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {"message": {"content": json.dumps(content)}}
+                    ],
+                    "usage": {
+                        "prompt_tokens": 7,
+                        "completion_tokens": 11,
+                        "total_tokens": 18,
+                    },
+                },
+            )
+
+        def generator_handler(request: httpx.Request) -> httpx.Response:
+            generator_calls.append(request)
+            body = json.loads(request.read())
+            prompt = json.loads(body["messages"][1]["content"])
+            assignment = prompt["coverage_assignment"]
+            task_spec = prompt["task_types"][0]
+            grounding = next(iter(prompt["grounding_context"].values()))[0]
+            observation = grounding["observation"]
+            task_type = task_spec["task_type"]
+            assignment_ordinal = assignment["assignment_ordinal"]
+            expected_state = []
+            if task_type == "workspace_task_creation":
+                project_id = observation["project_id"]
+                project_name = observation["summary"].split(" (", 1)[0]
+                task_title = f"Preflight checklist {assignment_ordinal:02d}"
+                instruction = (
+                    f"Find the {project_name} project and create a high-priority task "
+                    f"titled {task_title} due this week."
+                )
+                expected_state = [
+                    {
+                        "check_type": "workspace_task",
+                        "expected": {
+                            "project_id": project_id,
+                            "title": task_title,
+                            "priority": "high",
+                            "due_label": "this_week",
+                        },
+                    }
+                ]
+                final_answer = "$derived_from_expected_state$"
+            elif task_type == "workspace_comment_update":
+                task_id = observation["item_id"]
+                comment = f"Preflight owner {assignment_ordinal:02d}."
+                instruction = (
+                    f"Find the {observation['summary']} task and add the comment "
+                    f"{comment}"
+                )
+                expected_state = [
+                    {
+                        "check_type": "workspace_comment",
+                        "expected": {"task_id": task_id, "comment": comment},
+                    }
+                ]
+                final_answer = "$derived_from_expected_state$"
+            else:
+                instruction = f"Find the workspace item {observation['summary']}."
+                final_answer = observation["item_id"]
+            contract = {
+                "candidate_id": (
+                    prompt["batch_context"]["candidate_id_prefix"]
+                    + "preflight_candidate"
+                ),
+                "instruction": instruction,
+                "task_type": task_type,
+                "difficulty": {},
+                "required_capabilities": task_spec["required_capabilities"],
+                "required_tools": task_spec["required_tools"],
+                "primary_tool": task_spec["required_tools"][0],
+                "primary_arguments": grounding["primary_arguments"],
+                "final_answer_contains": final_answer,
+                "expected_state": expected_state,
+            }
+            return response({"task_contracts": [contract]})
+
+        def unavailable_judge_handler(request: httpx.Request) -> httpx.Response:
+            del request
+            return httpx.Response(503, json={"error": "temporarily unavailable"})
+
+        authorization = LiveWorkspaceAcceptanceAuthorization(
+            approved=True,
+            authorization_id="workspace-acceptance-preflight-20260823",
+            candidate_budget=24,
+            attempt_budget=24,
+            generator_provider="openai_compatible",
+            generator_model="generator-test-model",
+            mutation_judge_provider="openai_compatible",
+            mutation_judge_model="deepseek-v4-pro",
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            with (
+                httpx.Client(
+                    transport=httpx.MockTransport(generator_handler)
+                ) as generator_client,
+                httpx.Client(
+                    transport=httpx.MockTransport(unavailable_judge_handler)
+                ) as judge_client,
+            ):
+                with self.assertRaisesRegex(
+                    LiveWorkspaceAcceptanceError,
+                    "live_mutation_judge_preflight_failed",
+                ):
+                    run_live_workspace_acceptance(
+                        root / "acceptance",
+                        profile=profile,
+                        authorization=authorization,
+                        generator_config=config,
+                        generator_http_client=generator_client,
+                        mutation_judge_http_client=judge_client,
+                        proof_root=root / "proof",
+                    )
+
+            failure = json.loads(
+                (root / "acceptance" / "live_attempt_failure.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        self.assertEqual(generator_calls, [])
+        self.assertEqual(failure["status"], "failed")
+        self.assertEqual(
+            failure["reason_code"], "live_mutation_judge_preflight_failed"
+        )
+        self.assertEqual(failure["generator_usage"]["logical_calls"], 0)
+        self.assertEqual(failure["mutation_judge_usage"]["attempts"], 2)
+        self.assertEqual(
+            failure["mutation_judge_usage"]["failure_classes"],
+            {"http_status": 2},
+        )
+        self.assertNotIn("response", json.dumps(failure).lower())
+        self.assertNotIn("api_key", json.dumps(failure).lower())
+
+    def test_timeout_preflight_records_a_bounded_timeout_class(self) -> None:
+        """A timed-out judge probe must remain diagnosable without raw errors."""
+
+        from synthesis.llm import LLMConfig
+        from synthesis.run_profiles import load_run_profile
+        from synthesis.workspace_live_acceptance import (
+            LiveWorkspaceAcceptanceAuthorization,
+            LiveWorkspaceAcceptanceError,
+            run_live_workspace_acceptance,
+        )
+
+        profile = load_run_profile(
+            Path(__file__).parent
+            / "fixtures"
+            / "run_profiles"
+            / "workspace-tasks-live-acceptance.json"
+        )
+        config = LLMConfig(
+            base_url="https://llm.example.test/v1",
+            api_key="test-key",
+            model="generator-test-model",
+        )
+
+        def unexpected_generator(request: httpx.Request) -> httpx.Response:
+            del request
+            raise AssertionError("generation must not follow a failed preflight")
+
+        def timeout_judge(request: httpx.Request) -> httpx.Response:
+            del request
+            raise httpx.ReadTimeout("simulated timeout")
+
+        authorization = LiveWorkspaceAcceptanceAuthorization(
+            approved=True,
+            authorization_id="workspace-acceptance-timeout-20260823",
+            candidate_budget=24,
+            attempt_budget=24,
+            generator_provider="openai_compatible",
+            generator_model="generator-test-model",
+            mutation_judge_provider="openai_compatible",
+            mutation_judge_model="deepseek-v4-pro",
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            with (
+                httpx.Client(
+                    transport=httpx.MockTransport(unexpected_generator)
+                ) as generator_client,
+                httpx.Client(
+                    transport=httpx.MockTransport(timeout_judge)
+                ) as judge_client,
+            ):
+                with self.assertRaisesRegex(
+                    LiveWorkspaceAcceptanceError,
+                    "live_mutation_judge_preflight_failed",
+                ):
+                    run_live_workspace_acceptance(
+                        root / "acceptance",
+                        profile=profile,
+                        authorization=authorization,
+                        generator_config=config,
+                        generator_http_client=generator_client,
+                        mutation_judge_http_client=judge_client,
+                        proof_root=root / "proof",
+                    )
+            failure = json.loads(
+                (root / "acceptance" / "live_attempt_failure.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        self.assertEqual(
+            failure["mutation_judge_usage"]["failure_classes"],
+            {"timeout": 2},
+        )
+        serialized = json.dumps(failure).lower()
+        self.assertNotIn("simulated timeout", serialized)
+        self.assertNotIn("test-key", serialized)
+
     def test_injected_provider_transport_builds_real_live_replay_proof(self) -> None:
         from synthesis.llm import LLMConfig
         from synthesis.run_profiles import load_run_profile
@@ -247,6 +495,8 @@ class WorkspaceLiveAcceptanceContractTest(unittest.TestCase):
             api_key="test-key",
             model="generator-test-model",
         )
+        judge_thinking_requests: list[object] = []
+        judge_timeouts: list[object] = []
 
         def response(content: object) -> httpx.Response:
             return httpx.Response(
@@ -341,6 +591,8 @@ class WorkspaceLiveAcceptanceContractTest(unittest.TestCase):
 
         def judge_handler(request: httpx.Request) -> httpx.Response:
             body = json.loads(request.read())
+            judge_thinking_requests.append(body.get("thinking"))
+            judge_timeouts.append(request.extensions.get("timeout"))
             prompt = json.loads(body["messages"][1]["content"])
             references = prompt["validated_provenance"]["evidence_references"]
             arguments = prompt["proposed_mutation"]["requester_arguments"]
@@ -387,7 +639,8 @@ class WorkspaceLiveAcceptanceContractTest(unittest.TestCase):
             generator_provider="openai_compatible",
             generator_model="generator-test-model",
             mutation_judge_provider="openai_compatible",
-            mutation_judge_model="workspace-independent-mutation-judge",
+            mutation_judge_model="deepseek-v4-pro",
+            generator_retry_limit=3,
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -407,15 +660,35 @@ class WorkspaceLiveAcceptanceContractTest(unittest.TestCase):
                     generator_http_client=generator_client,
                     mutation_judge_http_client=judge_client,
                     proof_root=root / "proof",
+                    max_generator_retries=3,
                 )
             provider = json.loads(
                 result.provider_evidence_path.read_text(encoding="utf-8")
             )
             proof = json.loads(result.proof_path.read_text(encoding="utf-8"))
+            authorization_record = json.loads(
+                (root / "acceptance" / "authorization.json").read_text(
+                    encoding="utf-8"
+                )
+            )
 
         self.assertEqual(result.replay["provider_calls"], 0)
         self.assertEqual(provider["evidence_class"], "real_live")
         self.assertEqual(provider["usage"]["replayable_calls"], 12)
+        self.assertEqual(
+            judge_thinking_requests,
+            [{"type": "disabled"}] * len(judge_thinking_requests),
+        )
+        self.assertGreater(len(judge_thinking_requests), 1)
+        self.assertEqual(len(judge_timeouts), len(judge_thinking_requests))
+        for timeout in judge_timeouts:
+            self.assertIsInstance(timeout, dict)
+            assert isinstance(timeout, dict)
+            self.assertEqual(set(timeout.values()), {90.0})
+        self.assertEqual(provider["authorization"]["generator_retry_limit"], 3)
+        self.assertEqual(
+            authorization_record["generator_physical_call_ceiling"], 96
+        )
         self.assertEqual(proof["subject"]["evidence_class"], "real_live")
         serialized = json.dumps(provider, sort_keys=True).lower()
         self.assertNotIn("raw_prompt", serialized)

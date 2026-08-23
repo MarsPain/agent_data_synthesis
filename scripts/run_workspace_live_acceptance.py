@@ -51,7 +51,12 @@ def parse_args() -> argparse.Namespace:
         default=ROOT / "artifacts" / "workspace-live-acceptance",
     )
     parser.add_argument("--proof-dir", type=Path, default=None)
-    parser.add_argument("--max-generator-retries", type=int, choices=(0, 1, 2), default=2)
+    parser.add_argument(
+        "--max-generator-retries",
+        type=int,
+        choices=(0, 1, 2, 3),
+        default=2,
+    )
     return parser.parse_args()
 
 
@@ -68,6 +73,7 @@ def main() -> int:
             generator_model=args.generator_model,
             mutation_judge_provider="openai_compatible",
             mutation_judge_model=args.mutation_judge_model,
+            generator_retry_limit=args.max_generator_retries,
         )
         result = run_live_workspace_acceptance(
             args.output_dir,
@@ -78,11 +84,19 @@ def main() -> int:
         )
     except (LiveWorkspaceAcceptanceError, OSError, ValueError) as exc:
         reason_code = getattr(exc, "reason_code", "live_acceptance_failed")
+        failure_path = args.output_dir / "live_attempt_failure.json"
+        failure_record = (
+            str(failure_path)
+            if failure_path.is_file() and not failure_path.is_symlink()
+            else None
+        )
         print(
             json.dumps(
                 {
                     "status": "failed",
                     "reason_codes": [reason_code],
+                    "acceptance_dir": str(args.output_dir),
+                    "failure_record_path": failure_record,
                 },
                 ensure_ascii=False,
                 sort_keys=True,

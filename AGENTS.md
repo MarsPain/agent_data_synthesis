@@ -43,7 +43,7 @@ uv run python scripts/write_downstream_benchmark_bundle.py --release-pack artifa
 uv run python scripts/import_downstream_benchmark_result.py --bundle artifacts/downstream/downstream_benchmark_bundle.json --observation artifacts/downstream/external_observation.json --output artifacts/downstream/downstream_benchmark_result.json
 uv run python scripts/export_mutation_calibration_packet.py --corpus-version mutation_calibration_corpus_v1 --output-dir artifacts/mutation-calibration
 uv run python scripts/import_mutation_calibration_labels.py --packet artifacts/mutation-calibration/mutation_calibration_review_packet.json --split-freeze artifacts/mutation-calibration/mutation_calibration_split_freeze.json --labels artifacts/mutation-calibration/human_labels.jsonl --output artifacts/mutation-calibration/reviewed_mutation_calibration_corpus.json
-uv run python scripts/run_workspace_live_acceptance.py --authorize-live-provider --authorization-id <id> --candidate-budget 24 --attempt-budget 24 --generator-model <generator-model> --mutation-judge-model workspace-independent-mutation-judge
+uv run python scripts/run_workspace_live_acceptance.py --authorize-live-provider --authorization-id <id> --candidate-budget 24 --attempt-budget 24 --generator-model <generator-model> --mutation-judge-model <independent-judge-model>
 uv run python scripts/validate_docs.py
 uv run python -m unittest
 ```

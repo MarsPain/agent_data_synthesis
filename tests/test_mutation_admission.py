@@ -131,6 +131,7 @@ class MutationAdmissionCandidateProcessingTest(unittest.TestCase):
             judge_input = json.loads(payload["messages"][1]["content"])
             captured["authorization"] = request.headers.get("authorization")
             captured["model"] = payload["model"]
+            captured["thinking"] = payload.get("thinking")
             captured["judge_input"] = judge_input
             captured["timeout"] = request.extensions.get("timeout")
             mutation = judge_input["proposed_mutation"]
@@ -187,6 +188,7 @@ class MutationAdmissionCandidateProcessingTest(unittest.TestCase):
             http_client=httpx.Client(transport=httpx.MockTransport(handler)),
             timeout_seconds=12.5,
             max_retries=1,
+            thinking_mode="disabled",
             attempt_observer=AttemptObserver(),
         )
 
@@ -224,6 +226,7 @@ class MutationAdmissionCandidateProcessingTest(unittest.TestCase):
         self.assertTrue(evidence["diagnostic_only"])
         self.assertEqual(captured["authorization"], "Bearer secret-test-key")
         self.assertEqual(captured["model"], "independent-judge-model")
+        self.assertEqual(captured["thinking"], {"type": "disabled"})
         timeout = captured["timeout"]
         assert isinstance(timeout, dict)
         self.assertEqual(set(timeout.values()), {12.5})

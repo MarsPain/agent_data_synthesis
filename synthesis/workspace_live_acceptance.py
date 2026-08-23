@@ -21,9 +21,11 @@ from urllib.parse import urlparse
 
 
 LIVE_ACCEPTANCE_SCHEMA_VERSION = "workspace_live_acceptance_v1"
+LIVE_ATTEMPT_FAILURE_SCHEMA_VERSION = "workspace_live_attempt_failure_v1"
 LIVE_PROVIDER_EVIDENCE_SCHEMA_VERSION = "workspace_live_provider_evidence_v1"
 SANITIZED_EVIDENCE_POLICY_VERSION = "workspace_sanitized_provider_evidence_v1"
 PROVIDER_PARSER_VERSION = "domain_generation_parser_v1"
+MAX_LIVE_GENERATOR_RETRIES = 3
 
 _HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _CONFIG_HASH_RE = re.compile(r"^(?:sha256:)?[0-9a-f]{64}$")
@@ -169,6 +171,7 @@ class LiveWorkspaceAcceptanceAuthorization:
     generator_model: str
     mutation_judge_provider: str
     mutation_judge_model: str
+    generator_retry_limit: int = 2
     evidence_policy: str = SANITIZED_EVIDENCE_POLICY_VERSION
 
     def validate(
@@ -186,6 +189,12 @@ class LiveWorkspaceAcceptanceAuthorization:
         for value in (self.candidate_budget, self.attempt_budget):
             if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
                 raise LiveWorkspaceAcceptanceError("authorization_budget_invalid")
+        if (
+            not isinstance(self.generator_retry_limit, int)
+            or isinstance(self.generator_retry_limit, bool)
+            or self.generator_retry_limit not in range(MAX_LIVE_GENERATOR_RETRIES + 1)
+        ):
+            raise LiveWorkspaceAcceptanceError("generator_retry_budget_invalid")
         if not isinstance(plan_attempt_ceiling, int) or plan_attempt_ceiling <= 0:
             raise LiveWorkspaceAcceptanceError("authorization_budget_invalid")
         if plan_attempt_ceiling > self.attempt_budget:
@@ -258,6 +267,7 @@ class LiveWorkspaceAcceptanceAuthorization:
             "generator_model": self.generator_model,
             "mutation_judge_provider": self.mutation_judge_provider,
             "mutation_judge_model": self.mutation_judge_model,
+            "generator_retry_limit": self.generator_retry_limit,
             "evidence_policy": self.evidence_policy,
         }
 
@@ -364,15 +374,41 @@ class SanitizedProviderEvidenceRecorder:
                 record["assignment"] = dict(assignment)
 
     def set_mutation_judge_usage(self, usage: Mapping[str, object]) -> None:
+        attempt_ceiling = usage.get("attempt_ceiling")
+        if (
+            not isinstance(attempt_ceiling, int)
+            or isinstance(attempt_ceiling, bool)
+            or attempt_ceiling <= 0
+        ):
+            raise LiveWorkspaceAcceptanceError("authorization_budget_invalid")
+        attempts = usage.get("attempts")
+        if (
+            not isinstance(attempts, int)
+            or isinstance(attempts, bool)
+            or attempts < 0
+            or attempts > attempt_ceiling
+        ):
+            raise LiveWorkspaceAcceptanceError("live_usage_malformed")
+        outcomes = usage.get("outcomes")
+        if not isinstance(outcomes, Mapping):
+            raise LiveWorkspaceAcceptanceError("live_usage_malformed")
+        safe_outcomes: dict[str, int] = {}
+        for outcome, count in outcomes.items():
+            if (
+                outcome not in {"provider_error", "response_received"}
+                or not isinstance(count, int)
+                or isinstance(count, bool)
+                or count < 0
+            ):
+                raise LiveWorkspaceAcceptanceError("live_usage_malformed")
+            safe_outcomes[str(outcome)] = count
+        if sum(safe_outcomes.values()) != attempts:
+            raise LiveWorkspaceAcceptanceError("live_usage_malformed")
         self._mutation_judge_usage = {
-            "attempts": int(usage.get("attempts", 0))
-            if isinstance(usage.get("attempts"), int)
-            and not isinstance(usage.get("attempts"), bool)
-            else 0,
+            "attempts": attempts,
+            "attempt_ceiling": attempt_ceiling,
             "tokens": _bounded_usage(usage.get("tokens")),
-            "outcomes": dict(usage.get("outcomes", {}))
-            if isinstance(usage.get("outcomes"), Mapping)
-            else {},
+            "outcomes": safe_outcomes,
         }
 
     def _assignment_for_request(self, request_hash: str) -> dict[str, object]:
@@ -514,6 +550,13 @@ class SanitizedProviderEvidenceRecorder:
         _require_hash(release_pack_hash)
         if not self._attempts:
             raise LiveWorkspaceAcceptanceError("live_evidence_missing")
+        if set(self._mutation_judge_usage) != {
+            "attempts",
+            "attempt_ceiling",
+            "tokens",
+            "outcomes",
+        }:
+            raise LiveWorkspaceAcceptanceError("live_usage_malformed")
         if not isinstance(run_binding, Mapping):
             raise LiveWorkspaceAcceptanceError("live_run_binding_missing")
         safe_run_binding = _sanitize_json_value(run_binding)
@@ -529,6 +572,13 @@ class SanitizedProviderEvidenceRecorder:
         if not replay_attempts:
             raise LiveWorkspaceAcceptanceError("live_replay_inputs_missing")
         records = [dict(record) for record in self._attempts]
+        retries = sum(
+            int(record.get("retry_count", 0))
+            for record in records
+            if isinstance(record.get("retry_count"), int)
+            and not isinstance(record.get("retry_count"), bool)
+        )
+        physical_call_ceiling = _generator_physical_call_ceiling(self.authorization)
         evidence: dict[str, object] = {
             "schema_version": LIVE_PROVIDER_EVIDENCE_SCHEMA_VERSION,
             "evidence_class": "real_live",
@@ -544,12 +594,9 @@ class SanitizedProviderEvidenceRecorder:
                 "logical_calls": len(records),
                 "replayable_calls": len(replay_attempts),
                 "tokens": _sum_usage(records),
-                "retries": sum(
-                    int(record.get("retry_count", 0))
-                    for record in records
-                    if isinstance(record.get("retry_count"), int)
-                    and not isinstance(record.get("retry_count"), bool)
-                ),
+                "retries": retries,
+                "physical_calls": len(records) + retries,
+                "physical_call_ceiling": physical_call_ceiling,
             },
             "mutation_judge_usage": dict(self._mutation_judge_usage),
             "cost": {
@@ -575,11 +622,25 @@ class SanitizedProviderEvidenceRecorder:
 class SanitizedMutationJudgeUsageObserver:
     """Record bounded judge usage without retaining judge prompts or payloads."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, attempt_ceiling: int | None = None) -> None:
+        if attempt_ceiling is not None and (
+            not isinstance(attempt_ceiling, int)
+            or isinstance(attempt_ceiling, bool)
+            or attempt_ceiling <= 0
+        ):
+            raise LiveWorkspaceAcceptanceError("authorization_budget_invalid")
+        self._attempt_ceiling = attempt_ceiling
         self._attempts: list[dict[str, object]] = []
 
     def before_provider_call(self, *, prompt_hash: str) -> str:
         _require_hash(prompt_hash)
+        if (
+            self._attempt_ceiling is not None
+            and len(self._attempts) >= self._attempt_ceiling
+        ):
+            raise LiveWorkspaceAcceptanceError(
+                "live_mutation_judge_attempt_budget_exceeded"
+            )
         attempt_id = f"live_mutation_judge_attempt_{len(self._attempts) + 1:04d}"
         self._attempts.append(
             {
@@ -620,6 +681,7 @@ class SanitizedMutationJudgeUsageObserver:
             if isinstance(cause, str) and re.fullmatch(r"[a-z][a-z0-9_.:-]{1,127}", cause)
             else "llm_provider_error"
         )
+        record["failure_class"] = _bounded_judge_failure_class(error)
 
     def _find(self, attempt_id: object) -> dict[str, object]:
         for record in self._attempts:
@@ -628,7 +690,7 @@ class SanitizedMutationJudgeUsageObserver:
         raise LiveWorkspaceAcceptanceError("live_judge_attempt_missing")
 
     def to_record(self) -> dict[str, object]:
-        return {
+        record: dict[str, object] = {
             "attempts": len(self._attempts),
             "tokens": _sum_usage(self._attempts),
             "outcomes": {
@@ -636,6 +698,28 @@ class SanitizedMutationJudgeUsageObserver:
                 for outcome in sorted({str(record.get("outcome")) for record in self._attempts})
             },
         }
+        if self._attempt_ceiling is not None:
+            record["attempt_ceiling"] = self._attempt_ceiling
+        return record
+
+    def to_failure_record(self) -> dict[str, object]:
+        """Return failure-only diagnostic totals without error text or payloads."""
+
+        record = self.to_record()
+        record["failure_classes"] = {
+            failure_class: sum(
+                attempt.get("failure_class") == failure_class
+                for attempt in self._attempts
+            )
+            for failure_class in sorted(
+                {
+                    str(attempt.get("failure_class"))
+                    for attempt in self._attempts
+                    if isinstance(attempt.get("failure_class"), str)
+                }
+            )
+        }
+        return record
 
 
 class BoundedSanitizedProvider:
@@ -739,6 +823,35 @@ def _bounded_reason(value: object) -> str:
     if isinstance(value, str) and re.fullmatch(r"[a-z][a-z0-9_.:-]{1,127}", value):
         return value
     return "llm_provider_error"
+
+
+def _bounded_judge_failure_class(error: BaseException) -> str:
+    """Classify a judge transport failure without retaining provider detail."""
+
+    error_class = getattr(error, "error_class", type(error).__name__)
+    if error_class in {
+        "ConnectTimeout",
+        "PoolTimeout",
+        "ReadTimeout",
+        "TimeoutException",
+        "WriteTimeout",
+    }:
+        return "timeout"
+    if error_class == "HTTPStatusError":
+        return "http_status"
+    if error_class in {
+        "ConnectError",
+        "NetworkError",
+        "ProtocolError",
+        "RemoteProtocolError",
+        "TransportError",
+    }:
+        return "transport"
+    if error_class in {"JSONDecodeError", "KeyError", "TypeError", "ValueError"}:
+        return "response_schema"
+    if error_class == "LLMConfigurationError":
+        return "configuration"
+    return "provider_error"
 
 
 def _normalize_prompt_hash(value: object) -> str:
@@ -1029,10 +1142,79 @@ def validate_live_provider_evidence(
     usage = evidence.get("usage")
     if (
         not isinstance(usage, Mapping)
+        or set(usage)
+        != {
+            "logical_calls",
+            "replayable_calls",
+            "tokens",
+            "retries",
+            "physical_calls",
+            "physical_call_ceiling",
+        }
         or usage.get("logical_calls") != len(attempts)
         or usage.get("replayable_calls") != len(replay_attempts)
         or not isinstance(usage.get("tokens"), Mapping)
     ):
+        raise LiveWorkspaceAcceptanceError("live_usage_malformed")
+    retries = usage.get("retries")
+    physical_calls = usage.get("physical_calls")
+    physical_call_ceiling = usage.get("physical_call_ceiling")
+    authorized_retry_limit = authorization.get("generator_retry_limit")
+    authorized_attempt_budget = authorization.get("attempt_budget")
+    if (
+        not isinstance(retries, int)
+        or isinstance(retries, bool)
+        or retries < 0
+        or not isinstance(physical_calls, int)
+        or isinstance(physical_calls, bool)
+        or physical_calls != len(attempts) + retries
+        or not isinstance(physical_call_ceiling, int)
+        or isinstance(physical_call_ceiling, bool)
+        or not isinstance(authorized_retry_limit, int)
+        or isinstance(authorized_retry_limit, bool)
+        or authorized_retry_limit not in range(MAX_LIVE_GENERATOR_RETRIES + 1)
+        or not isinstance(authorized_attempt_budget, int)
+        or isinstance(authorized_attempt_budget, bool)
+        or authorized_attempt_budget <= 0
+        or physical_call_ceiling
+        != authorized_attempt_budget * (authorized_retry_limit + 1)
+        or physical_calls > physical_call_ceiling
+    ):
+        raise LiveWorkspaceAcceptanceError("live_usage_malformed")
+    mutation_judge_usage = evidence.get("mutation_judge_usage")
+    if (
+        not isinstance(mutation_judge_usage, Mapping)
+        or set(mutation_judge_usage)
+        != {"attempts", "attempt_ceiling", "tokens", "outcomes"}
+    ):
+        raise LiveWorkspaceAcceptanceError("live_usage_malformed")
+    judge_attempts = mutation_judge_usage.get("attempts")
+    judge_attempt_ceiling = mutation_judge_usage.get("attempt_ceiling")
+    judge_tokens = mutation_judge_usage.get("tokens")
+    judge_outcomes = mutation_judge_usage.get("outcomes")
+    if (
+        not isinstance(judge_attempts, int)
+        or isinstance(judge_attempts, bool)
+        or judge_attempts < 1
+        or not isinstance(judge_attempt_ceiling, int)
+        or isinstance(judge_attempt_ceiling, bool)
+        or judge_attempt_ceiling < judge_attempts
+        or not isinstance(judge_tokens, Mapping)
+        or dict(judge_tokens) != _bounded_usage(judge_tokens)
+        or not isinstance(judge_outcomes, Mapping)
+    ):
+        raise LiveWorkspaceAcceptanceError("live_usage_malformed")
+    safe_judge_outcomes: dict[str, int] = {}
+    for outcome, count in judge_outcomes.items():
+        if (
+            outcome not in {"provider_error", "response_received"}
+            or not isinstance(count, int)
+            or isinstance(count, bool)
+            or count < 0
+        ):
+            raise LiveWorkspaceAcceptanceError("live_usage_malformed")
+        safe_judge_outcomes[str(outcome)] = count
+    if sum(safe_judge_outcomes.values()) != judge_attempts:
         raise LiveWorkspaceAcceptanceError("live_usage_malformed")
     cost = evidence.get("cost")
     if (
@@ -1143,6 +1325,245 @@ def _write_json(path: Path, value: Mapping[str, object]) -> None:
     )
 
 
+def _live_run_binding(
+    *,
+    profile: object,
+    plan: object,
+    coverage_plan: object,
+    source_result: object,
+) -> dict[str, object]:
+    return {
+        "profile_id": profile.profile_id,
+        "dataset_version": profile.dataset_version,
+        "seed_id": profile.seed.seed_id,
+        "seed_domain": profile.seed.domain,
+        "plan_id": plan.plan_id,
+        "plan_hash": plan.plan_hash,
+        "coverage_plan_id": coverage_plan.plan_id,
+        "coverage_plan_hash": coverage_plan.plan_hash,
+        "source_policy_hash": source_result.source_policy_hash,
+    }
+
+
+def _mutation_judge_attempt_ceiling(profile: object, coverage_plan: object) -> int:
+    """Derive a physical judge-call ceiling from the authorized plan bound."""
+
+    judge = profile.mutation_admission.judge
+    retry_count = getattr(judge, "max_retries", None)
+    attempt_ceiling = getattr(coverage_plan, "attempt_ceiling", None)
+    if (
+        not isinstance(retry_count, int)
+        or isinstance(retry_count, bool)
+        or retry_count not in {0, 1}
+        or not isinstance(attempt_ceiling, int)
+        or isinstance(attempt_ceiling, bool)
+        or attempt_ceiling <= 0
+    ):
+        raise LiveWorkspaceAcceptanceError("authorization_budget_invalid")
+    # One contract-validity preflight plus at most one judgment per planned
+    # candidate, each with the profile's bounded retry count.
+    return (attempt_ceiling + 1) * (retry_count + 1)
+
+
+def _generator_physical_call_ceiling(
+    authorization: LiveWorkspaceAcceptanceAuthorization,
+) -> int:
+    """Bind retry-expanded generator calls to the explicit authorization."""
+
+    retry_limit = authorization.generator_retry_limit
+    attempt_budget = authorization.attempt_budget
+    if (
+        not isinstance(retry_limit, int)
+        or isinstance(retry_limit, bool)
+        or retry_limit not in range(MAX_LIVE_GENERATOR_RETRIES + 1)
+        or not isinstance(attempt_budget, int)
+        or isinstance(attempt_budget, bool)
+        or attempt_budget <= 0
+    ):
+        raise LiveWorkspaceAcceptanceError("generator_retry_budget_invalid")
+    return attempt_budget * (retry_limit + 1)
+
+
+def _live_mutation_judge_preflight_request() -> object:
+    """Build a fixed, non-source-backed semantic-judge contract probe."""
+
+    from synthesis.mutation_admission import SemanticJudgeRequest
+
+    return SemanticJudgeRequest(
+        instruction=(
+            "Create a high-priority task titled Judge readiness in the Alpha "
+            "Launch project due this week."
+        ),
+        task_type="workspace_task_creation",
+        action_type="workspace_task_create",
+        action_evidence_text="Create a high-priority task",
+        argument_values={
+            "title": "Judge readiness",
+            "project_id": "project_alpha",
+            "priority": "high",
+            "due_label": "this_week",
+        },
+        argument_evidence={
+            "title": "Judge readiness",
+            "project_id": {"project_id": "project_alpha"},
+            "priority": "high-priority",
+            "due_label": "this week",
+        },
+        argument_origins={
+            "title": "instruction",
+            "project_id": "tool_observation",
+            "priority": "instruction",
+            "due_label": "instruction",
+        },
+        evidence_references={
+            "action": "live_preflight_action",
+            "title": "live_preflight_title",
+            "project_id": "live_preflight_project",
+            "priority": "live_preflight_priority",
+            "due_label": "live_preflight_due",
+        },
+    )
+
+
+def _preflight_live_mutation_judge(
+    *,
+    profile: object,
+    generator_config: object,
+    http_client: object | None,
+    attempt_observer: SanitizedMutationJudgeUsageObserver,
+) -> dict[str, object]:
+    """Prove the exact independent-judge contract before generation spend."""
+
+    from synthesis.llm import LLMConfig
+    from synthesis.mutation_admission import (
+        build_openai_compatible_semantic_mutation_judge,
+    )
+
+    judge_config = profile.mutation_admission.judge
+    judge = build_openai_compatible_semantic_mutation_judge(
+        config=LLMConfig(
+            base_url=generator_config.base_url,
+            api_key=generator_config.api_key,
+            model=judge_config.model,
+            temperature=0.0,
+        ),
+        http_client=http_client,
+        timeout_seconds=float(judge_config.timeout_seconds),
+        max_retries=int(judge_config.max_retries),
+        thinking_mode=getattr(judge_config, "thinking_mode", None),
+        attempt_observer=attempt_observer,
+    )
+    result = judge(_live_mutation_judge_preflight_request())
+    verdict = result.verdict
+    status = (
+        "passed"
+        if result.provider_outcome == "succeeded"
+        and isinstance(verdict, Mapping)
+        and verdict.get("verdict") == "supported"
+        else "failed"
+    )
+    return {
+        "status": status,
+        "provider_outcome": result.provider_outcome,
+        "attempts": result.attempts,
+    }
+
+
+def _generator_usage_summary(
+    recorder: SanitizedProviderEvidenceRecorder,
+) -> dict[str, object]:
+    attempts = recorder.attempts
+    retries = sum(
+        int(record.get("retry_count", 0))
+        for record in attempts
+        if isinstance(record.get("retry_count"), int)
+        and not isinstance(record.get("retry_count"), bool)
+    )
+    return {
+        "logical_calls": len(attempts),
+        "tokens": _sum_usage(attempts),
+        "retries": retries,
+        "physical_calls": len(attempts) + retries,
+        "physical_call_ceiling": _generator_physical_call_ceiling(
+            recorder.authorization
+        ),
+        "outcomes": {
+            outcome: sum(record.get("outcome") == outcome for record in attempts)
+            for outcome in sorted({str(record.get("outcome")) for record in attempts})
+        },
+    }
+
+
+def _bounded_rejection_summary(rejections_path: Path | None) -> dict[str, object]:
+    if rejections_path is None or not rejections_path.is_file():
+        return {"count": 0, "causes": {}}
+    causes: dict[str, int] = {}
+    count = 0
+    try:
+        for line in rejections_path.read_text(encoding="utf-8").splitlines():
+            if not line:
+                continue
+            record = json.loads(line)
+            if not isinstance(record, Mapping):
+                raise ValueError("rejection record is malformed")
+            count += 1
+            cause = record.get("cause")
+            bounded_cause = _bounded_reason(cause)
+            causes[bounded_cause] = causes.get(bounded_cause, 0) + 1
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+        return {"count": 0, "causes": {"rejection_summary_unavailable": 1}}
+    return {"count": count, "causes": dict(sorted(causes.items()))}
+
+
+def _write_live_attempt_failure(
+    output_dir: Path,
+    *,
+    reason_code: str,
+    phase: str,
+    authorization: LiveWorkspaceAcceptanceAuthorization,
+    run_binding: Mapping[str, object],
+    recorder: SanitizedProviderEvidenceRecorder,
+    mutation_judge_usage: SanitizedMutationJudgeUsageObserver,
+    mutation_judge_preflight: Mapping[str, object] | None,
+    rejections_path: Path | None = None,
+    qualification: Mapping[str, object] | None = None,
+) -> Path:
+    """Persist a no-response audit record for an unsuccessful live attempt."""
+
+    if not re.fullmatch(r"[a-z][a-z0-9_.:-]{1,127}", reason_code):
+        raise LiveWorkspaceAcceptanceError("live_evidence_malformed")
+    if phase not in {"mutation_judge_preflight", "pipeline", "release_evidence", "qualification"}:
+        raise LiveWorkspaceAcceptanceError("live_evidence_malformed")
+    qualification_summary = None
+    if isinstance(qualification, Mapping):
+        qualification_summary = {
+            "status": qualification.get("status"),
+            "effective_qualification": qualification.get("effective_qualification"),
+        }
+    record: dict[str, object] = {
+        "schema_version": LIVE_ATTEMPT_FAILURE_SCHEMA_VERSION,
+        "status": "failed",
+        "reason_code": reason_code,
+        "phase": phase,
+        "authorization": authorization.to_record(),
+        "run_binding": dict(run_binding),
+        "generator_usage": _generator_usage_summary(recorder),
+        "mutation_judge_usage": mutation_judge_usage.to_failure_record(),
+        "mutation_judge_preflight": (
+            dict(mutation_judge_preflight)
+            if isinstance(mutation_judge_preflight, Mapping)
+            else {"status": "not_started"}
+        ),
+        "non_accepted_attempts": _bounded_rejection_summary(rejections_path),
+        "provider_evidence_frozen": False,
+        "tracer_proof_published": False,
+        "qualification": qualification_summary,
+    }
+    destination = output_dir / "live_attempt_failure.json"
+    _write_json(destination, record)
+    return destination
+
+
 def _load_json(path: Path) -> dict[str, object]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -1208,7 +1629,10 @@ def _mutation_judge_identity(profile: object, config: object) -> dict[str, objec
         model=judge.model,
         temperature=0.0,
     )
-    lineage = judge_config.lineage("mutation_admission_judge")
+    lineage = judge_config.lineage(
+        "mutation_admission_judge",
+        thinking_mode=getattr(judge, "thinking_mode", None),
+    )
     return {
         "provider": judge.provider,
         "provider_host": _safe_provider_host(judge_config.base_url),
@@ -1377,7 +1801,7 @@ def run_live_workspace_acceptance(
     proof_root = Path(proof_root) if proof_root is not None else output_dir.parent / (output_dir.name + "-tracer-proof")
     _ensure_empty_directory(output_dir, "live_acceptance_output_not_empty")
     _ensure_empty_directory(proof_root, "live_proof_output_not_empty")
-    if max_generator_retries not in {0, 1, 2}:
+    if max_generator_retries not in range(MAX_LIVE_GENERATOR_RETRIES + 1):
         raise LiveWorkspaceAcceptanceError("generator_retry_budget_invalid")
     if not hasattr(profile, "canonical") or not hasattr(profile, "seed"):
         raise LiveWorkspaceAcceptanceError("live_workspace_profile_invalid")
@@ -1387,6 +1811,8 @@ def run_live_workspace_acceptance(
         profile=profile_record,
         plan_attempt_ceiling=coverage_plan.attempt_ceiling,
     )
+    if max_generator_retries != authorization.generator_retry_limit:
+        raise LiveWorkspaceAcceptanceError("generator_retry_authorization_mismatch")
     try:
         config = generator_config or LLMConfig.from_env()
     except LLMConfigurationError as exc:
@@ -1398,6 +1824,19 @@ def run_live_workspace_acceptance(
     judge_config = profile.mutation_admission.judge
     if judge_config.model != authorization.mutation_judge_model:
         raise LiveWorkspaceAcceptanceError("mutation_judge_identity_mismatch")
+    run_binding = _live_run_binding(
+        profile=profile,
+        plan=plan,
+        coverage_plan=coverage_plan,
+        source_result=source_result,
+    )
+    mutation_judge_attempt_ceiling = _mutation_judge_attempt_ceiling(
+        profile,
+        coverage_plan,
+    )
+    generator_physical_call_ceiling = _generator_physical_call_ceiling(
+        authorization
+    )
     _write_json(
         output_dir / "authorization.json",
         {
@@ -1418,6 +1857,8 @@ def run_live_workspace_acceptance(
             "source_policy_hash": source_result.source_policy_hash,
             "generator": _generator_identity(config),
             "mutation_judge": _mutation_judge_identity(profile, config),
+            "generator_physical_call_ceiling": generator_physical_call_ceiling,
+            "mutation_judge_attempt_ceiling": mutation_judge_attempt_ceiling,
         },
     )
     _write_json(output_dir / "run_profile.json", profile_record)
@@ -1427,6 +1868,41 @@ def run_live_workspace_acceptance(
         provider_identity=_generator_identity(config),
         mutation_judge_identity=_mutation_judge_identity(profile, config),
     )
+    judge_usage = SanitizedMutationJudgeUsageObserver(
+        attempt_ceiling=mutation_judge_attempt_ceiling,
+    )
+    started = time.perf_counter()
+    try:
+        mutation_judge_preflight = _preflight_live_mutation_judge(
+            profile=profile,
+            generator_config=config,
+            http_client=mutation_judge_http_client,
+            attempt_observer=judge_usage,
+        )
+    except LiveWorkspaceAcceptanceError as exc:
+        _write_live_attempt_failure(
+            output_dir,
+            reason_code=exc.reason_code,
+            phase="mutation_judge_preflight",
+            authorization=authorization,
+            run_binding=run_binding,
+            recorder=recorder,
+            mutation_judge_usage=judge_usage,
+            mutation_judge_preflight=None,
+        )
+        raise
+    if mutation_judge_preflight["status"] != "passed":
+        _write_live_attempt_failure(
+            output_dir,
+            reason_code="live_mutation_judge_preflight_failed",
+            phase="mutation_judge_preflight",
+            authorization=authorization,
+            run_binding=run_binding,
+            recorder=recorder,
+            mutation_judge_usage=judge_usage,
+            mutation_judge_preflight=mutation_judge_preflight,
+        )
+        raise LiveWorkspaceAcceptanceError("live_mutation_judge_preflight_failed")
     provider = BoundedSanitizedProvider(
         OpenAICompatibleClient(
             config,
@@ -1436,8 +1912,6 @@ def run_live_workspace_acceptance(
         recorder=recorder,
         max_logical_calls=authorization.attempt_budget,
     )
-    judge_usage = SanitizedMutationJudgeUsageObserver()
-    started = time.perf_counter()
     try:
         result = run_foundation_pipeline(
             output_dir,
@@ -1457,27 +1931,86 @@ def run_live_workspace_acceptance(
             max_concurrency=1,
         )
     except (LLMConfigurationError, LiveWorkspaceAcceptanceError) as exc:
-        raise LiveWorkspaceAcceptanceError(
-            getattr(exc, "reason_code", "live_pipeline_failed")
-        ) from exc
+        reason_code = getattr(exc, "reason_code", "live_pipeline_failed")
+        _write_live_attempt_failure(
+            output_dir,
+            reason_code=reason_code,
+            phase="pipeline",
+            authorization=authorization,
+            run_binding=run_binding,
+            recorder=recorder,
+            mutation_judge_usage=judge_usage,
+            mutation_judge_preflight=mutation_judge_preflight,
+        )
+        raise LiveWorkspaceAcceptanceError(reason_code) from exc
     runtime_seconds = time.perf_counter() - started
     if result.accepted_count < 5:
+        _write_live_attempt_failure(
+            output_dir,
+            reason_code="workspace_coverage_evidence_incomplete",
+            phase="pipeline",
+            authorization=authorization,
+            run_binding=run_binding,
+            recorder=recorder,
+            mutation_judge_usage=judge_usage,
+            mutation_judge_preflight=mutation_judge_preflight,
+            rejections_path=result.rejections_path,
+        )
         raise LiveWorkspaceAcceptanceError("workspace_coverage_evidence_incomplete")
-    (
-        replay_path,
-        evaluation_path,
-        profile_decision_path,
-        dataset_release_report_path,
-        audit_path,
-        pack_path,
-        qualification,
-    ) = _write_live_pipeline_reports(
-        output_dir=output_dir,
-        profile=profile,
-        result=result,
-        runtime_seconds=runtime_seconds,
-    )
+    try:
+        (
+            replay_path,
+            evaluation_path,
+            profile_decision_path,
+            dataset_release_report_path,
+            audit_path,
+            pack_path,
+            qualification,
+        ) = _write_live_pipeline_reports(
+            output_dir=output_dir,
+            profile=profile,
+            result=result,
+            runtime_seconds=runtime_seconds,
+        )
+    except LiveWorkspaceAcceptanceError as exc:
+        _write_live_attempt_failure(
+            output_dir,
+            reason_code=exc.reason_code,
+            phase="release_evidence",
+            authorization=authorization,
+            run_binding=run_binding,
+            recorder=recorder,
+            mutation_judge_usage=judge_usage,
+            mutation_judge_preflight=mutation_judge_preflight,
+            rejections_path=result.rejections_path,
+        )
+        raise
+    except (OSError, ValueError) as exc:
+        _write_live_attempt_failure(
+            output_dir,
+            reason_code="release_evidence_not_verified",
+            phase="release_evidence",
+            authorization=authorization,
+            run_binding=run_binding,
+            recorder=recorder,
+            mutation_judge_usage=judge_usage,
+            mutation_judge_preflight=mutation_judge_preflight,
+            rejections_path=result.rejections_path,
+        )
+        raise LiveWorkspaceAcceptanceError("release_evidence_not_verified") from exc
     if qualification.get("status") != "passed" or qualification.get("effective_qualification") != "release_candidate":
+        _write_live_attempt_failure(
+            output_dir,
+            reason_code="real_release_candidate_not_verified",
+            phase="qualification",
+            authorization=authorization,
+            run_binding=run_binding,
+            recorder=recorder,
+            mutation_judge_usage=judge_usage,
+            mutation_judge_preflight=mutation_judge_preflight,
+            rejections_path=result.rejections_path,
+            qualification=qualification,
+        )
         raise LiveWorkspaceAcceptanceError("real_release_candidate_not_verified")
     verification_record = _load_json(output_dir / "release_pack_verification.json")
     verification = verification_record.get("verification")
@@ -1507,17 +2040,7 @@ def run_live_workspace_acceptance(
         qualification=qualification,
         release_pack_verification=verification,
         release_pack_hash="sha256:" + hashlib.sha256(pack_path.read_bytes()).hexdigest(),
-        run_binding={
-            "profile_id": profile.profile_id,
-            "dataset_version": profile.dataset_version,
-            "seed_id": profile.seed.seed_id,
-            "seed_domain": profile.seed.domain,
-            "plan_id": plan.plan_id,
-            "plan_hash": plan.plan_hash,
-            "coverage_plan_id": coverage_plan.plan_id,
-            "coverage_plan_hash": coverage_plan.plan_hash,
-            "source_policy_hash": source_result.source_policy_hash,
-        },
+        run_binding=run_binding,
     )
     replay = replay_sanitized_provider_evidence(
         provider_evidence,
@@ -1545,6 +2068,7 @@ def run_live_workspace_acceptance(
                 if isinstance(qualification.get("claims"), Mapping)
                 else None,
             },
+            "mutation_judge_preflight": mutation_judge_preflight,
             "provider_evidence": {
                 "path": "trace/provider.json",
                 "evidence_class": "real_live",

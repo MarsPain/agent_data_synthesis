@@ -577,6 +577,7 @@ def run_foundation_pipeline(
                     getattr(judge_config, "timeout_seconds")
                 ),
                 max_retries=int(getattr(judge_config, "max_retries")),
+                thinking_mode=getattr(judge_config, "thinking_mode", None),
                 attempt_observer=mutation_judge_attempt_observer,
             )
         if domain_run is not None:

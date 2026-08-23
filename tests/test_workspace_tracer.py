@@ -9,6 +9,113 @@ from pathlib import Path
 
 
 class WorkspaceTracerProofTest(unittest.TestCase):
+    def test_mutation_admission_accounting_allows_pre_admission_rejection(
+        self,
+    ) -> None:
+        from synthesis.mutation_admission_reporting import (
+            build_mutation_admission_report,
+        )
+        from synthesis.workspace_tracer import (
+            WorkspaceTracerProofError,
+            _validate_mutation_admission_terminal_accounting,
+            build_workspace_tracer_proof,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            proof_path = build_workspace_tracer_proof(Path(tmpdir) / "proof")
+            positive = proof_path.parent / "positive"
+            sample = json.loads(
+                next(
+                    line
+                    for line in (positive / "samples.jsonl").read_text(
+                        encoding="utf-8"
+                    ).splitlines()
+                    if line
+                )
+            )
+            rejection = {
+                "candidate_id": "workspace_tasks_pre_admission_rejection",
+                "cause": "domain_plan_membership_rejected",
+                "details": {},
+            }
+            report = build_mutation_admission_report(
+                dataset_version="workspace_tracer_test_dataset",
+                samples=[sample],
+                rejections=[rejection],
+            )
+
+        _validate_mutation_admission_terminal_accounting(
+            report=report,
+            dataset_version="workspace_tracer_test_dataset",
+            samples=[sample],
+            rejections=[rejection],
+        )
+        report["counts"]["missing_evidence"] = 0
+        with self.assertRaisesRegex(WorkspaceTracerProofError, "mutation_admission_report"):
+            _validate_mutation_admission_terminal_accounting(
+                report=report,
+                dataset_version="workspace_tracer_test_dataset",
+                samples=[sample],
+                rejections=[rejection],
+            )
+
+    def test_live_terminal_assignment_lineage_binds_validated_rejection(self) -> None:
+        from synthesis.workspace_tracer import (
+            WorkspaceTracerProofError,
+            _live_terminal_assignment_lineage_by_id,
+        )
+
+        accepted_assignment = {
+            "assignment_id": "coverage_assignment_accepted",
+            "plan_id": "workspace_plan",
+        }
+        rejected_assignment = {
+            "assignment_id": "coverage_assignment_rejected",
+            "plan_id": "workspace_plan",
+        }
+        samples = [
+            {"workspace_evidence": {"assignment": accepted_assignment}},
+        ]
+        rejections = [
+            {
+                "details": {
+                    "workspace_evidence": {"assignment": rejected_assignment}
+                }
+            }
+        ]
+        validated_attempts = [
+            {
+                "assignment_id": "coverage_assignment_accepted",
+                "assignment_lineage": accepted_assignment,
+                "outcome": "validated",
+            },
+            {
+                "assignment_id": "coverage_assignment_rejected",
+                "assignment_lineage": rejected_assignment,
+                "outcome": "validated",
+            },
+        ]
+
+        bindings = _live_terminal_assignment_lineage_by_id(
+            samples=samples,
+            rejections=rejections,
+            provider_attempts=validated_attempts,
+        )
+
+        self.assertEqual(
+            bindings,
+            {
+                "coverage_assignment_accepted": accepted_assignment,
+                "coverage_assignment_rejected": rejected_assignment,
+            },
+        )
+        with self.assertRaisesRegex(WorkspaceTracerProofError, "provider_contract"):
+            _live_terminal_assignment_lineage_by_id(
+                samples=samples,
+                rejections=[],
+                provider_attempts=validated_attempts,
+            )
+
     def test_offline_proof_builds_and_verifies_from_root_only(self) -> None:
         from synthesis.workspace_tracer import (
             build_workspace_tracer_proof,

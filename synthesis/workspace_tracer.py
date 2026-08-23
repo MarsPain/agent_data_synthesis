@@ -1766,6 +1766,100 @@ def build_workspace_tracer_proof(proof_root: Path) -> Path:
     return proof_path
 
 
+def _live_terminal_assignment_lineage_by_id(
+    *,
+    samples: Sequence[Mapping[str, object]],
+    rejections: Sequence[Mapping[str, object]],
+    provider_attempts: Sequence[object],
+) -> dict[str, dict[str, object]]:
+    """Bind each replayable live response to one terminal Workspace outcome.
+
+    A provider response can be contract-valid yet rejected later by the opened
+    Domain Pack.  Such a response remains replayable, so its assignment must
+    be anchored by the rejection's Workspace evidence just as an accepted
+    response is anchored by a sample.  No unbound or duplicate terminal
+    assignment can be admitted into the proof.
+    """
+
+    lineages_by_id: dict[str, dict[str, object]] = {}
+
+    def bind_assignment(value: object) -> None:
+        assignment = _require_mapping(value, "provider_contract")
+        assignment_id = _require_text(
+            assignment.get("assignment_id"), "provider_contract"
+        )
+        if assignment_id in lineages_by_id:
+            raise WorkspaceTracerProofError("provider_contract")
+        lineages_by_id[assignment_id] = dict(assignment)
+
+    for sample in samples:
+        workspace_evidence = _require_mapping(
+            sample.get("workspace_evidence"),
+            "workspace_capability_evidence_incomplete",
+        )
+        bind_assignment(workspace_evidence.get("assignment"))
+
+    for rejection in rejections:
+        details = rejection.get("details")
+        if not isinstance(details, Mapping):
+            continue
+        workspace_evidence = details.get("workspace_evidence")
+        if not isinstance(workspace_evidence, Mapping):
+            continue
+        assignment = workspace_evidence.get("assignment")
+        if not isinstance(assignment, Mapping):
+            continue
+        bind_assignment(assignment)
+
+    for raw_attempt in provider_attempts:
+        attempt = _require_mapping(raw_attempt, "provider_contract")
+        assignment_id = _require_text(attempt.get("assignment_id"), "provider_contract")
+        assignment_lineage = _require_mapping(
+            attempt.get("assignment_lineage"), "provider_contract"
+        )
+        if assignment_lineage.get("assignment_id") != assignment_id:
+            raise WorkspaceTracerProofError("provider_contract")
+        outcome = attempt.get("outcome")
+        if outcome not in {"provider_error", "rejected", "validated"}:
+            raise WorkspaceTracerProofError("provider_contract")
+        if outcome == "validated" and lineages_by_id.get(assignment_id) != dict(
+            assignment_lineage
+        ):
+            raise WorkspaceTracerProofError("provider_contract")
+
+    return lineages_by_id
+
+
+def _validate_mutation_admission_terminal_accounting(
+    *,
+    report: Mapping[str, object],
+    dataset_version: str,
+    samples: Sequence[Mapping[str, object]],
+    rejections: Sequence[Mapping[str, object]],
+) -> None:
+    """Require the frozen admission report to exactly summarize terminal data.
+
+    A candidate can be rejected by the Domain Pack before it reaches mutation
+    admission.  That terminal rejection deliberately contributes to
+    ``missing_evidence`` rather than the admission report's ``rejected`` or
+    ``evidence_records`` counts.  Rebuilding the report preserves that
+    distinction while still rejecting any stale, forged, or incomplete report.
+    """
+
+    from synthesis.mutation_admission_reporting import build_mutation_admission_report
+
+    try:
+        expected = build_mutation_admission_report(
+            dataset_version=dataset_version,
+            samples=samples,
+            rejections=rejections,
+        )
+    except (TypeError, ValueError):
+        raise WorkspaceTracerProofError("mutation_admission_report") from None
+    if dict(report) != expected:
+        raise WorkspaceTracerProofError("mutation_admission_report")
+
+
 def build_workspace_tracer_proof_from_live_acceptance(
     proof_root: Path,
     acceptance_root: Path,
@@ -1816,27 +1910,12 @@ def build_workspace_tracer_proof_from_live_acceptance(
     samples = _load_jsonl(samples_path)
     if len(samples) < 5:
         raise WorkspaceTracerProofError("workspace_coverage_evidence_incomplete")
-    assignment_lineage_by_id: dict[str, Mapping[str, object]] = {}
-    for sample in samples:
-        workspace_evidence = _require_mapping(
-            sample.get("workspace_evidence"),
-            "workspace_capability_evidence_incomplete",
-        )
-        assignment = _require_mapping(
-            workspace_evidence.get("assignment"), "provider_contract"
-        )
-        assignment_id = _require_text(assignment.get("assignment_id"), "provider_contract")
-        assignment_lineage_by_id[assignment_id] = assignment
-    for raw_attempt in _require_sequence(provider.get("attempts"), "provider_contract"):
-        attempt = _require_mapping(raw_attempt, "provider_contract")
-        assignment_id = _require_text(attempt.get("assignment_id"), "provider_contract")
-        assignment_lineage = _require_mapping(
-            attempt.get("assignment_lineage"), "provider_contract"
-        )
-        if assignment_lineage.get("assignment_id") != assignment_id:
-            raise WorkspaceTracerProofError("provider_contract")
-        if attempt.get("outcome") == "validated" and assignment_id not in assignment_lineage_by_id:
-            raise WorkspaceTracerProofError("provider_contract")
+    rejections = _load_jsonl(positive / "rejections.jsonl")
+    assignment_lineage_by_id = _live_terminal_assignment_lineage_by_id(
+        samples=samples,
+        rejections=rejections,
+        provider_attempts=_require_sequence(provider.get("attempts"), "provider_contract"),
+    )
     assignment_contract_by_id = {
         _require_text(
             _require_mapping(attempt, "provider_contract").get("assignment_id"),
@@ -1908,7 +1987,10 @@ def build_workspace_tracer_proof_from_live_acceptance(
             "schema_version": "workspace_tracer_assignment_evidence_v1",
             "plan_id": plan.plan_id,
             "plan_hash": plan.plan_hash,
-            "assignments": [dict(assignment) for assignment in assignment_lineage_by_id.values()],
+            "assignments": [
+                dict(assignment_lineage_by_id[assignment_id])
+                for assignment_id in sorted(assignment_lineage_by_id)
+            ],
             "assignment_contracts": list(assignment_contract_by_id.values()),
         },
     )
@@ -2593,13 +2675,14 @@ def _verify_positive_chain(
     if replayed_attempt_count != len(replay_attempts):
         raise WorkspaceTracerProofError("provider_contract")
 
-    counts = _require_mapping(mutation_report.get("counts"), "mutation_admission_report")
-    if (
-        counts.get("accepted") != len(samples)
-        or counts.get("rejected") != len(rejections)
-        or counts.get("evidence_records") != len(samples) + len(rejections)
-    ):
-        raise WorkspaceTracerProofError("mutation_admission_report")
+    _validate_mutation_admission_terminal_accounting(
+        report=mutation_report,
+        dataset_version=_require_text(
+            manifest.get("dataset_version"), "mutation_admission_report"
+        ),
+        samples=samples,
+        rejections=rejections,
+    )
 
     qualification = _read_json(_anchor_path(root_dir, artifacts, anchors, "qualification"))
     validate_qualification_report_record(qualification)

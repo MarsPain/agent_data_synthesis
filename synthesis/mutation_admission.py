@@ -310,12 +310,14 @@ class OpenAICompatibleSemanticMutationJudge:
     timeout_seconds: float
     max_retries: int
     role_registry: RoleRegistry
+    thinking_mode: str | None = None
     attempt_observer: SemanticJudgeAttemptObserver | None = None
 
     def __call__(self, request: SemanticJudgeRequest) -> SemanticJudgeResult:
         configured_lineage = _remote_judge_lineage(
             self.client.config,
             self.role_registry,
+            thinking_mode=self.thinking_mode,
         )
         prompt = _semantic_judge_prompt(request)
         prompt_hash = canonical_hash(prompt)
@@ -422,6 +424,7 @@ def build_openai_compatible_semantic_mutation_judge(
     http_client: httpx.Client | None = None,
     timeout_seconds: float,
     max_retries: int,
+    thinking_mode: str | None = None,
     role_registry: RoleRegistry | None = None,
     attempt_observer: SemanticJudgeAttemptObserver | None = None,
 ) -> OpenAICompatibleSemanticMutationJudge:
@@ -429,6 +432,11 @@ def build_openai_compatible_semantic_mutation_judge(
         raise ValueError("timeout_seconds must be in (0, 120]")
     if max_retries not in {0, 1}:
         raise ValueError("max_retries must be 0 or 1")
+    if thinking_mode is not None and (
+        not isinstance(thinking_mode, str)
+        or thinking_mode not in {"enabled", "disabled"}
+    ):
+        raise ValueError("thinking_mode must be enabled, disabled, or None")
     sanitized_config = LLMConfig(
         base_url=_base_url_without_userinfo(config.base_url),
         api_key=config.api_key,
@@ -441,10 +449,12 @@ def build_openai_compatible_semantic_mutation_judge(
             http_client=http_client,
             max_retries=0,
             timeout_seconds=timeout_seconds,
+            thinking_mode=thinking_mode,
         ),
         timeout_seconds=timeout_seconds,
         max_retries=max_retries,
         role_registry=role_registry or default_role_registry(),
+        thinking_mode=thinking_mode,
         attempt_observer=attempt_observer,
     )
 
@@ -1259,6 +1269,8 @@ def _semantic_judge_prompt(request: SemanticJudgeRequest) -> str:
 def _remote_judge_lineage(
     config: LLMConfig,
     role_registry: RoleRegistry,
+    *,
+    thinking_mode: str | None = None,
 ) -> dict[str, object]:
     role = role_registry.get(MUTATION_ADMISSION_JUDGE_ROLE)
     parsed = urlparse(config.base_url or "")
@@ -1271,19 +1283,20 @@ def _remote_judge_lineage(
         except ValueError:
             provider_host = "unconfigured"
     model = config.model or "unconfigured"
+    config_identity: dict[str, object] = {
+        "role": MUTATION_ADMISSION_JUDGE_ROLE,
+        "role_version": role.version,
+        "provider_host": provider_host,
+        "model": model,
+    }
+    if thinking_mode is not None:
+        config_identity["thinking_mode"] = thinking_mode
     return {
         "role": MUTATION_ADMISSION_JUDGE_ROLE,
         "role_version": role.version,
         "provider_host": provider_host,
         "model": model,
-        "config_hash": canonical_hash(
-            {
-                "role": MUTATION_ADMISSION_JUDGE_ROLE,
-                "role_version": role.version,
-                "provider_host": provider_host,
-                "model": model,
-            }
-        ),
+        "config_hash": canonical_hash(config_identity),
     }
 
 

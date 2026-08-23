@@ -119,3 +119,53 @@ ordering, quality, evaluation, and applicable coverage evidence as the
 synchronous command. Async mode does not automatically activate from a profile
 decision and does not add a service, remote control endpoint, provider
 authority, or release promotion.
+
+## Live Workspace Release Candidate acceptance
+
+The Workspace tracer's real leg is a separate, explicitly authorized command.
+It is not a default pipeline mode and a prior authorization does not authorize
+a new provider-spending attempt:
+
+```bash
+uv run python scripts/run_workspace_live_acceptance.py \
+  --authorize-live-provider \
+  --authorization-id <fresh-authorization-id> \
+  --candidate-budget 24 \
+  --attempt-budget 24 \
+  --generator-model <generator-model> \
+  --mutation-judge-model <independent-judge-model> \
+  --max-generator-retries <0-3> \
+  --output-dir artifacts/workspace-live-acceptance-<date>
+```
+
+The command requires the fixed coverage-enabled Workspace Release Candidate
+profile, a generator and a distinct mutation-admission judge identity, and the
+normal provider environment variables. Before any generation call, it sends one
+fixed, non-source-backed request through the production semantic-judge contract.
+The preflight uses the profile retry limit and is included in a physical judge
+call ceiling derived from the approved coverage attempt ceiling. A preflight
+failure stops before generation spend.
+
+The current DeepSeek V4-Pro judge profile explicitly sets
+`thinking_mode: disabled` and a 90-second bounded deadline. The judge-only
+client emits the documented top-level `"thinking": {"type": "disabled"}`
+request field; the setting contributes to the sanitized judge configuration
+identity. It is not an environment variable and does not affect the task
+generator. See the
+[DeepSeek thinking and timeout research](references/deepseek-thinking-timeout-research.md)
+before changing the bound timeout or retry policy again.
+
+The explicitly authorized generator retry limit is 0 through 3. It remains
+separate from the logical attempt budget: the frozen evidence binds the derived
+physical generator-call ceiling (`attempt budget × (retry limit + 1)`) and the
+observed physical-call count.
+
+An unsuccessful authorized attempt writes
+`live_attempt_failure.json`. It records the authorization and run binding,
+bounded generation and judge usage, bounded judge failure-class totals, a
+bounded rejection-cause summary, and whether a qualification was reached. It
+never records provider responses,
+prompts, credentials, source payloads, or a tracer proof. The CLI prints that
+record's path when available. Only an independently verified Release Candidate
+may freeze `trace/provider.json` and construct the `real_live` tracer proof;
+neither outcome is publication approval or a training recommendation.

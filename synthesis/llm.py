@@ -57,14 +57,25 @@ class LLMConfig:
     def configured(self) -> bool:
         return bool(self.base_url and self.api_key_present and self.model)
 
-    def lineage(self, role: str) -> dict[str, object]:
-        config_fingerprint = "|".join(
-            [
-                self.provider_host,
-                self.model or "unconfigured",
-                "api_key_present" if self.api_key_present else "api_key_missing",
-            ]
-        )
+    def lineage(
+        self,
+        role: str,
+        *,
+        thinking_mode: str | None = None,
+    ) -> dict[str, object]:
+        if thinking_mode is not None and (
+            not isinstance(thinking_mode, str)
+            or thinking_mode not in {"enabled", "disabled"}
+        ):
+            raise ValueError("thinking_mode must be enabled, disabled, or None")
+        fingerprint_parts = [
+            self.provider_host,
+            self.model or "unconfigured",
+            "api_key_present" if self.api_key_present else "api_key_missing",
+        ]
+        if thinking_mode is not None:
+            fingerprint_parts.append(f"thinking_mode={thinking_mode}")
+        config_fingerprint = "|".join(fingerprint_parts)
         config_hash = hashlib.sha256(config_fingerprint.encode("utf-8")).hexdigest()
         return {
             "role": role,
@@ -156,13 +167,20 @@ class OpenAICompatibleClient:
         sleeper: Callable[[float], None] | None = None,
         retry_delay_seconds: float = 0.0,
         timeout_seconds: float = 30.0,
+        thinking_mode: str | None = None,
     ) -> None:
+        if thinking_mode is not None and (
+            not isinstance(thinking_mode, str)
+            or thinking_mode not in {"enabled", "disabled"}
+        ):
+            raise ValueError("thinking_mode must be enabled, disabled, or None")
         self.config = config
         self._http_client = http_client or httpx.Client(timeout=timeout_seconds)
         self._max_retries = max(0, max_retries)
         self._sleeper = sleeper or time.sleep
         self._retry_delay_seconds = retry_delay_seconds
         self._timeout_seconds = timeout_seconds
+        self._thinking_mode = thinking_mode
 
     def generate_json(self, prompt: str, *, role: str) -> LLMGenerationResult:
         if not self.config.configured:
@@ -170,30 +188,36 @@ class OpenAICompatibleClient:
 
         for attempt in range(self._max_retries + 1):
             try:
+                request_body: dict[str, object] = {
+                    "model": self.config.model,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "Return strict JSON only.",
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt,
+                        },
+                    ],
+                    "temperature": self.config.effective_temperature,
+                    "response_format": {"type": "json_object"},
+                }
+                if self._thinking_mode is not None:
+                    request_body["thinking"] = {"type": self._thinking_mode}
                 response = self._http_client.post(
                     self._chat_completions_url(),
                     headers={"Authorization": f"Bearer {self.config.api_key}"},
-                    json={
-                        "model": self.config.model,
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": "Return strict JSON only.",
-                            },
-                            {
-                                "role": "user",
-                                "content": prompt,
-                            },
-                        ],
-                        "temperature": self.config.effective_temperature,
-                        "response_format": {"type": "json_object"},
-                    },
+                    json=request_body,
                     timeout=self._timeout_seconds,
                 )
                 response.raise_for_status()
                 payload = response.json()
                 content = _parse_chat_completion_json_content(payload)
-                lineage = self.config.lineage(role)
+                lineage = self.config.lineage(
+                    role,
+                    thinking_mode=self._thinking_mode,
+                )
                 lineage["tokens"] = payload.get("usage", {})
                 lineage["retry_count"] = attempt
                 lineage["error_class"] = None
@@ -266,7 +290,10 @@ class OpenAICompatibleClient:
         error_class: str,
         retry_count: int,
     ) -> dict[str, object]:
-        lineage = self.config.lineage(role)
+        lineage = self.config.lineage(
+            role,
+            thinking_mode=self._thinking_mode,
+        )
         lineage["tokens"] = {}
         lineage["retry_count"] = retry_count
         lineage["error_class"] = error_class
