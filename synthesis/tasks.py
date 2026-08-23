@@ -117,7 +117,12 @@ class CandidateTask:
         return task_contract_from_candidate(self)
 
 
-def build_contacts_generation_spec(environment: object, registry: object):
+def build_contacts_generation_spec(
+    environment: object,
+    registry: object,
+    *,
+    domain_plan: object | None = None,
+):
     from synthesis.domain_generation import (
         DOMAIN_GENERATION_SPEC_VERSION,
         MAX_CANDIDATES_PER_CALL,
@@ -126,9 +131,24 @@ def build_contacts_generation_spec(environment: object, registry: object):
         DomainTaskTypeSpec,
         validate_domain_generation_spec,
     )
+    from synthesis.domain_pack import DomainPlan, initial_domain_pack_registry
 
+    if domain_plan is not None and not isinstance(domain_plan, DomainPlan):
+        raise ValueError("domain_plan must be a DomainPlan")
     if getattr(environment, "source_input", None) is not None:
         raise ValueError("source_backed_remote_context_not_allowed")
+    descriptor = initial_domain_pack_registry().descriptor_for("contacts")
+    projections = {
+        projection.task_type_key: projection
+        for projection in descriptor.task_capability_projections
+    }
+    contacts_capabilities = tuple(
+        sorted(
+            descriptor.capability_references,
+            key=lambda reference: reference.capability_key,
+        )
+    )
+    plan_bound = domain_plan is not None
     names = str(environment.list_contact_names()["contacts"]).split(", ")
     contacts = [
         {
@@ -145,13 +165,27 @@ def build_contacts_generation_spec(environment: object, registry: object):
                 "contact_lookup",
                 ("lookup_contact_email",),
                 required_capabilities=("contact_lookup",),
+                capability_references=(
+                    projections["contact_lookup"].capability_references
+                    if plan_bound
+                    else ()
+                ),
                 final_answer_fields=("email",),
             ),
             DomainTaskTypeSpec(
                 "contact_followup",
                 ("lookup_contact_email", "record_contact_followup"),
                 ("contact_followup",),
-                required_capabilities=("contact_lookup", "contact_followup"),
+                required_capabilities=(
+                    ("contact_lookup", "followup_recording")
+                    if plan_bound
+                    else ("contact_lookup", "contact_followup")
+                ),
+                capability_references=(
+                    projections["contact_followup"].capability_references
+                    if plan_bound
+                    else ()
+                ),
                 expected_state_tool="record_contact_followup",
                 final_answer_fields=("email",),
             ),
@@ -161,6 +195,26 @@ def build_contacts_generation_spec(environment: object, registry: object):
         context_policy=SYNTHETIC_CONTEXT_POLICY,
         max_candidates_per_call=MAX_CANDIDATES_PER_CALL,
         grounding_window_size=2,
+        domain_pack_reference=(
+            domain_plan.domain_pack_reference if plan_bound else None
+        ),
+        plan_id=domain_plan.plan_id if plan_bound else None,
+        plan_hash=domain_plan.plan_hash if plan_bound else None,
+        capability_references=contacts_capabilities if plan_bound else (),
+        held_out_capability_references=(
+            tuple(domain_plan.held_out_capability_references)
+            if plan_bound
+            else ()
+        ),
+        recovery_capability_references=(
+            tuple(
+                reference
+                for reference in contacts_capabilities
+                if reference.capability_key == "contact_lookup_recovery"
+            )
+            if plan_bound
+            else ()
+        ),
     )
     validate_domain_generation_spec(spec)
     return spec

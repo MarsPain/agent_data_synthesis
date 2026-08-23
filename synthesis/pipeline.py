@@ -88,6 +88,7 @@ from synthesis.tasks import (
     generate_llm_backed_edited_task,
     generate_llm_backed_candidates,
     generate_llm_backed_task_suggestions,
+    local_task_generation_lineage,
 )
 from synthesis.tools import (
     ToolRegistry,
@@ -368,6 +369,19 @@ def run_foundation_pipeline(
     if configured_generator_count > 1:
         raise ValueError("candidate generator configurations are mutually exclusive")
     seed = seed_override or foundation_seed()
+    contacts_lifecycle_enabled = not (
+        seed.domain in {"contacts", "contacts_fixture"}
+        and getattr(run_profile, "coverage_profile", None) is not None
+    )
+    legacy_input_compatibility = (
+        "domain_legacy_input_v1"
+        if (
+            candidate_generator is not None
+            or enable_task_expansion
+            or refiner is not None
+        )
+        else None
+    )
     coverage_variant = _selected_coverage_planning_variant(run_profile)
     representative_fixture = (
         domain_environment_input is None
@@ -417,6 +431,8 @@ def run_foundation_pipeline(
                 source_provenance=source_provenance,
                 domain_environment_input=domain_environment_input,
                 enable_mcp_adapter=enable_mcp_adapter,
+                include_branching=enable_branching,
+                enable_contacts_lifecycle=contacts_lifecycle_enabled,
                 representative_fixture=representative_fixture,
             )
             if domain_run is None:
@@ -479,6 +495,8 @@ def run_foundation_pipeline(
             source_result=source_result,
             source_provenance=source_provenance,
             enable_mcp_adapter=enable_mcp_adapter,
+            include_branching=enable_branching,
+            enable_contacts_lifecycle=contacts_lifecycle_enabled,
             representative_fixture=representative_fixture,
         )
         if domain_run is None:
@@ -636,7 +654,13 @@ def run_foundation_pipeline(
 
     def prepare_candidate_for_attempt(raw_task: CandidateTask) -> CandidateTask:
         if domain_run is not None:
-            return raw_task
+            if legacy_input_compatibility is None:
+                return raw_task
+            lineage = dict(raw_task.generation_lineage or {})
+            if not isinstance(lineage.get("role"), str):
+                lineage = {**local_task_generation_lineage(), **lineage}
+            lineage["input_compatibility"] = legacy_input_compatibility
+            return replace(raw_task, generation_lineage=lineage)
         assert domain_bundle is not None
         return domain_bundle.candidate_preparer(raw_task)
 

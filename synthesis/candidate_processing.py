@@ -70,6 +70,7 @@ class CandidateProcessingContext:
     generate_policy: PolicyGenerator
     admission_evaluator: CandidateAdmissionEvaluator = permit_candidate_execution
     membership_validator: CandidateMembershipValidator | None = None
+    attempt_context_factory: Callable[[ToolProposal | None], "CandidateProcessingContext"] | None = None
 
 
 @dataclass(frozen=True)
@@ -100,6 +101,7 @@ class ProvisionalCandidateOutcome:
     environment_isolation: dict[str, object] = field(default_factory=dict)
     registry_mutations: tuple[dict[str, object], ...] = ()
     task_record: dict[str, object] | None = None
+    final_candidate: CandidateTask | None = None
     episode_log: dict[str, object] | None = None
 
     @property
@@ -171,6 +173,7 @@ def process_candidate_through_gates(
         sequence_index=sequence_index,
         candidate_id=task.candidate_id,
         task_record=task.export(),
+        task=task,
         environment_isolation=_environment_isolation_record(context),
         review_records=review_records,
         tool_proposal_records=tool_proposal_records,
@@ -193,6 +196,7 @@ def process_candidate_through_gates(
             sequence_index=sequence_index,
             candidate_id=task.candidate_id,
             task_record=task.export(),
+            task=task,
             environment_isolation=_environment_isolation_record(context),
             review_records=review_records,
             tool_proposal_records=tool_proposal_records,
@@ -290,7 +294,7 @@ def process_candidate_through_gates(
             )
     refined_result = _run_candidate_attempt(
         task=refined_task,
-        context=context,
+        context=_context_for_rerun(context),
         policy_override=refinement_attempt.revised_policy,
         refinement_attempt=refinement_attempt,
     )
@@ -299,6 +303,7 @@ def process_candidate_through_gates(
         sequence_index=sequence_index,
         candidate_id=refined_task.candidate_id,
         task_record=refined_task.export(),
+        task=refined_task,
         environment_isolation=_environment_isolation_record(context),
         review_records=review_records,
         tool_proposal_records=tool_proposal_records,
@@ -336,6 +341,7 @@ def _sample_outcome_if_present(
     sequence_index: int,
     candidate_id: str,
     task_record: dict[str, object],
+    task: CandidateTask,
     environment_isolation: dict[str, object],
     review_records: list[dict[str, object]],
     tool_proposal_records: list[dict[str, object]],
@@ -355,6 +361,7 @@ def _sample_outcome_if_present(
         environment_isolation=environment_isolation,
         registry_mutations=_registry_mutations_from_tool_proposals(tool_proposal_records),
         task_record=task_record,
+        final_candidate=task,
         episode_log=episode_log,
     )
 
@@ -745,7 +752,7 @@ def _maybe_expand_tool_and_rerun(
 
     rerun = _run_candidate_attempt(
         task=task,
-        context=context,
+        context=_context_for_rerun(context, proposal),
         policy_override=attempt_result.policy,
         tool_expansion=proposal_record,
     )
@@ -759,6 +766,14 @@ def _maybe_expand_tool_and_rerun(
             episode_log=rerun.episode_log,
         )
     return rerun
+
+
+def _context_for_rerun(
+    context: CandidateProcessingContext,
+    tool_proposal: ToolProposal | None = None,
+) -> CandidateProcessingContext:
+    factory = context.attempt_context_factory
+    return factory(tool_proposal) if factory is not None else context
 
 
 def _attach_tool_proposal_to_rejection(

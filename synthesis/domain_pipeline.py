@@ -267,14 +267,33 @@ def open_domain_run(
     source_provenance: Mapping[str, object] | None = None,
     domain_environment_input: object | None = None,
     enable_mcp_adapter: bool = False,
+    include_branching: bool = False,
+    enable_contacts_lifecycle: bool = True,
     representative_fixture: bool = False,
 ) -> DomainLifecycleRun | None:
     """Open a planned run when a domain has adopted the lifecycle seam.
 
     ``None`` preserves the established bundle path for domains that have not
-    migrated yet.  The Workspace adapter is intentionally selected here, at
-    the domain-routing boundary, rather than by shared orchestration code.
+    migrated yet.  Domain adapters are intentionally selected here, at the
+    domain-routing boundary, rather than by shared orchestration code.
     """
+    if seed.domain in {"contacts", "contacts_fixture"} and enable_contacts_lifecycle:
+        from synthesis.contacts_domain_pack import open_contacts_domain_run
+        from synthesis.domain_pack import OpenFailure
+
+        run = open_contacts_domain_run(
+            source_bundle=source_bundle,
+            source_result=source_result,
+            output_dir=output_dir,
+            source_provenance=source_provenance,
+            domain_environment_input=domain_environment_input,
+            enable_mcp_adapter=enable_mcp_adapter,
+            include_branching=include_branching,
+            representative_fixture=representative_fixture,
+        )
+        if isinstance(run, OpenFailure):
+            raise DomainRunOpenError(run.reason_code)
+        return run
     if seed.domain != "workspace_tasks_fixture":
         return None
     from synthesis.domain_pack import OpenFailure

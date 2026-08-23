@@ -42,6 +42,7 @@ from synthesis.coverage_assignments import (
 from synthesis.domain_generation import (
     generate_domain_llm_candidates,
 )
+from synthesis.domain_pack import DomainCapabilityReference
 from synthesis.llm import LLMProviderAmbiguousError, LLMProviderError
 from synthesis.mutation_admission import SemanticJudgeAttemptObserver
 from synthesis.mutation_admission_config import MUTATION_ADMISSION_JUDGE_ROLE
@@ -5136,7 +5137,7 @@ def _candidate_from_record(record: object) -> CandidateTask:
 
 
 def _task_contract_to_record(contract: TaskContract) -> dict[str, object]:
-    return {
+    record: dict[str, object] = {
         "schema_version": CANDIDATE_CHECKPOINT_SCHEMA_VERSION,
         "candidate_id": contract.intent.candidate_id,
         "intent": {
@@ -5168,6 +5169,12 @@ def _task_contract_to_record(contract: TaskContract) -> dict[str, object]:
         "compatibility": _json_copy(contract.compatibility),
         "mutation_authorization": _json_copy(contract.mutation_authorization),
     }
+    if contract.intent.capability_references:
+        record["capability_references"] = [
+            reference.to_record()
+            for reference in contract.intent.capability_references
+        ]
+    return record
 
 
 def _task_contract_from_record(record: Mapping[str, object]) -> TaskContract:
@@ -5185,6 +5192,16 @@ def _task_contract_from_record(record: Mapping[str, object]) -> TaskContract:
         intent["required_capabilities"],
         "required_capabilities",
     )
+    raw_capability_references = record.get("capability_references", [])
+    if not isinstance(raw_capability_references, list):
+        raise TypeError("capability_references must be a list")
+    capability_references = tuple(
+        DomainCapabilityReference.from_record(value)
+        for value in raw_capability_references
+        if isinstance(value, Mapping)
+    )
+    if len(capability_references) != len(raw_capability_references):
+        raise TypeError("capability_references must contain objects")
     seed_ids = _list_value(intent["seed_ids"], "seed_ids")
     required_tools = _list_value(policy_hint["required_tools"], "required_tools")
     checks = []
@@ -5204,6 +5221,7 @@ def _task_contract_from_record(record: Mapping[str, object]) -> TaskContract:
             task_type=str(intent["task_type"]),
             difficulty=dict(_mapping_value(intent["difficulty"], "difficulty")),
             required_capabilities=tuple(str(value) for value in required_capabilities),
+            capability_references=capability_references,
             seed_ids=tuple(str(value) for value in seed_ids),
             lineage=dict(_mapping_value(intent["lineage"], "lineage")),
         ),

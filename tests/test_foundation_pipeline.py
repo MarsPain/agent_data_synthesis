@@ -1682,20 +1682,13 @@ class FoundationPipelineTest(unittest.TestCase):
             self.assertEqual(rejection["details"]["error_class"], "ContractValidationError")
 
     def test_registered_tool_smoke_gate_classifies_empty_registry(self) -> None:
-        from dataclasses import replace
-
-        from synthesis.domain_pipeline import build_domain_pipeline_bundle
         from synthesis.pipeline import run_foundation_pipeline
         from synthesis.tools import ToolRegistry
 
-        def empty_registry_bundle(seed, output_dir, **kwargs):
-            bundle = build_domain_pipeline_bundle(seed, output_dir, **kwargs)
-            return replace(bundle, registry=ToolRegistry())
-
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch(
-                "synthesis.pipeline.build_domain_pipeline_bundle",
-                side_effect=empty_registry_bundle,
+                "synthesis.contacts_domain_pack.build_contact_tool_registry",
+                return_value=ToolRegistry(),
             ):
                 result = run_foundation_pipeline(
                     Path(tmpdir),
