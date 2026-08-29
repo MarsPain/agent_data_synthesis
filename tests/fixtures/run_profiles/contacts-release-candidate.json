@@ -1,0 +1,38 @@
+{
+  "schema_version": "run_profile_v4",
+  "profile_id": "contacts_release_candidate",
+  "dataset_version": "dataset_contacts_release_candidate_v1",
+  "profile_purpose": "release_candidate",
+  "seed": {
+    "seed_id": "seed_contacts_release_candidate_v1",
+    "domain": "contacts_fixture",
+    "description": "Canonical Contacts release-candidate evidence profile.",
+    "task_taxonomy": [
+      "contact_lookup",
+      "contact_followup",
+      "contact_lookup_recovery"
+    ]
+  },
+  "generation": {
+    "mode": "foundation_fixture",
+    "target_candidate_count": 10
+  },
+  "features": {
+    "enable_branching": true
+  },
+  "mutation_admission": {
+    "mode": "enforce",
+    "judge": {
+      "role": "mutation_admission_judge",
+      "provider": "openai_compatible",
+      "model": "deterministic_contacts_mutation_judge_v1",
+      "timeout_seconds": 1.0,
+      "max_retries": 0
+    }
+  },
+  "coverage_profile": {
+    "profile_id": "contacts_representative",
+    "version": "contacts_representative_v1",
+    "target_accepted_sample_count": 5
+  }
+}

@@ -19,8 +19,9 @@ messages, and Workspace tasks through one shared domain-pipeline boundary.
   cancellation, and sanitized usage evidence.
 - Governed sources, isolated candidate execution, contract and state
   verification, replay, reward labels, held-out evaluation, coverage evidence,
-  release-admission reports, and hash-bound evidence packs are implemented as
-  explicit opt-ins.
+  release-admission reports, hash-bound evidence packs, and the current
+  Contacts release-evidence/qualification adapter are implemented as explicit
+  opt-ins.
 - A separately authorized, real-provider Workspace acceptance has completed and
   its sanitized evidence can be replayed offline. It establishes one
   **Release Candidate** only—not publication approval, a training

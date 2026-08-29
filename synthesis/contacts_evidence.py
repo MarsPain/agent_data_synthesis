@@ -34,12 +34,18 @@ _CONTACTS_EVALUATION_EVIDENCE_SCHEMAS = frozenset({"evaluation_report_v1"})
 _CONTACTS_RELEASE_EVIDENCE_SCHEMAS = frozenset(
     {
         "coverage_evidence_v1",
+        "coverage_plan_v1",
+        "dataset_manifest_v1",
+        "dataset_manifest_v2",
         "dataset_release_pack_v1",
         "dataset_release_pack_v2",
         "dataset_release_report_v1",
+        "mutation_admission_report_v1",
         "profile_decision_report_v1",
         "quality_report_v1",
+        "release_rejections_v1",
         "release_quality_audit_v1",
+        "release_samples_v1",
     }
 )
 

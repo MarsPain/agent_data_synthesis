@@ -4,7 +4,7 @@
 - **Label:** `ready-for-agent`
 - **Canonical spec:** [Contacts Domain Pack Lifecycle and Second-Domain Validation](../../docs/product-specs/contacts-domain-pack-lifecycle.md)
 - **Governing decisions:** [ADR 0002](../../docs/adr/0002-domain-pack-semantic-authority-and-deep-interface.md), [ADR 0003](../../docs/adr/0003-separate-evidence-verification-from-external-authority.md)
-- **Current phase:** Implementation — capability evidence binding complete; release evidence next
+- **Current phase:** Implementation — Contacts release evidence and qualification complete; acceptance proof next
 
 This tracker entry publishes the canonical specification for operationalizing
 Contacts as the second end-to-end Domain Pack.  The feature begins from the
@@ -16,7 +16,7 @@ artifacts.
 
 1. [Open Contacts through the deep Domain Pack lifecycle](issues/01-open-contacts-deep-domain-pack-lifecycle.md) — completed
 2. [Bind Contacts capabilities to coverage and assessment evidence](issues/02-bind-contacts-capabilities-to-evidence.md) — completed
-3. [Establish Contacts release evidence and qualification](issues/03-establish-contacts-release-evidence-and-qualification.md) — ready-for-agent
+3. [Establish Contacts release evidence and qualification](issues/03-establish-contacts-release-evidence-and-qualification.md) — completed
 4. [Extract a Pack-neutral acceptance and replay harness](issues/04-extract-pack-neutral-acceptance-replay-harness.md) — ready-for-agent
 5. [Assemble the provider-free Contacts acceptance proof](issues/05-assemble-provider-free-contacts-acceptance-proof.md) — ready-for-agent
 6. [Add explicitly authorized Contacts live acceptance](issues/06-add-authorized-contacts-live-acceptance.md) — ready-for-agent
@@ -24,7 +24,7 @@ artifacts.
 
 ## Frontier
 
-[Establish Contacts release evidence and qualification](issues/03-establish-contacts-release-evidence-and-qualification.md)
+[Extract a Pack-neutral acceptance and replay harness](issues/04-extract-pack-neutral-acceptance-replay-harness.md)
 is the current implementation frontier. The later real-provider operation
 requires fresh explicit authorization and is not implied by ticket readiness.
 

@@ -336,8 +336,13 @@ and a quality report:
   subject, release-pack hash, Domain Pack plan, runtime, capabilities,
   component contracts, profile, and evidence graph. It is not attached to the
   manifest or included in the release pack, so evaluating it cannot mutate
-  release identity. Legacy fixture Workspace releases remain readable but
-  return bounded `insufficient_evidence` rather than a Release Candidate.
+  release identity. The versioned `contacts_release_candidate` profile uses
+  the Contacts Pack's exact coverage, held-out, mutation, completeness, and
+  machine-gate contracts through a Contacts-owned read-only adapter. The
+  current v4 fixture profile is classified as sanitized machine evidence, not
+  `real_live`; legacy compatibility, conformance-only, and older fixture
+  releases remain readable but return bounded `insufficient_evidence` rather
+  than a current Release Candidate.
 - `dataset_release_card.md`: optional human-readable release card written only
   when explicitly requested after a dataset release report is available.
 - `episodes.jsonl`: optional internal episode evidence export written only when

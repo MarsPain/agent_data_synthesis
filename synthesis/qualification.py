@@ -199,6 +199,17 @@ QUALIFICATION_REASON_CODES = frozenset(
         "workspace_coverage_evidence_incomplete",
         "workspace_mutation_admission_incomplete",
         "workspace_plan_evidence_missing",
+        "contacts_release_profile_ineligible",
+        "contacts_capability_evidence_incomplete",
+        "contacts_coverage_evidence_incomplete",
+        "contacts_mutation_admission_incomplete",
+        "contacts_plan_evidence_missing",
+        "contacts_assessment_incomplete",
+        "contacts_evidence_malformed",
+        "contacts_evidence_missing",
+        "contacts_evidence_unknown_version",
+        "contacts_evidence_identity_mismatch",
+        "contacts_evidence_non_passing",
     }
 )
 
@@ -1280,6 +1291,92 @@ def build_workspace_release_candidate_evidence(
     )
 
 
+def build_contacts_release_candidate_evidence(
+    *,
+    binding: QualificationBinding,
+    machine_gates: Mapping[str, object],
+    domain_assessment: Mapping[str, object] | DomainAssessment,
+    release_completeness: Mapping[str, object],
+    release_quality_audit: Mapping[str, object],
+    release_pack_verification: Mapping[str, object],
+    evidence_class: str = "real_machine",
+) -> dict[str, object]:
+    """Named Contacts-facing constructor for the shared evidence envelope."""
+
+    return build_release_candidate_evidence(
+        binding=binding,
+        machine_gates=machine_gates,
+        domain_assessment=domain_assessment,
+        release_completeness=release_completeness,
+        release_quality_audit=release_quality_audit,
+        release_pack_verification=release_pack_verification,
+        evidence_class=evidence_class,
+    )
+
+
+def contacts_release_candidate_profile() -> dict[str, object]:
+    """Return the current Contacts release-contract selection."""
+
+    from synthesis.contacts_qualification import (
+        contacts_release_candidate_profile as profile,
+    )
+
+    return profile()
+
+
+def build_contacts_release_candidate_profile() -> dict[str, object]:
+    return contacts_release_candidate_profile()
+
+
+def qualify_contacts_release_candidate(
+    *,
+    manifest_path: Path,
+    release_pack_path: Path,
+    release_quality_audit_path: Path | None = None,
+    history: Sequence[Mapping[str, object]] | Mapping[str, object] = (),
+    invalidated_evidence: Iterable[str] = (),
+) -> dict[str, object]:
+    """Evaluate the current Contacts release evidence through its adapter."""
+
+    from synthesis.contacts_qualification import (
+        qualify_contacts_release_candidate as qualify,
+    )
+
+    return qualify(
+        manifest_path=manifest_path,
+        release_pack_path=release_pack_path,
+        release_quality_audit_path=release_quality_audit_path,
+        history=history,
+        invalidated_evidence=tuple(invalidated_evidence),
+    )
+
+
+evaluate_contacts_release_candidate = qualify_contacts_release_candidate
+
+
+def write_contacts_release_candidate_qualification(
+    *,
+    manifest_path: Path,
+    release_pack_path: Path,
+    output_path: Path,
+    release_quality_audit_path: Path | None = None,
+    history: Sequence[Mapping[str, object]] | Mapping[str, object] = (),
+    invalidated_evidence: Iterable[str] = (),
+) -> Path:
+    from synthesis.contacts_qualification import (
+        write_contacts_release_candidate_qualification as write_contacts,
+    )
+
+    return write_contacts(
+        manifest_path=manifest_path,
+        release_pack_path=release_pack_path,
+        output_path=output_path,
+        release_quality_audit_path=release_quality_audit_path,
+        history=history,
+        invalidated_evidence=tuple(invalidated_evidence),
+    )
+
+
 def qualify_workspace_release_candidate(
     *,
     manifest_path: Path,
@@ -1359,6 +1456,20 @@ def write_release_candidate_qualification(
 ) -> Path:
     """Write the current release-candidate decision for the local adapter."""
 
+    try:
+        manifest = _load_json_mapping(manifest_path)
+    except (OSError, json.JSONDecodeError, ValueError):
+        manifest = {}
+    if _manifest_declares_contacts(manifest):
+        return write_contacts_release_candidate_qualification(
+            manifest_path=manifest_path,
+            release_pack_path=release_pack_path,
+            output_path=output_path,
+            release_quality_audit_path=release_quality_audit_path,
+            history=history,
+            invalidated_evidence=invalidated_evidence,
+        )
+
     return write_workspace_release_candidate_qualification(
         manifest_path=manifest_path,
         release_pack_path=release_pack_path,
@@ -1367,6 +1478,16 @@ def write_release_candidate_qualification(
         history=history,
         invalidated_evidence=invalidated_evidence,
     )
+
+
+def _manifest_declares_contacts(manifest: Mapping[str, object]) -> bool:
+    profile = manifest.get("run_profile")
+    if not isinstance(profile, Mapping):
+        return False
+    seed = profile.get("seed")
+    if not isinstance(seed, Mapping):
+        return False
+    return seed.get("domain") in {"contacts", "contacts_fixture"}
 
 
 def _evaluate_required_gates(

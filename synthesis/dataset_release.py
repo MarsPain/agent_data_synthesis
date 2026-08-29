@@ -97,7 +97,7 @@ def build_dataset_release_report(
         manifest=manifest,
         quality_report=quality_report,
         observed=observed,
-        domain_id=manifest_domain_id(manifest),
+        domain_id=_release_completeness_domain_id(manifest),
     )
     report: dict[str, object] = {
         "schema_version": DATASET_RELEASE_REPORT_SCHEMA_VERSION,
@@ -710,6 +710,16 @@ def _accepted_capability_keys(evidence: Mapping[str, Any]) -> set[str]:
 def _normalize_tool_combination(raw: str) -> str:
     parts = [part.strip() for part in raw.replace(">", "+").split("+")]
     return "+".join(part for part in parts if part)
+
+
+def _release_completeness_domain_id(
+    manifest: Mapping[str, Any],
+) -> str:
+    profile = manifest.get("run_profile")
+    profile_id = profile.get("profile_id") if isinstance(profile, Mapping) else None
+    if isinstance(profile_id, str) and release_completeness_threshold_record(profile_id):
+        return profile_id
+    return manifest_domain_id(manifest)
 
 
 def _profile_summary(manifest: Mapping[str, Any]) -> dict[str, object]:

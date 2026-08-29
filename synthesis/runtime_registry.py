@@ -211,6 +211,34 @@ _RELEASE_COMPLETENESS_THRESHOLDS: dict[str, dict[str, object]] = {
             "lookup_contact_email+record_contact_followup",
         ),
     },
+    "contacts_release_candidate": {
+        "min_accepted_samples": 5,
+        "max_rejection_rate": 0.2,
+        "required_task_types": (
+            "lookup_contact_email",
+            "contact_followup",
+            "contact_branch_fallback",
+        ),
+        "required_tool_combinations": (
+            "lookup_contact_email",
+            "lookup_contact_email+record_contact_followup",
+        ),
+        "required_capability_keys": (
+            "contact_lookup",
+            "followup_recording",
+            "contact_lookup_recovery",
+        ),
+        "minimum_recovery_samples": 1,
+        "task_type_aliases": {
+            "contact_lookup": (
+                "lookup_contact_email",
+                "contact_branch_fallback",
+            ),
+            "contact_followup": ("contact_followup",),
+            "contact_lookup_recovery": ("contact_branch_fallback",),
+        },
+        "recovery_task_type_alias": "contact_branch_fallback",
+    },
     "mobile_messages_fixture": {
         "min_accepted_samples": 5,
         "max_rejection_rate": 0.2,
