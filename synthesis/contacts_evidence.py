@@ -9,17 +9,39 @@ mutation evidence, and episode that produced them.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 from synthesis.domain_pack import (
+    AssessmentFailure,
     DomainCapabilityReference,
+    DomainAssessment,
+    DomainAssessmentEvidence,
+    DomainPackContractError,
     DomainPlan,
     canonical_domain_pack_hash,
+    initial_domain_pack_registry,
 )
 from synthesis.mutation_admission import canonical_hash
 from synthesis.tasks import CandidateTask
 
+if TYPE_CHECKING:
+    from synthesis.execution import ExecutionResult
+    from synthesis.verification import VerificationResult
+
 
 CONTACTS_EVIDENCE_BINDING_SCHEMA_VERSION = "contacts_evidence_binding_v1"
+_CONTACTS_EVALUATION_EVIDENCE_SCHEMAS = frozenset({"evaluation_report_v1"})
+_CONTACTS_RELEASE_EVIDENCE_SCHEMAS = frozenset(
+    {
+        "coverage_evidence_v1",
+        "dataset_release_pack_v1",
+        "dataset_release_pack_v2",
+        "dataset_release_report_v1",
+        "profile_decision_report_v1",
+        "quality_report_v1",
+        "release_quality_audit_v1",
+    }
+)
 
 
 def canonical_capability_references(
@@ -168,6 +190,19 @@ def contacts_recovery_evidence(
             "verified": False,
             "reason": "initial_failure_or_fallback_missing",
         }
+    if failed.get("outcome") != "rejected" or selected.get("outcome") != "accepted":
+        return {
+            "declared": True,
+            "verified": False,
+            "reason": "branch_outcome_status_mismatch",
+        }
+    verification = sample.get("verification")
+    if not isinstance(verification, Mapping) or verification.get("passed") is not True:
+        return {
+            "declared": True,
+            "verified": False,
+            "reason": "independent_verification_missing",
+        }
     failure_cause = failed.get("failure_cause")
     failed_trajectory = failed.get("trajectory")
     selected_trajectory = selected.get("trajectory")
@@ -195,7 +230,24 @@ def contacts_recovery_evidence(
         for branch in branches
         if isinstance(branch, Mapping) and isinstance(branch.get("branch_id"), str)
     } if isinstance(branches, list) else {}
+    failed_branch = branch_by_id.get(failed.get("branch_id"))
     selected_branch = branch_by_id.get(selected.get("branch_id"))
+    actions_match_declared_branches = (
+        isinstance(failed_branch, Mapping)
+        and isinstance(selected_branch, Mapping)
+        and failed_branch.get("node_type") == "attempt"
+        and failed_branch.get("terminal_outcome") == "fallback_on_failure"
+        and selected_branch.get("node_type") == "fallback"
+        and selected_branch.get("terminal_outcome") == "accept_on_success"
+        and _action_matches_branch(
+            failed_action,
+            failed_branch,
+        )
+        and _action_matches_branch(
+            selected_action,
+            selected_branch,
+        )
+    )
     transition_ok = (
         isinstance(failed.get("branch_id"), str)
         and isinstance(selected.get("branch_id"), str)
@@ -216,6 +268,7 @@ def contacts_recovery_evidence(
         failed_action is not None
         and selected_action is not None
         and failed_action != selected_action
+        and actions_match_declared_branches
         and transition_ok
         and grounded_result
     )
@@ -232,6 +285,133 @@ def contacts_recovery_evidence(
             selected_observation or {}
         ),
     }
+
+
+def contacts_heldout_recovery_verified(
+    execution: "ExecutionResult",
+    candidate: CandidateTask,
+    verification: "VerificationResult",
+) -> bool:
+    """Adapt an isolated held-out result to the Contacts recovery contract."""
+
+    outcomes = getattr(execution, "branch_outcomes", None)
+    final_response = getattr(execution, "final_response", None)
+    if not isinstance(outcomes, list) or not isinstance(final_response, str):
+        return False
+    evidence = {
+        "lineage": {"branching": {"branch_outcomes": outcomes}},
+        "final_response": final_response,
+        "verification": verification.export(),
+    }
+    return contacts_recovery_evidence(candidate, evidence).get("verified") is True
+
+
+def contacts_heldout_plan_binding(
+    manifest: Mapping[str, object],
+) -> dict[str, object] | None:
+    """Validate the current Contacts plan carried by manifest evidence."""
+
+    raw_evidence = manifest.get("domain_capability_evidence")
+    if raw_evidence is None:
+        return None
+    if not isinstance(raw_evidence, Mapping):
+        raise ValueError("Contacts domain capability evidence is malformed")
+    raw_plan = raw_evidence.get("plan")
+    if not isinstance(raw_plan, Mapping):
+        raise ValueError("Contacts held-out evaluation plan binding is missing")
+    plan_record = raw_plan.get("plan_record")
+    if not isinstance(plan_record, Mapping):
+        raise ValueError("Contacts held-out evaluation plan record is missing")
+    descriptor = initial_domain_pack_registry().descriptor_for("contacts")
+    try:
+        plan = DomainPlan.from_record(plan_record, descriptor=descriptor)
+    except (DomainPackContractError, TypeError, ValueError) as exc:
+        raise ValueError("Contacts held-out evaluation plan binding is invalid") from exc
+    expected_capabilities = canonical_capability_references(
+        tuple(plan.capability_references)
+    )
+    if (
+        raw_plan.get("plan_id") != plan.plan_id
+        or raw_plan.get("plan_hash") != plan.plan_hash
+        or raw_evidence.get("domain_pack_reference")
+        != plan.domain_pack_reference.to_record()
+        or raw_evidence.get("runtime_contract") != plan.runtime_contract.to_record()
+        or raw_evidence.get("capability_references") != expected_capabilities
+    ):
+        raise ValueError("Contacts held-out evaluation plan binding mismatch")
+    return {
+        "domain_pack_reference": plan.domain_pack_reference.to_record(),
+        "plan": {
+            "plan_id": plan.plan_id,
+            "plan_hash": plan.plan_hash,
+        },
+        "runtime_contract": plan.runtime_contract.to_record(),
+        "capability_references": expected_capabilities,
+    }
+
+
+def assess_contacts_domain_evidence(
+    plan: DomainPlan,
+    exact_evidence: object,
+) -> DomainAssessment | AssessmentFailure:
+    """Interpret exact Contacts evidence without granting release authority."""
+
+    if not isinstance(exact_evidence, DomainAssessmentEvidence):
+        return AssessmentFailure("invalid_assessment_evidence")
+    if (
+        exact_evidence.plan_id != plan.plan_id
+        or exact_evidence.plan_hash != plan.plan_hash
+    ):
+        return AssessmentFailure("assessment_plan_drift")
+    if exact_evidence.insufficiency_reason is not None:
+        return DomainAssessment.insufficient(
+            plan,
+            reason_code=exact_evidence.insufficiency_reason,
+            evidence_references=exact_evidence.evidence_references,
+        )
+    evaluation_references = set(exact_evidence.evaluation_evidence_references)
+    release_references = set(exact_evidence.release_evidence_references)
+    all_references = set(exact_evidence.evidence_references)
+    if not evaluation_references or not release_references:
+        return DomainAssessment.insufficient(
+            plan,
+            reason_code="evidence_missing",
+            evidence_references=exact_evidence.evidence_references,
+        )
+    if (
+        evaluation_references & release_references
+        or all_references != evaluation_references | release_references
+        or any(
+            reference.evidence_schema_version
+            not in _CONTACTS_EVALUATION_EVIDENCE_SCHEMAS
+            for reference in evaluation_references
+        )
+        or any(
+            reference.evidence_schema_version
+            not in _CONTACTS_RELEASE_EVIDENCE_SCHEMAS
+            for reference in release_references
+        )
+    ):
+        return DomainAssessment.insufficient(
+            plan,
+            reason_code="evidence_identity_mismatch",
+            evidence_references=exact_evidence.evidence_references,
+        )
+    if set(exact_evidence.established_capability_references) != set(
+        plan.capability_references
+    ):
+        return DomainAssessment.insufficient(
+            plan,
+            reason_code="capability_evidence_incomplete",
+            evidence_references=exact_evidence.evidence_references,
+        )
+    return DomainAssessment.established(
+        plan,
+        evidence_references=exact_evidence.evidence_references,
+        established_capability_references=tuple(
+            exact_evidence.established_capability_references
+        ),
+    )
 
 
 def build_contacts_evidence_binding(
@@ -260,7 +440,7 @@ def build_contacts_evidence_binding(
         for state_check in contract.expected_state
     ]
     assignment_record = dict(assignment) if assignment is not None else None
-    assignment_capability_references = _assignment_capability_references(
+    assignment_capability_references = contacts_assignment_capability_references(
         assignment_record
     )
     verification_record = dict(verification) if isinstance(verification, Mapping) else {}
@@ -313,6 +493,8 @@ def build_contacts_evidence_binding(
             if mutation is not None
             else None
         ),
+        "verification": verification_record,
+        "verification_hash": canonical_domain_pack_hash(verification_record),
         "recovery": contacts_recovery_evidence(candidate, sample),
         "episode": (
             {
@@ -327,13 +509,17 @@ def build_contacts_evidence_binding(
     }
 
 
-def _assignment_capability_references(
+def contacts_assignment_capability_references(
     assignment: Mapping[str, object] | None,
 ) -> list[dict[str, object]]:
     if assignment is None:
         return []
     catalog = assignment.get("catalog")
-    references = catalog.get("capability_references") if isinstance(catalog, Mapping) else None
+    references = (
+        catalog.get("capability_references")
+        if isinstance(catalog, Mapping)
+        else assignment.get("capability_references")
+    )
     if not isinstance(references, list):
         return []
     return [dict(item) for item in references if isinstance(item, Mapping)]
@@ -358,3 +544,22 @@ def _last_observation(trajectory: list[object]) -> Mapping[str, object] | None:
     ]
     value = observations[-1] if observations else None
     return value if isinstance(value, Mapping) else None
+
+
+def _action_matches_branch(
+    action: Mapping[str, object] | None,
+    branch: Mapping[str, object],
+) -> bool:
+    steps = branch.get("steps")
+    if not isinstance(steps, list) or not steps or not isinstance(steps[0], Mapping):
+        return False
+    declared_tool = steps[0].get("tool_name")
+    declared_arguments = steps[0].get("arguments")
+    return (
+        isinstance(action, Mapping)
+        and action.get("tool") == declared_tool
+        and isinstance(action.get("arguments"), Mapping)
+        and isinstance(declared_arguments, Mapping)
+        and canonical_domain_pack_hash(dict(action["arguments"]))
+        == canonical_domain_pack_hash(dict(declared_arguments))
+    )

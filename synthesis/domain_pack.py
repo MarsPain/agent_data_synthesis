@@ -12,7 +12,7 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
 DOMAIN_PACK_REFERENCE_SCHEMA_VERSION = "domain_pack_reference_v1"
@@ -2173,6 +2173,10 @@ class DomainAssessmentEvidence:
     established_capability_references: tuple[DomainCapabilityReference, ...] = ()
     insufficiency_reason: str | None = None
     schema_version: str = DOMAIN_ASSESSMENT_EVIDENCE_SCHEMA_VERSION
+    evaluation_evidence_references: tuple[DomainEvidenceReference, ...] = ()
+    release_evidence_references: tuple[DomainEvidenceReference, ...] = ()
+    plan_id: str | None = None
+    plan_hash: str | None = None
 
     def __post_init__(self) -> None:
         if self.schema_version != DOMAIN_ASSESSMENT_EVIDENCE_SCHEMA_VERSION:
@@ -2180,6 +2184,8 @@ class DomainAssessmentEvidence:
         if (
             not isinstance(self.evidence_references, tuple)
             or not isinstance(self.established_capability_references, tuple)
+            or not isinstance(self.evaluation_evidence_references, tuple)
+            or not isinstance(self.release_evidence_references, tuple)
             or any(
                 not isinstance(item, DomainEvidenceReference)
                 for item in self.evidence_references
@@ -2191,8 +2197,24 @@ class DomainAssessmentEvidence:
             or len(set(self.evidence_references)) != len(self.evidence_references)
             or len(set(self.established_capability_references))
             != len(self.established_capability_references)
+            or any(
+                not isinstance(item, DomainEvidenceReference)
+                for item in (
+                    *self.evaluation_evidence_references,
+                    *self.release_evidence_references,
+                )
+            )
+            or len(set(self.evaluation_evidence_references))
+            != len(self.evaluation_evidence_references)
+            or len(set(self.release_evidence_references))
+            != len(self.release_evidence_references)
         ):
             raise DomainPackContractError("invalid_domain_assessment_evidence")
+        if (self.plan_id is None) != (self.plan_hash is None):
+            raise DomainPackContractError("invalid_domain_assessment_evidence")
+        if self.plan_id is not None:
+            _require_identifier(self.plan_id, "plan_id")
+            _require_hash(self.plan_hash, "plan_hash")
         if self.insufficiency_reason is not None:
             if (
                 self.insufficiency_reason
@@ -2231,6 +2253,18 @@ class DomainPackLifecycle(Protocol):
     """Runtime adapter selected by a Domain Pack without exposing its internals."""
 
     def open(self, plan: DomainPlan, runtime_scope: object) -> object:
+        ...
+
+
+@runtime_checkable
+class DomainPackAssessmentLifecycle(Protocol):
+    """Optional typed assessment adapter owned by a Domain Pack."""
+
+    def assess(
+        self,
+        plan: DomainPlan,
+        exact_evidence: object,
+    ) -> DomainAssessment | AssessmentFailure:
         ...
 
 
@@ -2318,6 +2352,14 @@ class DomainPack:
         if reason is not None:
             return AssessmentFailure(reason)
         assert isinstance(plan, DomainPlan)
+        if isinstance(self.lifecycle, DomainPackAssessmentLifecycle):
+            try:
+                assessed = self.lifecycle.assess(plan, exact_evidence)
+            except DomainPackContractError:
+                return AssessmentFailure("invalid_assessment_evidence")
+            if isinstance(assessed, (DomainAssessment, AssessmentFailure)):
+                return assessed
+            return AssessmentFailure("invalid_assessment_evidence")
         if isinstance(exact_evidence, DomainAssessment):
             try:
                 exact_evidence.validate_against_plan(plan)

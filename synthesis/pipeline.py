@@ -369,10 +369,7 @@ def run_foundation_pipeline(
     if configured_generator_count > 1:
         raise ValueError("candidate generator configurations are mutually exclusive")
     seed = seed_override or foundation_seed()
-    contacts_lifecycle_enabled = not (
-        seed.domain in {"contacts", "contacts_fixture"}
-        and getattr(run_profile, "coverage_profile", None) is not None
-    )
+    contacts_lifecycle_enabled = True
     legacy_input_compatibility = (
         "domain_legacy_input_v1"
         if (

@@ -53,6 +53,7 @@ _FORBIDDEN_PROVIDER_FIELDS = {
     "lineage",
     "plan_id",
     "plan_hash",
+    "capability_references",
 }
 
 

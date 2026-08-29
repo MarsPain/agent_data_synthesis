@@ -1166,6 +1166,119 @@ class CoverageAssignmentPipelineTest(unittest.TestCase):
                 any("_refined_1" in json.loads(line)["sample_id"] for line in samples)
             )
 
+    def test_contacts_coverage_samples_bind_exact_domain_capabilities(self) -> None:
+        provider = AssignmentAwareFakeProvider()
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run(provider, Path(tmp))
+            samples = [
+                json.loads(line)
+                for line in result.samples_path.read_text(encoding="utf-8").splitlines()
+                if line
+            ]
+
+        self.assertEqual(len(samples), 2)
+        expected_keys = {
+            "contact_lookup",
+            "followup_recording",
+        }
+        for sample in samples:
+            binding = sample["contacts_evidence"]
+            self.assertEqual(binding, sample["domain_evidence"])
+            self.assertEqual(
+                binding["domain_pack_reference"]["domain_pack_id"],
+                "contacts",
+            )
+            self.assertEqual(
+                {
+                    reference["capability_key"]
+                    for reference in binding["capability_references"]
+                },
+                {
+                    "contact_lookup",
+                    "followup_recording",
+                    "contact_lookup_recovery",
+                    "missing_contact_safe_failure",
+                },
+            )
+            task_keys = {
+                reference["capability_key"]
+                for reference in binding["task_capability_references"]
+            }
+            self.assertTrue(task_keys <= expected_keys)
+            self.assertEqual(
+                binding["assignment_capability_references"],
+                binding["task_capability_references"],
+            )
+            self.assertEqual(
+                {
+                    reference["capability_key"]
+                    for reference in binding["assignment"]["catalog"][
+                        "capability_references"
+                    ]
+                },
+                task_keys,
+            )
+            self.assertTrue(binding["final_state"]["verification_passed"])
+
+    def test_unverified_contacts_recovery_receives_no_coverage_credit(self) -> None:
+        from dataclasses import replace
+        from synthesis.execution import scripted_solution_policy
+
+        def direct_success_policy(candidate):
+            policy = scripted_solution_policy(candidate)
+            if candidate.branch_plan is None:
+                return policy
+            branches = candidate.branch_plan["branches"]
+            fallback = branches[-1]
+            return replace(
+                policy,
+                branch_plan={
+                    "schema_version": "branch_plan_v1",
+                    "plan_id": "branch_plan_contacts_unverified_recovery",
+                    "max_depth": 1,
+                    "branches": [
+                        {
+                            "branch_id": "direct_success",
+                            "node_type": "attempt",
+                            "parent_id": None,
+                            "condition": "Use the fallback selector directly.",
+                            "steps": list(fallback["steps"]),
+                            "final_response_template": "{name}'s email is {email}.",
+                            "terminal_outcome": "accept_on_success",
+                        }
+                    ],
+                },
+            )
+
+        provider = AssignmentAwareFakeProvider()
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run(
+                provider,
+                Path(tmp),
+                policy_generator=direct_success_policy,
+                profile_path=(
+                    "tests/fixtures/run_profiles/contacts-coverage-catalog-probe.json"
+                ),
+            )
+            assert result.coverage_evidence_path is not None
+            evidence = json.loads(
+                result.coverage_evidence_path.read_text(encoding="utf-8")
+            )
+
+        recovery_cell = next(
+            cell
+            for cell in result.coverage_reconciliation["cells"]
+            if cell["cell_id"] == "contacts.lookup_with_recovery"
+        )
+        evidence_recovery_cell = next(
+            cell
+            for cell in evidence["cells"]
+            if cell["cell_id"] == "contacts.lookup_with_recovery"
+        )
+        self.assertEqual(result.accepted_count, 2)
+        self.assertEqual(recovery_cell["accepted"], 0)
+        self.assertEqual(evidence_recovery_cell["accepted"], 0)
+
     def test_provider_cannot_set_locally_owned_assignment_fields(self) -> None:
         provider = AssignmentAwareFakeProvider(inject_assignment_field=True)
         with tempfile.TemporaryDirectory() as tmp:

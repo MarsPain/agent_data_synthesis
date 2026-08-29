@@ -4,21 +4,32 @@ import json
 import tempfile
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 from synthesis.contracts import (
     validate_evaluation_report_record,
     validate_manifest_record,
 )
 from synthesis.domain_pipeline import build_domain_pipeline_bundle
-from synthesis.execution import execute_candidate
+from synthesis.execution import ExecutionResult, execute_candidate
 from synthesis.mobile_tasks import generate_mobile_fixture_candidates
 from synthesis.seeds import DomainSeed
 from synthesis.tasks import CandidateTask
 from synthesis.workspace_tasks import generate_workspace_fixture_candidates
+from synthesis.verification import VerificationResult
 
 if TYPE_CHECKING:
     from synthesis.domain_pack import DomainCapabilityReference
+
+
+HeldoutRecoveryValidator = Callable[
+    [ExecutionResult, CandidateTask, VerificationResult],
+    bool,
+]
+HeldoutPlanBindingResolver = Callable[
+    [Mapping[str, object]],
+    Mapping[str, object] | None,
+]
 
 
 EVALUATION_REPORT_SCHEMA_VERSION = "evaluation_report_v1"
@@ -42,6 +53,8 @@ class HeldoutSuite:
     domain_id: str
     tasks: tuple[HeldoutTask, ...]
     capability_references: tuple["DomainCapabilityReference", ...] = ()
+    recovery_validator: HeldoutRecoveryValidator | None = None
+    plan_binding_resolver: HeldoutPlanBindingResolver | None = None
 
 
 @dataclass(frozen=True)
@@ -84,7 +97,17 @@ class EvaluationThresholds:
 
 
 def contacts_heldout_suite() -> HeldoutSuite:
+    from synthesis.contacts_evidence import (
+        contacts_heldout_plan_binding,
+        contacts_heldout_recovery_verified,
+    )
+
     seed_ids = ("heldout_contacts_seed_v1",)
+    capability_references = _capability_references_for_pack("contacts")
+    capabilities = {
+        reference.capability_key: reference
+        for reference in capability_references
+    }
     common_difficulty = {
         "level": "easy",
         "tool_count": 1,
@@ -97,6 +120,7 @@ def contacts_heldout_suite() -> HeldoutSuite:
         HeldoutTask(
             task_id="heldout_contacts_lookup_alice",
             capability_tags=("contact_lookup",),
+            capability_references=(capabilities["contact_lookup"],),
             candidate=CandidateTask(
                 candidate_id="heldout_contacts_lookup_alice",
                 instruction="Held-out lookup: find Alice Zhang's contact email.",
@@ -106,11 +130,13 @@ def contacts_heldout_suite() -> HeldoutSuite:
                 arguments={"name": "Alice Zhang"},
                 expected_answer="alice.zhang@example.test",
                 seed_ids=seed_ids,
+                capability_references=(capabilities["contact_lookup"],),
             ),
         ),
         HeldoutTask(
             task_id="heldout_contacts_lookup_ben",
             capability_tags=("contact_lookup",),
+            capability_references=(capabilities["contact_lookup"],),
             candidate=CandidateTask(
                 candidate_id="heldout_contacts_lookup_ben",
                 instruction="Held-out lookup: find Ben Carter's contact email.",
@@ -120,11 +146,16 @@ def contacts_heldout_suite() -> HeldoutSuite:
                 arguments={"name": "Ben Carter"},
                 expected_answer="ben.carter@example.test",
                 seed_ids=seed_ids,
+                capability_references=(capabilities["contact_lookup"],),
             ),
         ),
         HeldoutTask(
             task_id="heldout_contacts_followup_ben",
             capability_tags=("state_change",),
+            capability_references=(
+                capabilities["contact_lookup"],
+                capabilities["followup_recording"],
+            ),
             candidate=CandidateTask(
                 candidate_id="heldout_contacts_followup_ben",
                 instruction="Held-out state change: find Ben Carter and record a follow-up.",
@@ -151,16 +182,25 @@ def contacts_heldout_suite() -> HeldoutSuite:
                         "note": "Send follow-up email to ben.carter@example.test.",
                     }
                 },
+                capability_references=(
+                    capabilities["contact_lookup"],
+                    capabilities["followup_recording"],
+                ),
             ),
         ),
         HeldoutTask(
             task_id="heldout_contacts_branch_fallback_alice",
             capability_tags=("branching",),
+            capability_references=(
+                capabilities["contact_lookup"],
+                capabilities["contact_lookup_recovery"],
+            ),
             candidate=_heldout_branching_candidate(seed_ids),
         ),
         HeldoutTask(
             task_id="heldout_contacts_missing_contact",
             capability_tags=("missing_contact",),
+            capability_references=(capabilities["missing_contact_safe_failure"],),
             expected_outcome="controlled_failure",
             expected_failure_cause="verification_failed",
             candidate=CandidateTask(
@@ -179,6 +219,7 @@ def contacts_heldout_suite() -> HeldoutSuite:
                 arguments={"name": "Casey Missing"},
                 expected_answer="casey.missing@example.test",
                 seed_ids=seed_ids,
+                capability_references=(capabilities["missing_contact_safe_failure"],),
             ),
         ),
     )
@@ -187,6 +228,9 @@ def contacts_heldout_suite() -> HeldoutSuite:
         suite_version=CONTACTS_HELDOUT_SUITE_ID,
         domain_id="contacts_fixture",
         tasks=tasks,
+        capability_references=capability_references,
+        recovery_validator=contacts_heldout_recovery_verified,
+        plan_binding_resolver=contacts_heldout_plan_binding,
     )
 
 
@@ -381,6 +425,15 @@ def resolve_heldout_suite(domain_id: str) -> HeldoutSuite:
 
 
 def _default_thresholds_for_domain(domain_id: str) -> EvaluationThresholds:
+    if domain_id == "contacts_fixture":
+        return EvaluationThresholds(
+            min_capability_pass_rates={
+                "contact_lookup": 1.0,
+                "contact_lookup_recovery": 1.0,
+                "followup_recording": 1.0,
+                "missing_contact_safe_failure": 1.0,
+            }
+        )
     if domain_id == "mobile_messages_fixture":
         return EvaluationThresholds(
             min_capability_pass_rates={
@@ -425,6 +478,25 @@ def build_evaluation_report(
     domain_id = _manifest_domain_id(manifest)
     suite = resolve_heldout_suite(domain_id)
     thresholds = thresholds or _default_thresholds_for_domain(suite.domain_id)
+    plan_binding = (
+        suite.plan_binding_resolver(manifest)
+        if suite.plan_binding_resolver is not None
+        else None
+    )
+    plan_binding_missing = (
+        suite.plan_binding_resolver is not None
+        and plan_binding is None
+        and _requires_current_plan_binding(manifest)
+    )
+    if plan_binding is not None and plan_binding.get("capability_references") != [
+        reference.to_record() for reference in suite.capability_references
+    ]:
+        raise ValueError("held-out evaluation capability plan binding mismatch")
+    _validate_plan_binding_against_quality(
+        plan_binding,
+        quality_report,
+        required=_requires_current_plan_binding(manifest),
+    )
     task_results = _run_suite(suite)
     counts = _counts(task_results)
     parent_comparison = _compare_parent(
@@ -453,6 +525,9 @@ def build_evaluation_report(
             "domain_id": suite.domain_id,
             "source": "manifest.run_profile.seed.domain",
         },
+        "plan_binding": (
+            dict(plan_binding) if plan_binding is not None else None
+        ),
         "capability_references": [
             reference.to_record() for reference in suite.capability_references
         ],
@@ -471,7 +546,17 @@ def build_evaluation_report(
         "task_results": [result.export() for result in task_results],
         "thresholds": asdict(thresholds),
         "parent_comparison": parent_comparison,
-        "decision": _decision(counts, capability_slices, thresholds),
+        "decision": (
+            {
+                "status": "insufficient_evidence",
+                "reasons": [
+                    "exact Contacts domain plan binding is missing",
+                ],
+                "triggered_by": [],
+            }
+            if plan_binding_missing
+            else _decision(counts, capability_slices, thresholds)
+        ),
     }
     validate_evaluation_report_record(report)
     return report
@@ -548,10 +633,23 @@ def _run_suite(suite: HeldoutSuite) -> list[HeldoutTaskResult]:
                 if verification.passed
                 else str(failed_check.get("cause") or "verification_failed")
             )
-            if observed_passed and _task_requires_recovery(task) and not _heldout_recovery_verified(
-                execution,
-                task.candidate,
-            ):
+            recovery_required = _task_requires_recovery(task) or (
+                suite.recovery_validator is not None
+                and task.candidate.branch_plan is not None
+            )
+            if observed_passed and recovery_required:
+                recovery_verified = (
+                    suite.recovery_validator(
+                        execution,
+                        task.candidate,
+                        verification,
+                    )
+                    if suite.recovery_validator is not None
+                    else _heldout_recovery_verified(execution, task.candidate)
+                )
+            else:
+                recovery_verified = True
+            if observed_passed and not recovery_verified:
                 observed_passed = False
                 observed_failure_cause = "recovery_evidence_missing"
             if (
@@ -613,6 +711,7 @@ def _heldout_recovery_verified(execution: object, candidate: CandidateTask) -> b
             for outcome in outcomes
             if isinstance(outcome, Mapping)
             and outcome.get("selected") is False
+            and outcome.get("outcome") == "rejected"
             and outcome.get("failure_cause") in {
                 "tool_runtime_error",
                 "tool_schema_error",
@@ -624,7 +723,9 @@ def _heldout_recovery_verified(execution: object, candidate: CandidateTask) -> b
         (
             outcome
             for outcome in outcomes
-            if isinstance(outcome, Mapping) and outcome.get("selected") is True
+            if isinstance(outcome, Mapping)
+            and outcome.get("selected") is True
+            and outcome.get("outcome") == "accepted"
         ),
         None,
     )
@@ -676,6 +777,10 @@ def _heldout_recovery_verified(execution: object, candidate: CandidateTask) -> b
 
 
 def _heldout_branching_candidate(seed_ids: tuple[str, ...]) -> CandidateTask:
+    capabilities = {
+        reference.capability_key: reference
+        for reference in _capability_references_for_pack("contacts")
+    }
     return CandidateTask(
         candidate_id="heldout_contacts_branch_fallback_alice",
         instruction="Held-out branch: try Alice, then fall back to Alice Zhang.",
@@ -699,6 +804,10 @@ def _heldout_branching_candidate(seed_ids: tuple[str, ...]) -> CandidateTask:
         arguments={"name": "Alice"},
         expected_answer="alice.zhang@example.test",
         seed_ids=seed_ids,
+        capability_references=(
+            capabilities["contact_lookup"],
+            capabilities["contact_lookup_recovery"],
+        ),
         branch_plan={
             "schema_version": "branch_plan_v1",
             "plan_id": "branch_plan_heldout_contacts_alice_fallback",
@@ -729,6 +838,20 @@ def _heldout_branching_candidate(seed_ids: tuple[str, ...]) -> CandidateTask:
                 },
             ],
         },
+    )
+
+
+def _capability_references_for_pack(
+    domain_pack_id: str,
+) -> tuple["DomainCapabilityReference", ...]:
+    from synthesis.domain_pack import initial_domain_pack_registry
+
+    descriptor = initial_domain_pack_registry().descriptor_for(domain_pack_id)
+    return tuple(
+        sorted(
+            descriptor.capability_references,
+            key=lambda reference: reference.capability_key,
+        )
     )
 
 
@@ -763,15 +886,7 @@ def _workspace_heldout_seed() -> DomainSeed:
 
 
 def _workspace_capability_references() -> tuple["DomainCapabilityReference", ...]:
-    from synthesis.domain_pack import initial_domain_pack_registry
-
-    descriptor = initial_domain_pack_registry().descriptor_for("workspace_tasks")
-    return tuple(
-        sorted(
-            descriptor.capability_references,
-            key=lambda reference: reference.capability_key,
-        )
-    )
+    return _capability_references_for_pack("workspace_tasks")
 
 
 def _suite_seed(suite: HeldoutSuite) -> DomainSeed:
@@ -842,12 +957,11 @@ def _counts(task_results: list[HeldoutTaskResult]) -> dict[str, int]:
 def _capability_slices(task_results: list[HeldoutTaskResult]) -> dict[str, dict[str, object]]:
     slices: dict[str, dict[str, int]] = {}
     for result in task_results:
-        for tag in result.capability_tags:
-            current = slices.setdefault(tag, {"total": 0, "passed": 0, "failed": 0})
-            current["total"] += 1
-            current[result.status] += 1
-        for reference in result.capability_references:
-            capability_key = reference.capability_key
+        projection_keys = {
+            *result.capability_tags,
+            *(reference.capability_key for reference in result.capability_references),
+        }
+        for capability_key in projection_keys:
             current = slices.setdefault(
                 capability_key,
                 {"total": 0, "passed": 0, "failed": 0},
@@ -1056,6 +1170,41 @@ def _ensure_quality_report_matches_dataset(
         raise ValueError("quality_report.schema_version is unsupported")
     if quality_report.get("dataset_version") != dataset_version:
         raise ValueError("quality_report.dataset_version must match manifest.dataset_version")
+
+
+def _validate_plan_binding_against_quality(
+    plan_binding: Mapping[str, object] | None,
+    quality_report: Mapping[str, object],
+    *,
+    required: bool,
+) -> None:
+    if plan_binding is None:
+        return
+    quality_evidence = quality_report.get("domain_capability_evidence")
+    if not isinstance(quality_evidence, Mapping):
+        if required:
+            raise ValueError("held-out evaluation quality evidence is not plan-bound")
+        return
+    plan = plan_binding.get("plan")
+    raw_plan_bindings = quality_evidence.get("plan_bindings")
+    raw_capabilities = quality_evidence.get("capability_references")
+    if (
+        not isinstance(plan, Mapping)
+        or raw_plan_bindings != [dict(plan)]
+        or raw_capabilities != plan_binding.get("capability_references")
+    ):
+        raise ValueError("held-out evaluation plan binding disagrees with quality evidence")
+
+
+def _requires_current_plan_binding(manifest: Mapping[str, object]) -> bool:
+    profile = manifest.get("run_profile")
+    if not isinstance(profile, Mapping):
+        return True
+    return profile.get("schema_version") in {
+        "run_profile_v2",
+        "run_profile_v3",
+        "run_profile_v4",
+    }
 
 
 def _failure_cause(exc: Exception, task: HeldoutTask) -> str:

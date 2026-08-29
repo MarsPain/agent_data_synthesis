@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import tempfile
 import unittest
@@ -168,23 +169,64 @@ class ContactsDomainLifecycleTest(unittest.TestCase):
                 DomainAssessmentEvidence(
                     evidence_references=(
                         DomainEvidenceReference(
-                            evidence_id="contacts_lifecycle_attempt_v1",
-                            evidence_schema_version="contacts_lifecycle_attempt_v1",
+                            evidence_id="contacts_evaluation_report",
+                            evidence_schema_version="evaluation_report_v1",
+                            evidence_hash=attempt.evidence_hash,
+                        ),
+                        DomainEvidenceReference(
+                            evidence_id="contacts_release_evidence",
+                            evidence_schema_version="dataset_release_report_v1",
+                            evidence_hash=second.evidence_hash,
+                        ),
+                    ),
+                    evaluation_evidence_references=(
+                        DomainEvidenceReference(
+                            evidence_id="contacts_evaluation_report",
+                            evidence_schema_version="evaluation_report_v1",
                             evidence_hash=attempt.evidence_hash,
                         ),
                     ),
-                    established_capability_references=(
-                        next(
-                            reference
-                            for reference in plan.capability_references
-                            if reference.capability_key == "followup_recording"
+                    release_evidence_references=(
+                        DomainEvidenceReference(
+                            evidence_id="contacts_release_evidence",
+                            evidence_schema_version="dataset_release_report_v1",
+                            evidence_hash=second.evidence_hash,
                         ),
                     ),
+                    established_capability_references=tuple(plan.capability_references),
+                    plan_id=plan.plan_id,
+                    plan_hash=plan.plan_hash,
                 ),
             )
             self.assertIsInstance(assessment, DomainAssessment)
             assert isinstance(assessment, DomainAssessment)
             self.assertEqual(assessment.status, "established")
+
+            insufficient = pack.assess(
+                plan,
+                DomainAssessmentEvidence(
+                    evidence_references=(
+                        DomainEvidenceReference(
+                            evidence_id="contacts_evaluation_report",
+                            evidence_schema_version="evaluation_report_v1",
+                            evidence_hash=attempt.evidence_hash,
+                        ),
+                    ),
+                    evaluation_evidence_references=(
+                        DomainEvidenceReference(
+                            evidence_id="contacts_evaluation_report",
+                            evidence_schema_version="evaluation_report_v1",
+                            evidence_hash=attempt.evidence_hash,
+                        ),
+                    ),
+                    plan_id=plan.plan_id,
+                    plan_hash=plan.plan_hash,
+                ),
+            )
+            self.assertIsInstance(insufficient, DomainAssessment)
+            assert isinstance(insufficient, DomainAssessment)
+            self.assertEqual(insufficient.status, "insufficient_evidence")
+            self.assertEqual(insufficient.reason_code, "evidence_missing")
 
     def test_contacts_open_and_replay_fail_closed_on_binding_drift(self) -> None:
         from synthesis.contacts_domain_pack import ContactsRuntimeScope
@@ -292,6 +334,165 @@ class ContactsDomainLifecycleTest(unittest.TestCase):
                     )
                 ).reason_code,
                 "candidate_contract_drift",
+            )
+
+    def test_contacts_recovery_credit_requires_executed_and_verified_fallback(self) -> None:
+        from synthesis.contacts_evidence import contacts_recovery_evidence
+        from synthesis.candidate_processing import CandidateExecutionRequest
+        from synthesis.seeds import foundation_seed
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _pack, _plan, run, _source_bundle, _source_result, _admitted_source = (
+                self._planned_contacts_run(tmpdir)
+            )
+            assert run is not None
+            candidate = next(
+                item
+                for item in run.generate(foundation_seed())
+                if item.candidate_id == "candidate_contacts_alice_branch_fallback"
+            )
+            attempt = run.attempt(
+                CandidateExecutionRequest(sequence_index=0, raw_task=candidate),
+                dataset_version="dataset_contacts_recovery_evidence",
+            )
+            assert attempt.outcome.sample is not None
+            sample = attempt.outcome.sample
+            self.assertTrue(sample["contacts_evidence"]["recovery"]["verified"])
+
+            status_drift = copy.deepcopy(sample)
+            outcomes = status_drift["lineage"]["branching"]["branch_outcomes"]
+            selected = next(outcome for outcome in outcomes if outcome["selected"])
+            selected["outcome"] = "rejected"
+            self.assertFalse(contacts_recovery_evidence(candidate, status_drift)["verified"])
+
+            verifier_drift = copy.deepcopy(sample)
+            verifier_drift["verification"]["passed"] = False
+            self.assertFalse(
+                contacts_recovery_evidence(candidate, verifier_drift)["verified"]
+            )
+
+    def test_contacts_unverified_recovery_cannot_become_an_accepted_sample(self) -> None:
+        from synthesis.candidate_processing import CandidateExecutionRequest
+        from synthesis.execution import scripted_solution_policy
+        from synthesis.seeds import foundation_seed
+
+        def direct_success_policy(candidate):
+            policy = scripted_solution_policy(candidate)
+            if candidate.candidate_id != "candidate_contacts_alice_branch_fallback":
+                return policy
+            return replace(
+                policy,
+                branch_plan={
+                    "schema_version": "branch_plan_v1",
+                    "plan_id": "branch_plan_contacts_direct_success_only",
+                    "max_depth": 1,
+                    "branches": [
+                        {
+                            "branch_id": "direct_success",
+                            "node_type": "attempt",
+                            "parent_id": None,
+                            "condition": "Use the full contact name directly.",
+                            "steps": [
+                                {
+                                    "tool_name": "lookup_contact_email",
+                                    "arguments": {"name": "Alice Zhang"},
+                                }
+                            ],
+                            "final_response_template": "{name}'s email is {email}.",
+                            "terminal_outcome": "accept_on_success",
+                        }
+                    ],
+                },
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _pack, _plan, run, _source_bundle, _source_result, _admitted_source = (
+                self._planned_contacts_run(tmpdir)
+            )
+            assert run is not None
+            candidate = next(
+                item
+                for item in run.generate(foundation_seed())
+                if item.candidate_id == "candidate_contacts_alice_branch_fallback"
+            )
+            attempt = run.attempt(
+                CandidateExecutionRequest(sequence_index=0, raw_task=candidate),
+                dataset_version="dataset_contacts_recovery_evidence",
+                policy_generator=direct_success_policy,
+            )
+
+        self.assertIsNone(attempt.outcome.sample)
+        self.assertEqual(
+            attempt.outcome.rejection["details"]["membership_reason"],
+            "recovery_evidence_missing",
+        )
+
+    def test_contacts_replay_rejects_bound_plan_and_mutation_evidence_drift(self) -> None:
+        from awm_runtime.episodes import deterministic_content_hash
+        from synthesis.candidate_processing import CandidateExecutionRequest
+        from synthesis.domain_pack import DomainCandidateScope, canonical_domain_pack_hash
+        from synthesis.mutation_admission import canonical_hash
+        from synthesis.seeds import foundation_seed
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _pack, plan, run, _source_bundle, _source_result, _admitted_source = (
+                self._planned_contacts_run(tmpdir)
+            )
+            assert run is not None
+            candidate = next(
+                item
+                for item in run.generate(foundation_seed())
+                if item.candidate_id == "candidate_contacts_alice_followup"
+            )
+            attempt = run.fork(
+                DomainCandidateScope.for_plan(
+                    plan,
+                    candidate_id=candidate.candidate_id,
+                    sequence_index=0,
+                )
+            ).attempt(
+                candidate,
+                dataset_version="dataset_contacts_evidence_drift",
+            )
+            assert attempt.replay_subject is not None
+
+            for field_name, value in (
+                ("mutation", {"evidence_hash": "sha256:" + "0" * 64}),
+                (
+                    "plan",
+                    {
+                        **attempt.replay_subject.episode["contacts_evidence"]["plan"],
+                        "plan_record": {"changed": True},
+                    },
+                ),
+            ):
+                with self.subTest(field=field_name):
+                    episode = copy.deepcopy(attempt.replay_subject.episode)
+                    episode["contacts_evidence"][field_name] = value
+                    drifted = replace(
+                        attempt.replay_subject,
+                        episode=episode,
+                        episode_hash=deterministic_content_hash(episode),
+                    )
+                    self.assertEqual(
+                        run.replay(drifted).reason_code,
+                        "replay_evidence_mismatch",
+                    )
+
+            episode = copy.deepcopy(attempt.replay_subject.episode)
+            binding = episode["contacts_evidence"]
+            verification = binding["verification"]
+            verification["checks"][0]["actual"] = "tampered"
+            binding["verification_hash"] = canonical_domain_pack_hash(verification)
+            binding["final_state"]["verification_hash"] = canonical_hash(verification)
+            drifted = replace(
+                attempt.replay_subject,
+                episode=episode,
+                episode_hash=deterministic_content_hash(episode),
+            )
+            self.assertEqual(
+                run.replay(drifted).reason_code,
+                "replay_verification_failed",
             )
 
     def test_fixture_and_governed_local_contacts_pipeline_use_domain_binding(self) -> None:

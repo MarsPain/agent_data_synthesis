@@ -27,8 +27,10 @@ from synthesis.candidate_processing import (
     process_candidate_through_gates,
 )
 from synthesis.contacts_evidence import (
+    assess_contacts_domain_evidence,
     build_contacts_evidence_binding,
     canonical_capability_references,
+    contacts_assignment_capability_references,
     contacts_task_capability_references,
     contacts_task_contract_hash,
 )
@@ -48,8 +50,11 @@ from synthesis.domain_generation import (
 )
 from synthesis.domain_pack import (
     AdmittedSource,
+    AssessmentFailure,
     DomainCapabilityReference,
     DomainCandidateScope,
+    DomainAssessment,
+    DomainAssessmentEvidence,
     DomainPack,
     DomainPackContractError,
     DomainPackReference,
@@ -316,6 +321,13 @@ def open_contacts_domain_run(
 class _ContactsLifecycle:
     def __init__(self, *, descriptor_runtime: DomainRuntimeContractReference) -> None:
         self._descriptor_runtime = descriptor_runtime
+
+    def assess(
+        self,
+        plan: DomainPlan,
+        exact_evidence: object,
+    ) -> DomainAssessment | AssessmentFailure:
+        return assess_contacts_domain_evidence(plan, exact_evidence)
 
     def open(
         self,
@@ -730,6 +742,19 @@ class ContactsDomainRun:
                 accepted = isinstance(outcome, Mapping) and outcome.get("status") == "accepted"
                 if accepted and not verification.passed:
                     return ContactsReplayResult("rejected", "replay_verification_failed")
+                if not accepted and verification.passed:
+                    return ContactsReplayResult("rejected", "replay_verification_failed")
+                binding = subject.episode.get("contacts_evidence")
+                stored_verification = (
+                    binding.get("verification")
+                    if isinstance(binding, Mapping)
+                    else None
+                )
+                if accepted and (
+                    not isinstance(stored_verification, Mapping)
+                    or dict(stored_verification) != verification.export()
+                ):
+                    return ContactsReplayResult("rejected", "replay_verification_failed")
                 return ContactsReplayResult(
                     "passed",
                     "replay_verified",
@@ -1135,6 +1160,10 @@ def _bind_contacts_outcome(
                 if isinstance(outcome.episode_log, Mapping)
                 else outcome.episode_log
             )
+            core_episode = _contacts_episode_with_mutation_hash(
+                core_episode,
+                sample.get("mutation_admission"),
+            )
             binding = build_contacts_evidence_binding(
                 plan=plan,
                 candidate=candidate,
@@ -1150,10 +1179,23 @@ def _bind_contacts_outcome(
                 assignment=assignment,
                 candidate_scope=_candidate_scope_record(candidate_scope),
             )
+            if _contacts_recovery_requires_verified_evidence(binding) and not (
+                isinstance(binding.get("recovery"), Mapping)
+                and binding["recovery"].get("verified") is True
+            ):
+                episode = _episode_with_contacts_binding(core_episode, binding)
+                return replace(
+                    outcome,
+                    sample=None,
+                    rejection=_recovery_evidence_rejection(
+                        outcome=outcome,
+                        candidate=candidate,
+                        binding=binding,
+                    ),
+                    episode_log=episode,
+                )
             _attach_contacts_binding_to_sample(sample, binding)
-            episode = dict(core_episode) if isinstance(core_episode, Mapping) else None
-            if episode is not None:
-                episode["contacts_evidence"] = dict(binding)
+            episode = _episode_with_contacts_binding(core_episode, binding)
             return replace(outcome, sample=sample, episode_log=episode)
         except (ContractValidationError, DomainPackContractError, ValueError):
             return replace(
@@ -1203,8 +1245,71 @@ def _bind_contacts_outcome(
         )
     details["contacts_evidence"] = binding
     details["domain_evidence"] = binding
+    if assignment is not None:
+        details["coverage_assignment"] = dict(assignment)
     rejection["details"] = details
-    return replace(outcome, rejection=rejection)
+    return replace(
+        outcome,
+        rejection=rejection,
+        episode_log=_episode_with_contacts_binding(outcome.episode_log, binding),
+    )
+
+
+def _contacts_recovery_requires_verified_evidence(
+    binding: Mapping[str, object],
+) -> bool:
+    references = binding.get("task_capability_references")
+    return isinstance(references, list) and any(
+        isinstance(reference, Mapping)
+        and reference.get("capability_key") == "contact_lookup_recovery"
+        for reference in references
+    )
+
+
+def _episode_with_contacts_binding(
+    episode: Mapping[str, object] | None,
+    binding: Mapping[str, object],
+) -> dict[str, object] | None:
+    if not isinstance(episode, Mapping):
+        return None
+    retained = dict(episode)
+    retained["contacts_evidence"] = dict(binding)
+    return retained
+
+
+def _contacts_episode_with_mutation_hash(
+    episode: Mapping[str, object] | None,
+    mutation: object,
+) -> dict[str, object] | None:
+    if not isinstance(episode, Mapping):
+        return None
+    retained = dict(episode)
+    retained["contacts_mutation_evidence_hash"] = (
+        canonical_hash(mutation) if isinstance(mutation, Mapping) else None
+    )
+    return retained
+
+
+def _recovery_evidence_rejection(
+    *,
+    outcome: ProvisionalCandidateOutcome,
+    candidate: CandidateTask,
+    binding: Mapping[str, object],
+) -> dict[str, object]:
+    details: dict[str, object] = {
+        "membership_reason": "recovery_evidence_missing",
+        "contacts_evidence": dict(binding),
+        "domain_evidence": dict(binding),
+    }
+    assignment = _candidate_assignment_lineage(candidate)
+    if assignment is not None:
+        details["coverage_assignment"] = dict(assignment)
+    return {
+        "candidate_id": outcome.candidate_id,
+        "cause": "domain_plan_membership_rejected",
+        "task": candidate.export(),
+        "details": details,
+    }
 
 
 def _attach_contacts_binding_to_sample(
@@ -1395,15 +1500,21 @@ def _contacts_episode_binding_matches(
         or plan_binding.get("plan_hash") != plan.plan_hash
     ):
         return False
+    if plan_binding.get("plan_record") != plan.to_record():
+        return False
+    if binding.get("component_contracts") != [
+        component.to_record() for component in plan.component_contracts
+    ]:
+        return False
     if binding.get("source") != plan.admitted_source.to_record():
         return False
     if binding.get("candidate_scope") != _candidate_scope_record(candidate_scope):
         return False
     if binding.get("runtime_contract") != plan.runtime_contract.to_record():
         return False
-    if binding.get("capability_references") != [
-        reference.to_record() for reference in plan.capability_references
-    ]:
+    if binding.get("capability_references") != canonical_capability_references(
+        tuple(plan.capability_references)
+    ):
         return False
     if binding.get("verifier") != {
         "id": verifier.verifier_id,
@@ -1417,27 +1528,36 @@ def _contacts_episode_binding_matches(
         contract = candidate.contract()
     except ContractValidationError:
         return False
-    assignment = binding.get("assignment")
-    if assignment is not None:
-        if not isinstance(assignment, Mapping):
+    try:
+        expected_task_capabilities = canonical_capability_references(
+            contacts_task_capability_references(plan, candidate)
+        )
+    except (ContractValidationError, DomainPackContractError, ValueError):
+        return False
+    if binding.get("task_capability_references") != expected_task_capabilities:
+        return False
+    expected_assignment = _candidate_assignment_lineage(
+        _without_legacy_input_marker(candidate)
+    )
+    if binding.get("assignment") != (
+        dict(expected_assignment) if expected_assignment is not None else None
+    ):
+        return False
+    if binding.get("assignment_capability_references") != (
+        contacts_assignment_capability_references(expected_assignment)
+    ):
+        return False
+    if expected_assignment is not None:
+        assignment_catalog = expected_assignment.get("catalog")
+        if not isinstance(assignment_catalog, Mapping):
             return False
-        if binding.get("assignment_capability_references") != (
-            canonical_capability_references(tuple(contract.intent.capability_references))
-            if assignment.get("catalog") is not None
-            else []
+        if assignment_catalog.get("capability_references") != expected_task_capabilities:
+            return False
+        if (
+            expected_assignment.get("plan_id") != plan.plan_id
+            or expected_assignment.get("plan_hash") != plan.plan_hash
         ):
-            # Assignment capability references are checked against the durable
-            # catalog by membership; absence is valid for non-coverage runs.
-            catalog = assignment.get("catalog")
-            assignment_refs = (
-                catalog.get("capability_references")
-                if isinstance(catalog, Mapping)
-                else None
-            )
-            if assignment_refs != canonical_capability_references(
-                tuple(contract.intent.capability_references)
-            ):
-                return False
+            return False
     final_state = binding.get("final_state")
     if not isinstance(final_state, Mapping):
         return False
@@ -1450,6 +1570,59 @@ def _contacts_episode_binding_matches(
     ]
     if final_state.get("expected_state_hash") != canonical_domain_pack_hash(
         expected_state
+    ):
+        return False
+    expected_grounding = {
+        "primary_arguments_hash": canonical_domain_pack_hash(
+            dict(contract.policy_hint.primary_arguments)
+        ),
+        "expected_state_hash": canonical_domain_pack_hash(expected_state),
+        "expected_answer_hash": canonical_domain_pack_hash(
+            contract.expected_outcome.final_answer_contains
+        ),
+    }
+    if binding.get("grounding") != expected_grounding:
+        return False
+    verification = binding.get("verification")
+    if not isinstance(verification, Mapping):
+        return False
+    if binding.get("verification_hash") != canonical_domain_pack_hash(
+        dict(verification)
+    ):
+        return False
+    if final_state.get("verification_hash") != canonical_hash(dict(verification)):
+        return False
+    if final_state.get("verification_passed") is not (
+        verification.get("passed") is True
+    ):
+        return False
+    mutation = binding.get("mutation")
+    if mutation is not None:
+        if not isinstance(mutation, Mapping):
+            return False
+        evidence_hash = mutation.get("evidence_hash")
+        if not isinstance(evidence_hash, str) or re.fullmatch(
+            r"sha256:[0-9a-f]{64}", evidence_hash
+        ) is None:
+            return False
+        if episode.get("contacts_mutation_evidence_hash") != evidence_hash:
+            return False
+    elif episode.get("contacts_mutation_evidence_hash") is not None:
+        return False
+    recovery = binding.get("recovery")
+    if not isinstance(recovery, Mapping):
+        return False
+    episode_outcome = episode.get("outcome")
+    accepted = (
+        isinstance(episode_outcome, Mapping)
+        and episode_outcome.get("status") == "accepted"
+    )
+    if not accepted and dict(verification):
+        return False
+    if (
+        _contacts_recovery_requires_verified_evidence(binding)
+        and accepted
+        and recovery.get("verified") is not True
     ):
         return False
     binding_episode = binding.get("episode")

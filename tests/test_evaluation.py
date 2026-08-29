@@ -26,6 +26,42 @@ class HeldoutEvaluationTest(unittest.TestCase):
             ],
         )
         self.assertTrue(all(task.capability_tags for task in suite.tasks))
+        self.assertEqual(
+            {
+                reference.capability_key
+                for reference in suite.capability_references
+            },
+            {
+                "contact_lookup",
+                "followup_recording",
+                "contact_lookup_recovery",
+                "missing_contact_safe_failure",
+            },
+        )
+        self.assertEqual(
+            {
+                task.task_id: {
+                    reference.capability_key
+                    for reference in task.capability_references
+                }
+                for task in suite.tasks
+            },
+            {
+                "heldout_contacts_lookup_alice": {"contact_lookup"},
+                "heldout_contacts_lookup_ben": {"contact_lookup"},
+                "heldout_contacts_followup_ben": {
+                    "contact_lookup",
+                    "followup_recording",
+                },
+                "heldout_contacts_branch_fallback_alice": {
+                    "contact_lookup",
+                    "contact_lookup_recovery",
+                },
+                "heldout_contacts_missing_contact": {
+                    "missing_contact_safe_failure",
+                },
+            },
+        )
 
     def test_contacts_suite_has_domain_identity(self) -> None:
         from synthesis.evaluation import contacts_heldout_suite, resolve_heldout_suite
@@ -122,18 +158,89 @@ class HeldoutEvaluationTest(unittest.TestCase):
         self.assertEqual(report["rates"]["pass_rate"], 1.0)
         self.assertEqual(
             report["capability_slices"]["contact_lookup"],
-            {"total": 2, "passed": 2, "failed": 0, "pass_rate": 1.0},
+            {"total": 4, "passed": 4, "failed": 0, "pass_rate": 1.0},
         )
         self.assertEqual(report["capability_slices"]["missing_contact"]["passed"], 1)
         self.assertEqual(report["capability_slices"]["missing_contact"]["failed"], 0)
+        self.assertEqual(
+            report["capability_slices"]["missing_contact_safe_failure"]["passed"],
+            1,
+        )
+        self.assertEqual(
+            {
+                reference["capability_key"]
+                for reference in report["capability_references"]
+            },
+            {
+                "contact_lookup",
+                "followup_recording",
+                "contact_lookup_recovery",
+                "missing_contact_safe_failure",
+            },
+        )
         task_result = {
             result["task_id"]: result for result in report["task_results"]
         }["heldout_contacts_missing_contact"]
+        self.assertEqual(
+            task_result["capability_references"][0]["capability_key"],
+            "missing_contact_safe_failure",
+        )
         self.assertEqual(task_result["status"], "passed")
         self.assertEqual(task_result["expected_outcome"], "controlled_failure")
         self.assertEqual(task_result["observed_failure_cause"], "verification_failed")
         self.assertEqual(report["decision"]["status"], "passed")
         validate_evaluation_report_record(report)
+
+    def test_current_contacts_evaluation_binds_the_manifest_domain_plan(self) -> None:
+        from synthesis.coverage_assignments import (
+            build_coverage_assignment_scheduler_factory,
+        )
+        from synthesis.evaluation import build_evaluation_report
+        from synthesis.pipeline import run_foundation_pipeline
+        from synthesis.run_profiles import load_run_profile
+        from tests.test_coverage_assignment_pipeline import AssignmentAwareFakeProvider
+
+        profile = load_run_profile(
+            Path("tests/fixtures/run_profiles/contacts-coverage-tracer.json")
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_foundation_pipeline(
+                Path(tmpdir),
+                dataset_version=profile.dataset_version,
+                coverage_scheduler_factory=(
+                    build_coverage_assignment_scheduler_factory(
+                        AssignmentAwareFakeProvider()
+                    )
+                ),
+                seed_override=profile.seed,
+                run_profile_metadata=profile.sanitized_metadata(),
+                run_profile=profile,
+            )
+            report = build_evaluation_report(
+                manifest_path=result.manifest_path,
+                quality_report_path=result.quality_report_path,
+            )
+
+        self.assertEqual(
+            report["plan_binding"]["domain_pack_reference"]["domain_pack_id"],
+            "contacts",
+        )
+        self.assertEqual(
+            report["plan_binding"]["runtime_contract"]["runtime_id"],
+            "contacts_fixture",
+        )
+        self.assertEqual(
+            {
+                reference["capability_key"]
+                for reference in report["plan_binding"]["capability_references"]
+            },
+            {
+                "contact_lookup",
+                "followup_recording",
+                "contact_lookup_recovery",
+                "missing_contact_safe_failure",
+            },
+        )
 
     def test_mobile_report_counts_slices_and_validates(self) -> None:
         from synthesis.contracts import validate_evaluation_report_record
