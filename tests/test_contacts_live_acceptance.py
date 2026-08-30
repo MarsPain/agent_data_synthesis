@@ -115,6 +115,34 @@ class ContactsLiveAcceptanceContractTest(unittest.TestCase):
         ):
             authorization.validate(profile=profile, plan_attempt_ceiling=10)
 
+    def test_authorization_rejects_unknown_contacts_profile_fields(self) -> None:
+        from synthesis.contacts_live_acceptance import (
+            LiveContactsAcceptanceAuthorization,
+            LiveContactsAcceptanceError,
+        )
+
+        profile = self._profile().canonical()
+        profile["features"] = {
+            **profile["features"],
+            "enable_unreviewed_feature": False,
+        }
+        authorization = LiveContactsAcceptanceAuthorization(
+            approved=True,
+            authorization_id="contacts-live-profile-fields-20260830",
+            candidate_budget=10,
+            attempt_budget=10,
+            generator_provider="openai_compatible",
+            generator_model="contacts-generator-test-model",
+            mutation_judge_provider="openai_compatible",
+            mutation_judge_model="deterministic_contacts_mutation_judge_v1",
+        )
+
+        with self.assertRaisesRegex(
+            LiveContactsAcceptanceError,
+            "contacts_live_release_profile_invalid",
+        ):
+            authorization.validate(profile=profile, plan_attempt_ceiling=10)
+
     def test_failed_preflight_writes_bounded_failure_before_generation(self) -> None:
         from synthesis.contacts_live_acceptance import (
             LiveContactsAcceptanceAuthorization,
@@ -189,7 +217,10 @@ class ContactsLiveAcceptanceContractTest(unittest.TestCase):
     def test_injected_live_contacts_run_builds_real_live_proof_and_replays_offline(
         self,
     ) -> None:
-        from synthesis.contacts_live_acceptance import run_live_contacts_acceptance
+        from synthesis.contacts_live_acceptance import (
+            run_live_contacts_acceptance,
+            verify_live_contacts_acceptance_proof,
+        )
 
         def response(content: object) -> httpx.Response:
             return httpx.Response(
@@ -344,8 +375,27 @@ class ContactsLiveAcceptanceContractTest(unittest.TestCase):
                 result.provider_evidence_path.read_text(encoding="utf-8")
             )
             proof = json.loads(result.proof_path.read_text(encoding="utf-8"))
+            offline_verification = verify_live_contacts_acceptance_proof(
+                result.proof_path
+            )
+            from scripts.verify_contacts_acceptance_proof import main as verify_main
+
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "verify_contacts_acceptance_proof.py",
+                    str(result.proof_path),
+                    "--real-live",
+                ],
+            ):
+                offline_cli_status = verify_main()
 
         self.assertEqual(result.replay["provider_calls"], 0)
+        self.assertEqual(result.replay["accepted_attempt_count"], 5)
+        self.assertEqual(result.replay["rejected_attempt_count"], 0)
+        self.assertEqual(offline_verification["status"], "passed")
+        self.assertEqual(offline_cli_status, 0)
         self.assertEqual(result.qualification["effective_qualification"], "release_candidate")
         self.assertEqual(provider["evidence_class"], "real_live")
         self.assertEqual(provider["usage"]["replayable_calls"], 5)
@@ -354,6 +404,149 @@ class ContactsLiveAcceptanceContractTest(unittest.TestCase):
         self.assertNotIn("api_key", serialized)
         self.assertNotIn("raw_prompt", serialized)
         self.assertNotIn("provider_payload", serialized)
+
+    def test_frozen_live_evidence_rejects_logical_or_retry_budget_drift(self) -> None:
+        from synthesis.contacts_live_acceptance import (
+            LiveContactsAcceptanceAuthorization,
+            SanitizedProviderEvidenceRecorder,
+            validate_live_provider_evidence,
+        )
+
+        provider = {
+            "provider_id": "openai_compatible",
+            "provider_version": "openai_compatible_client_v1",
+            "provider_host": "llm.example.test",
+            "model": "contacts-generator-test-model",
+            "config_hash": "sha256:" + "1" * 64,
+            "parser_version": "domain_generation_parser_v1",
+        }
+        judge = {
+            "provider": "openai_compatible",
+            "provider_host": "llm.example.test",
+            "model": "deterministic_contacts_mutation_judge_v1",
+            "config_hash": "sha256:" + "2" * 64,
+            "role": "mutation_admission_judge",
+            "role_version": "role_mutation_admission_judge_v1",
+        }
+        run_binding = {
+            "profile_id": "contacts_release_candidate",
+            "dataset_version": "dataset_contacts_release_candidate_v1",
+            "seed_id": "seed_contacts_release_candidate_v1",
+            "seed_domain": "contacts_fixture",
+            "plan_id": "contacts_plan",
+            "plan_hash": "sha256:" + "3" * 64,
+            "coverage_plan_id": "contacts_coverage_plan",
+            "coverage_plan_hash": "sha256:" + "4" * 64,
+            "source_policy_hash": "sha256:" + "5" * 64,
+        }
+
+        def freeze_evidence(
+            *, attempt_budget: int, retry_limit: int, attempts: list[dict[str, object]]
+        ) -> dict[str, object]:
+            authorization = LiveContactsAcceptanceAuthorization(
+                approved=True,
+                authorization_id="contacts-live-budget-drift-20260830",
+                candidate_budget=attempt_budget,
+                attempt_budget=attempt_budget,
+                generator_provider="openai_compatible",
+                generator_model="contacts-generator-test-model",
+                mutation_judge_provider="openai_compatible",
+                mutation_judge_model="deterministic_contacts_mutation_judge_v1",
+                generator_retry_limit=retry_limit,
+            )
+            recorder = SanitizedProviderEvidenceRecorder(
+                authorization=authorization,
+                provider_identity=provider,
+                mutation_judge_identity=judge,
+            )
+            for attempt in attempts:
+                recorder.record_attempt(
+                    assignment={"assignment_id": attempt["assignment_id"]},
+                    request_hash=attempt["request_hash"],
+                    response={"task_contracts": []},
+                    response_hash=None,
+                    outcome="validated",
+                    usage={},
+                    retry_count=attempt["retry_count"],
+                )
+            recorder.set_mutation_judge_usage(
+                {
+                    "attempts": 1,
+                    "attempt_ceiling": 1,
+                    "tokens": {},
+                    "outcomes": {"response_received": 1},
+                }
+            )
+            with tempfile.TemporaryDirectory() as tmpdir:
+                return recorder.freeze(
+                    Path(tmpdir) / "provider.json",
+                    qualification={
+                        "status": "passed",
+                        "effective_qualification": "release_candidate",
+                        "claims": {
+                            "publishable": False,
+                            "training_recommended": False,
+                        },
+                    },
+                    release_pack_verification={"status": "passed"},
+                    release_pack_hash="sha256:" + "6" * 64,
+                    run_binding=run_binding,
+                )
+
+        with self.subTest(boundary="per_attempt_retry_limit"):
+            evidence = freeze_evidence(
+                attempt_budget=1,
+                retry_limit=0,
+                attempts=[
+                    {
+                        "assignment_id": "assignment_1",
+                        "request_hash": "sha256:" + "7" * 64,
+                        "retry_count": 0,
+                    }
+                ],
+            )
+            evidence["attempts"][0]["retry_count"] = 1
+            with self.assertRaisesRegex(ValueError, "live_usage_malformed"):
+                validate_live_provider_evidence(evidence)
+
+        with self.subTest(boundary="logical_call_budget"):
+            evidence = freeze_evidence(
+                attempt_budget=2,
+                retry_limit=1,
+                attempts=[
+                    {
+                        "assignment_id": "assignment_1",
+                        "request_hash": "sha256:" + "8" * 64,
+                        "retry_count": 0,
+                    },
+                    {
+                        "assignment_id": "assignment_2",
+                        "request_hash": "sha256:" + "9" * 64,
+                        "retry_count": 0,
+                    },
+                ],
+            )
+            evidence["authorization"]["attempt_budget"] = 1
+            evidence["usage"]["physical_call_ceiling"] = 2
+            with self.assertRaisesRegex(ValueError, "live_usage_malformed"):
+                validate_live_provider_evidence(evidence)
+
+    def test_offline_verifier_cli_requires_explicit_real_live_contract(self) -> None:
+        from scripts.verify_contacts_acceptance_proof import parse_args
+
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "verify_contacts_acceptance_proof.py",
+                "artifacts/contacts-proof",
+                "--real-live",
+            ],
+        ):
+            args = parse_args()
+
+        self.assertEqual(args.proof_root, Path("artifacts/contacts-proof"))
+        self.assertTrue(args.real_live)
 
     def test_live_budget_failure_is_recorded_without_provider_work(self) -> None:
         from synthesis.contacts_live_acceptance import (

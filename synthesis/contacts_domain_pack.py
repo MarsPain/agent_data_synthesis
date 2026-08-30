@@ -1553,11 +1553,6 @@ def _contacts_episode_binding_matches(
             return False
         if assignment_catalog.get("capability_references") != expected_task_capabilities:
             return False
-        if (
-            expected_assignment.get("plan_id") != plan.plan_id
-            or expected_assignment.get("plan_hash") != plan.plan_hash
-        ):
-            return False
     final_state = binding.get("final_state")
     if not isinstance(final_state, Mapping):
         return False

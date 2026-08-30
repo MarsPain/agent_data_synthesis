@@ -45,6 +45,7 @@ uv run python scripts/export_mutation_calibration_packet.py --corpus-version mut
 uv run python scripts/import_mutation_calibration_labels.py --packet artifacts/mutation-calibration/mutation_calibration_review_packet.json --split-freeze artifacts/mutation-calibration/mutation_calibration_split_freeze.json --labels artifacts/mutation-calibration/human_labels.jsonl --output artifacts/mutation-calibration/reviewed_mutation_calibration_corpus.json
 uv run python scripts/run_workspace_live_acceptance.py --authorize-live-provider --authorization-id <id> --candidate-budget 24 --attempt-budget 24 --generator-model <generator-model> --mutation-judge-model <independent-judge-model>
 uv run python scripts/run_contacts_live_acceptance.py --authorize-live-provider --authorization-id <id> --candidate-budget 10 --attempt-budget 10 --generator-model <generator-model> --mutation-judge-model deterministic_contacts_mutation_judge_v1
+uv run python scripts/verify_contacts_acceptance_proof.py artifacts/<contacts-proof> --real-live
 uv run python scripts/validate_docs.py
 uv run python -m unittest
 ```

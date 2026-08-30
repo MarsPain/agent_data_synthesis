@@ -100,6 +100,8 @@ uv run python main.py \
   command bound to the exact Contacts Release Candidate profile. It freezes
   only sanitized `real_live` evidence after qualification and is documented in
   the [Contacts operator procedure](docs/OPERATIONS.md#live-contacts-release-candidate-acceptance).
+  Verify a resulting proof offline with
+  `scripts/verify_contacts_acceptance_proof.py --real-live`.
 
 All non-default artifact families are opt-ins. Evidence and qualification
 artifacts do not themselves publish a dataset, authorize training, or prove a

@@ -297,6 +297,11 @@ class ContactsAcceptanceProofTest(unittest.TestCase):
                 sum(item["outcome"] == "rejected" for item in provider["attempts"]),
                 1,
             )
+            self.assertEqual(result.replay["accepted_attempt_count"], 5)
+            self.assertEqual(result.replay["rejected_attempt_count"], 1)
+        else:
+            self.assertEqual(result.replay["accepted_attempt_count"], 5)
+            self.assertEqual(result.replay["rejected_attempt_count"], 0)
         self.assertEqual(result.qualification["effective_qualification"], "release_candidate")
         self.assertEqual(proof_result["status"], "passed")
         self.assertEqual(proof["summary"]["effective_qualification"], "release_candidate")

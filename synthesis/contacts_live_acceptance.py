@@ -106,6 +106,50 @@ _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,239}$")
 _AUTHORIZATION_ID_RE = re.compile(r"^[a-z][a-z0-9_.:-]{2,127}$")
 _REASON_RE = re.compile(r"^[a-z][a-z0-9_.:-]{1,127}$")
 
+_EXACT_CONTACTS_RELEASE_PROFILE: dict[str, object] = {
+    "schema_version": "run_profile_v4",
+    "profile_id": CONTACTS_RELEASE_CANDIDATE_PROFILE_ID,
+    "dataset_version": CONTACTS_RELEASE_CANDIDATE_DATASET_VERSION,
+    "profile_purpose": "release_candidate",
+    "seed": {
+        "seed_id": "seed_contacts_release_candidate_v1",
+        "domain": "contacts_fixture",
+        "description": "Canonical Contacts release-candidate evidence profile.",
+        "task_taxonomy": [
+            "contact_lookup",
+            "contact_followup",
+            "contact_lookup_recovery",
+        ],
+    },
+    "generation": {
+        "mode": "foundation_fixture",
+        "target_candidate_count": CONTACTS_RELEASE_TARGET_CANDIDATES,
+    },
+    "features": {
+        "enable_branching": True,
+        "enable_task_expansion": False,
+        "enable_refinement": False,
+        "enable_mcp_adapter": False,
+        "enable_sandbox_fixture": False,
+        "enable_source_governance_fixture": False,
+    },
+    "mutation_admission": {
+        "mode": "enforce",
+        "judge": {
+            "role": "mutation_admission_judge",
+            "provider": "openai_compatible",
+            "model": "deterministic_contacts_mutation_judge_v1",
+            "timeout_seconds": 1.0,
+            "max_retries": 0,
+        },
+    },
+    "coverage_profile": {
+        "profile_id": "contacts_representative",
+        "version": "contacts_representative_v1",
+        "target_accepted_sample_count": CONTACTS_RELEASE_TARGET_ACCEPTED_SAMPLES,
+    },
+}
+
 
 class LiveContactsAcceptanceError(ContactsAcceptanceError):
     """A bounded failure at the authorized live Contacts boundary."""
@@ -167,55 +211,11 @@ class LiveContactsAcceptanceAuthorization:
         ):
             raise LiveContactsAcceptanceError("contacts_live_attempt_budget_exceeded")
 
-        generation = profile.get("generation")
-        seed = profile.get("seed")
-        features = profile.get("features")
-        mutation = profile.get("mutation_admission")
-        coverage = profile.get("coverage_profile")
-        if (
-            profile.get("schema_version")
-            != "run_profile_v4"
-            or profile.get("profile_id") != CONTACTS_RELEASE_CANDIDATE_PROFILE_ID
-            or profile.get("dataset_version")
-            != CONTACTS_RELEASE_CANDIDATE_DATASET_VERSION
-            or profile.get("profile_purpose") != "release_candidate"
-            or not isinstance(generation, Mapping)
-            or generation.get("mode") != "foundation_fixture"
-            or generation.get("target_candidate_count")
-            != CONTACTS_RELEASE_TARGET_CANDIDATES
-            or not isinstance(seed, Mapping)
-            or seed.get("domain") != "contacts_fixture"
-            or seed.get("seed_id") != "seed_contacts_release_candidate_v1"
-            or seed.get("description")
-            != "Canonical Contacts release-candidate evidence profile."
-            or seed.get("task_taxonomy")
-            != [
-                "contact_lookup",
-                "contact_followup",
-                "contact_lookup_recovery",
-            ]
-            or not isinstance(features, Mapping)
-            or features.get("enable_branching") is not True
-            or any(
-                features.get(feature_name, False) is not False
-                for feature_name in (
-                    "enable_task_expansion",
-                    "enable_refinement",
-                    "enable_mcp_adapter",
-                    "enable_sandbox_fixture",
-                    "enable_source_governance_fixture",
-                )
-            )
-            or not isinstance(mutation, Mapping)
-            or mutation.get("mode") != "enforce"
-            or not isinstance(coverage, Mapping)
-            or coverage.get("profile_id") != "contacts_representative"
-            or coverage.get("version") != "contacts_representative_v1"
-            or coverage.get("target_accepted_sample_count")
-            != CONTACTS_RELEASE_TARGET_ACCEPTED_SAMPLES
-            or coverage.get("overrides", {}) != {}
-        ):
+        if not isinstance(profile, Mapping) or dict(profile) != _EXACT_CONTACTS_RELEASE_PROFILE:
             raise LiveContactsAcceptanceError("contacts_live_release_profile_invalid")
+        generation = profile["generation"]
+        mutation = profile["mutation_admission"]
+        judge = mutation["judge"]
         target = generation.get("target_candidate_count")
         if (
             not isinstance(target, int)
@@ -224,7 +224,6 @@ class LiveContactsAcceptanceAuthorization:
             or target > self.candidate_budget
         ):
             raise LiveContactsAcceptanceError("contacts_live_candidate_budget_exceeded")
-        judge = mutation.get("judge")
         if not isinstance(judge, Mapping):
             raise LiveContactsAcceptanceError(
                 "contacts_live_mutation_judge_identity_required"
@@ -342,6 +341,15 @@ def replay_sanitized_provider_evidence(
         )
     except AcceptanceReplayError as exc:
         raise LiveContactsAcceptanceError(_map_reason(exc.reason_code)) from None
+
+
+def verify_live_contacts_acceptance_proof(proof_path: Path) -> dict[str, object]:
+    """Verify a frozen real-live Contacts proof without provider access."""
+
+    return verify_contacts_acceptance_proof(
+        Path(proof_path),
+        evidence_contract=_CONTACTS_LIVE_ACCEPTANCE_CONTRACT,
+    )
 
 
 def _map_reason(reason_code: str) -> str:
@@ -1273,6 +1281,7 @@ sanitize_contacts_provider_response = sanitize_provider_response
 validate_contacts_provider_evidence = validate_live_provider_evidence
 load_contacts_live_provider_evidence = load_live_provider_evidence
 replay_contacts_provider_evidence = replay_sanitized_provider_evidence
+verify_contacts_live_acceptance_proof = verify_live_contacts_acceptance_proof
 validate_provider_evidence = validate_live_provider_evidence
 load_provider_evidence = load_live_provider_evidence
 
@@ -1310,6 +1319,8 @@ __all__ = [
     "load_provider_evidence",
     "replay_contacts_provider_evidence",
     "replay_sanitized_provider_evidence",
+    "verify_contacts_live_acceptance_proof",
+    "verify_live_contacts_acceptance_proof",
     "run_contacts_live_acceptance",
     "run_live_contacts_acceptance",
     "sanitize_provider_response",

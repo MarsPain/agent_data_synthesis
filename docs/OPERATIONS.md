@@ -201,6 +201,16 @@ provider, parser, judge, budget, pipeline, release-evidence, or qualification
 paths retain only a bounded failure record; no response, prompt, credential,
 source payload, or proof root is reusable from the failure.
 
+After a successful run, verify the copied proof in a clean offline process. The
+`--real-live` flag selects the frozen real-provider evidence contract explicitly;
+the verifier does not load provider credentials or make network requests:
+
+```bash
+uv run python scripts/verify_contacts_acceptance_proof.py \
+  artifacts/contacts-live-acceptance-<date>-proof \
+  --real-live
+```
+
 This path is opt-in and does not alter the provider-free default commands,
 semantic-mutation activation thresholds, publication authority, or downstream
 training claims. The proof establishes at most a Contacts Release Candidate.

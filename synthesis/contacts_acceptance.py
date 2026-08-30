@@ -1266,8 +1266,45 @@ def _replay_contacts_attempts(
         build_generation_batch_context,
         parse_domain_task_contracts,
     )
+    from synthesis.coverage_assignments import (
+        _assignment_generation_spec,
+        _build_coverage_assignment,
+        _single_provider_record,
+        _validate_assignment_membership,
+        _with_locally_derived_difficulty,
+    )
+    from synthesis.coverage_registry import resolve_domain_coverage_planning
     from synthesis.execution import scripted_solution_policy
     from synthesis.llm import LLMConfig
+
+    coverage_plan = preview_coverage_plan(profile)
+    catalog_version = coverage_plan.catalog.get("version")
+    if not isinstance(catalog_version, str):
+        raise ContactsAcceptanceError("contacts_coverage_plan_drift")
+    try:
+        catalog = resolve_domain_coverage_planning(
+            profile.seed.domain
+        ).resolve_catalog(catalog_version)
+    except Exception as exc:
+        raise ContactsAcceptanceError("contacts_coverage_plan_drift") from exc
+    if run.generation_spec is None:
+        raise ContactsAcceptanceError("contacts_generation_contract_missing")
+    cells = {cell.cell_id: cell for cell in catalog.cells}
+    provider_identity = loaded.get("provider")
+    if not isinstance(provider_identity, Mapping):
+        raise ContactsAcceptanceError("contacts_provider_evidence_malformed")
+    replay_generator_lineage = {
+        "role": "task_generation",
+        "role_version": "role_task_generation_v1",
+        "provider_host": provider_identity.get("provider_host"),
+        "model": provider_identity.get("model"),
+        "config_hash": provider_identity.get("config_hash"),
+    }
+    if any(
+        not isinstance(value, str) or not value
+        for value in replay_generator_lineage.values()
+    ):
+        raise ContactsAcceptanceError("contacts_provider_evidence_malformed")
 
     processed = 0
     replayed_contracts = 0
@@ -1290,6 +1327,43 @@ def _replay_contacts_attempts(
             raise ContactsAcceptanceError("contacts_assignment_membership_mismatch")
         if assignment_lineage.get("assignment_id") != raw_attempt.get("assignment_id"):
             raise ContactsAcceptanceError("contacts_assignment_membership_mismatch")
+        ordinal = assignment.get("assignment_ordinal")
+        cell_id = assignment.get("cell_id")
+        grounding_scope = assignment.get("grounding_scope")
+        grounding_index = (
+            grounding_scope.get("unit_index")
+            if isinstance(grounding_scope, Mapping)
+            else None
+        )
+        cell = cells.get(cell_id) if isinstance(cell_id, str) else None
+        if (
+            not isinstance(ordinal, int)
+            or isinstance(ordinal, bool)
+            or ordinal < 0
+            or cell is None
+            or not isinstance(grounding_index, int)
+            or isinstance(grounding_index, bool)
+            or grounding_index < 0
+        ):
+            raise ContactsAcceptanceError("contacts_assignment_membership_mismatch")
+        try:
+            expected_assignment = _build_coverage_assignment(
+                plan=coverage_plan,
+                catalog=catalog,
+                cell=cell,
+                assignment_ordinal=ordinal,
+                grounding_index=grounding_index,
+                spec=run.generation_spec,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ContactsAcceptanceError(
+                "contacts_assignment_membership_mismatch"
+            ) from exc
+        if (
+            dict(assignment) != expected_assignment.provider_contract()
+            or dict(assignment_lineage) != expected_assignment.lineage()
+        ):
+            raise ContactsAcceptanceError("contacts_assignment_membership_mismatch")
         if attempt_outcome == "provider_error":
             if response is not None:
                 raise ContactsAcceptanceError("contacts_replay_input_mismatch")
@@ -1297,26 +1371,45 @@ def _replay_contacts_attempts(
             continue
         if not isinstance(response, Mapping):
             raise ContactsAcceptanceError("contacts_replay_input_malformed")
-        ordinal = assignment.get("assignment_ordinal")
-        if not isinstance(ordinal, int) or isinstance(ordinal, bool) or ordinal < 0:
-            raise ContactsAcceptanceError("contacts_assignment_membership_mismatch")
         # The run-owned generation spec is used by the production parser; the
         # assignment lineage then makes Contacts membership re-validate the
         # exact issued plan, grounding, capabilities, and recovery branch.
-        if run.generation_spec is None:
-            raise ContactsAcceptanceError("contacts_generation_contract_missing")
-        batch_context = build_generation_batch_context(
+        assignment_spec = _assignment_generation_spec(
             run.generation_spec,
+            expected_assignment,
+        )
+        batch_context = build_generation_batch_context(
+            assignment_spec,
             batch_index=ordinal + 1,
         )
         try:
+            raw_record = _single_provider_record(response)
+            generation_lineage = {
+                **replay_generator_lineage,
+                "coverage_assignment": expected_assignment.lineage(),
+            }
             contracts = parse_domain_task_contracts(
                 response,
                 seed=profile.seed,
-                spec=run.generation_spec,
+                spec=assignment_spec,
                 batch_context=batch_context,
-                generation_lineage={"coverage_assignment": dict(assignment_lineage)},
+                generation_lineage=generation_lineage,
             )
+            if len(contracts) == 1:
+                validated_contract = _validate_assignment_membership(
+                    raw_record=raw_record,
+                    contract=contracts[0],
+                    assignment=expected_assignment,
+                    assignment_spec=assignment_spec,
+                    seed=profile.seed,
+                    batch_context=batch_context,
+                    generation_lineage=generation_lineage,
+                )
+                validated_contract = _with_locally_derived_difficulty(
+                    validated_contract,
+                    expected_assignment,
+                )
+                contracts = [validated_contract]
         except Exception as exc:
             if attempt_outcome == "rejected":
                 processed += 1
@@ -1354,6 +1447,8 @@ def _replay_contacts_attempts(
         else:
             rejected += 1
         if attempt_outcome == "rejected" and outcome.outcome.sample is not None:
+            raise ContactsAcceptanceError("contacts_replay_outcome_mismatch")
+        if attempt_outcome == "validated" and outcome.outcome.sample is None:
             raise ContactsAcceptanceError("contacts_replay_outcome_mismatch")
         if attempt_outcome == "validated":
             replayed_contracts += 1

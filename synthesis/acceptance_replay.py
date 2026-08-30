@@ -170,6 +170,8 @@ class AcceptanceReplayContract:
         for key, expected_value, identity in expected:
             if expected_value is not None and identity.get(key) != expected_value:
                 raise AcceptanceReplayError("acceptance_identity_mismatch")
+        if provider.get("parser_version") != self.provider_parser_version:
+            raise AcceptanceReplayError("acceptance_identity_mismatch")
 
 
 DEFAULT_ACCEPTANCE_REPLAY_CONTRACT = AcceptanceReplayContract(
@@ -895,6 +897,25 @@ class SanitizedProviderEvidenceRecorder:
             and isinstance(record.get("response"), Mapping)
             and isinstance(record.get("response_hash"), str)
         ]
+        retry_limit = getattr(self.authorization, "generator_retry_limit", None)
+        attempt_budget = getattr(self.authorization, "attempt_budget", None)
+        if (
+            not isinstance(retry_limit, int)
+            or isinstance(retry_limit, bool)
+            or retry_limit not in range(MAX_GENERATOR_RETRIES + 1)
+            or not isinstance(attempt_budget, int)
+            or isinstance(attempt_budget, bool)
+            or attempt_budget <= 0
+            or len(self._attempts) > attempt_budget
+            or any(
+                not isinstance(record.get("retry_count"), int)
+                or isinstance(record.get("retry_count"), bool)
+                or record.get("retry_count") < 0
+                or record.get("retry_count") > retry_limit
+                for record in self._attempts
+            )
+        ):
+            raise AcceptanceReplayError("live_usage_malformed")
         if not replay_attempts:
             raise AcceptanceReplayError("acceptance_replay_inputs_missing")
         records = [dict(record) for record in self._attempts]
@@ -1303,6 +1324,18 @@ def validate_provider_evidence(
     ):
         raise AcceptanceReplayError("live_identity_binding_mismatch")
 
+    authorized_retry_limit = authorization.get("generator_retry_limit")
+    authorized_attempt_budget = authorization.get("attempt_budget")
+    if (
+        not isinstance(authorized_retry_limit, int)
+        or isinstance(authorized_retry_limit, bool)
+        or authorized_retry_limit not in range(MAX_GENERATOR_RETRIES + 1)
+        or not isinstance(authorized_attempt_budget, int)
+        or isinstance(authorized_attempt_budget, bool)
+        or authorized_attempt_budget <= 0
+    ):
+        raise AcceptanceReplayError("live_usage_malformed")
+
     run_binding = evidence.get("run_binding")
     if not isinstance(run_binding, Mapping):
         raise AcceptanceReplayError("acceptance_binding_malformed")
@@ -1347,6 +1380,7 @@ def validate_provider_evidence(
             or not isinstance(assignment_id, str)
             or _IDENTIFIER_RE.fullmatch(assignment_id) is None
             or attempt_id in attempt_by_id
+            or not attempt_id.startswith(contract.provider_attempt_id_prefix + "_")
             or _HASH_RE.fullmatch(str(raw_attempt.get("request_hash", ""))) is None
             or raw_attempt.get("parser_version") != contract.provider_parser_version
             or raw_attempt.get("outcome") not in {"provider_error", "rejected", "validated"}
@@ -1360,6 +1394,8 @@ def validate_provider_evidence(
             or raw_attempt.get("retry_count") < 0
         ):
             raise AcceptanceReplayError("acceptance_evidence_malformed")
+        if raw_attempt["retry_count"] > authorized_retry_limit:
+            raise AcceptanceReplayError("live_usage_malformed")
         _validate_safe_mapping(raw_attempt["assignment"], "acceptance_evidence_malformed")
         _validate_safe_mapping(raw_attempt["assignment_lineage"], "acceptance_evidence_malformed")
         if dict(raw_attempt["usage"]) != bounded_usage(raw_attempt["usage"]):
@@ -1370,6 +1406,8 @@ def validate_provider_evidence(
             sanitized = sanitize_provider_response(response)
             if response_hash != hash_value(sanitized):
                 raise AcceptanceReplayError("acceptance_identity_mismatch")
+        elif raw_attempt.get("outcome") == "provider_error" and response_hash is not None:
+            raise AcceptanceReplayError("acceptance_replay_input_mismatch")
         elif response_hash is not None:
             _require_hash(response_hash, "acceptance_identity_mismatch")
         elif raw_attempt.get("outcome") == "validated":
@@ -1406,6 +1444,16 @@ def validate_provider_evidence(
         replay_ids.add(attempt_id)
     if not replay_ids:
         raise AcceptanceReplayError("acceptance_replay_inputs_missing")
+    expected_replay_ids = {
+        str(raw_attempt.get("attempt_id"))
+        for raw_attempt in attempts
+        if isinstance(raw_attempt, Mapping)
+        and raw_attempt.get("outcome") == "validated"
+        and isinstance(raw_attempt.get("response"), Mapping)
+        and isinstance(raw_attempt.get("response_hash"), str)
+    }
+    if replay_ids != expected_replay_ids:
+        raise AcceptanceReplayError("acceptance_replay_input_mismatch")
 
     usage = evidence.get("usage")
     if (
@@ -1445,6 +1493,7 @@ def validate_provider_evidence(
         or not isinstance(authorized_attempt_budget, int)
         or isinstance(authorized_attempt_budget, bool)
         or authorized_attempt_budget <= 0
+        or len(attempts) > authorized_attempt_budget
         or physical_call_ceiling != authorized_attempt_budget * (authorized_retry_limit + 1)
         or physical_calls > physical_call_ceiling
     ):

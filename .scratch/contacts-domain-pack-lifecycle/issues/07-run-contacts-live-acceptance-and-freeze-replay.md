@@ -7,9 +7,9 @@ sanitized no-go result that accurately preserves the remaining limitation.
 
 **Blocked by:** [06 — Add Explicitly Authorized Contacts Live Acceptance](06-add-authorized-contacts-live-acceptance.md)
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
-**Assignee:** Unassigned
+**Assignee:** Codex
 
 **Parent spec:** [Contacts Domain Pack Lifecycle and Second-Domain Validation](../../../docs/product-specs/contacts-domain-pack-lifecycle.md)
 
@@ -29,3 +29,27 @@ Do not initiate Mobile Messages implementation, publication approval, dataset
 distribution, training, or a broader provider campaign. This is one bounded
 Contacts acceptance or no-go operation; a fresh authorization is required for
 every actual provider-spending attempt.
+
+## Implementation
+
+Hardened the live evidence boundary so frozen Contacts evidence rejects
+per-attempt retry overflow, logical-call-budget overflow, provider parser drift,
+provider-error records carrying response material, and incomplete replay-input
+sets. Fixed replay to reconstruct the exact issued coverage assignment,
+locally-derived difficulty, and recovery branch before Contacts execution, and
+to require replayed accepted/rejected outcomes to match the frozen outcome.
+Added the public `real_live` proof-verification seam and the offline
+`scripts/verify_contacts_acceptance_proof.py` command; verification replays the
+copied proof through production Contacts contracts with zero provider calls.
+
+The focused injected-transport acceptance test now covers the offline verifier,
+exact release-profile fields, and frozen budget integrity. No real provider
+request was made in this implementation turn: the repository has no fresh
+operator authorization supplied for this ticket. The live operation therefore
+remains pending, and no Contacts Release Candidate or downstream utility claim
+is asserted from the injected proof alone.
+
+Evidence-backed Mobile Messages recommendation: defer opening a Mobile
+Messages implementation; after a separately authorized `real_live` Contacts
+proof passes the offline verifier, open only a decision-scoped Mobile Messages
+lifecycle ticket. This ticket does not authorize or implement Mobile Messages.
