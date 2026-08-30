@@ -322,21 +322,29 @@ def sanitize_contacts_provider_response(response: object) -> dict[str, object]:
         raise ContactsAcceptanceError(exc.reason_code) from None
 
 
-def validate_contacts_provider_evidence(evidence: Mapping[str, object]) -> None:
+def validate_contacts_provider_evidence(
+    evidence: Mapping[str, object],
+    *,
+    contract: AcceptanceReplayContract = _CONTACTS_ACCEPTANCE_CONTRACT,
+) -> None:
     try:
         _neutral_validate_provider_evidence(
             evidence,
-            contract=_CONTACTS_ACCEPTANCE_CONTRACT,
+            contract=contract,
         )
     except AcceptanceReplayError as exc:
         raise ContactsAcceptanceError(_map_reason(exc.reason_code)) from None
 
 
-def load_contacts_provider_evidence(path: Path) -> dict[str, object]:
+def load_contacts_provider_evidence(
+    path: Path,
+    *,
+    contract: AcceptanceReplayContract = _CONTACTS_ACCEPTANCE_CONTRACT,
+) -> dict[str, object]:
     try:
         return _neutral_load_provider_evidence(
             path,
-            contract=_CONTACTS_ACCEPTANCE_CONTRACT,
+            contract=contract,
         )
     except AcceptanceReplayError as exc:
         raise ContactsAcceptanceError(_map_reason(exc.reason_code)) from None
@@ -1196,16 +1204,17 @@ def replay_contacts_provider_evidence(
     profile: RunProfile,
     plan: object,
     acceptance_dir: Path,
+    contract: AcceptanceReplayContract = _CONTACTS_ACCEPTANCE_CONTRACT,
 ) -> dict[str, object]:
     """Replay sanitized Contacts responses through production contracts."""
 
     loaded = (
-        load_contacts_provider_evidence(evidence)
+        load_contacts_provider_evidence(evidence, contract=contract)
         if isinstance(evidence, Path)
         else dict(evidence)
     )
     if not isinstance(evidence, Path):
-        validate_contacts_provider_evidence(loaded)
+        validate_contacts_provider_evidence(loaded, contract=contract)
     if not isinstance(plan, DomainPlan):
         raise ContactsAcceptanceError("contacts_plan_not_admitted")
     source_bundle = build_domain_fixture_source_bundle(profile.seed.domain)
@@ -1224,6 +1233,7 @@ def replay_contacts_provider_evidence(
             loaded=loaded,
             profile=profile,
             run=run,
+            contract=contract,
         )
         return {
             **replay,
@@ -1240,6 +1250,7 @@ def _replay_contacts_attempts(
     loaded: Mapping[str, object],
     profile: RunProfile,
     run: ContactsDomainRun,
+    contract: AcceptanceReplayContract,
 ) -> dict[str, object]:
     attempts = loaded.get("attempts")
     replay_attempts = loaded.get("replay_attempts")
@@ -1354,7 +1365,7 @@ def _replay_contacts_attempts(
                 )
         processed += 1
     return {
-        "schema_version": "contacts_provider_free_replay_result_v1",
+        "schema_version": contract.replay_result_schema_version,
         "status": "passed",
         "reason_code": "contacts_replay_verified",
         "replayed_attempt_count": replayed_contracts,
@@ -1362,7 +1373,7 @@ def _replay_contacts_attempts(
         "accepted_attempt_count": accepted,
         "rejected_attempt_count": rejected,
         "provider_calls": 0,
-        "evidence_class": CONTACTS_EVIDENCE_CLASS,
+        "evidence_class": contract.evidence_class,
     }
 
 
@@ -1574,11 +1585,18 @@ def _build_case(
     }
 
 
-def _load_positive_artifacts(proof_root: Path) -> dict[str, object]:
+def _load_positive_artifacts(
+    proof_root: Path,
+    *,
+    evidence_contract: AcceptanceReplayContract,
+) -> dict[str, object]:
     positive = proof_root / "positive"
     acceptance = _read_json(positive / "acceptance.json")
     provider_path = positive / "trace" / "provider.json"
-    provider = load_contacts_provider_evidence(provider_path)
+    provider = load_contacts_provider_evidence(
+        provider_path,
+        contract=evidence_contract,
+    )
     profile = _read_json(positive / "run_profile.json")
     pack = _read_json(positive / "dataset_release_pack.json")
     qualification = _read_json(positive / "qualification_report.json")
@@ -1715,8 +1733,15 @@ def _validate_positive_bindings(
 def build_contacts_acceptance_proof(
     proof_root: Path,
     acceptance_root: Path,
+    *,
+    evidence_contract: AcceptanceReplayContract = _CONTACTS_ACCEPTANCE_CONTRACT,
 ) -> Path:
-    """Copy and independently assemble one Contacts provider-free proof."""
+    """Copy and independently assemble one Contacts acceptance proof.
+
+    The proof graph is shared by the provider-free and real-live Contacts
+    paths.  The evidence contract remains an explicit input so the proof can
+    preserve which boundary produced its frozen provider evidence.
+    """
 
     proof_root = Path(proof_root)
     acceptance_root = Path(acceptance_root)
@@ -1727,7 +1752,10 @@ def build_contacts_acceptance_proof(
     proof_root.mkdir(parents=True, exist_ok=True)
     _copy_tree(acceptance_root, proof_root / "positive")
     positive = proof_root / "positive"
-    loaded = _load_positive_artifacts(proof_root)
+    loaded = _load_positive_artifacts(
+        proof_root,
+        evidence_contract=evidence_contract,
+    )
     acceptance = loaded["acceptance"]
     provider = loaded["provider"]
     profile_record = loaded["profile"]
@@ -1787,6 +1815,7 @@ def build_contacts_acceptance_proof(
         profile=profile,
         plan=plan,
         acceptance_dir=positive,
+        contract=evidence_contract,
     )
     if replay.get("status") != "passed" or replay.get("provider_calls") != 0:
         raise ContactsAcceptanceError("contacts_replay_contract_failed")
@@ -1966,7 +1995,7 @@ def build_contacts_acceptance_proof(
             "plan_hash": plan.plan_hash,
             "release_id": _mapping(loaded["pack"], "release_pack").get("release_id"),
             "release_pack_hash": _file_hash(pack_path)[0],
-            "evidence_class": CONTACTS_EVIDENCE_CLASS,
+            "evidence_class": evidence_contract.evidence_class,
         },
         "anchors": anchors,
         "artifacts": [records[key] for key in sorted(records)],
@@ -2433,7 +2462,11 @@ def _observe_case(case_id: str, root: Path, mutated_path: Path) -> tuple[str, st
     raise ContactsAcceptanceError("contacts_proof_case_expectation_mismatch")
 
 
-def verify_contacts_acceptance_proof(proof_path: Path) -> dict[str, object]:
+def verify_contacts_acceptance_proof(
+    proof_path: Path,
+    *,
+    evidence_contract: AcceptanceReplayContract = _CONTACTS_ACCEPTANCE_CONTRACT,
+) -> dict[str, object]:
     """Verify a Contacts proof root using only its copied artifacts."""
 
     try:
@@ -2533,8 +2566,11 @@ def verify_contacts_acceptance_proof(proof_path: Path) -> dict[str, object]:
                 f"anchors={sorted(anchor_paths)} required={sorted(required_anchors)} raw={sorted(anchors)}",
             )
 
-        provider = load_contacts_provider_evidence(anchor_paths["provider"])
-        if provider.get("evidence_class") != CONTACTS_EVIDENCE_CLASS:
+        provider = load_contacts_provider_evidence(
+            anchor_paths["provider"],
+            contract=evidence_contract,
+        )
+        if provider.get("evidence_class") != evidence_contract.evidence_class:
             raise ContactsAcceptanceError("contacts_provider_evidence_class_mismatch")
         profile = _load_run_profile_from_record(anchor_paths["run_profile"])
         samples = _load_jsonl(anchor_paths["samples"])
@@ -2570,6 +2606,7 @@ def verify_contacts_acceptance_proof(proof_path: Path) -> dict[str, object]:
             profile=profile,
             plan=plan,
             acceptance_dir=root_dir / "positive",
+            contract=evidence_contract,
         )
         if replay.get("status") != "passed" or replay.get("provider_calls") != 0:
             raise ContactsAcceptanceError("contacts_replay_contract_failed")

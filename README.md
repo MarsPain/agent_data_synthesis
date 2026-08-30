@@ -96,6 +96,10 @@ uv run python main.py \
   requires a fresh explicit authorization for every attempt. It is not a normal
   test or default pipeline mode; follow its
   [operator procedure](docs/OPERATIONS.md#live-workspace-release-candidate-acceptance).
+- Live Contacts acceptance is likewise a separate, explicitly authorized
+  command bound to the exact Contacts Release Candidate profile. It freezes
+  only sanitized `real_live` evidence after qualification and is documented in
+  the [Contacts operator procedure](docs/OPERATIONS.md#live-contacts-release-candidate-acceptance).
 
 All non-default artifact families are opt-ins. Evidence and qualification
 artifacts do not themselves publish a dataset, authorize training, or prove a

@@ -169,3 +169,38 @@ prompts, credentials, source payloads, or a tracer proof. The CLI prints that
 record's path when available. Only an independently verified Release Candidate
 may freeze `trace/provider.json` and construct the `real_live` tracer proof;
 neither outcome is publication approval or a training recommendation.
+
+## Live Contacts Release Candidate acceptance
+
+Contacts has a separate operator boundary with the same safety shape, bound to
+the exact Contacts Release Candidate profile:
+
+```bash
+uv run python scripts/run_contacts_live_acceptance.py \
+  --authorize-live-provider \
+  --authorization-id <fresh-authorization-id> \
+  --candidate-budget 10 \
+  --attempt-budget 10 \
+  --generator-model <generator-model> \
+  --mutation-judge-model deterministic_contacts_mutation_judge_v1 \
+  --max-generator-retries <0-3> \
+  --output-dir artifacts/contacts-live-acceptance-<date>
+```
+
+The command requires fresh explicit authorization, the exact Contacts release
+profile, bounded logical and retry-expanded physical-call budgets, and distinct
+generator and mutation-judge identities. Before generation it sends one fixed,
+non-source-backed request through the production Contacts mutation-judge
+contract. A failed preflight writes
+`contacts_live_attempt_failure.json` and makes no generator request.
+
+Successful runs freeze only sanitized `real_live` provider evidence after
+independent Contacts release-pack and Release Candidate verification. The
+Contacts proof then replays that evidence with zero provider calls. Failed
+provider, parser, judge, budget, pipeline, release-evidence, or qualification
+paths retain only a bounded failure record; no response, prompt, credential,
+source payload, or proof root is reusable from the failure.
+
+This path is opt-in and does not alter the provider-free default commands,
+semantic-mutation activation thresholds, publication authority, or downstream
+training claims. The proof establishes at most a Contacts Release Candidate.
