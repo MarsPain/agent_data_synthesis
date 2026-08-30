@@ -4,7 +4,7 @@
 - **Label:** `ready-for-agent`
 - **Canonical spec:** [Contacts Domain Pack Lifecycle and Second-Domain Validation](../../docs/product-specs/contacts-domain-pack-lifecycle.md)
 - **Governing decisions:** [ADR 0002](../../docs/adr/0002-domain-pack-semantic-authority-and-deep-interface.md), [ADR 0003](../../docs/adr/0003-separate-evidence-verification-from-external-authority.md)
-- **Current phase:** Implementation — pack-neutral acceptance/replay harness complete; provider-free Contacts acceptance proof next
+- **Current phase:** Implementation — provider-free Contacts acceptance proof complete; authorized live boundary next
 
 This tracker entry publishes the canonical specification for operationalizing
 Contacts as the second end-to-end Domain Pack.  The feature begins from the
@@ -18,7 +18,7 @@ artifacts.
 2. [Bind Contacts capabilities to coverage and assessment evidence](issues/02-bind-contacts-capabilities-to-evidence.md) — completed
 3. [Establish Contacts release evidence and qualification](issues/03-establish-contacts-release-evidence-and-qualification.md) — completed
 4. [Extract a Pack-neutral acceptance and replay harness](issues/04-extract-pack-neutral-acceptance-replay-harness.md) — completed
-5. [Assemble the provider-free Contacts acceptance proof](issues/05-assemble-provider-free-contacts-acceptance-proof.md) — ready-for-agent
+5. [Assemble the provider-free Contacts acceptance proof](issues/05-assemble-provider-free-contacts-acceptance-proof.md) — completed
 6. [Add explicitly authorized Contacts live acceptance](issues/06-add-authorized-contacts-live-acceptance.md) — ready-for-agent
 7. [Run Contacts live acceptance and freeze replay proof](issues/07-run-contacts-live-acceptance-and-freeze-replay.md) — ready-for-agent
 
