@@ -72,6 +72,7 @@ LLM_RESPONSE_SCHEMA_DETAILS = {
         "expected_state_missing",
         "expected_state_arguments_invalid",
         "expected_state_reference_not_grounded",
+        "expected_state_grounding_binding_mismatch",
     },
     "invalid_final_answer": {
         "final_answer_field_name_literal",

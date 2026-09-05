@@ -1402,10 +1402,20 @@ class CoverageAssignmentPipelineTest(unittest.TestCase):
             ]
             self.assertEqual(
                 {
-                    rejection["details"]["mismatch_reason"]
+                    (
+                        rejection["cause"],
+                        rejection["details"]["schema_reason"],
+                        rejection["details"]["schema_detail"],
+                    )
                     for rejection in rejections
                 },
-                {"grounding_scope_mismatch"},
+                {
+                    (
+                        "llm_response_schema_error",
+                        "invalid_expected_state",
+                        "expected_state_grounding_binding_mismatch",
+                    )
+                },
             )
 
     def test_non_coverage_run_keeps_the_existing_artifact_set(self) -> None:
@@ -1436,6 +1446,8 @@ class CoverageAssignmentPipelineTest(unittest.TestCase):
             spec = bundle.generation_spec
             assert spec is not None
             context = build_generation_batch_context(spec, batch_index=2)
+            grounding = next(iter(spec.grounding_context.values()))[0]
+            observation = grounding["observation"]
             record = {
                 "candidate_id": f"{context.candidate_id_prefix}compat",
                 "instruction": "Record a follow-up after finding Alice Zhang.",
@@ -1450,14 +1462,14 @@ class CoverageAssignmentPipelineTest(unittest.TestCase):
                     "record_contact_followup",
                 ],
                 "primary_tool": "lookup_contact_email",
-                "primary_arguments": {"name": "Alice Zhang"},
-                "final_answer_contains": "alice.zhang@example.test",
+                "primary_arguments": grounding["primary_arguments"],
+                "final_answer_contains": observation["email"],
                 "expected_state": [
                     {
                         "check_type": "contact_followup",
                         "expected": {
-                            "name": "Outside Grounding",
-                            "note": "Compatibility probe.",
+                            "name": observation["name"],
+                            "note": f"Compatibility probe for {observation['email']}.",
                         },
                     }
                 ],
@@ -1473,7 +1485,7 @@ class CoverageAssignmentPipelineTest(unittest.TestCase):
 
             self.assertEqual(
                 contract.expected_state[0].expected["name"],
-                "Outside Grounding",
+                observation["name"],
             )
 
     def test_cli_executes_the_coverage_profile_through_the_assignment_path(

@@ -582,7 +582,7 @@ def bounded_reason(value: object) -> str:
     return "llm_provider_error"
 
 
-def bounded_judge_failure_class(error: BaseException) -> str:
+def bounded_provider_failure_class(error: BaseException) -> str:
     """Classify provider failure without retaining its message or payload."""
 
     error_class = getattr(error, "error_class", type(error).__name__)
@@ -609,6 +609,12 @@ def bounded_judge_failure_class(error: BaseException) -> str:
     if error_class == "LLMConfigurationError":
         return "configuration"
     return "provider_error"
+
+
+def bounded_judge_failure_class(error: BaseException) -> str:
+    """Backward-compatible judge-specific provider failure classification."""
+
+    return bounded_provider_failure_class(error)
 
 
 def _physical_call_ceiling(authorization: object) -> int:
@@ -650,12 +656,25 @@ class SanitizedProviderEvidenceRecorder:
         self._attempts: list[dict[str, object]] = []
         self._pending_assignments: dict[str, dict[str, object]] = {}
         self._pending_assignment_lineages: dict[str, dict[str, object]] = {}
+        self._generation_failure_classes: dict[str, int] = {}
         self._mutation_judge_usage: dict[str, object] = {}
         self._frozen = False
 
     @property
     def attempts(self) -> tuple[Mapping[str, object], ...]:
         return tuple(self._attempts)
+
+    @property
+    def generation_failure_classes(self) -> Mapping[str, int]:
+        return dict(self._generation_failure_classes)
+
+    def record_generation_provider_failure(self, error: BaseException) -> None:
+        """Retain only the bounded class of a failed generation call."""
+
+        failure_class = bounded_provider_failure_class(error)
+        self._generation_failure_classes[failure_class] = (
+            self._generation_failure_classes.get(failure_class, 0) + 1
+        )
 
     def bind_assignment(
         self,
@@ -1129,6 +1148,7 @@ class BoundedSanitizedProvider:
             result = self._delegate.generate_json(prompt, role=role)
         except LLMProviderError as exc:
             lineage = exc.lineage if isinstance(exc.lineage, Mapping) else {}
+            self._recorder.record_generation_provider_failure(exc)
             self._recorder.record_attempt(
                 assignment=assignment,
                 request_hash=request_hash,
@@ -2135,6 +2155,7 @@ __all__ = [
     "SanitizedMutationJudgeUsageObserver",
     "SanitizedProviderEvidenceRecorder",
     "bounded_judge_failure_class",
+    "bounded_provider_failure_class",
     "bounded_reason",
     "bounded_retry_count",
     "bounded_usage",

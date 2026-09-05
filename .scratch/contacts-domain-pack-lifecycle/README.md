@@ -1,10 +1,10 @@
 # Contacts Domain Pack Lifecycle and Second-Domain Validation
 
-- **Status:** Ticketed
-- **Label:** `ready-for-agent`
+- **Status:** Completed
+- **Label:** `completed`
 - **Canonical spec:** [Contacts Domain Pack Lifecycle and Second-Domain Validation](../../docs/product-specs/contacts-domain-pack-lifecycle.md)
 - **Governing decisions:** [ADR 0002](../../docs/adr/0002-domain-pack-semantic-authority-and-deep-interface.md), [ADR 0003](../../docs/adr/0003-separate-evidence-verification-from-external-authority.md)
-- **Current phase:** Implementation — authorized Contacts live boundary complete; real acceptance operation next
+- **Current phase:** Completed — real Contacts Release Candidate evidence and offline replay proof verified
 
 This tracker entry publishes the canonical specification for operationalizing
 Contacts as the second end-to-end Domain Pack.  The feature begins from the
@@ -20,21 +20,20 @@ artifacts.
 4. [Extract a Pack-neutral acceptance and replay harness](issues/04-extract-pack-neutral-acceptance-replay-harness.md) — completed
 5. [Assemble the provider-free Contacts acceptance proof](issues/05-assemble-provider-free-contacts-acceptance-proof.md) — completed
 6. [Add explicitly authorized Contacts live acceptance](issues/06-add-authorized-contacts-live-acceptance.md) — completed
-7. [Run Contacts live acceptance and freeze replay proof](issues/07-run-contacts-live-acceptance-and-freeze-replay.md) — ready-for-agent
+7. [Run Contacts live acceptance and freeze replay proof](issues/07-run-contacts-live-acceptance-and-freeze-replay.md) — completed; real Contacts Release Candidate proof and offline replay verified
 
-## Frontier
+## Result
 
 [Run Contacts live acceptance and freeze replay proof](issues/07-run-contacts-live-acceptance-and-freeze-replay.md)
-is the next operational frontier. It still requires fresh explicit
-authorization and is not implied by ticket completion.
+produced a real Contacts Release Candidate proof with a clean offline replay.
+It does not establish publication approval, distribution, Training Recommended,
+or a Mobile Messages implementation decision.
 
 ## Delivery boundary
 
-The intended observable result is a provider-free Contacts acceptance proof
-that can reconstruct a current, exact Contacts Release Candidate chain from
-frozen evidence. The authorized live boundary is implemented, but a
-real-provider Contacts campaign is separately and explicitly authorized; it is
-not implied by this ticket's completion.
+The observable result is a provider-free Contacts acceptance proof that
+reconstructs the current, exact Contacts Release Candidate chain from frozen
+evidence. The proof remains scoped to Release Candidate qualification.
 
 Each ticket links the canonical specification and owns its own scope,
 dependencies, assignment, and acceptance state. The feature index does not

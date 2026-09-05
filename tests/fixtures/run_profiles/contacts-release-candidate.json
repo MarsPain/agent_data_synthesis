@@ -25,9 +25,10 @@
     "judge": {
       "role": "mutation_admission_judge",
       "provider": "openai_compatible",
-      "model": "deterministic_contacts_mutation_judge_v1",
-      "timeout_seconds": 1.0,
-      "max_retries": 0
+      "model": "deepseek-v4-pro",
+      "timeout_seconds": 90.0,
+      "max_retries": 0,
+      "thinking_mode": "disabled"
     }
   },
   "coverage_profile": {

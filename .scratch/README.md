@@ -6,8 +6,6 @@ triggers, and technical debt. Tracker configuration lives in
 [docs/agents/issue-tracker.md](../docs/agents/issue-tracker.md).
 
 ## Open
-
-- [Contacts Domain Pack Lifecycle and Second-Domain Validation](contacts-domain-pack-lifecycle/README.md) — ticketed; the authorized live boundary is complete and one separately authorized live acceptance or no-go operation remains
 - [Semantic Mutation Admission](semantic-mutation-admission/README.md) — ticketed;
   runtime enforcement, release-artifact auditing, and calibration-corpus work
   are complete; activation evaluation is complete and the representative gate
@@ -16,6 +14,7 @@ triggers, and technical debt. Tracker configuration lives in
 
 ## Closed
 
+- [Contacts Domain Pack Lifecycle and Second-Domain Validation](contacts-domain-pack-lifecycle/README.md) — completed; real Contacts Release Candidate evidence and provider-free replay proof verified
 - [Outcome-Validated Domain Pack](outcome-validated-domain-pack/README.md) —
   completed; real live Workspace acceptance and frozen provider-free replay
   proof establish Release Candidate only

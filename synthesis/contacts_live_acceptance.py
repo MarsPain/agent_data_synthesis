@@ -70,6 +70,11 @@ SANITIZED_EVIDENCE_POLICY_VERSION = CONTACTS_SANITIZED_EVIDENCE_POLICY_VERSION
 PROVIDER_PARSER_VERSION = CONTACTS_PROVIDER_PARSER_VERSION
 MAX_LIVE_GENERATOR_RETRIES = 3
 CONTACTS_LIVE_PROOF_FAILURE_FILENAME = "contacts_live_attempt_failure.json"
+DEFAULT_CONTACTS_MUTATION_JUDGE_MODEL = "deepseek-v4-pro"
+DEFAULT_CONTACTS_MUTATION_JUDGE_TIMEOUT_SECONDS = 90.0
+DEFAULT_CONTACTS_MUTATION_JUDGE_MAX_RETRIES = 0
+DEFAULT_CONTACTS_MUTATION_JUDGE_THINKING_MODE = "disabled"
+DEFAULT_CONTACTS_GENERATOR_TIMEOUT_SECONDS = 90.0
 
 # Domain-prefixed spellings are convenient for callers that keep several
 # acceptance contracts in one namespace.
@@ -105,6 +110,27 @@ CONTACTS_LIVE_ACCEPTANCE_CONTRACT = _CONTACTS_LIVE_ACCEPTANCE_CONTRACT
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,239}$")
 _AUTHORIZATION_ID_RE = re.compile(r"^[a-z][a-z0-9_.:-]{2,127}$")
 _REASON_RE = re.compile(r"^[a-z][a-z0-9_.:-]{1,127}$")
+_CONTACTS_MEMBERSHIP_REASONS = frozenset(
+    {
+        "assignment_membership_mismatch",
+        "capability_membership_mismatch",
+        "domain_mismatch",
+        "evidence_binding_failed",
+        "grounding_expected_state_mismatch",
+        "grounding_final_answer_mismatch",
+        "grounding_followup_state_mismatch",
+        "expected_state_membership_mismatch",
+        "grounding_membership_mismatch",
+        "grounding_primary_arguments_mismatch",
+        "legacy_fixture_membership_mismatch",
+        "primary_tool_membership_mismatch",
+        "recovery_assignment_mismatch",
+        "recovery_evidence_missing",
+        "recovery_structure_mismatch",
+        "state_behavior_membership_mismatch",
+        "tool_membership_mismatch",
+    }
+)
 
 _EXACT_CONTACTS_RELEASE_PROFILE: dict[str, object] = {
     "schema_version": "run_profile_v4",
@@ -138,9 +164,10 @@ _EXACT_CONTACTS_RELEASE_PROFILE: dict[str, object] = {
         "judge": {
             "role": "mutation_admission_judge",
             "provider": "openai_compatible",
-            "model": "deterministic_contacts_mutation_judge_v1",
-            "timeout_seconds": 1.0,
-            "max_retries": 0,
+            "model": DEFAULT_CONTACTS_MUTATION_JUDGE_MODEL,
+            "timeout_seconds": DEFAULT_CONTACTS_MUTATION_JUDGE_TIMEOUT_SECONDS,
+            "max_retries": DEFAULT_CONTACTS_MUTATION_JUDGE_MAX_RETRIES,
+            "thinking_mode": DEFAULT_CONTACTS_MUTATION_JUDGE_THINKING_MODE,
         },
     },
     "coverage_profile": {
@@ -171,6 +198,7 @@ class LiveContactsAcceptanceAuthorization:
     generator_model: str
     mutation_judge_provider: str
     mutation_judge_model: str
+    generator_timeout_seconds: float = DEFAULT_CONTACTS_GENERATOR_TIMEOUT_SECONDS
     generator_retry_limit: int = 0
     evidence_policy: str = SANITIZED_EVIDENCE_POLICY_VERSION
 
@@ -197,6 +225,15 @@ class LiveContactsAcceptanceAuthorization:
             for value in (self.candidate_budget, self.attempt_budget)
         ):
             raise LiveContactsAcceptanceError("contacts_live_authorization_budget_invalid")
+        if (
+            not isinstance(self.generator_timeout_seconds, (int, float))
+            or isinstance(self.generator_timeout_seconds, bool)
+            or float(self.generator_timeout_seconds)
+            != DEFAULT_CONTACTS_GENERATOR_TIMEOUT_SECONDS
+        ):
+            raise LiveContactsAcceptanceError(
+                "contacts_live_generator_timeout_policy_invalid"
+            )
         if (
             not isinstance(self.generator_retry_limit, int)
             or isinstance(self.generator_retry_limit, bool)
@@ -234,8 +271,9 @@ class LiveContactsAcceptanceAuthorization:
             or judge.get("provider") != self.mutation_judge_provider
             or judge.get("role") != "mutation_admission_judge"
             or judge.get("model") != self.mutation_judge_model
-            or judge.get("timeout_seconds") != 1.0
-            or judge.get("max_retries") != 0
+            or judge.get("timeout_seconds")
+            != DEFAULT_CONTACTS_MUTATION_JUDGE_TIMEOUT_SECONDS
+            or judge.get("max_retries") != DEFAULT_CONTACTS_MUTATION_JUDGE_MAX_RETRIES
             or not isinstance(self.generator_model, str)
             or _IDENTIFIER_RE.fullmatch(self.generator_model) is None
             or not isinstance(self.mutation_judge_model, str)
@@ -256,6 +294,7 @@ class LiveContactsAcceptanceAuthorization:
             "generator_model": self.generator_model,
             "mutation_judge_provider": self.mutation_judge_provider,
             "mutation_judge_model": self.mutation_judge_model,
+            "generator_timeout_seconds": self.generator_timeout_seconds,
             "generator_retry_limit": self.generator_retry_limit,
             "evidence_policy": self.evidence_policy,
         }
@@ -445,13 +484,15 @@ def _generator_usage_summary(
             outcome: sum(record.get("outcome") == outcome for record in attempts)
             for outcome in sorted({str(record.get("outcome")) for record in attempts})
         },
+        "failure_classes": dict(recorder.generation_failure_classes),
     }
 
 
 def _bounded_rejection_summary(path: Path | None) -> dict[str, object]:
     if path is None or not path.is_file() or path.is_symlink():
-        return {"count": 0, "causes": {}}
+        return {"count": 0, "causes": {}, "membership_reasons": {}}
     causes: dict[str, int] = {}
+    membership_reasons: dict[str, int] = {}
     count = 0
     try:
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -463,9 +504,31 @@ def _bounded_rejection_summary(path: Path | None) -> dict[str, object]:
             count += 1
             cause = bounded_reason(record.get("cause"))
             causes[cause] = causes.get(cause, 0) + 1
+            details = record.get("details")
+            membership_reason = (
+                details.get("membership_reason")
+                if cause == "domain_plan_membership_rejected"
+                and isinstance(details, Mapping)
+                else None
+            )
+            if (
+                isinstance(membership_reason, str)
+                and membership_reason in _CONTACTS_MEMBERSHIP_REASONS
+            ):
+                membership_reasons[membership_reason] = (
+                    membership_reasons.get(membership_reason, 0) + 1
+                )
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
-        return {"count": 0, "causes": {"rejection_summary_unavailable": 1}}
-    return {"count": count, "causes": dict(sorted(causes.items()))}
+        return {
+            "count": 0,
+            "causes": {"rejection_summary_unavailable": 1},
+            "membership_reasons": {},
+        }
+    return {
+        "count": count,
+        "causes": dict(sorted(causes.items())),
+        "membership_reasons": dict(sorted(membership_reasons.items())),
+    }
 
 
 def _bounded_frozen_usage(value: object) -> dict[str, object]:
@@ -477,6 +540,7 @@ def _bounded_frozen_usage(value: object) -> dict[str, object]:
             "physical_calls": 0,
             "physical_call_ceiling": 0,
             "outcomes": {},
+            "failure_classes": {},
         }
     numeric_fields = {
         field_name: value.get(field_name)
@@ -516,6 +580,18 @@ def _bounded_frozen_usage(value: object) -> dict[str, object]:
             "physical_call_ceiling", 0
         ),
         "outcomes": bounded_outcomes,
+        "failure_classes": (
+            {
+                str(key): count
+                for key, count in value.get("failure_classes", {}).items()
+                if isinstance(key, str)
+                and isinstance(count, int)
+                and not isinstance(count, bool)
+                and count >= 0
+            }
+            if isinstance(value.get("failure_classes"), Mapping)
+            else {}
+        ),
     }
 
 
@@ -845,6 +921,7 @@ class _ContactsLiveAcceptanceAdapter(_ContactsAcceptanceAdapter):
                 config,
                 http_client=http_client,
                 max_retries=max_generator_retries,
+                timeout_seconds=authorization.generator_timeout_seconds,
             ),
             recorder=recorder,
             max_logical_calls=authorization.attempt_budget,
@@ -1242,6 +1319,7 @@ def _write_early_failure(
                     else 0
                 ),
                 "outcomes": {},
+                "failure_classes": {},
             },
             "mutation_judge_usage": {
                 "attempts": 0,
@@ -1251,8 +1329,12 @@ def _write_early_failure(
                 "failure_classes": {},
             },
             "mutation_judge_preflight": {"status": "not_started"},
-            "rejections": {"count": 0, "causes": {}},
-            "non_accepted_attempts": {"count": 0, "causes": {}},
+            "rejections": {"count": 0, "causes": {}, "membership_reasons": {}},
+            "non_accepted_attempts": {
+                "count": 0,
+                "causes": {},
+                "membership_reasons": {},
+            },
             "provider_evidence_frozen": False,
             "proof_root_published": False,
             "tracer_proof_published": False,
@@ -1288,6 +1370,11 @@ load_provider_evidence = load_live_provider_evidence
 
 __all__ = [
     "CONTACTS_LIVE_PROOF_FAILURE_FILENAME",
+    "DEFAULT_CONTACTS_MUTATION_JUDGE_MODEL",
+    "DEFAULT_CONTACTS_MUTATION_JUDGE_TIMEOUT_SECONDS",
+    "DEFAULT_CONTACTS_MUTATION_JUDGE_MAX_RETRIES",
+    "DEFAULT_CONTACTS_MUTATION_JUDGE_THINKING_MODE",
+    "DEFAULT_CONTACTS_GENERATOR_TIMEOUT_SECONDS",
     "CONTACTS_LIVE_ACCEPTANCE_CONTRACT",
     "CONTACTS_LIVE_ACCEPTANCE_SCHEMA_VERSION",
     "CONTACTS_LIVE_ATTEMPT_FAILURE_SCHEMA_VERSION",

@@ -24,7 +24,7 @@ class ContactsAcceptanceProofTest(unittest.TestCase):
             generator_provider="openai_compatible",
             generator_model="contacts-generator-test-model",
             mutation_judge_provider="openai_compatible",
-            mutation_judge_model="deterministic_contacts_mutation_judge_v1",
+            mutation_judge_model="deepseek-v4-pro",
         )
         provider = {
             "provider_id": "openai_compatible",
@@ -37,7 +37,7 @@ class ContactsAcceptanceProofTest(unittest.TestCase):
         judge = {
             "provider": "openai_compatible",
             "provider_host": "llm.example.test",
-            "model": "deterministic_contacts_mutation_judge_v1",
+            "model": "deepseek-v4-pro",
             "config_hash": "sha256:" + "2" * 64,
             "role": "mutation_admission_judge",
             "role_version": "role_mutation_admission_judge_v1",
@@ -259,7 +259,7 @@ class ContactsAcceptanceProofTest(unittest.TestCase):
             generator_provider="openai_compatible",
             generator_model="contacts-generator-test-model",
             mutation_judge_provider="openai_compatible",
-            mutation_judge_model="deterministic_contacts_mutation_judge_v1",
+            mutation_judge_model="deepseek-v4-pro",
             generator_retry_limit=0,
         )
         config = LLMConfig(
@@ -357,7 +357,7 @@ class ContactsAcceptanceProofTest(unittest.TestCase):
             generator_provider="openai_compatible",
             generator_model="contacts-generator-test-model",
             mutation_judge_provider="openai_compatible",
-            mutation_judge_model="deterministic_contacts_mutation_judge_v1",
+            mutation_judge_model="deepseek-v4-pro",
         )
 
         def response(content: object) -> httpx.Response:
@@ -529,7 +529,7 @@ class ContactsAcceptanceProofTest(unittest.TestCase):
             generator_provider="openai_compatible",
             generator_model="contacts-generator-test-model",
             mutation_judge_provider="openai_compatible",
-            mutation_judge_model="deterministic_contacts_mutation_judge_v1",
+            mutation_judge_model="deepseek-v4-pro",
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -587,7 +587,7 @@ class ContactsAcceptanceProofTest(unittest.TestCase):
             generator_provider="openai_compatible",
             generator_model="contacts-generator-test-model",
             mutation_judge_provider="openai_compatible",
-            mutation_judge_model="deterministic_contacts_mutation_judge_v1",
+            mutation_judge_model="deepseek-v4-pro",
         )
 
         def unavailable_judge(request: httpx.Request) -> httpx.Response:

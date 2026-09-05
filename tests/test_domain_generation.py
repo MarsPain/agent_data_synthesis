@@ -73,10 +73,24 @@ class AxisAwareBatchClient:
             expected_state = []
             if expected_state_contract["mode"] == "required":
                 reference_fields = expected_state_contract.get("reference_fields", {})
+                grounding_bindings = {
+                    binding["state_field"]: binding
+                    for binding in expected_state_contract.get("grounding_bindings", [])
+                }
                 for item in expected_state_contract["exact_items"]:
                     expected = {}
                     for prop in item["expected_schema"]["properties"]:
-                        if prop in reference_fields:
+                        binding = grounding_bindings.get(prop)
+                        if binding is not None:
+                            observation_value = entry["observation"][
+                                binding["observation_field"]
+                            ]
+                            expected[prop] = (
+                                observation_value
+                                if binding["match"] == "exact"
+                                else f"{prop}_{candidate_id}: {observation_value}"
+                            )
+                        elif prop in reference_fields:
                             expected[prop] = entry["observation"][
                                 reference_fields[prop]
                             ]

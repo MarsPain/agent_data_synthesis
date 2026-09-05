@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import tempfile
@@ -27,6 +28,42 @@ class ContactsLiveAcceptanceContractTest(unittest.TestCase):
             base_url="https://llm.example.test/v1",
             api_key="injected-only",
             model="contacts-generator-test-model",
+        )
+
+    def test_live_profile_uses_default_remote_judge_policy(self) -> None:
+        from synthesis.contacts_live_acceptance import (
+            DEFAULT_CONTACTS_GENERATOR_TIMEOUT_SECONDS,
+            DEFAULT_CONTACTS_MUTATION_JUDGE_MAX_RETRIES,
+            DEFAULT_CONTACTS_MUTATION_JUDGE_MODEL,
+            DEFAULT_CONTACTS_MUTATION_JUDGE_THINKING_MODE,
+            DEFAULT_CONTACTS_MUTATION_JUDGE_TIMEOUT_SECONDS,
+            LiveContactsAcceptanceAuthorization,
+        )
+
+        judge = self._profile().mutation_admission.judge
+        assert judge is not None
+        self.assertEqual(judge.model, DEFAULT_CONTACTS_MUTATION_JUDGE_MODEL)
+        self.assertEqual(
+            judge.timeout_seconds,
+            DEFAULT_CONTACTS_MUTATION_JUDGE_TIMEOUT_SECONDS,
+        )
+        self.assertEqual(judge.max_retries, DEFAULT_CONTACTS_MUTATION_JUDGE_MAX_RETRIES)
+        self.assertEqual(
+            judge.thinking_mode,
+            DEFAULT_CONTACTS_MUTATION_JUDGE_THINKING_MODE,
+        )
+        self.assertEqual(
+            LiveContactsAcceptanceAuthorization(
+                approved=True,
+                authorization_id="contacts-live-default-timeout-20260904",
+                candidate_budget=10,
+                attempt_budget=10,
+                generator_provider="openai_compatible",
+                generator_model="contacts-generator-test-model",
+                mutation_judge_provider="openai_compatible",
+                mutation_judge_model=DEFAULT_CONTACTS_MUTATION_JUDGE_MODEL,
+            ).generator_timeout_seconds,
+            DEFAULT_CONTACTS_GENERATOR_TIMEOUT_SECONDS,
         )
 
     def test_unapproved_authorization_fails_closed_before_transport_work(self) -> None:
@@ -106,7 +143,7 @@ class ContactsLiveAcceptanceContractTest(unittest.TestCase):
             generator_provider="openai_compatible",
             generator_model="contacts-generator-test-model",
             mutation_judge_provider="openai_compatible",
-            mutation_judge_model="deterministic_contacts_mutation_judge_v1",
+            mutation_judge_model="deepseek-v4-pro",
         )
 
         with self.assertRaisesRegex(
@@ -134,7 +171,7 @@ class ContactsLiveAcceptanceContractTest(unittest.TestCase):
             generator_provider="openai_compatible",
             generator_model="contacts-generator-test-model",
             mutation_judge_provider="openai_compatible",
-            mutation_judge_model="deterministic_contacts_mutation_judge_v1",
+            mutation_judge_model="deepseek-v4-pro",
         )
 
         with self.assertRaisesRegex(
@@ -156,8 +193,10 @@ class ContactsLiveAcceptanceContractTest(unittest.TestCase):
             generator_calls.append(request)
             raise AssertionError("generation must not follow a failed preflight")
 
+        judge_requests: list[dict[str, object]] = []
+
         def unavailable_judge(request: httpx.Request) -> httpx.Response:
-            del request
+            judge_requests.append(json.loads(request.read()))
             return httpx.Response(503, json={"error": "unavailable"})
 
         authorization = LiveContactsAcceptanceAuthorization(
@@ -168,7 +207,7 @@ class ContactsLiveAcceptanceContractTest(unittest.TestCase):
             generator_provider="openai_compatible",
             generator_model="contacts-generator-test-model",
             mutation_judge_provider="openai_compatible",
-            mutation_judge_model="deterministic_contacts_mutation_judge_v1",
+            mutation_judge_model="deepseek-v4-pro",
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -209,6 +248,8 @@ class ContactsLiveAcceptanceContractTest(unittest.TestCase):
             failure["mutation_judge_usage"]["failure_classes"],
             {"http_status": 1},
         )
+        self.assertEqual(judge_requests[0]["model"], "deepseek-v4-pro")
+        self.assertEqual(judge_requests[0]["thinking"], {"type": "disabled"})
         serialized = json.dumps(failure).lower()
         self.assertNotIn("injected-only", serialized)
         self.assertNotIn("response", serialized)
@@ -238,6 +279,9 @@ class ContactsLiveAcceptanceContractTest(unittest.TestCase):
             )
 
         def generator_handler(request: httpx.Request) -> httpx.Response:
+            timeout = request.extensions.get("timeout")
+            assert isinstance(timeout, dict)
+            self.assertEqual(set(timeout.values()), {90.0})
             body = json.loads(request.read())
             prompt = json.loads(body["messages"][1]["content"])
             assignment = prompt["coverage_assignment"]
@@ -250,7 +294,9 @@ class ContactsLiveAcceptanceContractTest(unittest.TestCase):
             email = observation["email"]
             if task_type == "contact_followup":
                 instruction = (
-                    f"Find {name}'s email and record a follow-up to send {email}."
+                    f"Find {name}'s email."
+                    if getattr(self, "_unsupported_followup_instruction", False)
+                    else f"Find {name}'s email and record a follow-up to send {email}."
                 )
                 expected_state = [
                     {
@@ -350,7 +396,7 @@ class ContactsLiveAcceptanceContractTest(unittest.TestCase):
             generator_provider="openai_compatible",
             generator_model="contacts-generator-test-model",
             mutation_judge_provider="openai_compatible",
-            mutation_judge_model="deterministic_contacts_mutation_judge_v1",
+            mutation_judge_model="deepseek-v4-pro",
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -405,6 +451,15 @@ class ContactsLiveAcceptanceContractTest(unittest.TestCase):
         self.assertNotIn("raw_prompt", serialized)
         self.assertNotIn("provider_payload", serialized)
 
+    def test_replay_uses_frozen_remote_admission_decision(
+        self,
+    ) -> None:
+        self._unsupported_followup_instruction = True
+        try:
+            self.test_injected_live_contacts_run_builds_real_live_proof_and_replays_offline()
+        finally:
+            del self._unsupported_followup_instruction
+
     def test_frozen_live_evidence_rejects_logical_or_retry_budget_drift(self) -> None:
         from synthesis.contacts_live_acceptance import (
             LiveContactsAcceptanceAuthorization,
@@ -423,7 +478,7 @@ class ContactsLiveAcceptanceContractTest(unittest.TestCase):
         judge = {
             "provider": "openai_compatible",
             "provider_host": "llm.example.test",
-            "model": "deterministic_contacts_mutation_judge_v1",
+            "model": "deepseek-v4-pro",
             "config_hash": "sha256:" + "2" * 64,
             "role": "mutation_admission_judge",
             "role_version": "role_mutation_admission_judge_v1",
@@ -451,7 +506,7 @@ class ContactsLiveAcceptanceContractTest(unittest.TestCase):
                 generator_provider="openai_compatible",
                 generator_model="contacts-generator-test-model",
                 mutation_judge_provider="openai_compatible",
-                mutation_judge_model="deterministic_contacts_mutation_judge_v1",
+                mutation_judge_model="deepseek-v4-pro",
                 generator_retry_limit=retry_limit,
             )
             recorder = SanitizedProviderEvidenceRecorder(
@@ -563,7 +618,7 @@ class ContactsLiveAcceptanceContractTest(unittest.TestCase):
             generator_provider="openai_compatible",
             generator_model="contacts-generator-test-model",
             mutation_judge_provider="openai_compatible",
-            mutation_judge_model="deterministic_contacts_mutation_judge_v1",
+            mutation_judge_model="deepseek-v4-pro",
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -665,7 +720,7 @@ class ContactsLiveAcceptanceContractTest(unittest.TestCase):
             generator_provider="openai_compatible",
             generator_model="contacts-generator-test-model",
             mutation_judge_provider="openai_compatible",
-            mutation_judge_model="deterministic_contacts_mutation_judge_v1",
+            mutation_judge_model="deepseek-v4-pro",
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -701,11 +756,112 @@ class ContactsLiveAcceptanceContractTest(unittest.TestCase):
         self.assertEqual(failure["phase"], "pipeline")
         self.assertGreater(failure["generator_usage"]["logical_calls"], 0)
         self.assertLessEqual(failure["generator_usage"]["logical_calls"], 10)
+        self.assertEqual(
+            failure["generator_usage"]["failure_classes"],
+            {
+                "http_status": failure["generator_usage"]["logical_calls"],
+            },
+        )
         self.assertFalse(failure["provider_evidence_frozen"])
         self.assertFalse(failure["proof_root_published"])
         serialized = json.dumps(failure).lower()
         self.assertNotIn("generator unavailable", serialized)
         self.assertNotIn("injected-only", serialized)
+
+    def test_ambiguous_generator_timeout_is_classified_without_payload_retention(
+        self,
+    ) -> None:
+        from synthesis.acceptance_replay import BoundedSanitizedProvider
+        from synthesis.contacts_live_acceptance import (
+            LiveContactsAcceptanceAuthorization,
+            SanitizedProviderEvidenceRecorder,
+            _generator_usage_summary,
+        )
+        from synthesis.llm import LLMProviderError
+
+        class TimeoutProvider:
+            def generate_json(self, prompt: str, *, role: str):
+                del prompt, role
+                raise LLMProviderError(
+                    cause="llm_provider_error",
+                    error_class="ReadTimeout",
+                    retryable=True,
+                    ambiguous=True,
+                )
+
+        authorization = LiveContactsAcceptanceAuthorization(
+            approved=True,
+            authorization_id="contacts-live-timeout-class-20260904",
+            candidate_budget=10,
+            attempt_budget=10,
+            generator_provider="openai_compatible",
+            generator_model="contacts-generator-test-model",
+            mutation_judge_provider="openai_compatible",
+            mutation_judge_model="deepseek-v4-pro",
+        )
+        recorder = SanitizedProviderEvidenceRecorder(
+            authorization=authorization,
+            provider_identity={
+                "provider_id": "openai_compatible",
+                "provider_version": "openai_compatible_client_v1",
+                "provider_host": "llm.example.test",
+                "model": "contacts-generator-test-model",
+                "config_hash": "sha256:" + "1" * 64,
+                "parser_version": "domain_generation_parser_v1",
+            },
+            mutation_judge_identity={
+                "provider": "openai_compatible",
+                "provider_host": "llm.example.test",
+                "model": "deepseek-v4-pro",
+                "config_hash": "sha256:" + "2" * 64,
+                "role": "mutation_admission_judge",
+                "role_version": "role_mutation_admission_judge_v1",
+            },
+        )
+        prompt = '{"diagnostic": true}'
+        request_hash = "sha256:" + hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+        recorder.bind_assignment(
+            request_hash=request_hash,
+            assignment={"assignment_id": "contacts_timeout_assignment"},
+        )
+        provider = BoundedSanitizedProvider(
+            TimeoutProvider(),
+            recorder=recorder,
+            max_logical_calls=10,
+        )
+
+        with self.assertRaisesRegex(LLMProviderError, "ReadTimeout"):
+            provider.generate_json(prompt, role="task_generation")
+
+        usage = _generator_usage_summary(recorder)
+        self.assertEqual(usage["logical_calls"], 1)
+        self.assertEqual(usage["failure_classes"], {"timeout": 1})
+        self.assertNotIn("diagnostic", json.dumps(recorder.attempts))
+
+    def test_rejection_summary_retains_allowlisted_membership_reason(self) -> None:
+        from synthesis.contacts_live_acceptance import _bounded_rejection_summary
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "rejections.jsonl"
+            path.write_text(
+                json.dumps(
+                    {
+                        "cause": "domain_plan_membership_rejected",
+                        "details": {
+                            "membership_reason": "grounding_membership_mismatch"
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            summary = _bounded_rejection_summary(path)
+
+        self.assertEqual(summary["count"], 1)
+        self.assertEqual(
+            summary["membership_reasons"],
+            {"grounding_membership_mismatch": 1},
+        )
 
     def test_live_cli_requires_explicit_authorization_and_uses_contacts_profile(
         self,
@@ -726,13 +882,20 @@ class ContactsLiveAcceptanceContractTest(unittest.TestCase):
                 "10",
                 "--generator-model",
                 "generator",
-                "--mutation-judge-model",
-                "judge",
             ],
         ):
             args = parse_args()
 
+        from synthesis.contacts_live_acceptance import (
+            DEFAULT_CONTACTS_MUTATION_JUDGE_MODEL,
+        )
+
         self.assertEqual(args.run_profile, DEFAULT_PROFILE)
+        self.assertEqual(
+            args.mutation_judge_model,
+            DEFAULT_CONTACTS_MUTATION_JUDGE_MODEL,
+        )
+        self.assertEqual(args.generator_timeout_seconds, 90.0)
         self.assertEqual(args.max_generator_retries, 0)
         self.assertTrue(args.authorize_live_provider)
 

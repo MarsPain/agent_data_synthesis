@@ -60,6 +60,23 @@ _UNSAFE_STRING_PATTERNS = (
     re.compile(r"[A-Za-z]:\\"),
 )
 _SHA256_HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_EXPECTED_STATE_GROUNDING_MATCHES = frozenset({"exact", "contains"})
+
+
+@dataclass(frozen=True)
+class ExpectedStateGroundingBinding:
+    """One expected-state field's required relation to a grounding observation."""
+
+    state_field: str
+    observation_field: str
+    match: str = "exact"
+
+    def to_record(self) -> dict[str, str]:
+        return {
+            "state_field": self.state_field,
+            "observation_field": self.observation_field,
+            "match": self.match,
+        }
 
 
 @dataclass(frozen=True)
@@ -78,6 +95,9 @@ class DomainTaskTypeSpec:
     final_answer_fields: tuple[str, ...] = ()
     final_answer_derivation: str | None = None
     expected_state_reference_fields: tuple[tuple[str, str], ...] = ()
+    expected_state_grounding_bindings: tuple[
+        ExpectedStateGroundingBinding, ...
+    ] = ()
 
 
 @dataclass(frozen=True)
@@ -424,6 +444,58 @@ def validate_domain_generation_spec(spec: DomainGenerationSpec) -> None:
                 [list(pair) for pair in item.expected_state_reference_fields],
                 path=f"task_types.{task_type}.expected_state_reference_fields",
             )
+        if item.expected_state_grounding_bindings:
+            if item.expected_state_tool is None:
+                raise ValueError(
+                    "expected-state grounding bindings require an expected-state tool"
+                )
+            mutating_tool = next(
+                tool for tool in spec.tools if tool["name"] == item.expected_state_tool
+            )
+            schema = mutating_tool["schema"]
+            properties = (
+                schema.get("properties", {}) if isinstance(schema, Mapping) else {}
+            )
+            declared_state_fields = {
+                state_field for state_field, _ in item.expected_state_reference_fields
+            }
+            bindings: set[tuple[str, str, str]] = set()
+            for binding in item.expected_state_grounding_bindings:
+                if not isinstance(binding, ExpectedStateGroundingBinding):
+                    raise ValueError(
+                        "expected-state grounding bindings must be binding records"
+                    )
+                if (
+                    re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", binding.state_field)
+                    is None
+                    or re.fullmatch(
+                        r"[A-Za-z_][A-Za-z0-9_]*", binding.observation_field
+                    )
+                    is None
+                    or binding.match not in _EXPECTED_STATE_GROUNDING_MATCHES
+                ):
+                    raise ValueError("expected-state grounding binding is invalid")
+                if (
+                    binding.state_field not in properties
+                    or binding.state_field in declared_state_fields
+                ):
+                    raise ValueError(
+                        "expected-state grounding binding must reference a unique "
+                        "mutating-tool schema field"
+                    )
+                key = (
+                    binding.state_field,
+                    binding.observation_field,
+                    binding.match,
+                )
+                if key in bindings:
+                    raise ValueError("expected-state grounding bindings must not repeat")
+                bindings.add(key)
+                declared_state_fields.add(binding.state_field)
+            _validate_safe_value(
+                [binding.to_record() for binding in item.expected_state_grounding_bindings],
+                path=f"task_types.{task_type}.expected_state_grounding_bindings",
+            )
         if (
             not item.final_answer_fields
             or len(item.final_answer_fields) != len(set(item.final_answer_fields))
@@ -549,6 +621,13 @@ def sanitized_generation_spec_metadata(spec: DomainGenerationSpec) -> dict[str, 
             task_type.task_type: [
                 reference.to_record()
                 for reference in task_type.capability_references
+            ]
+            for task_type in spec.task_types
+        },
+        "task_expected_state_grounding_bindings": {
+            task_type.task_type: [
+                binding.to_record()
+                for binding in task_type.expected_state_grounding_bindings
             ]
             for task_type in spec.task_types
         },
@@ -825,6 +904,11 @@ def _expected_state_output_contract(
             state_field: observation_field
             for state_field, observation_field in task_type.expected_state_reference_fields
         }
+    if task_type.expected_state_grounding_bindings:
+        contract["grounding_bindings"] = [
+            binding.to_record()
+            for binding in task_type.expected_state_grounding_bindings
+        ]
     return contract
 
 
@@ -1151,6 +1235,15 @@ def _provider_expected_state(
                     "invalid_expected_state",
                     detail="expected_state_reference_not_grounded",
                 )
+        if task_spec.expected_state_grounding_bindings and not _matches_expected_state_grounding_bindings(
+            expected,
+            grounding_context=grounding_context,
+            bindings=task_spec.expected_state_grounding_bindings,
+        ):
+            raise DomainGenerationValidationError(
+                "invalid_expected_state",
+                detail="expected_state_grounding_binding_mismatch",
+            )
         seen_checks.add(check_type)
         expected_state.append(ExpectedStateCheck(check_type, dict(expected)))
     if task_spec.allowed_expected_state_checks and not expected_state:
@@ -1164,6 +1257,46 @@ def _provider_expected_state(
             detail="expected_state_check_type_invalid",
         )
     return tuple(expected_state)
+
+
+def _matches_expected_state_grounding_bindings(
+    expected: Mapping[str, object],
+    *,
+    grounding_context: Mapping[str, object],
+    bindings: tuple[ExpectedStateGroundingBinding, ...],
+) -> bool:
+    for top_level in grounding_context.values():
+        if not isinstance(top_level, list):
+            continue
+        for entry in top_level:
+            observation = entry.get("observation") if isinstance(entry, Mapping) else None
+            if not isinstance(observation, Mapping):
+                continue
+            if all(
+                _matches_expected_state_grounding_binding(
+                    expected.get(binding.state_field),
+                    observation.get(binding.observation_field),
+                    binding.match,
+                )
+                for binding in bindings
+            ):
+                return True
+    return False
+
+
+def _matches_expected_state_grounding_binding(
+    value: object,
+    observation_value: object,
+    match: str,
+) -> bool:
+    if match == "exact":
+        return value == observation_value
+    return (
+        match == "contains"
+        and isinstance(value, str)
+        and isinstance(observation_value, str)
+        and observation_value in value
+    )
 
 
 def _provider_final_answer(

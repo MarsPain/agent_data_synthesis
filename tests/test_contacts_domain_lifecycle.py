@@ -228,6 +228,193 @@ class ContactsDomainLifecycleTest(unittest.TestCase):
             self.assertEqual(insufficient.status, "insufficient_evidence")
             self.assertEqual(insufficient.reason_code, "evidence_missing")
 
+    def test_contacts_membership_distinguishes_primary_grounding_mismatch(self) -> None:
+        from synthesis.domain_generation import task_contract_from_provider_record
+        from synthesis.seeds import foundation_seed
+        from synthesis.task_contracts import candidate_from_task_contract
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _pack, _plan, run, _source_bundle, _source_result, _admitted_source = (
+                self._planned_contacts_run(tmpdir)
+            )
+            assert run is not None
+            spec = run.generation_spec
+            assert spec is not None
+            task_spec = next(
+                item for item in spec.task_types if item.task_type == "contact_lookup"
+            )
+            grounding = next(iter(spec.grounding_context.values()))[0]
+            observation = grounding["observation"]
+            contract = task_contract_from_provider_record(
+                {
+                    "candidate_id": "generated_grounding_mismatch",
+                    "instruction": "Find the contact email.",
+                    "task_type": "contact_lookup",
+                    "difficulty": {"state_changes": 0, "recovery_paths": 0},
+                    "required_capabilities": list(task_spec.required_capabilities),
+                    "required_tools": list(task_spec.required_tools),
+                    "primary_tool": task_spec.required_tools[0],
+                    "primary_arguments": {"name": "Unknown Person"},
+                    "final_answer_contains": observation["email"],
+                    "expected_state": [],
+                },
+                seed=foundation_seed(),
+                spec=spec,
+                candidate_id_prefix="generated_",
+                generation_lineage={},
+            )
+            candidate = candidate_from_task_contract(contract)
+
+        self.assertEqual(
+            run._membership_reason(candidate),
+            "grounding_primary_arguments_mismatch",
+        )
+
+    def test_contacts_membership_distinguishes_followup_state_mismatch(self) -> None:
+        from synthesis.domain_generation import (
+            DomainGenerationValidationError,
+            task_contract_from_provider_record,
+        )
+        from synthesis.seeds import foundation_seed
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _pack, _plan, run, _source_bundle, _source_result, _admitted_source = (
+                self._planned_contacts_run(tmpdir)
+            )
+            assert run is not None
+            spec = run.generation_spec
+            assert spec is not None
+            task_spec = next(
+                item for item in spec.task_types if item.task_type == "contact_followup"
+            )
+            grounding = next(iter(spec.grounding_context.values()))[0]
+            observation = grounding["observation"]
+            with self.assertRaisesRegex(
+                DomainGenerationValidationError,
+                "invalid_expected_state",
+            ):
+                task_contract_from_provider_record(
+                    {
+                        "candidate_id": "generated_followup_state_mismatch",
+                        "instruction": "Record a follow-up.",
+                        "task_type": "contact_followup",
+                        "difficulty": {"state_changes": 1, "recovery_paths": 0},
+                        "required_capabilities": list(task_spec.required_capabilities),
+                        "required_tools": list(task_spec.required_tools),
+                        "primary_tool": task_spec.required_tools[0],
+                        "primary_arguments": grounding["primary_arguments"],
+                        "final_answer_contains": observation["email"],
+                        "expected_state": [
+                            {
+                                "check_type": "contact_followup",
+                                "expected": {
+                                    "name": observation["name"],
+                                    "note": "Follow up later.",
+                                },
+                            }
+                        ],
+                    },
+                    seed=foundation_seed(),
+                    spec=spec,
+                    candidate_id_prefix="generated_",
+                    generation_lineage={},
+                )
+
+    def test_contacts_followup_grounding_bindings_require_one_observation(self) -> None:
+        from synthesis.domain_generation import (
+            DomainGenerationValidationError,
+            task_contract_from_provider_record,
+        )
+        from synthesis.seeds import foundation_seed
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _pack, _plan, run, _source_bundle, _source_result, _admitted_source = (
+                self._planned_contacts_run(tmpdir)
+            )
+            assert run is not None
+            spec = run.generation_spec
+            assert spec is not None
+            task_spec = next(
+                item for item in spec.task_types if item.task_type == "contact_followup"
+            )
+            grounding_entries = next(iter(spec.grounding_context.values()))
+            first = grounding_entries[0]
+            second = grounding_entries[1]
+
+            with self.assertRaisesRegex(
+                DomainGenerationValidationError,
+                "invalid_expected_state",
+            ):
+                task_contract_from_provider_record(
+                    {
+                        "candidate_id": "generated_cross_grounding_mismatch",
+                        "instruction": "Record a follow-up.",
+                        "task_type": "contact_followup",
+                        "difficulty": {"state_changes": 1, "recovery_paths": 0},
+                        "required_capabilities": list(task_spec.required_capabilities),
+                        "required_tools": list(task_spec.required_tools),
+                        "primary_tool": task_spec.required_tools[0],
+                        "primary_arguments": first["primary_arguments"],
+                        "final_answer_contains": first["observation"]["email"],
+                        "expected_state": [
+                            {
+                                "check_type": "contact_followup",
+                                "expected": {
+                                    "name": first["observation"]["name"],
+                                    "note": (
+                                        "Send follow-up email to "
+                                        f"{second['observation']['email']}."
+                                    ),
+                                },
+                            }
+                        ],
+                    },
+                    seed=foundation_seed(),
+                    spec=spec,
+                    candidate_id_prefix="generated_",
+                    generation_lineage={},
+                )
+
+    def test_contacts_followup_prompt_declares_grounding_bindings(self) -> None:
+        from synthesis.domain_generation import (
+            build_domain_generation_prompt,
+            build_generation_batch_context,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _pack, _plan, run, _source_bundle, _source_result, _admitted_source = (
+                self._planned_contacts_run(tmpdir)
+            )
+            assert run is not None
+            spec = run.generation_spec
+            assert spec is not None
+            prompt = json.loads(
+                build_domain_generation_prompt(
+                    spec,
+                    requested_candidate_count=1,
+                    batch_context=build_generation_batch_context(spec, batch_index=2),
+                )
+            )
+
+        expected_state = prompt["output_contract"]["task_type_contracts"][0][
+            "expected_state"
+        ]
+        self.assertEqual(
+            expected_state["grounding_bindings"],
+            [
+                {
+                    "state_field": "name",
+                    "observation_field": "name",
+                    "match": "exact",
+                },
+                {
+                    "state_field": "note",
+                    "observation_field": "email",
+                    "match": "contains",
+                },
+            ],
+        )
+
     def test_contacts_open_and_replay_fail_closed_on_binding_drift(self) -> None:
         from synthesis.contacts_domain_pack import ContactsRuntimeScope
         from synthesis.domain_pack import DomainCandidateScope, DomainPlan, OpenFailure

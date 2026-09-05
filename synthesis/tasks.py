@@ -129,6 +129,7 @@ def build_contacts_generation_spec(
         SYNTHETIC_CONTEXT_POLICY,
         DomainGenerationSpec,
         DomainTaskTypeSpec,
+        ExpectedStateGroundingBinding,
         validate_domain_generation_spec,
     )
     from synthesis.domain_pack import DomainPlan, initial_domain_pack_registry
@@ -188,6 +189,10 @@ def build_contacts_generation_spec(
                 ),
                 expected_state_tool="record_contact_followup",
                 final_answer_fields=("email",),
+                expected_state_grounding_bindings=(
+                    ExpectedStateGroundingBinding("name", "name", "exact"),
+                    ExpectedStateGroundingBinding("note", "email", "contains"),
+                ),
             ),
         ),
         tools=tuple(registry.export()),

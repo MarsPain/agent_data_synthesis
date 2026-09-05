@@ -11,6 +11,8 @@ if str(ROOT) not in sys.path:
 
 from synthesis.contacts_live_acceptance import (
     CONTACTS_LIVE_PROOF_FAILURE_FILENAME,
+    DEFAULT_CONTACTS_GENERATOR_TIMEOUT_SECONDS,
+    DEFAULT_CONTACTS_MUTATION_JUDGE_MODEL,
     LiveContactsAcceptanceAuthorization,
     LiveContactsAcceptanceError,
     run_live_contacts_acceptance,
@@ -44,7 +46,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--candidate-budget", required=True, type=int)
     parser.add_argument("--attempt-budget", required=True, type=int)
     parser.add_argument("--generator-model", required=True)
-    parser.add_argument("--mutation-judge-model", required=True)
+    parser.add_argument(
+        "--generator-timeout-seconds",
+        type=float,
+        default=DEFAULT_CONTACTS_GENERATOR_TIMEOUT_SECONDS,
+        help=(
+            "Contacts release-profile generator deadline "
+            f"(default: {DEFAULT_CONTACTS_GENERATOR_TIMEOUT_SECONDS:g})."
+        ),
+    )
+    parser.add_argument(
+        "--mutation-judge-model",
+        default=DEFAULT_CONTACTS_MUTATION_JUDGE_MODEL,
+        help=(
+            "Contacts release-profile mutation judge model "
+            f"(default: {DEFAULT_CONTACTS_MUTATION_JUDGE_MODEL})."
+        ),
+    )
     parser.add_argument("--run-profile", type=Path, default=DEFAULT_PROFILE)
     parser.add_argument(
         "--output-dir",
@@ -72,6 +90,7 @@ def main() -> int:
             attempt_budget=args.attempt_budget,
             generator_provider="openai_compatible",
             generator_model=args.generator_model,
+            generator_timeout_seconds=args.generator_timeout_seconds,
             mutation_judge_provider="openai_compatible",
             mutation_judge_model=args.mutation_judge_model,
             generator_retry_limit=args.max_generator_retries,

@@ -72,6 +72,8 @@ from synthesis.episode_quality import read_episode_logs
 from synthesis.evaluation import write_evaluation_report
 from synthesis.llm import LLMConfig
 from synthesis.mutation_admission import (
+    CandidateAdmissionDecision,
+    CandidateAdmissionEvaluator,
     SemanticJudgeRequest,
     build_openai_compatible_semantic_mutation_judge,
 )
@@ -1233,6 +1235,7 @@ def replay_contacts_provider_evidence(
             loaded=loaded,
             profile=profile,
             run=run,
+            acceptance_dir=acceptance_dir,
             contract=contract,
         )
         return {
@@ -1250,6 +1253,7 @@ def _replay_contacts_attempts(
     loaded: Mapping[str, object],
     profile: RunProfile,
     run: ContactsDomainRun,
+    acceptance_dir: Path,
     contract: AcceptanceReplayContract,
 ) -> dict[str, object]:
     attempts = loaded.get("attempts")
@@ -1310,6 +1314,7 @@ def _replay_contacts_attempts(
     replayed_contracts = 0
     accepted = 0
     rejected = 0
+    frozen_admission_evaluator = _frozen_admission_evaluator(acceptance_dir)
     for raw_attempt in attempts:
         if not isinstance(raw_attempt, Mapping):
             raise ContactsAcceptanceError("contacts_replay_input_malformed")
@@ -1437,10 +1442,7 @@ def _replay_contacts_attempts(
                 model="contacts-provider-free-replay",
             ),
             policy_generator=scripted_solution_policy,
-            admission_evaluator=run.build_admission_evaluator(
-                mode="enforce",
-                judge=run.default_mutation_judge(),
-            ),
+            admission_evaluator=frozen_admission_evaluator,
         )
         if outcome.outcome.sample is not None:
             accepted += 1
@@ -1470,6 +1472,70 @@ def _replay_contacts_attempts(
         "provider_calls": 0,
         "evidence_class": contract.evidence_class,
     }
+
+
+def _frozen_admission_evaluator(acceptance_dir: Path) -> CandidateAdmissionEvaluator:
+    """Replay the recorded admission decision without calling another judge."""
+
+    decisions: dict[str, tuple[bool, dict[str, object], str | None]] = {}
+    for sample in _load_jsonl(acceptance_dir / "samples.jsonl"):
+        sample_id = sample.get("sample_id")
+        candidate_id = (
+            sample_id.removeprefix("sample_")
+            if isinstance(sample_id, str) and sample_id.startswith("sample_")
+            else None
+        )
+        evidence = sample.get("mutation_admission")
+        if isinstance(candidate_id, str) and isinstance(evidence, Mapping):
+            decisions[candidate_id] = (True, dict(evidence), None)
+    for rejection in _load_jsonl(acceptance_dir / "rejections.jsonl"):
+        candidate_id = rejection.get("candidate_id")
+        details = rejection.get("details")
+        evidence = (
+            details.get("mutation_admission")
+            if isinstance(details, Mapping)
+            else None
+        )
+        if (
+            isinstance(candidate_id, str)
+            and isinstance(evidence, Mapping)
+            and candidate_id not in decisions
+        ):
+            rejection_reason = (
+                details.get("admission_reason")
+                if isinstance(details.get("admission_reason"), str)
+                else "frozen_admission_rejected"
+            )
+            decisions[candidate_id] = (
+                False,
+                dict(evidence),
+                rejection_reason,
+            )
+
+    def evaluate(
+        task_contract: object,
+        solution_policy: object,
+    ) -> CandidateAdmissionDecision:
+        del solution_policy
+        intent = getattr(task_contract, "intent", None)
+        candidate_id = getattr(intent, "candidate_id", None)
+        if not isinstance(candidate_id, str):
+            raise ContactsAcceptanceError("contacts_replay_admission_evidence_missing")
+        if candidate_id not in decisions:
+            if getattr(task_contract, "mutation_authorization", None) is None:
+                return CandidateAdmissionDecision(
+                    execution_permitted=True,
+                    evidence=None,
+                )
+            raise ContactsAcceptanceError("contacts_replay_admission_evidence_missing")
+        execution_permitted, evidence, rejection_reason = decisions[candidate_id]
+        return CandidateAdmissionDecision(
+            execution_permitted=execution_permitted,
+            evidence=dict(evidence),
+            rejection_reason=rejection_reason,
+        )
+
+    return evaluate
 
 
 def _replay_release_outcomes(

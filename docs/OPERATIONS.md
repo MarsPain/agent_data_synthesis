@@ -182,24 +182,58 @@ uv run python scripts/run_contacts_live_acceptance.py \
   --candidate-budget 10 \
   --attempt-budget 10 \
   --generator-model <generator-model> \
-  --mutation-judge-model deterministic_contacts_mutation_judge_v1 \
+  --generator-timeout-seconds 90 \
+  --mutation-judge-model deepseek-v4-pro \
   --max-generator-retries <0-3> \
   --output-dir artifacts/contacts-live-acceptance-<date>
 ```
 
-The command requires fresh explicit authorization, the exact Contacts release
-profile, bounded logical and retry-expanded physical-call budgets, and distinct
-generator and mutation-judge identities. Before generation it sends one fixed,
-non-source-backed request through the production Contacts mutation-judge
-contract. A failed preflight writes
+The `--mutation-judge-model` option defaults to `deepseek-v4-pro`; it is shown
+above to make the authorized identity explicit. The command requires fresh
+explicit authorization, the exact Contacts release profile, bounded logical and
+retry-expanded physical-call budgets, and distinct generator and mutation-judge
+identities. Before generation it sends one fixed, non-source-backed request
+through the production Contacts mutation-judge contract. A failed preflight writes
 `contacts_live_attempt_failure.json` and makes no generator request.
+
+The current Contacts live policy gives both generator and judge a 90-second
+deadline. It keeps zero generator and judge retries, and sends the judge in
+explicit non-thinking mode (`thinking: {"type": "disabled"}`). These values
+are bound into the authorization/evidence identity and must be explicitly
+authorized again for every real-provider attempt.
+
+### Contacts follow-up grounding canary
+
+Before a full Contacts Release Candidate campaign, run this non-qualifying
+canary. It selects one `contact_followup` coverage assignment, makes one
+generator request and at most one mutation-judge request, then verifies the
+exact primary arguments, final answer, follow-up name/note-email relationship,
+frozen admission outcome, and provider-free local replay. It writes only a
+sanitized status record; it never creates a dataset, release evidence, provider
+evidence, replay proof, or qualification claim.
+
+```bash
+uv run python scripts/run_contacts_live_contract_canary.py \
+  --authorize-live-provider \
+  --authorization-id <fresh-authorization-id> \
+  --generator-model <generator-model> \
+  --generator-timeout-seconds 90 \
+  --mutation-judge-model deepseek-v4-pro \
+  --output-dir artifacts/contacts-live-contract-canary-<date>
+```
+
+Do not run the full acceptance campaign unless this canary records `passed`.
 
 Successful runs freeze only sanitized `real_live` provider evidence after
 independent Contacts release-pack and Release Candidate verification. The
 Contacts proof then replays that evidence with zero provider calls. Failed
 provider, parser, judge, budget, pipeline, release-evidence, or qualification
-paths retain only a bounded failure record; no response, prompt, credential,
-source payload, or proof root is reusable from the failure.
+paths retain only a bounded failure record, including aggregate sanitized
+generator or judge failure classes when available; no response, prompt,
+credential, source payload, or proof root is reusable from the failure.
+For Domain Plan membership failures, the record may additionally aggregate
+allowlisted local membership reasons without retaining a generated task or
+provider response.
 
 After a successful run, verify the copied proof in a clean offline process. The
 `--real-live` flag selects the frozen real-provider evidence contract explicitly;

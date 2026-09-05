@@ -933,7 +933,7 @@ class ContactsDomainRun:
             contract.policy_hint.primary_arguments,
         )
         if observation is None:
-            return "grounding_membership_mismatch"
+            return "grounding_primary_arguments_mismatch"
         for state_field, observation_field in task_spec.expected_state_reference_fields:
             for state_check in contract.expected_state:
                 expected = state_check.expected
@@ -943,12 +943,13 @@ class ContactsDomainRun:
                     or canonical_domain_pack_hash(expected[state_field])
                     != canonical_domain_pack_hash(observation[observation_field])
                 ):
-                    return "grounding_membership_mismatch"
-        if not _matches_contacts_expected_answer(
+                    return "grounding_expected_state_mismatch"
+        grounding_reason = _contacts_grounding_membership_reason(
             contract=contract,
             observation=observation,
-        ):
-            return "grounding_membership_mismatch"
+        )
+        if grounding_reason is not None:
+            return grounding_reason
         return _recovery_membership_reason(
             contract=contract,
             state_changing=state_changing,
@@ -1714,25 +1715,31 @@ def _grounding_observation_for_arguments(
     return None
 
 
-def _matches_contacts_expected_answer(*, contract: object, observation: Mapping[str, object]) -> bool:
+def _contacts_grounding_membership_reason(
+    *,
+    contract: object,
+    observation: Mapping[str, object],
+) -> str | None:
     expected_answer = getattr(getattr(contract, "expected_outcome", None), "final_answer_contains", None)
     if not isinstance(expected_answer, str):
-        return False
+        return "grounding_final_answer_mismatch"
     email = observation.get("email")
     if not isinstance(email, str) or expected_answer not in email:
-        return False
+        return "grounding_final_answer_mismatch"
     if getattr(getattr(contract, "intent", None), "task_type", None) != "contact_followup":
-        return True
+        return None
     state_values: dict[str, object] = {}
     for state_check in getattr(contract, "expected_state", ()):
         expected = getattr(state_check, "expected", None)
         if isinstance(expected, Mapping):
             state_values.update(expected)
-    return (
-        state_values.get("name") == observation.get("name")
-        and isinstance(state_values.get("note"), str)
-        and email in str(state_values["note"])
-    )
+    if (
+        state_values.get("name") != observation.get("name")
+        or not isinstance(state_values.get("note"), str)
+        or email not in str(state_values["note"])
+    ):
+        return "grounding_followup_state_mismatch"
+    return None
 
 
 def _recovery_membership_reason(*, contract: object, state_changing: bool) -> str | None:
