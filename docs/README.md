@@ -35,6 +35,7 @@ the configured issue tracker.
 
 ## Product Specs
 
+- [product-specs/agent-first-core-rebuild.md](product-specs/agent-first-core-rebuild.md): clean-break replacement of the proof-heavy legacy implementation with an Agent-first, library-first, single-machine synthesis core and calibrated quality workflow.
 - [product-specs/outcome-validated-domain-pack.md](product-specs/outcome-validated-domain-pack.md): desired behavior and acceptance for Domain Pack semantic authority, cumulative release qualification, compatibility evidence, and the Workspace proof tracer.
 - [product-specs/contacts-domain-pack-lifecycle.md](product-specs/contacts-domain-pack-lifecycle.md): operationalize Contacts as the second end-to-end Domain Pack, including its provider-free proof and explicitly authorized live boundary.
 - [product-specs/framework-mvp.md](product-specs/framework-mvp.md): MVP scope and acceptance criteria.

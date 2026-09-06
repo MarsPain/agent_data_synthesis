@@ -6,6 +6,9 @@ triggers, and technical debt. Tracker configuration lives in
 [docs/agents/issue-tracker.md](../docs/agents/issue-tracker.md).
 
 ## Open
+- [Agent-First Core Rebuild](agent-first-core-rebuild/README.md) — canonical
+  specification and ten tracer-bullet tickets published; Ticket 01 is the
+  implementation frontier
 - [Semantic Mutation Admission](semantic-mutation-admission/README.md) — ticketed;
   runtime enforcement, release-artifact auditing, and calibration-corpus work
   are complete; activation evaluation is complete and the representative gate
