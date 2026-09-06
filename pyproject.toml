@@ -8,6 +8,7 @@ dependencies = [
     "fastapi>=0.136.1",
     "httpx>=0.28.1",
     "pypdf>=6.10.2",
+    "pydantic>=2.13.4",
     "uvicorn>=0.46.0",
     "itsdangerous>=2.2.0",
 ]

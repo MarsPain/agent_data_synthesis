@@ -47,9 +47,11 @@ the configured issue tracker.
 ## Architecture Decisions
 
 - [adr/README.md](adr/README.md): index of accepted system-wide architecture decisions.
-- [adr/0001-independent-semantic-mutation-admission.md](adr/0001-independent-semantic-mutation-admission.md): require independent, pre-execution semantic mutation admission for release-grade state-changing candidates.
-- [adr/0002-domain-pack-semantic-authority-and-deep-interface.md](adr/0002-domain-pack-semantic-authority-and-deep-interface.md): make the versioned Domain Pack the semantic authority and deep integration interface.
+- [adr/0001-independent-semantic-mutation-admission.md](adr/0001-independent-semantic-mutation-admission.md): superseded mutation-admission decision retained as history.
+- [adr/0002-domain-pack-semantic-authority-and-deep-interface.md](adr/0002-domain-pack-semantic-authority-and-deep-interface.md): superseded Domain Pack interface decision retained as history.
 - [adr/0003-separate-evidence-verification-from-external-authority.md](adr/0003-separate-evidence-verification-from-external-authority.md): keep framework evidence verification separate from human publication authority and external model training.
+- [adr/0004-provisional-agent-first-domain-adapter-seam.md](adr/0004-provisional-agent-first-domain-adapter-seam.md): establish the isolated, provisional Domain adapter seam for the replacement core.
+- [adr/0005-bounded-public-intent-compilation-and-shadow-review.md](adr/0005-bounded-public-intent-compilation-and-shadow-review.md): require deterministic public-intent authorization while keeping review shadowed until separately eligible.
 
 ## References
 

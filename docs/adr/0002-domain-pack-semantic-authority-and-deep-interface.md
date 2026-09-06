@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted on 2026-08-08.
+Superseded on 2026-09-06 by
+[ADR 0004: Use a Provisional Agent-First Domain Adapter Seam](0004-provisional-agent-first-domain-adapter-seam.md).
 
 Each logical domain is represented by a versioned Domain Pack that is both the
 sole authority for domain capability semantics and the common deep integration

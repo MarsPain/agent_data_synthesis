@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted on 2026-07-22.
+Superseded on 2026-09-06 by
+[ADR 0005: Compile Bounded Public Intent Before Mutation and Keep Review Shadowed](0005-bounded-public-intent-compilation-and-shadow-review.md).
 
 State-changing candidates must pass deterministic authorization/provenance
 validation and an independent `mutation_admission_judge` before execution when

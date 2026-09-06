@@ -4,6 +4,22 @@ The framework should be developed as a pipeline for executable Agent training da
 Canonical terminology is defined in [CONTEXT.md](CONTEXT.md); this file owns
 only the top-level system and package map.
 
+## Provisional Agent-First Core
+
+`agent_synthesis/` is the isolated library-first replacement seam under active
+development. It accepts registered Domain and deterministic model adapters,
+stores frozen inputs and private Task cases in a private SQLite ledger, and
+exports sanitized Episode collections with a flat manifest. The legacy
+`synthesis/` package and `main.py` remain the active path until the acceptance
+and cutover work in the [Agent-First Core Rebuild](docs/product-specs/agent-first-core-rebuild.md) is complete.
+
+The provisional Domain adapter owns deterministic slots, public/private task
+compilation, isolated state, tools, mutation authorization, and assessment.
+The shared core owns registration, stable identities, private storage,
+admission, collection placement, and public artifact writing. The governing
+decisions are [ADR 0004](docs/adr/0004-provisional-agent-first-domain-adapter-seam.md)
+and [ADR 0005](docs/adr/0005-bounded-public-intent-compilation-and-shadow-review.md).
+
 ## Top-Level Domains
 
 1. **Seed and Domain Intake**

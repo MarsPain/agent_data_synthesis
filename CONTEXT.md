@@ -17,11 +17,24 @@ terms, not package structure, implementation plans, or work status. See
 - **Task instruction:** The user-facing natural-language request inside a
   candidate task. It expresses the synthetic task requester's intent, not the
   synthesis operator's intent.
-- **Domain pack:** The versioned domain-owned semantic authority and common deep
-  interface for planning, generation, isolated execution, replay, and assessment.
-  It hides how domain-specific environments, tools, policies, and verifiers are
-  composed without forcing domains to share an internal implementation; its
-  logical identity is independent of the runtime that executes it.
+- **Domain Pack (legacy core):** The versioned domain-owned semantic authority
+  and common deep interface for planning, generation, isolated execution,
+  replay, and assessment in the legacy synthesis path. It hides how
+  domain-specific environments, tools, policies, and verifiers are composed;
+  its logical identity is independent of the runtime that executes it.
+- **Agent-first Domain adapter:** A registered adapter in the provisional
+  Agent-first core. It opens a Domain run while owning its fixture semantics,
+  task compilation, isolated state, tools, mutation authorization, and
+  deterministic assessment. It supersedes the Domain Pack as the new core's
+  integration seam, while the legacy path remains active until cutover.
+- **Agent-first Domain run:** The run-scoped behavior opened by an Agent-first
+  Domain adapter. It supplies deterministic task slots, freezes initial state,
+  compiles public/private Task cases, opens candidate-local Episodes, and
+  assesses observable execution.
+- **Task case:** A Domain-compiled task with a bounded public task view, a
+  Domain-owned semantic key, and an opaque private oracle record. The private
+  record is retained only in the operational ledger and is never an exported
+  Episode field.
 - **Domain Pack version:** An immutable, hash-bound composition of one Domain
   Pack's capability references and domain-owned semantic contracts. It changes
   whenever planning, execution, assessment, or evidence meaning can change.
@@ -41,10 +54,10 @@ terms, not package structure, implementation plans, or work status. See
   Pack for an admitted synthesis intent. It binds exact capability, coverage,
   evaluation, mutation, runtime, and release-evidence requirements before
   execution begins.
-- **Domain run:** An isolated execution scope opened from one exact Domain plan.
-  It mediates candidate generation, attempts, and replay without transferring
-  scheduling, artifact handling, or qualification authority from the shared
-  framework.
+- **Legacy Domain run:** An isolated execution scope opened from one exact
+  legacy Domain plan. It mediates candidate generation, attempts, and replay
+  without transferring scheduling, artifact handling, or qualification
+  authority from the shared framework.
 - **Domain assessment:** A Domain Pack's typed interpretation of exact
   evaluation or release evidence. It can establish a domain requirement or
   evidence insufficiency, but is not itself a Release qualification.
@@ -61,8 +74,10 @@ terms, not package structure, implementation plans, or work status. See
   labels, or local-adapter support. It is not a Domain capability.
 - **Environment:** Executable, isolated state against which tools run. An
   environment is rebuilt per candidate when isolation is required.
-- **Tool:** A typed operation over an environment, with a declared input schema
-  and deterministic result contract for local fixture paths.
+- **Tool:** A typed operation over an environment, with declared public input
+  and output schemas plus a deterministic result contract for local fixture
+  paths. An Agent-first Episode exports only payload fields declared by these
+  schemas.
 - **Trajectory:** The ordered actions, observations, state transitions, and
   final response produced while attempting a candidate task.
 - **Episode:** Sanitized runtime evidence for one task execution, suitable for
