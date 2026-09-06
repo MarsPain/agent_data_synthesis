@@ -1,10 +1,10 @@
-# 04 — Add the Mobile Messages Domain Adapter
+# 04 — Add Mobile Messages and Validate the Second-Domain Seam
 
-**What to build:** Let a synthesis operator produce verified Mobile Messages
-Agent demonstrations and negatives through the new Domain seam, including
-read-only, state-changing, and recovery trajectories in isolated local state.
+**What to build:** Produce verified Mobile Messages Episodes and use this
+second production Domain to validate and stabilize the interface through a
+concrete task/verifier change-locality exercise.
 
-**Blocked by:** [02 — Run provider-neutral multi-turn Agent Episodes](02-run-provider-neutral-agent-episodes.md)
+**Blocked by:** [03 — Add Contacts and establish early Agent feasibility](03-add-contacts-domain-adapter.md)
 
 **Status:** ready-for-agent
 
@@ -14,18 +14,20 @@ read-only, state-changing, and recovery trajectories in isolated local state.
 
 ## Acceptance criteria
 
-- [ ] The Mobile Messages adapter opens fixture and admitted local-source runs without shared-core knowledge of message, reminder, or draft schemas.
-- [ ] Deterministic Task slots cover message search, reminder creation, draft reply, and search recovery with grounded generation context.
-- [ ] Expected messages, reminder state, draft state, and mutation authorization remain private from the Agent.
-- [ ] Each Candidate receives isolated Mobile Messages state; reminders and drafts cannot leak across Candidates or replay.
-- [ ] Read-only search, authorized reminder and draft mutations, recoverable search failure, and rejected unauthorized mutation traverse the common Domain Episode interface.
-- [ ] Deterministic assessment checks observation grounding, final response, requested final state, and absence of unintended state change.
-- [ ] Semantic and structural keys distinguish requested meaning and executed tool/state/recovery topology without relying on instruction wording.
-- [ ] The shared Domain compliance suite passes without Mobile-specific branches in the synthesis engine or quality module.
-- [ ] Provider-mock end-to-end tests emit correctly separated demonstrations and negatives with Mobile Messages lineage.
+- [ ] The adapter freezes admitted fixture/local inputs without shared-core knowledge of message, reminder, or draft schemas.
+- [ ] Deterministic slots cover message search, reminder creation, draft reply, and search recovery, with bounded capacity/exhaustion reporting.
+- [ ] Public task semantics support selected messages, authorized reminder/draft arguments, and conditions; compilation rejects missing authority, wrong bindings, negation, and unsupported private exact targets.
+- [ ] Open reply content uses a Domain predicate or allowed-result set; explicit exact content retains exact verification without leaking oracle fields.
+- [ ] Isolated execution and replay cover search, authorized mutations, recoverable failure, and rejection before unauthorized mutation; final assessment checks grounded response and intended state only.
+- [ ] Semantic keys preserve material request differences; reviewed structural examples establish the twelve-family baseline and show that paraphrases, entity swaps, and padded tool sequences do not create families.
+- [ ] The shared compliance suite and provider-mock end-to-end tests pass without Mobile-specific branches in core modules.
+- [ ] A bounded exercise adds one task type and changes one verifier rule inside a production Domain. Its diff stays in that Domain and its fixtures/docs/tests, with no core edits, generic configuration escape hatch, or copied core workflow.
+- [ ] Any interface corrections discovered by the second Domain are resolved for both adapters before the locality exercise is repeated and the seam is treated as stable.
+- [ ] The ticket records changed modules, public-contract count, dependency direction, and test timings; it does not equate fewer lines or passing import rules alone with simpler design.
 
 ## Scope guard
 
-Do not retain Mobile compatibility corpora, release evidence, legacy run-profile
-support, or Domain Pack projection mappings. This ticket ports only behavior
-needed to synthesize and verify Episodes.
+Do not port Mobile compatibility corpora, release evidence, legacy profiles, or
+Domain Pack projections. Do not add task types solely to inflate structural
+counts or create a generic Domain framework to satisfy the locality exercise.
+No additional paid campaign is required by this ticket.

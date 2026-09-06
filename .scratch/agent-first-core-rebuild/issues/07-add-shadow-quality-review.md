@@ -1,11 +1,10 @@
-# 07 — Add Shadow Quality Review
+# 07 — Add Shadow Quality Review and Blind-Label Import
 
-**What to build:** Let a synthesis operator inspect deterministic admission,
-semantic diversity, and independent quality judgments for every completed
-Episode while an uncalibrated judge remains unable to change demonstration
-admission.
+**What to build:** Expose deterministic admission, diversity, optional shadow
+judgments, blind review queues, and validated human labels without depending
+on calibrated semantic enforcement.
 
-**Blocked by:** [02 — Run provider-neutral multi-turn Agent Episodes](02-run-provider-neutral-agent-episodes.md)
+**Blocked by:** [03 — Add Contacts and establish early Agent feasibility](03-add-contacts-domain-adapter.md)
 
 **Status:** ready-for-agent
 
@@ -15,19 +14,23 @@ admission.
 
 ## Acceptance criteria
 
-- [ ] Demonstration admission always requires passing tool-schema, isolation, mutation-authorization, deterministic assessment, final-grounding, unsafe-material, and semantic-key duplicate gates.
-- [ ] Successful recovery Episodes remain eligible demonstrations; failed, unsafe, duplicate, exhausted, and deterministic-verification failures remain negatives.
-- [ ] An independent judge consumes only the public Task, observable events, deterministic results, and bounded rubric.
-- [ ] Each judgment reports pass, fail, or uncertain for instruction fidelity, action efficiency, observation grounding, final-response quality, and safety with bounded reasons and event references.
-- [ ] Judge identity must differ from Agent identity, and missing or matching identity makes semantic evidence unavailable rather than silently trusted.
-- [ ] Shadow judgments cannot alter the demonstrations or negatives collections regardless of verdict.
-- [ ] The quality report exposes deterministic yield, semantic duplicate counts, structural-family distribution, largest-family share, judge outcomes, and model usage without constant placeholder scores.
-- [ ] Review-queue selection includes every bounded calibration-campaign fail or uncertain judgment and fills remaining capacity by Domain, task type, difficulty, and structural key.
-- [ ] Judgment and review artifacts exclude unrestricted model rationale, provider payloads, credentials, private oracle values, and local absolute paths.
-- [ ] Tests prove a judge cannot override a deterministic failure and that changing a shadow verdict leaves Episode admission unchanged.
+- [ ] Demonstration admission requires deterministic execution, authorization, assessment, final grounding, unsafe-material, and semantic-key gates; successful recovery remains eligible and other outcomes stay separate.
+- [ ] The judge sees only public task, observable events, bounded deterministic results, and rubric; its known identity differs from both task generator and Agent identities.
+- [ ] Each judgment uses the five approved dimensions, bounded reasons, and event references. Any fail dominates, otherwise uncertain dominates, and all dimensions must pass for Episode pass.
+- [ ] Missing/matching identities and missing/invalid/provider-failed judgments are explicitly unavailable. All shadow verdicts leave admission unchanged.
+- [ ] Reports expose yield, duplicates, structural-family distribution, known/unknown capacity, recovery, judgments, usage, and admission/review status without constant quality scores.
+- [ ] Review queues have explicit diagnostic-development or held-out-evaluation purpose and frozen membership. Development selection includes every bounded fail/uncertain outcome plus stratified passes; evaluation selection never depends on a judge verdict.
+- [ ] Blind review hides model identities, judge verdicts, admission decisions, and suggested deterministic labels while exposing the public task, tools, and observable trajectory.
+- [ ] Basic review-label import belongs to this ticket: only known queued ids and matching cohort/purpose are accepted, with validated dimensions and evidence references; duplicate, foreign, malformed, or unsafe labels are rejected.
+- [ ] Partial label submissions stay incomplete until required labels are present. Human aggregate verdicts follow the same five-dimension rule; only human-pass labels identify a human-approved subset.
+- [ ] Review imports preserve finalized Episode files and cohort membership. Negatives and diagnostic reviews cannot silently enter a demonstration-acceptance denominator.
+- [ ] Public judgment/review artifacts exclude unrestricted rationale, provider payloads, credentials, oracle fields, and absolute source paths.
+- [ ] Tests prove shadow invariance, blindness, cohort isolation, partial/invalid import behavior, and correct human subset identification through public interfaces.
 
 ## Scope guard
 
-Do not enable judge-based hard admission, import human labels, tune calibration
-thresholds from real data, or run a paid quality campaign. This ticket produces
-shadow evidence and a reviewable queue only.
+Do not implement or activate semantic enforcement, run paid campaigns, or claim
+that error-enriched review rates estimate final dataset quality. Basic human
+review and import must remain usable when Ticket 08 is absent or its judge is
+ineligible. Queue/cohort metadata belongs to the existing report and label
+contracts, not a new qualification subsystem.

@@ -1,10 +1,10 @@
-# 08 — Gate Semantic Enforcement on Human Calibration
+# 08 — Gate Optional Semantic Enforcement on Held-Out Evaluation
 
-**What to build:** Let a quality reviewer import stratified blind-review labels
-and allow semantic judgment to become an admission gate only when measured
-agreement and error rates satisfy every global and per-Domain threshold.
+**What to build:** Make explicit enforce-mode runs eligible only after a frozen
+judge policy passes independent human evaluation, while leaving shadow core
+operation and cutover independent of activation.
 
-**Blocked by:** [03 — Add the Contacts Domain adapter](03-add-contacts-domain-adapter.md), [04 — Add the Mobile Messages Domain adapter](04-add-mobile-messages-domain-adapter.md), [05 — Add the Workspace Tasks Domain adapter](05-add-workspace-tasks-domain-adapter.md), [07 — Add shadow quality review](07-add-shadow-quality-review.md)
+**Blocked by:** [05 — Add the Workspace Tasks Domain adapter](05-add-workspace-tasks-domain-adapter.md), [07 — Add shadow quality review and blind-label import](07-add-shadow-quality-review.md)
 
 **Status:** ready-for-agent
 
@@ -14,18 +14,23 @@ agreement and error rates satisfy every global and per-Domain threshold.
 
 ## Acceptance criteria
 
-- [ ] Review-label import accepts only known queued Episode ids and bounded dimension verdicts, and rejects duplicate, missing, foreign, malformed, or unsafe labels.
-- [ ] Calibration requires at least one hundred reviewed Episodes, at least thirty from each production Domain, every fail or uncertain judgment from the bounded campaign, and stratified passing judgments.
-- [ ] The calibration result reports overall and per-Domain agreement, false-pass rate, false-fail rate, sample counts, missing strata, and critical safety findings.
-- [ ] Enforcement is eligible only when overall agreement is at least 85 percent, false-pass rate is at most 5 percent, false-fail rate is at most 10 percent, every Domain false-pass rate is at most 10 percent, and judge-passed Episodes contain no human-confirmed critical safety failure.
-- [ ] Any unmet threshold, missing Domain quota, unknown model identity, or incomplete label set leaves the judge in shadow mode with bounded reasons.
-- [ ] Enforce mode rejects judge-failed Episodes, routes uncertain Episodes out of demonstrations, and still cannot admit an Episode that failed a deterministic gate.
-- [ ] A quality-policy identity binds the calibrated rubric, judge identity, threshold set, and review evidence used by an enforcing run without creating a cumulative qualification state machine.
-- [ ] Recalibration under a changed rubric, model, or threshold set creates a new policy identity and cannot borrow the prior decision.
-- [ ] Deterministic calibration fixtures exercise every inclusive threshold, one-below-threshold case, per-Domain failure, critical safety failure, and successful activation without real provider calls.
+- [ ] The existing review-label import is reused; this ticket does not create a competing import or review workflow.
+- [ ] Calibration development requires at least one hundred reviewed Episodes, thirty per production Domain, all fail/uncertain outcomes from its bounded campaign, and stratified passes; its raw rates are labeled diagnostic.
+- [ ] Activation uses a separate untouched cohort with at least one hundred deterministically eligible Episodes and thirty per Domain, selected without judge-verdict filtering and reviewed in full.
+- [ ] Evaluation excludes development semantic-task/grounding groups and rejects new ids or paraphrases as a way to bypass that separation. Rubric, model/prompt settings, source/task scope, and thresholds are frozen before label inspection.
+- [ ] Judge and human dimensions aggregate using fail, then uncertain, then all-pass precedence. Human uncertain is not approval; unavailable judge verdicts count as uncertain and remain visible.
+- [ ] Metrics implement the exact parent-spec formulas: agreement over all reviewed Episodes; false-pass over judge-pass Episodes; false-fail over human-pass Episodes. Reports include all numerators, denominators, confusion counts, and overall/per-Domain values.
+- [ ] Eligibility requires overall agreement at least 85%, overall false-pass at most 5%, overall false-fail at most 10%, per-Domain false-pass at most 10%, and zero human-confirmed critical safety failures among judge passes.
+- [ ] Missing labels, quotas, required denominators, known independent identities, or untouched evaluation evidence leave enforcement ineligible. Finite-cohort rates are not represented as population guarantees.
+- [ ] One flat policy identity binds the rubric, judge/generator/Agent identities and prompt/decoding settings, Domain versions, source/task-distribution scope, thresholds, and evaluation evidence. Out-of-scope changes require a new policy and fresh evaluation.
+- [ ] Enforcement is chosen only for a new run; it admits only judge passes that also satisfy deterministic gates. Fail/uncertain/unavailable results stay out, and an ineligible enforce request fails before provider dispatch.
+- [ ] Deterministic fixtures exercise exact thresholds and failures, undefined denominators, uncertain verdicts, identity/scope changes, reused evaluation data, critical safety failures, and successful activation.
+- [ ] Tests prove failed or unavailable activation leaves shadow operation usable and cannot by itself block an otherwise successful core cutover.
 
 ## Scope guard
 
-Do not run the real-provider campaign, weaken the approved thresholds, add
-publication qualification, or treat confidence scores and free-form rationale
-as calibration evidence.
+This ticket's implementation can complete with deterministic fixtures; real
+activation is a separately authorized optional follow-up recorded here. It is
+not a prerequisite for Tickets 09 or 10. Do not run paid calibration here without
+authorization, tune against held-out acceptance labels, reuse a tuned-on cohort
+for the revised policy, or add a cumulative qualification state machine.

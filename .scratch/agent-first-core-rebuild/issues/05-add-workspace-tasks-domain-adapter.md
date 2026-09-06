@@ -1,10 +1,10 @@
 # 05 — Add the Workspace Tasks Domain Adapter
 
-**What to build:** Let a synthesis operator produce verified Workspace Tasks
-Agent demonstrations and negatives through the new Domain seam, including
-search, task creation, comment mutation, safe failure, and recovery behavior.
+**What to build:** Produce verified Workspace Tasks Agent Episodes through the
+interface validated by two production Domains, without new shared-core
+knowledge of Workspace behavior.
 
-**Blocked by:** [02 — Run provider-neutral multi-turn Agent Episodes](02-run-provider-neutral-agent-episodes.md)
+**Blocked by:** [04 — Add Mobile Messages and validate the second-Domain seam](04-add-mobile-messages-domain-adapter.md)
 
 **Status:** ready-for-agent
 
@@ -14,18 +14,19 @@ search, task creation, comment mutation, safe failure, and recovery behavior.
 
 ## Acceptance criteria
 
-- [ ] The Workspace Tasks adapter opens fixture and admitted local-source runs without shared-core knowledge of workspace item, task, document, or comment schemas.
-- [ ] Deterministic Task slots cover item search, task creation, comment addition, search recovery, and missing-item safe failure.
-- [ ] Expected workspace item, task state, comment state, and mutation authorization remain private from the Agent.
-- [ ] Each Candidate receives isolated Workspace state; created tasks and comments cannot affect another Candidate or replay.
-- [ ] Search, authorized task and comment mutation, recoverable selector failure, missing-item safe failure, and rejected unauthorized mutation use the common Domain Episode interface.
-- [ ] Deterministic assessment verifies grounded final responses, exact requested mutations, safe failure, and absence of unintended state changes.
-- [ ] Semantic and structural keys distinguish request meaning and executed search, mutation, and recovery topology without treating coverage labels as diversity.
-- [ ] The shared Domain compliance suite passes without Workspace-specific branches in the synthesis engine or quality module.
-- [ ] Provider-mock end-to-end tests emit correctly separated demonstrations and negatives with Workspace Tasks lineage.
+- [ ] The adapter admits and freezes fixture/local inputs without exposing item, task, document, or comment schemas to shared core modules.
+- [ ] Slots cover item search, task creation, comment addition, search recovery, and missing-item safe failure, with known capacity or explicit exhaustion/unknown-capacity reporting.
+- [ ] Compilation binds action, target, arguments, conditions, and success criteria to the public request and observable evidence. Negation, unmet conditions, ambiguous items, and unsupported private targets are rejected.
+- [ ] Legitimate open task/comment content uses Domain-owned predicates; exact public requirements remain exact. Oracle fields stay private.
+- [ ] Isolated search, authorized mutations, recovery, safe failure, and unauthorized-mutation rejection traverse the common interface; replay uses the frozen source and saved Task case.
+- [ ] Assessment checks grounded final response, requested state, and absence of unintended persistent changes.
+- [ ] Semantic and structural examples distinguish material request meaning and executed topology; the nine-family baseline is behaviorally grounded and cannot grow from coverage labels or redundant calls.
+- [ ] The shared compliance suite and provider-mock end-to-end tests pass without core, ledger, rollout, or quality changes for Workspace.
+- [ ] The test-only fourth Domain registers without core changes, and architecture checks reject Domain-to-Domain imports and production identities outside built-in registration.
 
 ## Scope guard
 
-Do not migrate Workspace qualification, publishability, Training Recommended,
-tracer proofs, live acceptance, authority fixtures, or compatibility readers.
-Only Agent synthesis and deterministic assessment are in scope.
+Do not migrate Workspace qualification, publishability, training recommendation,
+tracers, authority fixtures, live acceptance machinery, or compatibility
+readers. If this Domain reveals a broken seam, record and resolve that defect
+rather than hiding it in a shared-core Workspace branch.

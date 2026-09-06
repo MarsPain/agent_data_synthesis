@@ -1,9 +1,8 @@
 # 01 — Prove the Agent-First Core Seam With a Test Domain
 
-**What to build:** Let a synthesis operator run one complete, isolated
-Agent-first synthesis trace through the new library interface with deterministic
-model and Domain adapters, producing inspectable demonstration, negative,
-quality, and manifest artifacts without importing the legacy implementation.
+**What to build:** Run a complete isolated synthesis trace through the new
+library interface with deterministic Domain/model adapters, establishing a
+provisional seam and inspectable public artifacts over a private ledger.
 
 **Blocked by:** None — can start immediately
 
@@ -15,19 +14,19 @@ quality, and manifest artifacts without importing the legacy implementation.
 
 ## Acceptance criteria
 
-- [ ] Two focused superseding ADRs record the accepted Agent-first Domain seam and the replacement of independent pre-execution semantic judgment with deterministic authorization plus calibrated quality review.
-- [ ] The new package imports and runs without importing the legacy synthesis or runtime packages.
-- [ ] A synthesis engine accepts a validated run configuration, registered Domain adapter, and deterministic model adapters through the approved public interface.
-- [ ] A test Domain supplies deterministic Task slots, compiles a public/private Task case, opens candidate-local state, executes a valid tool call, and returns a deterministic assessment.
-- [ ] One successful Episode is written to demonstrations and one deterministically rejected Episode is written to negatives through the new Episode schema.
-- [ ] The exported demonstration excludes private oracle values, credentials, unrestricted provider material, local absolute source paths, and hidden reasoning.
-- [ ] The run manifest binds the normalized run configuration and final artifact files without nested evidence graphs or object-level hash chains.
-- [ ] Persistence contracts are owned by their modules and validated at the persistence seam; no new central contracts module is introduced.
-- [ ] Architecture tests reject core imports of legacy packages, production Domain implementations, or the release lab.
-- [ ] The core-focused test command completes within the five-second development target.
+- [ ] Two focused superseding ADRs record the Domain seam and bounded public-intent compilation with deterministic pre-mutation authorization, shadow review, and separately gated optional enforcement.
+- [ ] The new engine accepts validated configuration and registered Domain/model adapters without importing legacy packages or changing the legacy entrypoint.
+- [ ] A test Domain supplies deterministic slots, compiles public/private Task cases, opens isolated state, executes tools, and assesses a complete observable Episode.
+- [ ] Compilation rejects a hidden exact-note requirement unsupported by the public task; a public request with multiple acceptable outcomes passes through a Domain-owned allowed-result set or predicate.
+- [ ] A successful Episode enters demonstrations and a deterministic rejection enters negatives; admission mode is explicit and neither is claimed human-approved.
+- [ ] The private ledger retains initial fixture state and compiled Task cases before execution; exported Episodes exclude oracle fields, secrets, unrestricted provider material, absolute source paths, and hidden reasoning.
+- [ ] A manifest binds normalized sanitized configuration and final artifact files without nested evidence graphs or object-level hash chains.
+- [ ] Persistence models are owned and validated by their modules; no central contracts module or unrestricted domain-data bus is introduced.
+- [ ] Architecture tests reject core imports of legacy packages, production Domain implementations, or a release lab.
+- [ ] The core-focused test command completes within five seconds. The seam remains provisional until the first two production Domains and locality exercise validate it.
 
 ## Scope guard
 
-Do not add a production provider adapter, migrate a production Domain, implement
-bounded concurrency or resume, add semantic judge enforcement, or change the
-current public entrypoint. This ticket proves the replacement seam in isolation.
+Do not add a production provider, production Domain, concurrency/resume,
+enforcement, or release-lab skeleton. Do not treat the toy Domain as proof that
+production task semantics or extensibility are already solved.

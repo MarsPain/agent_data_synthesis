@@ -1,8 +1,8 @@
 # 06 — Resume and Scale Local Synthesis Runs
 
-**What to build:** Let a synthesis operator run, cancel, and resume thousands of
-independent Agent Episodes on one machine with bounded concurrency, stable
-outputs, explicit provider ceilings, and no duplicate completed work.
+**What to build:** Extend the serial ledger and provider accounting into
+bounded concurrent run/cancel/resume operations with stable outputs, frozen
+inputs, and budgets that survive repeated interruption.
 
 **Blocked by:** [02 — Run provider-neutral multi-turn Agent Episodes](02-run-provider-neutral-agent-episodes.md)
 
@@ -14,19 +14,24 @@ outputs, explicit provider ceilings, and no duplicate completed work.
 
 ## Acceptance criteria
 
-- [ ] The SQLite ledger records Task-slot disposition, in-flight ownership, terminal Episode outcome, provider usage, and stable sequence in transactional state.
-- [ ] One run directory permits one active writer, while a crashed process leaves the run resumable without a persisted lock-recovery protocol.
-- [ ] Candidate concurrency defaults to four, validates the supported one-through-sixteen range, and never exceeds the configured bound.
-- [ ] Cooperative cancellation stops new work, commits completed outcomes, marks incomplete work resumable, and emits an honest non-complete run status.
-- [ ] Resume rejects run-configuration or Domain-version drift before a provider call, skips committed terminal Episodes, and restarts incomplete Episodes from fresh Domain state.
-- [ ] Out-of-order completion exports demonstrations and negatives in stable sequence and selects duplicate winners deterministically.
-- [ ] Explicit accepted and attempt targets, rollout limits, transport retries, and observed model calls provide a finite provider-call ceiling and stop further work when exhausted.
-- [ ] Library and thin CLI resume operations produce the same terminal result and artifact set.
-- [ ] Failure-injection tests cover interruption before and after terminal commits, cancellation with in-flight work, reverse completion order, and configuration drift.
-- [ ] A manual ten-thousand-attempt fake-model benchmark uses streaming processing, stays below 512 MiB peak memory, and resumes without repeating completed Episodes.
+- [ ] SQLite records slot allocation, compiled Task cases, in-flight ownership, terminal outcomes, request reservations/results, usage, and stable sequence; terminal Candidate outcomes commit transactionally.
+- [ ] One run directory admits one active writer through a process-lifetime lock; a crashed process leaves it resumable without a persisted lock-recovery schema.
+- [ ] Concurrency defaults to four, validates one through sixteen, and stays bounded. Cancellation stops new dispatch, saves completed outcomes, and emits an honest partial status.
+- [ ] Resume verifies configuration, Domain version, and frozen input fingerprint before calls; changing the original source path's content cannot change resumed state, while a missing/corrupt snapshot fails closed.
+- [ ] Persisted Task cases and identities survive resume. Terminal Episodes are skipped; incomplete Episodes restart in original initial state without re-inventing the task.
+- [ ] Every physical request, including all roles, repair, retry, and Episode restart, consumes a durable reservation before dispatch. Unknown outcomes remain charged; repeated resumes never reset counters or report unknown tokens as zero.
+- [ ] Insufficient remaining budget stops work with a bounded partial-result reason. Reports distinguish task attempts, physical requests, retries, known usage, and unknown usage.
+- [ ] Failed generation/compilation and duplicate slots remain charged to the attempt ceiling; replayed in-flight slot work consumes remaining request budget without allocating a new task identity.
+- [ ] Reverse completion order preserves stable export and deterministic duplicate winners; accepted and attempt targets remain explicit and bounded.
+- [ ] Known impossible unique-task targets fail before paid work. Domain slot exhaustion, already-admitted semantic keys, bounded replacement, and unknown capacity produce distinct honest outcomes without unbounded duplicate generation.
+- [ ] Library and thin CLI resume produce equivalent terminal results and artifacts.
+- [ ] Failure injection covers before/after Task-case persistence, request dispatch, response persistence, and terminal commits, including multiple consecutive crashes and cancellation with in-flight work.
+- [ ] A manual ten-thousand-attempt fake-model benchmark declares enough unique task capacity, streams export, stays below 512 MiB peak memory, and resumes without repeated terminal Episodes. Report attempts and unique accepted count separately from any production-Domain capacity claim.
 
 ## Scope guard
 
-Do not introduce distributed workers, an external broker, a service endpoint,
-an append-only hash journal, nested orchestration schemas, or multi-machine
-coordination. This is bounded single-process execution on one machine.
+Do not introduce distributed workers, brokers, service endpoints, append-only
+journals, nested orchestration schemas, or exactly-once claims for remote
+requests. Engine scale evidence does not establish production task diversity or
+real-model quality. This ticket can use test Domains without waiting for the
+production adapter tickets.
