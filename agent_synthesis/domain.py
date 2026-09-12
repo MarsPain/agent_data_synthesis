@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from agent_synthesis.configuration import RunConfiguration
 from agent_synthesis.episode import EpisodeAssessment, ExecutionTrace, PublicTask
@@ -14,15 +14,6 @@ from agent_synthesis.episode import EpisodeAssessment, ExecutionTrace, PublicTas
 
 class TaskSlot(BaseModel):
     """One deterministic, Domain-issued proposal slot."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    slot_id: str = Field(min_length=1, max_length=256)
-    proposal_prompt: str = Field(min_length=1, max_length=8_000)
-
-
-class TaskGenerationRequest(BaseModel):
-    """The bounded input supplied to a registered task-proposal model."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -47,7 +38,7 @@ class FrozenInitialState(BaseModel):
     contents: bytes = Field(min_length=1)
 
     @model_validator(mode="after")
-    def _fingerprint_binds_contents(self) -> "FrozenInitialState":
+    def _fingerprint_binds_contents(self) -> FrozenInitialState:
         expected = "sha256:" + hashlib.sha256(self.contents).hexdigest()
         if self.fingerprint != expected:
             raise ValueError("frozen initial state fingerprint does not bind its contents")
@@ -76,14 +67,52 @@ class CompilationRejection(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     public_task: PublicTask
-    reason_code: str = Field(min_length=1, max_length=128)
+    reason_code: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[a-z][a-z0-9_]*$",
+    )
 
 
-@runtime_checkable
+class ToolExecutionResult(BaseModel):
+    """One bounded result from a Domain-owned tool invocation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    result_type: Literal[
+        "observation",
+        "state_change",
+        "tool_failure",
+        "unauthorized_mutation",
+    ]
+    observation: dict[str, JsonValue] | None = None
+    change: dict[str, JsonValue] | None = None
+    error_code: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[a-z][a-z0-9_]*$",
+    )
+
+    @model_validator(mode="after")
+    def _match_payload_to_result_type(self) -> ToolExecutionResult:
+        if self.result_type == "observation":
+            if self.observation is None or self.change is not None or self.error_code is not None:
+                raise ValueError("observation result requires only observation")
+        elif self.result_type == "state_change":
+            if self.change is None or self.observation is not None or self.error_code is not None:
+                raise ValueError("state_change result requires only change")
+        elif self.error_code is None or self.observation is not None or self.change is not None:
+            raise ValueError("tool failure result requires only error_code")
+        return self
 class DomainEpisode(Protocol):
     """One isolated, Domain-owned Episode execution."""
 
-    def execute(self) -> ExecutionTrace: ...
+    def execute_tool_call(
+        self,
+        tool_name: str,
+        arguments: dict[str, JsonValue],
+    ) -> ToolExecutionResult: ...
 
     def assess(self, trace: ExecutionTrace) -> EpisodeAssessment: ...
 
@@ -102,7 +131,25 @@ class DomainRun(Protocol):
         proposal: TaskProposal,
     ) -> CompiledTask | CompilationRejection: ...
 
-    def open_episode(self, task: CompiledTask) -> DomainEpisode: ...
+    def open_episode(
+        self,
+        task: CompiledTask,
+        frozen_initial_state: FrozenInitialState,
+    ) -> DomainEpisode: ...
+
+    def restore_task_case(
+        self,
+        *,
+        public_task: PublicTask,
+        semantic_key: str,
+        private_case_bytes: bytes,
+    ) -> CompiledTask: ...
+
+    def open_replay_episode(
+        self,
+        task: CompiledTask,
+        frozen_initial_state: FrozenInitialState,
+    ) -> DomainEpisode: ...
 
 
 @runtime_checkable
@@ -113,13 +160,3 @@ class DomainAdapter(Protocol):
     domain_version: str
 
     def open_run(self, configuration: RunConfiguration) -> DomainRun: ...
-
-
-@runtime_checkable
-class TaskProposalModel(Protocol):
-    """A registered, provider-neutral proposal source for this first core slice."""
-
-    model_id: str
-    model_version: str
-
-    def propose(self, request: TaskGenerationRequest) -> TaskProposal: ...

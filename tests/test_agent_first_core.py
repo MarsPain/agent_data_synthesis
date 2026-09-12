@@ -18,13 +18,14 @@ from agent_synthesis import (
     EpisodeEvent,
     ExecutionTrace,
     FrozenInitialState,
+    JsonModelResponse,
     PublicTask,
     RunConfiguration,
     SynthesisEngine,
-    TaskGenerationRequest,
     TaskProposal,
     TaskSlot,
     ToolDefinition,
+    ToolExecutionResult,
 )
 from agent_synthesis.ledger import PrivateLedger
 from agent_synthesis.manifest import RunManifest
@@ -42,11 +43,50 @@ class _NoteCase:
 class _DeterministicProposalModel:
     model_id = "deterministic_note_model"
     model_version = "deterministic_note_model_v1"
+    provider_id = "deterministic_fake"
 
-    def propose(self, request: TaskGenerationRequest) -> TaskProposal:
-        if request.slot_id == "hidden-exact-note-001":
-            return TaskProposal(content="require the private exact note for Ada")
-        return TaskProposal(content="record a friendly note for Ada: Thanks for your help.")
+    def __init__(self) -> None:
+        self._episode_starts = 0
+
+    def complete(self, request: object) -> JsonModelResponse:
+        role = request.role
+        if role == "task_generation":
+            slots = request.slots
+            return JsonModelResponse(
+                content={
+                    "proposals": [
+                        {
+                            "slot_id": slot.slot_id,
+                            "content": (
+                                "require the private exact note for Ada"
+                                if slot.slot_id == "hidden-exact-note-001"
+                                else "record a friendly note for Ada: Thanks for your help."
+                            ),
+                        }
+                        for slot in slots
+                    ]
+                }
+            )
+        history = request.observable_history
+        if not history:
+            target = "Bea" if self._episode_starts else "Ada"
+            self._episode_starts += 1
+            return JsonModelResponse(
+                content={
+                    "type": "tool_call",
+                    "tool_name": "record_note",
+                    "arguments": {
+                        "target": target,
+                        "note": "Thanks for your help.",
+                    },
+                }
+            )
+        return JsonModelResponse(
+            content={
+                "type": "final_response",
+                "content": "I added a thank-you note for Ada.",
+            }
+        )
 
 
 class _NoteDomain:
@@ -73,7 +113,7 @@ class _NoteDomain:
         self.private_ledger_path = private_ledger_path
         self.ledger_was_populated_before_open = False
 
-    def open_run(self, configuration: RunConfiguration) -> "_NoteDomainRun":
+    def open_run(self, configuration: RunConfiguration) -> _NoteDomainRun:
         return _NoteDomainRun(self, configuration)
 
 
@@ -185,7 +225,11 @@ class _NoteDomainRun:
         )
         return CompiledTask(
             public_task=public_task,
-            semantic_key="record-note:ada:thank-you",
+            semantic_key=(
+                "record-note:ada:unauthorized-execution"
+                if slot.slot_id == "unauthorized-execution-001"
+                else "record-note:ada:thank-you"
+            ),
             private_case_bytes=json.dumps(
                 {
                     "target": case.target,
@@ -198,7 +242,11 @@ class _NoteDomainRun:
             domain_case=case,
         )
 
-    def open_episode(self, task: CompiledTask) -> "_NoteEpisode":
+    def open_episode(
+        self,
+        task: CompiledTask,
+        frozen_initial_state: FrozenInitialState,
+    ) -> _NoteEpisode:
         case = task.domain_case
         assert isinstance(case, _NoteCase)
         if self._domain.private_ledger_path is not None:
@@ -211,9 +259,41 @@ class _NoteDomainRun:
                 )
             finally:
                 ledger.close()
-        isolated_state = json.loads(json.dumps(self._domain.initial_state))
+        isolated_state = json.loads(frozen_initial_state.contents)
         self._domain.opened_states.append(isolated_state)
         return _NoteEpisode(case, isolated_state)
+
+    def restore_task_case(
+        self,
+        *,
+        public_task: PublicTask,
+        semantic_key: str,
+        private_case_bytes: bytes,
+    ) -> CompiledTask:
+        private_case = json.loads(private_case_bytes)
+        case = _NoteCase(
+            public_task=public_task,
+            target=private_case["target"],
+            note=private_case["note"],
+            private_oracle=private_case["private_oracle"],
+            attempted_target=private_case["attempted_target"],
+        )
+        return CompiledTask(
+            public_task=public_task,
+            semantic_key=semantic_key,
+            private_case_bytes=private_case_bytes,
+            domain_case=case,
+        )
+
+    def open_replay_episode(
+        self,
+        task: CompiledTask,
+        frozen_initial_state: FrozenInitialState,
+    ) -> _NoteEpisode:
+        case = task.domain_case
+        assert isinstance(case, _NoteCase)
+        state = json.loads(frozen_initial_state.contents)
+        return _NoteEpisode(case, state)
 
 
 class _NoteEpisode:
@@ -221,23 +301,19 @@ class _NoteEpisode:
         self._case = case
         self._state = state
 
-    def execute(self) -> ExecutionTrace:
-        attempted_target = self._case.attempted_target or self._case.target
-        if attempted_target != self._case.target:
-            return ExecutionTrace(
-                mutation_authorization="rejected",
-                events=(
-                    EpisodeEvent(
-                        event_type="action",
-                        tool_name="record_note",
-                        arguments={"target": attempted_target, "note": self._case.note},
-                    ),
-                    EpisodeEvent(
-                        event_type="error",
-                        tool_name="record_note",
-                        error_code="mutation_not_authorized",
-                    ),
-                ),
+    def execute_tool_call(
+        self,
+        tool_name: str,
+        arguments: dict[str, object],
+    ) -> ToolExecutionResult:
+        if (
+            tool_name != "record_note"
+            or arguments.get("target") != self._case.target
+            or arguments.get("note") != self._case.note
+        ):
+            return ToolExecutionResult(
+                result_type="unauthorized_mutation",
+                error_code="mutation_not_authorized",
             )
         contacts = self._state["contacts"]
         assert isinstance(contacts, dict)
@@ -246,43 +322,28 @@ class _NoteEpisode:
         notes = ada["notes"]
         assert isinstance(notes, list)
         notes.append(self._case.note)
-        return ExecutionTrace(
-            mutation_authorization="authorized",
-            events=(
-                EpisodeEvent(
-                    event_type="action",
-                    tool_name="record_note",
-                    arguments={"target": self._case.target, "note": self._case.note},
-                ),
-                EpisodeEvent(
-                    event_type="state_change",
-                    tool_name="record_note",
-                    change={
-                        "target": self._case.target,
-                        "note_count": len(notes),
-                        "private_oracle": self._case.private_oracle,
-                        "provider_payload": {"secret": "secret-test-key"},
-                        "reasoning": "private chain-of-thought material",
-                        "source_path": "/Users/agent/private-fixture.json",
-                        "access_token": "access-token-value",
-                        "password": "password-value",
-                        "response": {"raw": "unrestricted-provider-response"},
-                        "source_hint": "source at /opt/private-source.json",
-                        "expected_value": "private expected result",
-                        "passwd": "passwd-value",
-                        "completion": "raw provider completion",
-                        "analysis": "hidden model analysis",
-                        "ground_truth": "hidden exact answer",
-                        "auth": "ghp_private_auth_value",
-                        "http_body": "unrestricted HTTP provider material",
-                        "thought": "hidden internal rationale",
-                    },
-                ),
-                EpisodeEvent(
-                    event_type="final_response",
-                    content="I added a thank-you note for Ada.",
-                ),
-            ),
+        return ToolExecutionResult(
+            result_type="state_change",
+            change={
+                "target": self._case.target,
+                "note_count": len(notes),
+                "private_oracle": self._case.private_oracle,
+                "provider_payload": {"secret": "secret-test-key"},
+                "reasoning": "private chain-of-thought material",
+                "source_path": "/Users/agent/private-fixture.json",
+                "access_token": "access-token-value",
+                "password": "password-value",
+                "response": {"raw": "unrestricted-provider-response"},
+                "source_hint": "source at /opt/private-source.json",
+                "expected_value": "private expected result",
+                "passwd": "passwd-value",
+                "completion": "raw provider completion",
+                "analysis": "hidden model analysis",
+                "ground_truth": "hidden exact answer",
+                "auth": "ghp_private_auth_value",
+                "http_body": "unrestricted HTTP provider material",
+                "thought": "hidden internal rationale",
+            },
         )
 
     def assess(self, trace: ExecutionTrace) -> EpisodeAssessment:
@@ -454,7 +515,11 @@ class AgentFirstCoreTracerTest(unittest.TestCase):
             self.assertEqual(manifest.configuration, configuration.model_dump(mode="json"))
             self.assertEqual(
                 {item.path for item in manifest.files},
-                {"demonstrations.jsonl", "negatives.jsonl"},
+                {
+                    "demonstrations.jsonl",
+                    "negatives.jsonl",
+                    "provider_usage.json",
+                },
             )
             self.assertNotIn("evidence_graph", manifest_record)
             self.assertNotIn("object_hash", manifest_record)

@@ -61,7 +61,7 @@ class EpisodeEvent(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _allow_only_the_payload_for_each_event_type(self) -> "EpisodeEvent":
+    def _allow_only_the_payload_for_each_event_type(self) -> EpisodeEvent:
         allowed_fields = _EVENT_ALLOWED_FIELDS[self.event_type]
         if any(
             getattr(self, field_name) is not None
@@ -134,6 +134,28 @@ class ModelLineage(BaseModel):
 
     model_id: str = Field(min_length=1, max_length=128)
     model_version: str = Field(min_length=1, max_length=128)
+    roles: tuple[RoleLineage, ...] = ()
+
+
+class RoleLineage(BaseModel):
+    """Bounded per-role request evidence without provider payloads or credentials."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    role: Literal["task_generation", "agent"]
+    provider_id: str = Field(min_length=1, max_length=128)
+    model_id: str = Field(min_length=1, max_length=128)
+    model_version: str = Field(min_length=1, max_length=128)
+    physical_request_count: int = Field(ge=0)
+    retry_count: int = Field(ge=0)
+    response_hashes: tuple[str, ...] = Field(
+        default=(),
+        max_length=128,
+    )
+    known_input_tokens: int | None = Field(default=None, ge=0)
+    known_output_tokens: int | None = Field(default=None, ge=0)
+    known_total_tokens: int | None = Field(default=None, ge=0)
+    unknown_usage_count: int = Field(ge=0)
 
 
 class PublicEpisode(BaseModel):
@@ -149,6 +171,9 @@ class PublicEpisode(BaseModel):
     domain_version: str = Field(min_length=1, max_length=128)
     task: PublicTask
     events: tuple[EpisodeEvent, ...]
+    mutation_authorization: Literal["not_applicable", "authorized", "rejected"] = (
+        "not_applicable"
+    )
     outcome: EpisodeOutcome
     verification: EpisodeAssessment | None = None
     admission: AdmissionRecord
@@ -184,6 +209,20 @@ _FORBIDDEN_KEY_PARTS = (
     "thought",
     "token",
 )
+_SAFE_LINEAGE_KEYS = frozenset(
+    {
+        "provider_id",
+        "response_hashes",
+        "known_input_tokens",
+        "known_output_tokens",
+        "known_total_tokens",
+        "unknown_usage_count",
+        "physical_request_count",
+        "retry_count",
+        "repair_request_count",
+        "mutation_authorization",
+    }
+)
 _ABSOLUTE_PATH = re.compile(r"^[A-Za-z]:[\\/]")
 _ABSOLUTE_PATH_IN_TEXT = re.compile(
     r"(?<![:/A-Za-z0-9_.-])/(?!/)"
@@ -199,6 +238,27 @@ def sanitized_episode_record(episode: PublicEpisode) -> dict[str, object]:
     assert isinstance(record, dict)
     _limit_event_payloads(record, episode.task.tools)
     return PublicEpisode.model_validate(record).model_dump(mode="json")
+
+
+def sanitized_public_task(task: PublicTask) -> PublicTask:
+    """Return the part of a Domain task safe to expose to an Agent model."""
+
+    record = _sanitize_value(task.model_dump(mode="json"))
+    assert isinstance(record, dict)
+    return PublicTask.model_validate(record)
+
+
+def bounded_event_for_public_tools(
+    event: EpisodeEvent,
+    tools: tuple[ToolDefinition, ...],
+) -> EpisodeEvent:
+    """Strip undeclared, secret-shaped, and unbounded payload data before reuse."""
+
+    record = _sanitize_value(event.model_dump(mode="json", exclude_none=True))
+    assert isinstance(record, dict)
+    wrapper: dict[str, object] = {"events": [record]}
+    _limit_event_payloads(wrapper, tools)
+    return EpisodeEvent.model_validate(record)
 
 
 def _sanitize_value(value: object) -> object:
@@ -217,6 +277,8 @@ def _sanitize_value(value: object) -> object:
 
 def _forbidden_key(key: object) -> bool:
     lowered = str(key).lower()
+    if lowered in _SAFE_LINEAGE_KEYS:
+        return False
     return any(part in lowered for part in _FORBIDDEN_KEY_PARTS)
 
 
@@ -240,7 +302,7 @@ def _forbidden_text(value: str) -> bool:
                 "passwd",
                 "password",
                 "secret",
-                "token",
+                "access_token",
             )
         )
     )

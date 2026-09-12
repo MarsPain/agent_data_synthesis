@@ -54,10 +54,10 @@ uv run python -m unittest
 ## Current Implementation Shape
 
 - `agent_synthesis/` is the provisional isolated Agent-first library seam. It
-  currently proves deterministic test-adapter compilation, private SQLite
-  persistence, deterministic admission, sanitized collections, and a flat
-  manifest; it does not replace the legacy entrypoint or register a production
-  Domain.
+  currently proves deterministic JSON generation batches, bounded multi-turn
+  Agent Episodes, private SQLite slot/task/request persistence, deterministic
+  admission, sanitized collections, offline replay, and a flat manifest; it
+  does not replace the legacy entrypoint or register a production Domain.
 - `main.py` runs the local foundation pipeline synchronously by default and writes runtime outputs to `artifacts/foundation/`; validated run profiles can opt into durable local orchestration.
 - The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
 - Current work state is owned by the [local issue tracker](.scratch/README.md).

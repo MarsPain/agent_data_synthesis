@@ -3,7 +3,7 @@
 - **Status:** Ticketed
 - **Label:** `ready-for-agent`
 - **Canonical spec:** [Agent-First Core Rebuild](../../docs/product-specs/agent-first-core-rebuild.md)
-- **Current phase:** Ticket 02 is the implementation frontier
+- **Current phase:** Ticket 03 is the implementation frontier
 
 This feature replaces the legacy core after engineering and independent human
 dataset acceptance. Judge enforcement is a separate optional delivery path.

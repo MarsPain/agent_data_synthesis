@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from agent_synthesis.domain import DomainAdapter, TaskProposalModel
+from agent_synthesis.domain import DomainAdapter
+from agent_synthesis.model import JsonModelAdapter
 
 
 class AdapterRegistry:
@@ -14,7 +15,7 @@ class AdapterRegistry:
         self,
         *,
         domains: Sequence[DomainAdapter],
-        models: Sequence[TaskProposalModel],
+        models: Sequence[JsonModelAdapter],
     ) -> None:
         self._domains = _indexed_adapters(
             domains,
@@ -26,7 +27,7 @@ class AdapterRegistry:
             models,
             "model_id",
             "model",
-            required_members=("model_version", "propose"),
+            required_members=("model_version", "provider_id", "complete"),
         )
 
     def domain(self, domain_id: str) -> DomainAdapter:
@@ -35,7 +36,7 @@ class AdapterRegistry:
         except KeyError:
             raise KeyError(f"unregistered Domain adapter: {domain_id}") from None
 
-    def model(self, model_id: str) -> TaskProposalModel:
+    def model(self, model_id: str) -> JsonModelAdapter:
         try:
             return self._models[model_id]
         except KeyError:
@@ -58,7 +59,7 @@ def _indexed_adapters[T](
             raise ValueError(f"{adapter_name} adapter is registered twice: {identifier}")
         for member_name in required_members:
             member = getattr(adapter, member_name, None)
-            if member_name.endswith("version"):
+            if member_name.endswith(("version", "_id")):
                 valid = isinstance(member, str) and bool(member)
             else:
                 valid = callable(member)
