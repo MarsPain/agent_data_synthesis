@@ -3,7 +3,9 @@
 - **Status:** Ticketed
 - **Label:** `ready-for-agent`
 - **Canonical spec:** [Agent-First Core Rebuild](../../docs/product-specs/agent-first-core-rebuild.md)
-- **Current phase:** Ticket 03 is the implementation frontier
+- **Current phase:** Ticket 03 is in progress; the offline Contacts adapter and
+  pilot rehearsal are complete, while its separate live-provider authorization
+  remains pending
 
 This feature replaces the legacy core after engineering and independent human
 dataset acceptance. Judge enforcement is a separate optional delivery path.
@@ -22,7 +24,7 @@ state, dependency edges, assignments, and implementation discussion.
 
 1. [Prove the Agent-first core seam with a test Domain](issues/01-prove-agent-first-core-seam.md) — completed
 2. [Run provider-neutral multi-turn Agent Episodes](issues/02-run-provider-neutral-agent-episodes.md) — blocked by 01
-3. [Add Contacts and establish early Agent feasibility](issues/03-add-contacts-domain-adapter.md) — blocked by 02
+3. [Add Contacts and establish early Agent feasibility](issues/03-add-contacts-domain-adapter.md) — in progress; live authorization pending
 4. [Add Mobile Messages and validate the second-Domain seam](issues/04-add-mobile-messages-domain-adapter.md) — blocked by 03
 5. [Add the Workspace Tasks Domain adapter](issues/05-add-workspace-tasks-domain-adapter.md) — blocked by 04
 6. [Resume and scale local synthesis runs](issues/06-resume-and-scale-local-runs.md) — blocked by 02

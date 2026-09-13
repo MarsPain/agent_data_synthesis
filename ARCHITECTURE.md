@@ -20,6 +20,11 @@ admission, collection placement, and public artifact writing. The governing
 decisions are [ADR 0004](docs/adr/0004-provisional-agent-first-domain-adapter-seam.md)
 and [ADR 0005](docs/adr/0005-bounded-public-intent-compilation-and-shadow-review.md).
 
+The first production exercise of that seam is the isolated Contacts adapter in
+`agent_synthesis/contacts.py`. It owns Contacts source parsing and normalization,
+task semantics, candidate-local mutable state, and structural classification;
+the shared core does not parse Contacts records or import legacy Contacts code.
+
 ## Top-Level Domains
 
 1. **Seed and Domain Intake**
