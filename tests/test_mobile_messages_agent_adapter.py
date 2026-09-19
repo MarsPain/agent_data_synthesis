@@ -1122,6 +1122,56 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
             "mobile_messages_agent_adapter_v2",
         )
 
+    def test_restore_task_case_rejects_a_task_shape_the_compiler_never_emits(self) -> None:
+        adapter = MobileMessagesDomainAdapter.fixture()
+        run = adapter.open_run(_mobile_configuration(adapter))
+        public_task = _compiled_task(
+            run,
+            _slot_for(
+                run.slots(100),
+                action="search_messages",
+                query="launch checklist",
+                route="direct",
+            ),
+            {"action": "search_messages", "query": "launch checklist", "route": "direct"},
+        ).public_task
+        private_case = {
+            "action": "search_messages",
+            "body": "Please review the launch checklist before Friday.",
+            "exact_reply": None,
+            "message_id": "message-aurora-001",
+            "remind_at": None,
+            "reminder_text": None,
+            "reply_constraint": "none",
+            "route": "verify",
+            "sender": "Alex Kim",
+        }
+        semantic_record = {
+            "action": private_case["action"],
+            "body": private_case["body"],
+            "exact_reply": None,
+            "message_id": private_case["message_id"],
+            "remind_at": private_case["remind_at"],
+            "reminder_text": private_case["reminder_text"],
+            "reply_constraint": private_case["reply_constraint"],
+            "route": private_case["route"],
+            "sender": private_case["sender"],
+        }
+        semantic_key = "mobile_messages:semantic:sha256:" + hashlib.sha256(
+            json.dumps(semantic_record, sort_keys=True, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+
+        with self.assertRaisesRegex(ValueError, "invalid private Mobile Messages task case"):
+            run.restore_task_case(
+                public_task=public_task,
+                semantic_key=semantic_key,
+                private_case_bytes=json.dumps(
+                    private_case, sort_keys=True, separators=(",", ":")
+                ).encode("utf-8"),
+            )
+
     def test_capacity_omits_exact_draft_slots_that_cannot_form_an_allowed_default_reply(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             source_path = Path(temporary_directory) / "long-message.json"

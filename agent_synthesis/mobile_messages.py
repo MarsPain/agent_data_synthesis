@@ -1074,6 +1074,12 @@ def _case_from_private_bytes(private_case_bytes: bytes) -> _MobileCase:
         or (action == "create_draft_reply" and (reply_constraint not in {"open", "exact"} or reminder_text is not None or remind_at is not None))
         or (reply_constraint == "exact" and (not isinstance(exact_reply, str) or not _reply_is_allowed(exact_reply)))
         or (reply_constraint != "exact" and exact_reply is not None)
+        or not any(
+            spec.action == action
+            and spec.route == route
+            and spec.reply_constraint == reply_constraint
+            for spec in _TASK_SPECS
+        )
     ):
         raise ValueError("invalid private Mobile Messages task case")
     return _MobileCase(

@@ -107,7 +107,7 @@ class AgentFirstCoreArchitectureTest(unittest.TestCase):
         self.assertIn("**Agent-first Domain adapter:**", glossary)
         self.assertIn("**Domain Pack (legacy core):**", glossary)
 
-    def test_core_source_allows_only_contacts_while_rejecting_legacy_and_cross_domain_dependencies(self) -> None:
+    def test_core_source_allows_registered_domains_while_rejecting_legacy_and_cross_domain_dependencies(self) -> None:
         shared_core_imports: list[str] = []
         production_domain_imports: dict[str, list[str]] = {}
         dynamic_imports: list[str] = []
