@@ -209,9 +209,9 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
             ),
         )
 
-        self.assertEqual(run.known_task_capacity, 22)
-        self.assertEqual(len(slots), 22)
-        self.assertEqual(run.slot_capacity(100).known_task_capacity, 22)
+        self.assertEqual(run.known_task_capacity, 24)
+        self.assertEqual(len(slots), 24)
+        self.assertEqual(run.slot_capacity(100).known_task_capacity, 24)
         self.assertTrue(run.slot_capacity(100).exhausted)
         self.assertFalse(run.slot_capacity(3).exhausted)
         self.assertIn(
@@ -303,6 +303,17 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
                 "content": "Thanks, I will review it today.",
             },
         )
+        impolite_draft_episode = run.open_episode(open_draft_task, frozen)
+        impolite_draft_episode.execute_tool_call(
+            "search_messages", {"query": "launch checklist"}
+        )
+        impolite_draft = impolite_draft_episode.execute_tool_call(
+            "create_draft_reply",
+            {
+                "message_id": "message-aurora-001",
+                "content": "No.",
+            },
+        )
         exact_draft_episode = run.open_episode(exact_draft_task, frozen)
         exact_draft_episode.execute_tool_call(
             "search_messages", {"query": "launch checklist"}
@@ -334,6 +345,8 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
                 "content": "Thanks, I will review it today.",
             },
         )
+        self.assertEqual(impolite_draft.result_type, "unauthorized_mutation")
+        self.assertEqual(impolite_draft.error_code, "unsupported_reply")
         self.assertEqual(wrong_exact_reply.result_type, "unauthorized_mutation")
         self.assertEqual(wrong_exact_reply.error_code, "reply_not_authorized")
 
@@ -420,6 +433,107 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
         self.assertFalse(ungrounded.passed)
         self.assertIn("final_response_not_grounded", ungrounded.reason_codes)
 
+    def test_verified_draft_requires_an_observed_saved_draft(self) -> None:
+        adapter = MobileMessagesDomainAdapter.fixture()
+        run = adapter.open_run(_mobile_configuration(adapter))
+        slot = next(
+            item
+            for item in run.slots(100)
+            if item.slot_id == "mobile-draft-verified-message-aurora-001"
+        )
+        task = _compiled_task(
+            run,
+            slot,
+            {
+                "action": "create_draft_reply",
+                "condition": "after_message_match",
+                "message_query": "launch checklist",
+                "reply_constraint": "open",
+                "route": "verify",
+            },
+        )
+        base_events = (
+            EpisodeEvent(
+                event_type="action",
+                tool_name="search_messages",
+                arguments={"query": "launch checklist"},
+            ),
+            EpisodeEvent(
+                event_type="observation",
+                tool_name="search_messages",
+                observation={
+                    "message_id": "message-aurora-001",
+                    "sender": "Alex Kim",
+                    "body": "Please review the launch checklist before Friday.",
+                },
+            ),
+            EpisodeEvent(
+                event_type="action",
+                tool_name="create_draft_reply",
+                arguments={
+                    "message_id": "message-aurora-001",
+                    "content": "Thanks, I will review it today.",
+                },
+            ),
+            EpisodeEvent(
+                event_type="state_change",
+                tool_name="create_draft_reply",
+                change={
+                    "message_id": "message-aurora-001",
+                    "content": "Thanks, I will review it today.",
+                },
+            ),
+        )
+        without_verification = ExecutionTrace(
+            mutation_authorization="authorized",
+            events=(
+                *base_events,
+                EpisodeEvent(
+                    event_type="final_response",
+                    content=(
+                        "For Alex Kim's launch checklist message, I drafted: "
+                        "Thanks, I will review it today."
+                    ),
+                ),
+            ),
+        )
+        verified_trace = without_verification.model_copy(
+            update={
+                "events": (
+                    *base_events,
+                    EpisodeEvent(
+                        event_type="action",
+                        tool_name="get_draft_reply",
+                        arguments={"message_id": "message-aurora-001"},
+                    ),
+                    EpisodeEvent(
+                        event_type="observation",
+                        tool_name="get_draft_reply",
+                        observation={
+                            "message_id": "message-aurora-001",
+                            "content": "Thanks, I will review it today.",
+                        },
+                    ),
+                    without_verification.events[-1],
+                )
+            }
+        )
+
+        unverified = run.open_episode(task, run.freeze_initial_state()).assess(
+            without_verification
+        )
+        verified = run.open_episode(task, run.freeze_initial_state()).assess(verified_trace)
+
+        self.assertEqual({tool.name for tool in task.public_task.tools}, {
+            "search_messages",
+            "create_draft_reply",
+            "get_draft_reply",
+        })
+        self.assertFalse(unverified.passed)
+        self.assertIn("saved_draft_not_observed", unverified.reason_codes)
+        self.assertTrue(verified.passed)
+        self.assertEqual(verified.structural_key, "mobile_messages.draft.verified")
+
     def test_provider_mock_exercises_all_initial_mobile_behaviors_and_replay(self) -> None:
         adapter = MobileMessagesDomainAdapter.fixture()
         model = _MobileOfflinePolicyModel()
@@ -428,8 +542,8 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
             run_id="mobile-offline-behaviors",
             domain_id=adapter.domain_id,
             model_id=model.model_id,
-            slot_limit=11,
-            generation_batch_size=11,
+            slot_limit=12,
+            generation_batch_size=12,
             total_request_limit=128,
             generation_request_limit=8,
             agent_request_limit=120,
@@ -442,7 +556,7 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
             negatives = _read_json_lines(result.negatives_path)
             replay = engine.replay(result.run_directory)
 
-        self.assertEqual(result.demonstration_count, 11)
+        self.assertEqual(result.demonstration_count, 12)
         self.assertEqual(result.negative_count, 0)
         self.assertEqual(negatives, [])
         self.assertEqual(
@@ -459,6 +573,7 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
                 "mobile_messages.draft.directory",
                 "mobile_messages.draft.recovery",
                 "mobile_messages.draft.exact",
+                "mobile_messages.draft.verified",
             },
         )
         recovery = next(
@@ -569,7 +684,7 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
                 )
             ),
         )
-        unsupported_exact_reply = run.compile(
+        unsupported_reply = run.compile(
             exact_draft_slot,
             TaskProposal(
                 content=json.dumps(
@@ -589,8 +704,116 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
         self.assertEqual(_rejection_code(negated), "negated_action")
         self.assertEqual(_rejection_code(uncheckable_condition), "uncheckable_condition")
         self.assertEqual(_rejection_code(private_target), "unsupported_private_exact_target")
+        self.assertEqual(_rejection_code(unsupported_reply), "unsupported_reply")
+
+    def test_semantic_keys_and_reviewed_structural_examples_preserve_real_differences_only(self) -> None:
+        adapter = MobileMessagesDomainAdapter.fixture()
+        run = adapter.open_run(_mobile_configuration(adapter))
+        slots = {slot.slot_id: slot for slot in run.slots(100)}
+        direct_alex = _compiled_task(
+            run,
+            slots["mobile-search-direct-message-aurora-001"],
+            {"action": "search_messages", "query": "launch checklist", "route": "direct"},
+        )
+        direct_bella = _compiled_task(
+            run,
+            slots["mobile-search-direct-message-invoice-002"],
+            {"action": "search_messages", "query": "invoice", "route": "direct"},
+        )
+        directory_alex = _compiled_task(
+            run,
+            slots["mobile-search-directory-message-aurora-001"],
+            {"action": "search_messages", "query": "launch checklist", "route": "directory"},
+        )
+        open_draft = _compiled_task(
+            run,
+            slots["mobile-draft-direct-message-aurora-001"],
+            {
+                "action": "create_draft_reply",
+                "condition": "after_message_match",
+                "message_query": "launch checklist",
+                "reply_constraint": "open",
+                "route": "direct",
+            },
+        )
+        exact_draft = _compiled_task(
+            run,
+            slots["mobile-draft-exact-message-aurora-001"],
+            {
+                "action": "create_draft_reply",
+                "condition": "after_message_match",
+                "message_query": "launch checklist",
+                "reply": "Thanks, I will review the launch checklist.",
+                "reply_constraint": "exact",
+                "route": "direct",
+            },
+        )
+        other_exact_draft = _compiled_task(
+            run,
+            slots["mobile-draft-exact-message-aurora-001"],
+            {
+                "action": "create_draft_reply",
+                "condition": "after_message_match",
+                "message_query": "launch checklist",
+                "reply": "Thanks, a different but valid reply.",
+                "reply_constraint": "exact",
+                "route": "direct",
+            },
+        )
+        paraphrased = run.restore_task_case(
+            public_task=direct_alex.public_task.model_copy(
+                update={"instruction": "Could you locate Alex Kim's launch checklist message?"}
+            ),
+            semantic_key=direct_alex.semantic_key,
+            private_case_bytes=direct_alex.private_case_bytes,
+        )
+        redundant_assessment = run.open_episode(
+            direct_alex, run.freeze_initial_state()
+        ).assess(_direct_search_trace(redundant=True))
+        bella_assessment = run.open_episode(
+            direct_bella, run.freeze_initial_state()
+        ).assess(
+            _direct_search_trace(
+                redundant=False,
+                message_id="message-invoice-002",
+                sender="Bella Chen",
+                body="Could you check the invoice before Monday?",
+                query="invoice",
+            )
+        )
+
+        self.assertEqual(paraphrased.semantic_key, direct_alex.semantic_key)
+        self.assertNotEqual(direct_alex.semantic_key, direct_bella.semantic_key)
+        self.assertNotEqual(direct_alex.semantic_key, directory_alex.semantic_key)
+        self.assertNotEqual(open_draft.semantic_key, exact_draft.semantic_key)
+        self.assertNotEqual(exact_draft.semantic_key, other_exact_draft.semantic_key)
+        self.assertTrue(redundant_assessment.passed)
         self.assertEqual(
-            _rejection_code(unsupported_exact_reply), "unsupported_private_exact_target"
+            redundant_assessment.structural_key, "mobile_messages.search.direct"
+        )
+        self.assertTrue(bella_assessment.passed)
+        self.assertEqual(bella_assessment.structural_key, "mobile_messages.search.direct")
+        self.assertEqual(
+            {example.expected_structural_key for example in run.reviewed_structural_examples},
+            {
+                "mobile_messages.search.direct",
+                "mobile_messages.search.directory",
+                "mobile_messages.search.recovery",
+                "mobile_messages.reminder.direct",
+                "mobile_messages.reminder.directory",
+                "mobile_messages.reminder.recovery",
+                "mobile_messages.reminder.verified",
+                "mobile_messages.draft.direct",
+                "mobile_messages.draft.directory",
+                "mobile_messages.draft.recovery",
+                "mobile_messages.draft.exact",
+                "mobile_messages.draft.verified",
+            },
+        )
+        self.assertTrue(
+            {"paraphrase", "entity_substitution", "padded_tool_sequence"}.issubset(
+                {example.variation for example in run.reviewed_structural_examples}
+            )
         )
 
     def test_local_source_is_frozen_before_model_work_and_replay_ignores_later_changes(self) -> None:
@@ -685,7 +908,7 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
                         "drafts": [
                             {
                                 "message_id": "message-aurora-001",
-                                "content": "Already drafted.",
+                                "content": "Thanks, already drafted.",
                             }
                         ],
                     }
@@ -697,12 +920,34 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
             frozen_payload = json.loads(run.freeze_initial_state().contents)
             slot_ids = {slot.slot_id for slot in run.slots(100)}
 
-        self.assertEqual(run.known_task_capacity, 14)
+        self.assertEqual(run.known_task_capacity, 15)
         self.assertEqual(frozen_payload["reminders"][0]["reminder_text"], "Already scheduled.")
-        self.assertEqual(frozen_payload["drafts"][0]["content"], "Already drafted.")
+        self.assertEqual(
+            frozen_payload["drafts"][0]["content"], "Thanks, already drafted."
+        )
         self.assertIn("mobile-search-direct-message-aurora-001", slot_ids)
         self.assertNotIn("mobile-reminder-direct-message-aurora-001", slot_ids)
         self.assertNotIn("mobile-draft-direct-message-aurora-001", slot_ids)
+
+    def test_invalid_local_source_stops_before_any_model_request(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source_path = root / "invalid-messages.json"
+            source_path.write_text('{"messages": [], "reminders": [], "drafts": []}', encoding="utf-8")
+            adapter = MobileMessagesDomainAdapter.from_local_file(source_path)
+            model = _MobileOfflinePolicyModel()
+            engine = SynthesisEngine(AdapterRegistry(domains=(adapter,), models=(model,)))
+            configuration = RunConfiguration(
+                run_id="mobile-invalid-source",
+                domain_id=adapter.domain_id,
+                model_id=model.model_id,
+                slot_limit=1,
+            )
+
+            with self.assertRaisesRegex(ValueError, "non-empty messages"):
+                engine.run(configuration, root / "run")
+
+        self.assertEqual(model.requests, [])
 
 
 def _read_json_lines(path: Path) -> list[dict[str, object]]:
@@ -714,7 +959,7 @@ def _mobile_configuration(adapter: MobileMessagesDomainAdapter) -> RunConfigurat
         run_id="mobile-domain-seam",
         domain_id=adapter.domain_id,
         model_id="mobile_direct_search_model",
-        slot_limit=22,
+        slot_limit=24,
     )
 
 
@@ -793,6 +1038,8 @@ def _mobile_policy_decision(
         )
     if "get_reminder" in tool_names and not has_action("get_reminder"):
         return tool_call("get_reminder", {"message_id": message_id})
+    if "get_draft_reply" in tool_names and not has_action("get_draft_reply"):
+        return tool_call("get_draft_reply", {"message_id": message_id})
     if "create_reminder" in tool_names:
         reminder = re.search(
             r'create a reminder for (?P<remind_at>[^ ]+) that says "(?P<text>[^"]+)"',
@@ -816,6 +1063,39 @@ def _requested_query(instruction: str) -> str:
     matches = re.findall(r'mentions "([^"]+)"', instruction)
     assert matches
     return matches[-1]
+
+
+def _direct_search_trace(
+    *,
+    redundant: bool,
+    message_id: str = "message-aurora-001",
+    sender: str = "Alex Kim",
+    body: str = "Please review the launch checklist before Friday.",
+    query: str = "launch checklist",
+) -> ExecutionTrace:
+    search_events = (
+        EpisodeEvent(
+            event_type="action",
+            tool_name="search_messages",
+            arguments={"query": query},
+        ),
+        EpisodeEvent(
+            event_type="observation",
+            tool_name="search_messages",
+            observation={"message_id": message_id, "sender": sender, "body": body},
+        ),
+    )
+    return ExecutionTrace(
+        mutation_authorization="not_applicable",
+        events=(
+            *search_events,
+            *(search_events if redundant else ()),
+            EpisodeEvent(
+                event_type="final_response",
+                content=f"I found {sender}'s {query} message.",
+            ),
+        ),
+    )
 
 
 if __name__ == "__main__":

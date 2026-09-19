@@ -106,6 +106,15 @@ class _TaskSpec:
 
 
 @dataclass(frozen=True)
+class MobileMessagesStructuralExample:
+    """A reviewed equivalence or distinction for the Mobile Messages taxonomy."""
+
+    example_id: str
+    expected_structural_key: str
+    variation: str
+
+
+@dataclass(frozen=True)
 class MobileMessagesSlotCapacity:
     """Finite deterministic task-space capacity for one frozen message source."""
 
@@ -127,6 +136,60 @@ _TASK_SPECS = (
     _TaskSpec("draft-directory", "create_draft_reply", "directory", "open"),
     _TaskSpec("draft-recovery", "create_draft_reply", "recovery", "open"),
     _TaskSpec("draft-exact", "create_draft_reply", "direct", "exact"),
+    _TaskSpec("draft-verified", "create_draft_reply", "verify", "open"),
+)
+
+
+_REVIEWED_STRUCTURAL_EXAMPLES = (
+    MobileMessagesStructuralExample(
+        "search_direct", "mobile_messages.search.direct", "baseline"
+    ),
+    MobileMessagesStructuralExample(
+        "search_directory", "mobile_messages.search.directory", "baseline"
+    ),
+    MobileMessagesStructuralExample(
+        "search_recovery", "mobile_messages.search.recovery", "baseline"
+    ),
+    MobileMessagesStructuralExample(
+        "reminder_direct", "mobile_messages.reminder.direct", "baseline"
+    ),
+    MobileMessagesStructuralExample(
+        "reminder_directory", "mobile_messages.reminder.directory", "baseline"
+    ),
+    MobileMessagesStructuralExample(
+        "reminder_recovery", "mobile_messages.reminder.recovery", "baseline"
+    ),
+    MobileMessagesStructuralExample(
+        "reminder_verified", "mobile_messages.reminder.verified", "baseline"
+    ),
+    MobileMessagesStructuralExample(
+        "draft_direct", "mobile_messages.draft.direct", "baseline"
+    ),
+    MobileMessagesStructuralExample(
+        "draft_directory", "mobile_messages.draft.directory", "baseline"
+    ),
+    MobileMessagesStructuralExample(
+        "draft_recovery", "mobile_messages.draft.recovery", "baseline"
+    ),
+    MobileMessagesStructuralExample(
+        "draft_exact", "mobile_messages.draft.exact", "baseline"
+    ),
+    MobileMessagesStructuralExample(
+        "draft_verified", "mobile_messages.draft.verified", "baseline"
+    ),
+    MobileMessagesStructuralExample(
+        "search_direct_paraphrase", "mobile_messages.search.direct", "paraphrase"
+    ),
+    MobileMessagesStructuralExample(
+        "search_direct_entity_swap",
+        "mobile_messages.search.direct",
+        "entity_substitution",
+    ),
+    MobileMessagesStructuralExample(
+        "search_direct_padded_tools",
+        "mobile_messages.search.direct",
+        "padded_tool_sequence",
+    ),
 )
 
 
@@ -171,6 +234,10 @@ class MobileMessagesDomainAdapter:
         del configuration
         return MobileMessagesDomainRun(_parse_source(self._source_contents))
 
+    @property
+    def reviewed_structural_examples(self) -> tuple[MobileMessagesStructuralExample, ...]:
+        return _REVIEWED_STRUCTURAL_EXAMPLES
+
 
 class MobileMessagesDomainRun:
     """Run-scoped Mobile Messages planning and source normalization."""
@@ -200,6 +267,10 @@ class MobileMessagesDomainRun:
             len(_task_specs_for_message(message, self._initial_state))
             for message in self._messages.values()
         )
+
+    @property
+    def reviewed_structural_examples(self) -> tuple[MobileMessagesStructuralExample, ...]:
+        return _REVIEWED_STRUCTURAL_EXAMPLES
 
     def slot_capacity(self, limit: int) -> MobileMessagesSlotCapacity:
         if limit < 0:
@@ -340,8 +411,6 @@ class MobileMessagesDomainRun:
             reply = payload.get("reply")
             if not isinstance(reply, str) or not _reply_is_allowed(reply):
                 return _compilation_rejection("unsupported_reply")
-            if reply != _exact_reply_for(target):
-                return _compilation_rejection("unsupported_private_exact_target")
             exact_reply = reply
             allowed_fields.add("reply")
         elif "reply" in payload:
@@ -433,6 +502,8 @@ class MobileMessagesEpisode:
             return self._get_reminder(arguments)
         if tool_name == "create_draft_reply":
             return self._create_draft_reply(arguments)
+        if tool_name == "get_draft_reply":
+            return self._get_draft_reply(arguments)
         return ToolExecutionResult(result_type="tool_failure", error_code="unknown_tool")
 
     def _search_messages(self, arguments: dict[str, JsonValue]) -> ToolExecutionResult:
@@ -527,6 +598,15 @@ class MobileMessagesEpisode:
         return ToolExecutionResult(
             result_type="state_change",
             change={"message_id": message_id, "content": content},
+        )
+
+    def _get_draft_reply(self, arguments: dict[str, JsonValue]) -> ToolExecutionResult:
+        message_id = arguments.get("message_id")
+        if not isinstance(message_id, str) or message_id not in self._drafts:
+            return ToolExecutionResult(result_type="tool_failure", error_code="draft_not_found")
+        return ToolExecutionResult(
+            result_type="observation",
+            observation={"message_id": message_id, "content": self._drafts[message_id]},
         )
 
     def _route_authorized_for_mutation(self) -> bool:
@@ -665,6 +745,15 @@ class MobileMessagesEpisode:
         )
         no_unintended_changes = len(state_changes) == 1 and len(changes) == 1
         authorized = trace.mutation_authorization == "authorized"
+        verified = (
+            self._case.route != "verify"
+            or any(
+                event.event_type == "observation"
+                and event.tool_name == "get_draft_reply"
+                and event.observation == requested_change
+                for event in trace.events
+            )
+        )
         grounded = _final_response_is_grounded(
             trace.events,
             self._case,
@@ -675,6 +764,7 @@ class MobileMessagesEpisode:
             AssessmentCheck(name="authorized_mutation", passed=authorized),
             AssessmentCheck(name="requested_draft_recorded", passed=requested_effect),
             AssessmentCheck(name="no_unintended_state_changes", passed=no_unintended_changes),
+            AssessmentCheck(name="saved_draft_observed", passed=verified),
             AssessmentCheck(name="final_response_grounded", passed=grounded),
         )
         return EpisodeAssessment(
@@ -687,15 +777,20 @@ class MobileMessagesEpisode:
                     ("mutation_not_authorized", authorized),
                     ("requested_draft_not_recorded", requested_effect),
                     ("unintended_state_change", no_unintended_changes),
+                    ("saved_draft_not_observed", verified),
                     ("final_response_not_grounded", grounded),
                 )
                 if not passed
             ),
             coverage_tags=("draft", self._case.route, self._case.reply_constraint),
             structural_key=(
-                "mobile_messages.draft.exact"
-                if self._case.reply_constraint == "exact"
-                else f"mobile_messages.draft.{self._case.route}"
+                "mobile_messages.draft.verified"
+                if self._case.route == "verify"
+                else (
+                    "mobile_messages.draft.exact"
+                    if self._case.reply_constraint == "exact"
+                    else f"mobile_messages.draft.{self._case.route}"
+                )
             ),
             state_change_evidence=f"draft:{self._case.target.message_id}",
         )
@@ -757,17 +852,31 @@ def _reminder_public_task(case: _MobileCase) -> PublicTask:
 
 
 def _draft_public_task(case: _MobileCase) -> PublicTask:
-    search_task = _search_public_task(case)
+    search_task = _search_public_task(
+        _MobileCase(
+            target=case.target,
+            route="direct" if case.route == "verify" else case.route,
+        )
+    )
     reply_request = (
         f'Draft exactly this reply: "{case.exact_reply}".'
         if case.reply_constraint == "exact"
         else "Draft a brief courteous reply."
     )
+    tools = [*search_task.tools, _create_draft_reply_tool()]
+    if case.route == "verify":
+        tools.append(_get_draft_reply_tool())
+    verification_request = (
+        " Then retrieve the saved draft and report its content."
+        if case.route == "verify"
+        else ""
+    )
     return PublicTask(
         instruction=(
             f"{search_task.instruction} After finding the selected message, {reply_request}"
+            f"{verification_request}"
         ),
-        tools=(*search_task.tools, _create_draft_reply_tool()),
+        tools=tuple(tools),
     )
 
 
@@ -856,6 +965,19 @@ def _create_draft_reply_tool() -> ToolDefinition:
                 "content": {"type": "string"},
             },
         },
+    )
+
+
+def _get_draft_reply_tool() -> ToolDefinition:
+    return ToolDefinition(
+        name="get_draft_reply",
+        description="Retrieve the saved reply draft for one message.",
+        input_schema={
+            "type": "object",
+            "properties": {"message_id": {"type": "string"}},
+            "required": ["message_id"],
+        },
+        output_schema=_create_draft_reply_tool().output_schema,
     )
 
 
@@ -1198,11 +1320,13 @@ def _exact_reply_for(message: _Message) -> str:
 
 def _reply_is_allowed(reply: str) -> bool:
     normalized = reply.strip()
+    courtesy_prefixes = ("thanks", "thank you", "hello", "hi ")
     return (
         normalized == reply
         and 3 <= len(reply) <= 240
         and "\n" not in reply
         and "\r" not in reply
+        and reply.casefold().startswith(courtesy_prefixes)
     )
 
 
