@@ -23,7 +23,10 @@ FORBIDDEN_IMPORT_ROOTS = {
     "builtins",
 }
 PRODUCTION_DOMAIN_MARKERS = ("contacts", "mobile", "workspace")
-ALLOWED_PRODUCTION_DOMAIN_MODULES = frozenset({"contacts.py"})
+ALLOWED_PRODUCTION_DOMAIN_MODULES = {
+    "contacts.py": frozenset({"contacts"}),
+    "mobile_messages.py": frozenset({"mobile"}),
+}
 
 
 class _IncompleteDomain:
@@ -106,13 +109,13 @@ class AgentFirstCoreArchitectureTest(unittest.TestCase):
 
     def test_core_source_allows_only_contacts_while_rejecting_legacy_and_cross_domain_dependencies(self) -> None:
         shared_core_imports: list[str] = []
-        production_domain_imports: list[str] = []
+        production_domain_imports: dict[str, list[str]] = {}
         dynamic_imports: list[str] = []
         for source_path in CORE_PACKAGE.rglob("*.py"):
             tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
             relative_path = source_path.relative_to(CORE_PACKAGE).as_posix()
             if relative_path in ALLOWED_PRODUCTION_DOMAIN_MODULES:
-                production_domain_imports.extend(_import_targets(tree))
+                production_domain_imports[relative_path] = _import_targets(tree)
             else:
                 shared_core_imports.extend(_import_targets(tree))
             dynamic_imports.extend(
@@ -121,20 +124,26 @@ class AgentFirstCoreArchitectureTest(unittest.TestCase):
             )
 
         self.assertEqual(_forbidden_import_targets(shared_core_imports), [])
-        self.assertEqual(
-            _forbidden_import_targets(
-                production_domain_imports,
-                allowed_production_markers=frozenset({"contacts"}),
-            ),
-            [],
-        )
+        for relative_path, imports in production_domain_imports.items():
+            self.assertEqual(
+                _forbidden_import_targets(
+                    imports,
+                    allowed_production_markers=ALLOWED_PRODUCTION_DOMAIN_MODULES[
+                        relative_path
+                    ],
+                ),
+                [],
+            )
         self.assertEqual(dynamic_imports, [])
         production_module_files = [
             path.relative_to(CORE_PACKAGE).as_posix()
             for path in CORE_PACKAGE.rglob("*.py")
             if any(marker in path.stem.lower() for marker in PRODUCTION_DOMAIN_MARKERS)
         ]
-        self.assertEqual(production_module_files, ["contacts.py"])
+        self.assertEqual(
+            sorted(production_module_files),
+            ["contacts.py", "mobile_messages.py"],
+        )
         self.assertFalse((CORE_PACKAGE / "contracts.py").exists())
         self.assertFalse((ROOT / "release_lab").exists())
 
@@ -153,6 +162,16 @@ class AgentFirstCoreArchitectureTest(unittest.TestCase):
                 allowed_production_markers=frozenset({"contacts"}),
             ),
             ["agent_synthesis.mobile"],
+        )
+
+    def test_mobile_adapter_cannot_import_a_second_production_domain(self) -> None:
+        tree = ast.parse("from agent_synthesis import contacts")
+        self.assertEqual(
+            _forbidden_import_targets(
+                _import_targets(tree),
+                allowed_production_markers=frozenset({"mobile"}),
+            ),
+            ["agent_synthesis.contacts"],
         )
 
     def test_dynamic_import_calls_are_rejected_by_the_architecture_guard(self) -> None:
