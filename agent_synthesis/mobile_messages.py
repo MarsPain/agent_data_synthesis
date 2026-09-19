@@ -202,11 +202,16 @@ def _task_specs_for_message(
     return tuple(
         spec
         for spec in _TASK_SPECS
-        if not (
+        if _message_query_is_unique(message, initial_state.messages)
+        and not (
             spec.action == "create_reminder" and message.message_id in initial_state.reminders
         )
         and not (
             spec.action == "create_draft_reply" and message.message_id in initial_state.drafts
+        )
+        and not (
+            spec.reply_constraint == "exact"
+            and not _reply_is_allowed(_exact_reply_for(message))
         )
     )
 
@@ -215,7 +220,7 @@ class MobileMessagesDomainAdapter:
     """A fixture-backed Mobile Messages adapter with no shared-core schema leak."""
 
     domain_id = "mobile_messages"
-    domain_version = "mobile_messages_agent_adapter_v1"
+    domain_version = "mobile_messages_agent_adapter_v2"
 
     def __init__(self, source_contents: bytes) -> None:
         if not isinstance(source_contents, bytes) or not source_contents:
@@ -313,6 +318,11 @@ class MobileMessagesDomainRun:
         slot_spec = self._slot_spec(slot.slot_id)
         if slot_spec is None:
             return _compilation_rejection("unsupported_task_slot")
+        spec, target = slot_spec
+        if not _message_query_is_unique(target, self._messages):
+            return _compilation_rejection("unresolved_target_ambiguity")
+        if spec not in _task_specs_for_message(target, self._initial_state):
+            return _compilation_rejection("unsupported_task_slot")
         try:
             payload = json.loads(proposal.content)
         except json.JSONDecodeError:
@@ -321,7 +331,6 @@ class MobileMessagesDomainRun:
             return _compilation_rejection("proposal_not_json")
         if not isinstance(payload, dict):
             return _compilation_rejection("proposal_not_object")
-        spec, target = slot_spec
         action = payload.get("action")
         if not isinstance(action, str):
             return _compilation_rejection("unsupported_requested_action")
@@ -427,14 +436,19 @@ class MobileMessagesDomainRun:
 
     def _slot_spec(self, slot_id: str) -> tuple[_TaskSpec, _Message] | None:
         for message in _sorted_messages(self._messages):
-            for spec in _task_specs_for_message(message, self._initial_state):
+            for spec in _TASK_SPECS:
                 if slot_id == self._slot_id(spec, message):
                     return spec, message
         return None
 
-    @staticmethod
-    def _slot_id(spec: _TaskSpec, message: _Message) -> str:
-        return f"mobile-{spec.slot_kind}-{_slot_slug(message.message_id)}"
+    def _slot_id(self, spec: _TaskSpec, message: _Message) -> str:
+        return f"mobile-{spec.slot_kind}-{self._target_slot_component(message)}"
+
+    def _target_slot_component(self, message: _Message) -> str:
+        digest = hashlib.sha256(
+            _canonical_json_bytes(_message_record(message))
+        ).hexdigest()[:24]
+        return f"message-{digest}"
 
     def open_episode(
         self,
@@ -722,7 +736,11 @@ class MobileMessagesEpisode:
                 if self._case.route == "verify"
                 else f"mobile_messages.reminder.{self._case.route}"
             ),
-            state_change_evidence=f"reminder:{self._case.target.message_id}",
+            state_change_evidence=(
+                _state_change_evidence("reminder", self._case.target)
+                if requested_effect and lookup_completed
+                else None
+            ),
         )
 
     def _assess_draft(self, trace: ExecutionTrace) -> EpisodeAssessment:
@@ -792,7 +810,11 @@ class MobileMessagesEpisode:
                     else f"mobile_messages.draft.{self._case.route}"
                 )
             ),
-            state_change_evidence=f"draft:{self._case.target.message_id}",
+            state_change_evidence=(
+                _state_change_evidence("draft", self._case.target)
+                if requested_effect and lookup_completed
+                else None
+            ),
         )
 
 
@@ -1100,6 +1122,11 @@ def _reminder_record(reminder: _Reminder) -> dict[str, str]:
     }
 
 
+def _state_change_evidence(kind: str, message: _Message) -> str:
+    digest = hashlib.sha256(_canonical_json_bytes(_message_record(message))).hexdigest()
+    return f"{kind}:sha256:{digest}"
+
+
 def _target_message_observed(events: tuple[EpisodeEvent, ...], case: _MobileCase) -> bool:
     return any(
         event.event_type == "observation"
@@ -1306,6 +1333,14 @@ def _query_for(message: _Message) -> str:
     return message.body
 
 
+def _message_query_is_unique(
+    message: _Message,
+    messages: dict[str, _Message],
+) -> bool:
+    query = _query_for(message).casefold()
+    return sum(query in candidate.body.casefold() for candidate in messages.values()) == 1
+
+
 def _reminder_text_for(message: _Message) -> str:
     return f"Review the {_query_for(message)}."
 
@@ -1347,13 +1382,6 @@ def _text_requests_negation(content: str) -> bool:
 
 def _recovery_probe(query: str) -> str:
     return f"{query} (stale)"
-
-
-def _slot_slug(value: str) -> str:
-    return "-".join(
-        part
-        for part in "".join(char if char.isalnum() else " " for char in value).casefold().split()
-    )
 
 
 def _sorted_messages(messages: dict[str, _Message]) -> tuple[_Message, ...]:

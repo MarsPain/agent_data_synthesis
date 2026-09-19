@@ -16,6 +16,7 @@ from agent_synthesis import (
     RunConfiguration,
     SynthesisEngine,
     TaskProposal,
+    TaskSlot,
 )
 from agent_synthesis.mobile_messages import MobileMessagesDomainAdapter
 from agent_synthesis.ledger import PrivateLedger
@@ -120,6 +121,37 @@ class _WrongMobileMutationModel(_MobileOfflinePolicyModel):
         return response
 
 
+class _V1MobileMessagesDomainAdapter(MobileMessagesDomainAdapter):
+    """Frozen pre-locality adapter identity used to prove replay drift rejection."""
+
+    domain_version = "mobile_messages_agent_adapter_v1"
+
+
+class _UngroundedMobileMutationModel(_MobileOfflinePolicyModel):
+    model_id = "mobile_ungrounded_mutation_model"
+    model_version = "mobile_ungrounded_mutation_model_v1"
+
+    def complete(self, request: object) -> JsonModelResponse:
+        if (
+            request.role == "agent"
+            and not request.observable_history
+            and any(tool.name == "create_reminder" for tool in request.task.tools)
+        ):
+            self.requests.append(request)
+            return JsonModelResponse(
+                content={
+                    "type": "tool_call",
+                    "tool_name": "create_reminder",
+                    "arguments": {
+                        "message_id": "unobserved-message-id",
+                        "reminder_text": "Review the launch checklist.",
+                        "remind_at": "2026-10-04T09:00:00Z",
+                    },
+                }
+            )
+        return super().complete(request)
+
+
 class MobileMessagesAgentAdapterTest(unittest.TestCase):
     def test_fixture_message_search_runs_through_the_engine_with_private_source_state(self) -> None:
         adapter = MobileMessagesDomainAdapter.fixture()
@@ -170,10 +202,11 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
         adapter = MobileMessagesDomainAdapter.fixture()
         run = adapter.open_run(_mobile_configuration(adapter))
         slots = run.slots(100)
-        reminder_slot = next(
-            slot
-            for slot in slots
-            if slot.slot_id == "mobile-reminder-direct-message-aurora-001"
+        reminder_slot = _slot_for(
+            slots,
+            action="create_reminder",
+            query="launch checklist",
+            route="direct",
         )
 
         compilation = run.compile(
@@ -214,9 +247,14 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
         self.assertEqual(run.slot_capacity(100).known_task_capacity, 24)
         self.assertTrue(run.slot_capacity(100).exhausted)
         self.assertFalse(run.slot_capacity(3).exhausted)
-        self.assertIn(
-            "mobile-search-recovery-message-aurora-001",
-            {slot.slot_id for slot in slots},
+        self.assertIsInstance(
+            _slot_for(
+                slots,
+                action="search_messages",
+                query="launch checklist",
+                route="recovery",
+            ),
+            TaskSlot,
         )
         self.assertNotIsInstance(compilation, CompilationRejection)
         assert not isinstance(compilation, CompilationRejection)
@@ -234,10 +272,15 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
         adapter = MobileMessagesDomainAdapter.fixture()
         run = adapter.open_run(_mobile_configuration(adapter))
         frozen = run.freeze_initial_state()
-        slots = {slot.slot_id: slot for slot in run.slots(100)}
+        slots = run.slots(100)
         reminder_task = _compiled_task(
             run,
-            slots["mobile-reminder-direct-message-aurora-001"],
+            _slot_for(
+                slots,
+                action="create_reminder",
+                query="launch checklist",
+                route="direct",
+            ),
             {
                 "action": "create_reminder",
                 "condition": "after_message_match",
@@ -249,7 +292,13 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
         )
         open_draft_task = _compiled_task(
             run,
-            slots["mobile-draft-direct-message-aurora-001"],
+            _slot_for(
+                slots,
+                action="create_draft_reply",
+                query="launch checklist",
+                route="direct",
+                reply_constraint="open",
+            ),
             {
                 "action": "create_draft_reply",
                 "condition": "after_message_match",
@@ -260,7 +309,13 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
         )
         exact_draft_task = _compiled_task(
             run,
-            slots["mobile-draft-exact-message-aurora-001"],
+            _slot_for(
+                slots,
+                action="create_draft_reply",
+                query="launch checklist",
+                route="direct",
+                reply_constraint="exact",
+            ),
             {
                 "action": "create_draft_reply",
                 "condition": "after_message_match",
@@ -353,10 +408,12 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
     def test_draft_assessment_requires_grounded_response_and_intended_state_only(self) -> None:
         adapter = MobileMessagesDomainAdapter.fixture()
         run = adapter.open_run(_mobile_configuration(adapter))
-        slot = next(
-            item
-            for item in run.slots(100)
-            if item.slot_id == "mobile-draft-direct-message-aurora-001"
+        slot = _slot_for(
+            run.slots(100),
+            action="create_draft_reply",
+            query="launch checklist",
+            route="direct",
+            reply_constraint="open",
         )
         task = _compiled_task(
             run,
@@ -436,10 +493,12 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
     def test_verified_draft_requires_an_observed_saved_draft(self) -> None:
         adapter = MobileMessagesDomainAdapter.fixture()
         run = adapter.open_run(_mobile_configuration(adapter))
-        slot = next(
-            item
-            for item in run.slots(100)
-            if item.slot_id == "mobile-draft-verified-message-aurora-001"
+        slot = _slot_for(
+            run.slots(100),
+            action="create_draft_reply",
+            query="launch checklist",
+            route="verify",
+            reply_constraint="open",
         )
         task = _compiled_task(
             run,
@@ -586,6 +645,15 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
         public_episode_text = json.dumps([*demonstrations, *negatives])
         for private_field in ("exact_reply", "private_case_bytes", "expected_state"):
             self.assertNotIn(private_field, public_episode_text)
+        generation_context = json.dumps(
+            [
+                request.model_context()
+                for request in model.requests
+                if request.role == "task_generation"
+            ]
+        )
+        self.assertNotIn("message-aurora-001", generation_context)
+        self.assertNotIn("message-invoice-002", generation_context)
         assert_agent_episode_compliance(
             self,
             demonstrations=demonstrations,
@@ -617,12 +685,44 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
             any(event["event_type"] == "state_change" for event in negatives[0]["events"])
         )
 
+    def test_ungrounded_mutation_rejection_does_not_export_the_private_target_id(self) -> None:
+        adapter = MobileMessagesDomainAdapter.fixture()
+        model = _UngroundedMobileMutationModel()
+        engine = SynthesisEngine(AdapterRegistry(domains=(adapter,), models=(model,)))
+        configuration = RunConfiguration(
+            run_id="mobile-ungrounded-mutation",
+            domain_id=adapter.domain_id,
+            model_id=model.model_id,
+            slot_limit=4,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            result = engine.run(configuration, Path(temporary_directory))
+            negatives = _read_json_lines(result.negatives_path)
+
+        self.assertEqual(result.negative_count, 1)
+        public_negative = json.dumps(negatives[0])
+        self.assertNotIn("message-aurora-001", public_negative)
+        self.assertIn("unobserved-message-id", public_negative)
+        self.assertIsNone(negatives[0]["verification"]["state_change_evidence"])
+
     def test_compilation_rejects_missing_authority_negation_and_private_targets(self) -> None:
         adapter = MobileMessagesDomainAdapter.fixture()
         run = adapter.open_run(_mobile_configuration(adapter))
-        slots = {slot.slot_id: slot for slot in run.slots(100)}
-        reminder_slot = slots["mobile-reminder-direct-message-aurora-001"]
-        exact_draft_slot = slots["mobile-draft-exact-message-aurora-001"]
+        slots = run.slots(100)
+        reminder_slot = _slot_for(
+            slots,
+            action="create_reminder",
+            query="launch checklist",
+            route="direct",
+        )
+        exact_draft_slot = _slot_for(
+            slots,
+            action="create_draft_reply",
+            query="launch checklist",
+            route="direct",
+            reply_constraint="exact",
+        )
 
         missing_authority = run.compile(
             reminder_slot,
@@ -709,25 +809,46 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
     def test_semantic_keys_and_reviewed_structural_examples_preserve_real_differences_only(self) -> None:
         adapter = MobileMessagesDomainAdapter.fixture()
         run = adapter.open_run(_mobile_configuration(adapter))
-        slots = {slot.slot_id: slot for slot in run.slots(100)}
+        slots = run.slots(100)
         direct_alex = _compiled_task(
             run,
-            slots["mobile-search-direct-message-aurora-001"],
+            _slot_for(
+                slots,
+                action="search_messages",
+                query="launch checklist",
+                route="direct",
+            ),
             {"action": "search_messages", "query": "launch checklist", "route": "direct"},
         )
         direct_bella = _compiled_task(
             run,
-            slots["mobile-search-direct-message-invoice-002"],
+            _slot_for(
+                slots,
+                action="search_messages",
+                query="invoice",
+                route="direct",
+            ),
             {"action": "search_messages", "query": "invoice", "route": "direct"},
         )
         directory_alex = _compiled_task(
             run,
-            slots["mobile-search-directory-message-aurora-001"],
+            _slot_for(
+                slots,
+                action="search_messages",
+                query="launch checklist",
+                route="directory",
+            ),
             {"action": "search_messages", "query": "launch checklist", "route": "directory"},
         )
         open_draft = _compiled_task(
             run,
-            slots["mobile-draft-direct-message-aurora-001"],
+            _slot_for(
+                slots,
+                action="create_draft_reply",
+                query="launch checklist",
+                route="direct",
+                reply_constraint="open",
+            ),
             {
                 "action": "create_draft_reply",
                 "condition": "after_message_match",
@@ -738,7 +859,13 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
         )
         exact_draft = _compiled_task(
             run,
-            slots["mobile-draft-exact-message-aurora-001"],
+            _slot_for(
+                slots,
+                action="create_draft_reply",
+                query="launch checklist",
+                route="direct",
+                reply_constraint="exact",
+            ),
             {
                 "action": "create_draft_reply",
                 "condition": "after_message_match",
@@ -750,7 +877,13 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
         )
         other_exact_draft = _compiled_task(
             run,
-            slots["mobile-draft-exact-message-aurora-001"],
+            _slot_for(
+                slots,
+                action="create_draft_reply",
+                query="launch checklist",
+                route="direct",
+                reply_constraint="exact",
+            ),
             {
                 "action": "create_draft_reply",
                 "condition": "after_message_match",
@@ -918,16 +1051,30 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
             adapter = MobileMessagesDomainAdapter.from_local_file(source_path)
             run = adapter.open_run(_mobile_configuration(adapter))
             frozen_payload = json.loads(run.freeze_initial_state().contents)
-            slot_ids = {slot.slot_id for slot in run.slots(100)}
+            slots = run.slots(100)
 
         self.assertEqual(run.known_task_capacity, 15)
         self.assertEqual(frozen_payload["reminders"][0]["reminder_text"], "Already scheduled.")
         self.assertEqual(
             frozen_payload["drafts"][0]["content"], "Thanks, already drafted."
         )
-        self.assertIn("mobile-search-direct-message-aurora-001", slot_ids)
-        self.assertNotIn("mobile-reminder-direct-message-aurora-001", slot_ids)
-        self.assertNotIn("mobile-draft-direct-message-aurora-001", slot_ids)
+        self.assertIsInstance(
+            _slot_for(
+                slots,
+                action="search_messages",
+                query="launch checklist",
+                route="direct",
+            ),
+            TaskSlot,
+        )
+        self.assertFalse(
+            any(
+                _slot_payload(slot).get("action")
+                in {"create_reminder", "create_draft_reply"}
+                and _slot_payload(slot).get("message_query") == "launch checklist"
+                for slot in slots
+            )
+        )
 
     def test_invalid_local_source_stops_before_any_model_request(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -948,6 +1095,171 @@ class MobileMessagesAgentAdapterTest(unittest.TestCase):
                 engine.run(configuration, root / "run")
 
         self.assertEqual(model.requests, [])
+
+    def test_replay_rejects_a_pre_locality_domain_version(self) -> None:
+        old_adapter = _V1MobileMessagesDomainAdapter.fixture()
+        model = _MobileOfflinePolicyModel()
+        old_engine = SynthesisEngine(
+            AdapterRegistry(domains=(old_adapter,), models=(model,))
+        )
+        configuration = RunConfiguration(
+            run_id="mobile-pre-locality-version",
+            domain_id=old_adapter.domain_id,
+            model_id=model.model_id,
+            slot_limit=1,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            run = old_engine.run(configuration, Path(temporary_directory))
+            current_engine = SynthesisEngine(
+                AdapterRegistry(domains=(MobileMessagesDomainAdapter.fixture(),), models=())
+            )
+            with self.assertRaisesRegex(ValueError, "Domain version does not match"):
+                current_engine.replay(run.run_directory)
+
+        self.assertEqual(
+            MobileMessagesDomainAdapter.domain_version,
+            "mobile_messages_agent_adapter_v2",
+        )
+
+    def test_capacity_omits_exact_draft_slots_that_cannot_form_an_allowed_default_reply(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source_path = Path(temporary_directory) / "long-message.json"
+            source_path.write_text(
+                json.dumps(
+                    {
+                        "messages": [
+                            {
+                                "message_id": "message-long-001",
+                                "sender": "Long Sender",
+                                "body": "x" * 250,
+                            }
+                        ],
+                        "reminders": [],
+                        "drafts": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            adapter = MobileMessagesDomainAdapter.from_local_file(source_path)
+            run = adapter.open_run(_mobile_configuration(adapter))
+            slots = run.slots(100)
+            compilations = [
+                run.compile(
+                    slot,
+                    TaskProposal(
+                        content=slot.proposal_prompt.removeprefix(
+                            "Return exactly this JSON proposal: "
+                        )
+                    ),
+                )
+                for slot in slots
+            ]
+
+        self.assertEqual(run.known_task_capacity, 11)
+        self.assertFalse(
+            any(
+                _slot_payload(slot).get("reply_constraint") == "exact"
+                for slot in slots
+            )
+        )
+        self.assertFalse(any(isinstance(item, CompilationRejection) for item in compilations))
+
+    def test_ambiguous_message_selectors_are_excluded_and_rejected_before_rollout(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source_path = Path(temporary_directory) / "ambiguous-messages.json"
+            source_path.write_text(
+                json.dumps(
+                    {
+                        "messages": [
+                            {
+                                "message_id": "message-alpha-001",
+                                "sender": "Alex Kim",
+                                "body": "alpha",
+                            },
+                            {
+                                "message_id": "message-alpha-002",
+                                "sender": "Bella Chen",
+                                "body": "today alpha tomorrow",
+                            },
+                        ],
+                        "reminders": [],
+                        "drafts": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            adapter = MobileMessagesDomainAdapter.from_local_file(source_path)
+            run = adapter.open_run(_mobile_configuration(adapter))
+            slots = run.slots(100)
+            ambiguous_compilation = run.compile(
+                TaskSlot(
+                    slot_id=_opaque_slot_id(
+                        slot_kind="search-direct",
+                        message_id="message-alpha-001",
+                        sender="Alex Kim",
+                        body="alpha",
+                    ),
+                    proposal_prompt="test-only ambiguous slot",
+                ),
+                TaskProposal(
+                    content=json.dumps(
+                        {
+                            "action": "search_messages",
+                            "query": "alpha",
+                            "route": "direct",
+                        }
+                    )
+                ),
+            )
+
+        self.assertEqual(run.known_task_capacity, 12)
+        self.assertFalse(any("message-alpha-001" in slot.slot_id for slot in slots))
+        self.assertEqual(
+            _rejection_code(ambiguous_compilation), "unresolved_target_ambiguity"
+        )
+
+    def test_slot_components_are_bounded_and_collision_safe_for_admitted_source_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source_path = Path(temporary_directory) / "slot-component-collisions.json"
+            source_path.write_text(
+                json.dumps(
+                    {
+                        "messages": [
+                            {"message_id": "m-1", "sender": "One", "body": "first"},
+                            {"message_id": "m_1", "sender": "Two", "body": "second"},
+                            {
+                                "message_id": "z" * 1_000,
+                                "sender": "Three",
+                                "body": "third",
+                            },
+                        ],
+                        "reminders": [],
+                        "drafts": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            adapter = MobileMessagesDomainAdapter.from_local_file(source_path)
+            run = adapter.open_run(_mobile_configuration(adapter))
+            slots = run.slots(100)
+            compilations = [
+                run.compile(
+                    slot,
+                    TaskProposal(
+                        content=slot.proposal_prompt.removeprefix(
+                            "Return exactly this JSON proposal: "
+                        )
+                    ),
+                )
+                for slot in slots
+            ]
+
+        self.assertEqual(run.known_task_capacity, 36)
+        self.assertEqual(len(slots), 36)
+        self.assertEqual(len({slot.slot_id for slot in slots}), 36)
+        self.assertTrue(all(len(slot.slot_id) <= 256 for slot in slots))
+        self.assertFalse(any(isinstance(item, CompilationRejection) for item in compilations))
 
 
 def _read_json_lines(path: Path) -> list[dict[str, object]]:
@@ -975,6 +1287,51 @@ def _compiled_task(run: object, slot: object, payload: dict[str, str]) -> object
 def _rejection_code(compilation: object) -> str:
     assert isinstance(compilation, CompilationRejection)
     return compilation.reason_code
+
+
+def _slot_for(
+    slots: object,
+    *,
+    action: str,
+    query: str,
+    route: str,
+    reply_constraint: str | None = None,
+) -> TaskSlot:
+    for slot in slots:
+        payload = _slot_payload(slot)
+        if (
+            payload.get("action") == action
+            and payload.get("query", payload.get("message_query")) == query
+            and payload.get("route") == route
+            and (
+                reply_constraint is None
+                or payload.get("reply_constraint") == reply_constraint
+            )
+        ):
+            return slot
+    raise AssertionError("expected deterministic Mobile Messages slot was not emitted")
+
+
+def _slot_payload(slot: TaskSlot) -> dict[str, str]:
+    return json.loads(
+        slot.proposal_prompt.removeprefix("Return exactly this JSON proposal: ")
+    )
+
+
+def _opaque_slot_id(
+    *,
+    slot_kind: str,
+    message_id: str,
+    sender: str,
+    body: str,
+) -> str:
+    identity = json.dumps(
+        {"message_id": message_id, "sender": sender, "body": body},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    digest = hashlib.sha256(identity).hexdigest()[:24]
+    return f"mobile-{slot_kind}-message-{digest}"
 
 
 def _mobile_policy_decision(
