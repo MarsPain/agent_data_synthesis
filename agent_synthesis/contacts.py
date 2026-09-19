@@ -120,6 +120,7 @@ class ContactsPilotConfiguration(BaseModel):
     total_physical_request_limit: int = Field(ge=1, le=10_000)
     generation_request_limit: int = Field(ge=1, le=10_000)
     agent_request_limit: int = Field(ge=1, le=10_000)
+    thinking_mode: Literal["enabled", "disabled"] | None = None
     transport_retry_limit: int = Field(default=2, ge=0, le=2)
     max_output_tokens: int = Field(default=1_024, ge=1, le=32_768)
     max_response_bytes: int = Field(default=64_000, ge=256, le=1_000_000)

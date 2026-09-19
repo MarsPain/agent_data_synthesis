@@ -393,6 +393,51 @@ class AgentRolloutTest(unittest.TestCase):
         self.assertNotIn("secret-test-key", repr(production))
         self.assertNotIn("secret-test-key", production_response.model_dump_json())
 
+    def test_openai_adapter_sends_explicit_disabled_thinking_mode(self) -> None:
+        captured: dict[str, object] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["body"] = json.loads(request.content.decode("utf-8"))
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json.dumps(_generation_response()),
+                            }
+                        }
+                    ]
+                },
+            )
+
+        adapter = OpenAICompatibleJsonAdapter(
+            model_id="production_json_model",
+            model_version="production_json_model_v1",
+            base_url="https://provider.example.test/v1",
+            api_key="secret-test-key",
+            remote_model="remote-test-model",
+            thinking_mode="disabled",
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+        request = TaskGenerationRequest(
+            slots=(
+                TaskSlot(
+                    slot_id="thinking-mode-probe-001",
+                    proposal_prompt="Return the protocol probe proposal.",
+                ),
+            ),
+            timeout_seconds=30,
+            max_response_bytes=4_096,
+            max_output_tokens=32,
+        )
+
+        adapter.complete(request)
+
+        body = captured["body"]
+        assert isinstance(body, dict)
+        self.assertEqual(body["thinking"], {"type": "disabled"})
+
     def test_openai_adapter_drops_raw_transport_exception_causes(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(
@@ -428,6 +473,56 @@ class AgentRolloutTest(unittest.TestCase):
         self.assertEqual(str(error), "provider_http_failure")
         self.assertIsNone(error.__cause__)
         self.assertIsNone(error.__context__)
+
+    def test_openai_adapter_classifies_missing_content_without_retaining_it(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "reasoning_content": "private provider reasoning",
+                            }
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 4,
+                        "completion_tokens": 3,
+                        "total_tokens": 7,
+                    },
+                },
+            )
+
+        adapter = OpenAICompatibleJsonAdapter(
+            model_id="production_json_model",
+            model_version="production_json_model_v1",
+            base_url="https://provider.example.test/v1",
+            api_key="secret-test-key",
+            remote_model="remote-test-model",
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+        request = TaskGenerationRequest(
+            slots=(
+                TaskSlot(
+                    slot_id="protocol-probe-001",
+                    proposal_prompt="Return the protocol probe proposal.",
+                ),
+            ),
+            timeout_seconds=30,
+            max_response_bytes=4_096,
+            max_output_tokens=32,
+        )
+
+        with self.assertRaises(ModelCallError) as raised:
+            adapter.complete(request)
+
+        error = raised.exception
+        self.assertEqual(error.error_code, "provider_response_malformed")
+        self.assertEqual(error.diagnostic_code, "message_content_missing")
+        self.assertEqual(error.usage.total_tokens, 7)
+        self.assertNotIn("private provider reasoning", str(error))
+        self.assertNotIn("secret-test-key", repr(error))
 
     def test_openai_adapter_sends_the_agent_one_decision_contract(self) -> None:
         captured: dict[str, object] = {}

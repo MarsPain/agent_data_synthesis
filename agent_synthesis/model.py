@@ -15,7 +15,9 @@ from agent_synthesis.domain import TaskSlot
 from agent_synthesis.episode import EpisodeEvent, PublicTask
 
 type ModelRole = Literal["task_generation", "agent"]
+type ThinkingMode = Literal["enabled", "disabled"]
 _SAFE_ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,127}$")
+_SAFE_DIAGNOSTIC_CODE = re.compile(r"^[a-z][a-z0-9_]{0,127}$")
 
 
 class TokenUsage(BaseModel):
@@ -218,6 +220,7 @@ class ModelCallError(RuntimeError):
         retryable: bool,
         response_hash: str | None = None,
         usage: TokenUsage | None = None,
+        diagnostic_code: str | None = None,
     ) -> None:
         self.error_code = (
             error_code if _SAFE_ERROR_CODE.fullmatch(error_code) else "provider_failure"
@@ -226,6 +229,12 @@ class ModelCallError(RuntimeError):
         self.retryable = retryable
         self.response_hash = response_hash
         self.usage = usage
+        self.diagnostic_code = (
+            diagnostic_code
+            if diagnostic_code is not None
+            and _SAFE_DIAGNOSTIC_CODE.fullmatch(diagnostic_code)
+            else None
+        )
 
 
 class DeterministicJsonModelAdapter:
@@ -268,6 +277,7 @@ class OpenAICompatibleJsonAdapter:
         base_url: str,
         api_key: str,
         remote_model: str,
+        thinking_mode: ThinkingMode | None = None,
         http_client: httpx.Client | None = None,
     ) -> None:
         if not base_url:
@@ -276,11 +286,14 @@ class OpenAICompatibleJsonAdapter:
             raise ValueError("api_key must not be empty")
         if not remote_model:
             raise ValueError("remote_model must not be empty")
+        if thinking_mode is not None and thinking_mode not in {"enabled", "disabled"}:
+            raise ValueError("thinking_mode must be enabled, disabled, or None")
         self.model_id = model_id
         self.model_version = model_version
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._remote_model = remote_model
+        self._thinking_mode = thinking_mode
         self._http_client = http_client or httpx.Client()
 
     def __repr__(self) -> str:
@@ -288,6 +301,12 @@ class OpenAICompatibleJsonAdapter:
             "OpenAICompatibleJsonAdapter("
             f"model_id={self.model_id!r}, model_version={self.model_version!r})"
         )
+
+    @property
+    def thinking_mode(self) -> ThinkingMode | None:
+        """Return the explicitly configured provider reasoning mode, if any."""
+
+        return self._thinking_mode
 
     def complete(self, request: JsonModelRequest) -> JsonModelResponse:
         response_contract = json.dumps(
@@ -318,6 +337,8 @@ class OpenAICompatibleJsonAdapter:
             "response_format": {"type": "json_object"},
             "max_tokens": request.max_output_tokens,
         }
+        if self._thinking_mode is not None:
+            request_body["thinking"] = {"type": self._thinking_mode}
         response: httpx.Response | None = None
         transport_failure: ModelCallError | None = None
         try:
@@ -353,29 +374,68 @@ class OpenAICompatibleJsonAdapter:
                 retryable=False,
                 response_hash=response_hash,
             )
-        parsed: dict[str, JsonValue] | None = None
         usage: TokenUsage | None = None
-        malformed_response = False
         try:
             payload = response.json()
-            if not isinstance(payload, dict):
-                raise TypeError("chat completion response must be an object")
-            content = payload["choices"][0]["message"]["content"]
-            if not isinstance(content, str):
-                raise TypeError("chat completion content must be a string")
-            parsed = json.loads(content)
-            if not isinstance(parsed, dict):
-                raise TypeError("chat completion JSON must be an object")
-            usage = _token_usage(payload.get("usage"))
-        except (KeyError, IndexError, TypeError, json.JSONDecodeError):
-            malformed_response = True
-        if malformed_response:
-            raise ModelCallError(
-                "provider_response_malformed",
-                retryable=False,
+        except (TypeError, ValueError):
+            raise _malformed_provider_response(
                 response_hash=response_hash,
+                diagnostic_code="response_payload_not_json",
+            ) from None
+        if not isinstance(payload, dict):
+            raise _malformed_provider_response(
+                response_hash=response_hash,
+                diagnostic_code="response_payload_not_object",
             )
-        assert parsed is not None
+        usage = _token_usage(payload.get("usage"))
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices:
+            raise _malformed_provider_response(
+                response_hash=response_hash,
+                usage=usage,
+                diagnostic_code="choices_missing_or_empty",
+            )
+        first_choice = choices[0]
+        if not isinstance(first_choice, dict):
+            raise _malformed_provider_response(
+                response_hash=response_hash,
+                usage=usage,
+                diagnostic_code="choice_not_object",
+            )
+        message = first_choice.get("message")
+        if not isinstance(message, dict):
+            raise _malformed_provider_response(
+                response_hash=response_hash,
+                usage=usage,
+                diagnostic_code="message_missing_or_invalid",
+            )
+        content = message.get("content")
+        if not isinstance(content, str):
+            raise _malformed_provider_response(
+                response_hash=response_hash,
+                usage=usage,
+                diagnostic_code="message_content_missing",
+            )
+        if not content.strip():
+            raise _malformed_provider_response(
+                response_hash=response_hash,
+                usage=usage,
+                diagnostic_code="message_content_empty",
+            )
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError:
+            raise _malformed_provider_response(
+                response_hash=response_hash,
+                usage=usage,
+                diagnostic_code="message_content_not_json",
+            ) from None
+        if not isinstance(parsed, dict):
+            raise _malformed_provider_response(
+                response_hash=response_hash,
+                usage=usage,
+                diagnostic_code="message_content_not_object",
+            )
         if (
             usage is not None
             and usage.output_tokens is not None
@@ -398,14 +458,30 @@ class OpenAICompatibleJsonAdapter:
         except ValidationError:
             validation_failed = True
         if validation_failed:
-            raise ModelCallError(
-                "provider_response_malformed",
-                retryable=False,
+            raise _malformed_provider_response(
                 response_hash=response_hash,
                 usage=usage,
+                diagnostic_code="normalized_response_invalid",
             )
         assert validated_response is not None
         return validated_response
+
+
+def _malformed_provider_response(
+    *,
+    response_hash: str,
+    diagnostic_code: str,
+    usage: TokenUsage | None = None,
+) -> ModelCallError:
+    """Return a fixed failure class without retaining provider response content."""
+
+    return ModelCallError(
+        "provider_response_malformed",
+        retryable=False,
+        response_hash=response_hash,
+        usage=usage,
+        diagnostic_code=diagnostic_code,
+    )
 
 
 def _token_usage(value: object) -> TokenUsage | None:

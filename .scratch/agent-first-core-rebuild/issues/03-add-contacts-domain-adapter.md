@@ -6,7 +6,7 @@ real-provider pilot before broadening production adapters.
 
 **Blocked by:** [02 — Run provider-neutral multi-turn Agent Episodes](02-run-provider-neutral-agent-episodes.md)
 
-**Status:** in-progress
+**Status:** completed
 
 **Assignee:** Codex
 
@@ -22,7 +22,7 @@ real-provider pilot before broadening production adapters.
 - [x] Semantic keys collapse paraphrases without collapsing material request differences. Reviewed structural examples establish the seven-family baseline and reject family inflation from wording, entity changes, or redundant calls.
 - [x] Provider-mock tests emit separated demonstrations/negatives and prove frozen-source replay after the original local file changes.
 - [x] A pilot configuration and offline rehearsal are reviewable before seeking authorization; target eight demonstrations with at most sixteen task attempts and explicit model, physical-request, retry, and token bounds.
-- [ ] After separate explicit authorization, the pilot yields inspectable real-Agent examples of direct lookup, authorized mutation, and successful recovery, with task/oracle alignment, failures, and usage reviewed.
+- [x] After separate explicit authorization, the pilot yields inspectable real-Agent examples of direct lookup, authorized mutation, and successful recovery, with task/oracle alignment, failures, and usage reviewed.
 - [x] Pilot outputs are diagnostic, with semantic-task/grounding groups recorded for exclusion from final acceptance. Findings and any necessary seam revisions are recorded in this ticket.
 
 ## Implementation notes
@@ -53,12 +53,61 @@ real-provider pilot before broadening production adapters.
   scheduler/resume work of Ticket 06. This ticket freezes and exposes the
   Contacts pilot ceiling without claiming that the current serial engine can
   perform that later orchestration.
-- No live provider call has been requested, authorized, or made. The real-Agent
-  pilot criterion remains pending separate explicit authorization. No failed
-  rehearsal or offline outcome authorizes a paid rerun or weaker gate.
-- No adapter seam revision was required by this slice. The architecture guard
-  now permits only this Contacts module as a production Domain while preserving
-  the ban on legacy and cross-Domain dependencies.
+- One separately authorized diagnostic pilot ran on 2026-09-13 as
+  `ticket-03-user-authorization-20260913`, using `api.deepseek.com` and
+  `deepseek-v4-flash`. It was bounded to eight task attempts, 41 physical
+  requests, zero automatic retries, 1,024 output tokens per request, and a
+  30-second timeout. Its one task-generation request ended as
+  `provider_response_malformed` (sanitized response hash
+  `sha256:4a10b63ad371e2b261f339c55dc3efbcdaf143ffd09bba5b761466ada7790a43`),
+  so all eight attempts are retained as pre-execution negatives. No Agent
+  request, tool call, or mutation occurred; offline replay records all eight
+  as `not_executed` and aligned. The diagnostic report under
+  `artifacts/agent-first-contacts-pilot/` records the frozen-source exclusion
+  groups, failure summary, and sanitized usage (one task-generation request).
+- The live result establishes no Agent feasibility conclusion: it exposes an
+  unproven provider JSON-envelope compatibility boundary before task or Agent
+  behavior can be assessed. No core or Contacts adapter seam revision follows
+  from the intentionally non-retained malformed payload. Any later protocol
+  investigation or new pilot requires fresh explicit authorization; this
+  failed pilot does not authorize a rerun or weaken the unchecked live gate.
+- A separate no-Contacts JSON-envelope probe ran on 2026-09-13 against the
+  same provider/model with one request, zero retries, a 30-second timeout, and
+  a 1,024-output-token cap. It passed the strict generation envelope and
+  returned only sanitized evidence: response hash
+  `sha256:bbdc7dfce9a8a8fd1ba53644f7c2a30750834354ce1e01f680c4225461132e24`
+  and usage of 186 input / 140 output / 326 total tokens. This rules out a
+  current system-wide envelope incompatibility but does not establish the
+  eight-slot Contacts path. The external safety gate rejected the requested
+  replacement pilot as a second Contacts-data export without a newly explicit
+  authorization, so no replacement Contact context or Agent work was sent.
+- The OpenAI-compatible adapter now exposes a fixed, non-payload
+  `diagnostic_code` for malformed response stages while preserving the public
+  `provider_response_malformed` outcome and raw-response exclusion. A focused
+  mock-transport regression covers a missing message-content envelope.
+- The first replacement pilot exhausted its configured 1,024 output-token cap while
+  its one-slot no-Contacts probe did not. Current official DeepSeek
+  documentation says `deepseek-v4-flash` defaults to thinking mode and supports
+  an explicit non-thinking request field. A newly authorized pilot therefore
+  sent `thinking: {"type": "disabled"}` with a 4,096 output-token cap while
+  preserving eight tasks, 41 physical requests, zero automatic retries, and
+  the 30-second timeout. It made 29 physical requests (one task-generation and
+  28 Agent requests): seven Episodes passed deterministic task/assessment
+  alignment, including direct lookup, authorized mutation, and successful
+  recovery; all eight replayed aligned. The sole recovery-follow-up negative
+  recorded the requested state change but failed final-response grounding by
+  omitting the recorded note; it remains retained with
+  `final_response_not_grounded`.
+- The initial pilot runner treated the eight-demonstration target as a hard
+  feasibility gate and labeled that seven-pass result insufficient. The
+  specification instead requires a target of eight but at least one successful
+  inspectable Episode of each required behavior. The runner now reports target
+  attainment separately from minimum behavior evidence, with an offline
+  regression covering this one-target-shortfall case. The real pilot therefore
+  establishes Ticket 03 early feasibility while remaining diagnostic-only and
+  excluded from final dataset acceptance.
+- The architecture guard permits only this Contacts module as a production
+  Domain while preserving the ban on legacy and cross-Domain dependencies.
 
 ## Scope guard
 

@@ -120,6 +120,45 @@ synchronous command. Async mode does not automatically activate from a profile
 decision and does not add a service, remote control endpoint, provider
 authority, or release promotion.
 
+## Agent-first Contacts feasibility pilot
+
+The provisional `agent_synthesis` Contacts adapter has a separate,
+diagnostic-only live pilot. It is not the legacy Contacts Release Candidate
+acceptance path below, does not use a mutation judge, and cannot produce a
+`real_live` proof or a release-qualification claim. Each invocation requires
+fresh explicit authorization because it sends the fixture's public task context
+and observable tool results to the configured OpenAI-compatible provider.
+
+```bash
+uv run python scripts/run_agent_first_contacts_pilot.py \
+  --authorize-live-provider \
+  --authorization-id <fresh-authorization-id> \
+  --generator-model <approved-provider-model> \
+  --output-dir artifacts/agent-first-contacts-pilot-<date>
+```
+
+The command reads `AGENT_DATA_LLM_BASE_URL` and `AGENT_DATA_API_KEY` only at
+dispatch time. It explicitly sends `thinking: {"type": "disabled"}` for the
+DeepSeek V4-Flash provider contract, runs the first eight deterministic Contacts
+slots, retains the reviewed sixteen-slot ceiling in
+`contacts_pilot_rehearsal.json`, and fixes one task-generation request plus at
+most forty Agent requests (41 physical requests total), zero automatic
+transport retries, a 30-second request timeout, and a 4,096-output-token cap
+per request. It writes sanitized demonstrations or negatives, provider-usage
+totals, a provider-free replay report, and
+`contacts_live_pilot_report.json`; it never retains provider payloads, prompts,
+credentials, or private task cases.
+
+`required_behaviors_observed` means at least one successful, inspectable
+Episode of direct lookup, authorized mutation, and successful recovery was
+observed within the attempt ceiling and replay aligned. The report records
+whether the eight-demonstration target was met separately: a target shortfall
+is retained as diagnostic evidence, but does not negate early feasibility when
+the required behavior examples exist. `insufficient_evidence` is likewise a
+retained diagnostic result. Neither outcome authorizes a rerun, protocol
+investigation, dataset acceptance, or release qualification; each later
+provider attempt needs a new explicit authorization.
+
 ## Live Workspace Release Candidate acceptance
 
 The Workspace tracer's real leg is a separate, explicitly authorized command.

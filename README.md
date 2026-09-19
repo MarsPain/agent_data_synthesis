@@ -102,6 +102,10 @@ uv run python main.py \
   the [Contacts operator procedure](docs/OPERATIONS.md#live-contacts-release-candidate-acceptance).
   Verify a resulting proof offline with
   `scripts/verify_contacts_acceptance_proof.py --real-live`.
+- The provisional Agent-first Contacts feasibility pilot is a different,
+  diagnostic-only provider path with its own fresh authorization requirement;
+  it does not establish a Contacts Release Candidate. Follow the
+  [Agent-first pilot procedure](docs/OPERATIONS.md#agent-first-contacts-feasibility-pilot).
 
 All non-default artifact families are opt-ins. Evidence and qualification
 artifacts do not themselves publish a dataset, authorize training, or prove a

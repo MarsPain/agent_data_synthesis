@@ -1,6 +1,6 @@
 # DeepSeek Thinking and Timeout Research
 
-Scope: official DeepSeek documentation only, checked 2026-08-23. This note
+Scope: official DeepSeek documentation only, checked 2026-09-13. This note
 does not make a provider request and does not establish the cause of a prior
 provider failure.
 
@@ -8,15 +8,19 @@ provider failure.
 
 ### Model identifier
 
-`deepseek-v4-pro` is an official DeepSeek Chat Completions model identifier.
-DeepSeek lists it in both its [model catalogue](https://api-docs.deepseek.com/quick_start/pricing/)
-and the example response for [`GET /models`](https://api-docs.deepseek.com/api/list-models/).
-The catalogue also says that V4-Pro supports both thinking and non-thinking
-modes, with thinking enabled by default.
+`deepseek-v4-flash` and `deepseek-v4-pro` are official DeepSeek Chat
+Completions model identifiers. DeepSeek lists both in its
+[model catalogue](https://api-docs.deepseek.com/quick_start/pricing/) and the
+example response for [`GET /models`](https://api-docs.deepseek.com/api/list-models/).
+The current catalogue says both support thinking and non-thinking modes, with
+thinking enabled by default. This applies directly to the provisional
+Agent-first Contacts pilot's `deepseek-v4-flash` model as well as to the
+existing V4-Pro judge configuration.
 
 ### Disable thinking in Chat Completions
 
-For a raw OpenAI-compatible `POST /chat/completions` request, place the
+For a raw OpenAI-compatible `POST /chat/completions` request to either model,
+place the
 following field at the top level of the JSON body:
 
 ```json
