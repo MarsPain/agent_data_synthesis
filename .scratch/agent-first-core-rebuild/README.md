@@ -3,10 +3,10 @@
 - **Status:** Ticketed
 - **Label:** `ready-for-agent`
 - **Canonical spec:** [Agent-First Core Rebuild](../../docs/product-specs/agent-first-core-rebuild.md)
-- **Current phase:** Ticket 03 is completed: the non-thinking Contacts pilot
-  produced seven passing, replay-aligned Agent Episodes covering direct lookup,
-  authorized mutation, and recovery, plus one retained grounding negative.
-  Tickets 04 and 07 are now ready for implementation.
+- **Current phase:** Ticket 04 is completed: the Mobile Messages adapter proves
+  twelve reviewed structural families, authorized reminder/draft mutations,
+  recovery, replay, and a production-local task/verifier change. Ticket 05 is
+  now unblocked; Ticket 07 remains ready for implementation.
 
 This feature replaces the legacy core after engineering and independent human
 dataset acceptance. Judge enforcement is a separate optional delivery path.
@@ -26,7 +26,7 @@ state, dependency edges, assignments, and implementation discussion.
 1. [Prove the Agent-first core seam with a test Domain](issues/01-prove-agent-first-core-seam.md) — completed
 2. [Run provider-neutral multi-turn Agent Episodes](issues/02-run-provider-neutral-agent-episodes.md) — blocked by 01
 3. [Add Contacts and establish early Agent feasibility](issues/03-add-contacts-domain-adapter.md) — completed; diagnostic live evidence establishes the required behavior examples
-4. [Add Mobile Messages and validate the second-Domain seam](issues/04-add-mobile-messages-domain-adapter.md) — ready for implementation
+4. [Add Mobile Messages and validate the second-Domain seam](issues/04-add-mobile-messages-domain-adapter.md) — completed; twelve-family adapter and locality exercise verified
 5. [Add the Workspace Tasks Domain adapter](issues/05-add-workspace-tasks-domain-adapter.md) — blocked by 04
 6. [Resume and scale local synthesis runs](issues/06-resume-and-scale-local-runs.md) — blocked by 02
 7. [Add shadow quality review and blind-label import](issues/07-add-shadow-quality-review.md) — ready for implementation
