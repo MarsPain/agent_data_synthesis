@@ -15,15 +15,19 @@ and cutover work in the [Agent-First Core Rebuild](docs/product-specs/agent-firs
 
 The provisional Domain adapter owns deterministic slots, public/private task
 compilation, isolated state, tools, mutation authorization, and assessment.
-The shared core owns registration, stable identities, private storage,
-admission, collection placement, and public artifact writing. The governing
-decisions are [ADR 0004](docs/adr/0004-provisional-agent-first-domain-adapter-seam.md)
+The shared core owns generic registration, stable identities, private storage,
+admission, collection placement, and public artifact writing. Its
+`builtin_domains.py` composition module is the one place that assembles the
+production adapters; the shared engine and ledger do not import them. The
+governing decisions are [ADR 0004](docs/adr/0004-provisional-agent-first-domain-adapter-seam.md)
 and [ADR 0005](docs/adr/0005-bounded-public-intent-compilation-and-shadow-review.md).
 
-The first production exercise of that seam is the isolated Contacts adapter in
-`agent_synthesis/contacts.py`. It owns Contacts source parsing and normalization,
-task semantics, candidate-local mutable state, and structural classification;
-the shared core does not parse Contacts records or import legacy Contacts code.
+The isolated Contacts, Mobile Messages, and Workspace Tasks adapters in
+`agent_synthesis/contacts.py`, `agent_synthesis/mobile_messages.py`, and
+`agent_synthesis/workspace_tasks.py` exercise the same provisional seam. Each
+owns source parsing and normalization, task semantics, candidate-local mutable
+state, and structural classification; the shared core does not parse their
+records or import legacy Domain code.
 
 ## Top-Level Domains
 

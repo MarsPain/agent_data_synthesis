@@ -22,15 +22,37 @@ FORBIDDEN_IMPORT_ROOTS = {
     "importlib",
     "builtins",
 }
-PRODUCTION_DOMAIN_MARKERS = ("contacts", "mobile", "workspace")
-ALLOWED_PRODUCTION_DOMAIN_MODULES = {
-    "contacts.py": frozenset({"contacts"}),
-    "mobile_messages.py": frozenset({"mobile"}),
+PRODUCTION_DOMAIN_REGISTRATION = {
+    "contacts.py": ("contacts", "contacts"),
+    "mobile_messages.py": ("mobile", "mobile_messages"),
+    "workspace_tasks.py": ("workspace", "workspace_tasks"),
 }
+PRODUCTION_DOMAIN_MARKERS = tuple(
+    marker for marker, _ in PRODUCTION_DOMAIN_REGISTRATION.values()
+)
+ALLOWED_PRODUCTION_DOMAIN_MODULES = {
+    module_name: frozenset({marker})
+    for module_name, (marker, _) in PRODUCTION_DOMAIN_REGISTRATION.items()
+}
+REGISTERED_PRODUCTION_DOMAIN_IDS = frozenset(
+    domain_id for _, domain_id in PRODUCTION_DOMAIN_REGISTRATION.values()
+)
+BUILTIN_REGISTRATION_MODULE = "builtin_domains.py"
 
 
 class _IncompleteDomain:
     domain_id = "incomplete_domain"
+
+
+class _FourthTestOnlyDomain:
+    """A test-only adapter that the generic registry can accept unchanged."""
+
+    domain_id = "fourth_test_only_domain"
+    domain_version = "fourth_test_only_domain_v1"
+
+    def open_run(self, configuration: RunConfiguration) -> object:
+        del configuration
+        return object()
 
 
 class AgentFirstCoreArchitectureTest(unittest.TestCase):
@@ -67,6 +89,26 @@ class AgentFirstCoreArchitectureTest(unittest.TestCase):
     def test_registry_rejects_an_adapter_that_does_not_satisfy_the_domain_seam(self) -> None:
         with self.assertRaises(ValueError):
             AdapterRegistry(domains=(_IncompleteDomain(),), models=())
+
+    def test_test_only_fourth_domain_registers_without_a_core_change(self) -> None:
+        from agent_synthesis.builtin_domains import BUILTIN_DOMAIN_IDS
+
+        adapter = _FourthTestOnlyDomain()
+        registry = AdapterRegistry(domains=(adapter,), models=())
+
+        self.assertIs(registry.domain(adapter.domain_id), adapter)
+        self.assertNotIn(adapter.domain_id, BUILTIN_DOMAIN_IDS)
+
+    def test_builtin_production_registration_is_the_explicit_composition_point(self) -> None:
+        from agent_synthesis.builtin_domains import (
+            BUILTIN_DOMAIN_IDS,
+            builtin_fixture_domains,
+        )
+
+        adapters = builtin_fixture_domains()
+
+        self.assertEqual(BUILTIN_DOMAIN_IDS, ("contacts", "mobile_messages", "workspace_tasks"))
+        self.assertEqual(tuple(adapter.domain_id for adapter in adapters), BUILTIN_DOMAIN_IDS)
 
     def test_frozen_initial_state_rejects_a_fingerprint_that_does_not_bind_its_bytes(self) -> None:
         with self.assertRaises(ValidationError):
@@ -110,12 +152,15 @@ class AgentFirstCoreArchitectureTest(unittest.TestCase):
     def test_core_source_allows_registered_domains_while_rejecting_legacy_and_cross_domain_dependencies(self) -> None:
         shared_core_imports: list[str] = []
         production_domain_imports: dict[str, list[str]] = {}
+        builtin_registration_imports: list[str] = []
         dynamic_imports: list[str] = []
         for source_path in CORE_PACKAGE.rglob("*.py"):
             tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
             relative_path = source_path.relative_to(CORE_PACKAGE).as_posix()
             if relative_path in ALLOWED_PRODUCTION_DOMAIN_MODULES:
                 production_domain_imports[relative_path] = _import_targets(tree)
+            elif relative_path == BUILTIN_REGISTRATION_MODULE:
+                builtin_registration_imports.extend(_import_targets(tree))
             else:
                 shared_core_imports.extend(_import_targets(tree))
             dynamic_imports.extend(
@@ -134,6 +179,13 @@ class AgentFirstCoreArchitectureTest(unittest.TestCase):
                 ),
                 [],
             )
+        self.assertEqual(
+            _forbidden_import_targets(
+                builtin_registration_imports,
+                allowed_production_markers=frozenset(PRODUCTION_DOMAIN_MARKERS),
+            ),
+            [],
+        )
         self.assertEqual(dynamic_imports, [])
         production_module_files = [
             path.relative_to(CORE_PACKAGE).as_posix()
@@ -142,8 +194,9 @@ class AgentFirstCoreArchitectureTest(unittest.TestCase):
         ]
         self.assertEqual(
             sorted(production_module_files),
-            ["contacts.py", "mobile_messages.py"],
+            sorted(PRODUCTION_DOMAIN_REGISTRATION),
         )
+        self.assertEqual(_unregistered_production_domain_literals(CORE_PACKAGE), [])
         self.assertFalse((CORE_PACKAGE / "contracts.py").exists())
         self.assertFalse((ROOT / "release_lab").exists())
 
@@ -172,6 +225,16 @@ class AgentFirstCoreArchitectureTest(unittest.TestCase):
                 allowed_production_markers=frozenset({"mobile"}),
             ),
             ["agent_synthesis.contacts"],
+        )
+
+    def test_workspace_adapter_cannot_import_another_production_domain(self) -> None:
+        tree = ast.parse("from agent_synthesis import contacts, mobile_messages")
+        self.assertEqual(
+            _forbidden_import_targets(
+                _import_targets(tree),
+                allowed_production_markers=frozenset({"workspace"}),
+            ),
+            ["agent_synthesis.contacts", "agent_synthesis.mobile_messages"],
         )
 
     def test_dynamic_import_calls_are_rejected_by_the_architecture_guard(self) -> None:
@@ -280,6 +343,19 @@ def _dynamic_import_calls(tree: ast.AST) -> list[str]:
             if isinstance(owner, ast.Name) and owner.id in builtins_names:
                 calls.append(f"{owner.id}.__import__")
     return calls
+
+
+def _unregistered_production_domain_literals(package: Path) -> list[str]:
+    violations: list[str] = []
+    for source_path in package.rglob("*.py"):
+        relative_path = source_path.relative_to(package).as_posix()
+        if relative_path in ALLOWED_PRODUCTION_DOMAIN_MODULES or relative_path == BUILTIN_REGISTRATION_MODULE:
+            continue
+        tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and node.value in REGISTERED_PRODUCTION_DOMAIN_IDS:
+                violations.append(f"{relative_path}:{node.value}")
+    return sorted(violations)
 
 
 if __name__ == "__main__":

@@ -55,6 +55,8 @@ class DomainPackContractTest(unittest.TestCase):
             "docs/",
         )
         allowed_exact = {
+            "agent_synthesis/builtin_domains.py",
+            "agent_synthesis/workspace_tasks.py",
             "synthesis/contracts.py",
             "synthesis/domain_pack.py",
             "synthesis/qualification.py",
