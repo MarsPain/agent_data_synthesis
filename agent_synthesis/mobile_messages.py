@@ -239,6 +239,16 @@ class MobileMessagesDomainAdapter:
         del configuration
         return MobileMessagesDomainRun(_parse_source(self._source_contents))
 
+    def open_run_from_frozen_state(
+        self,
+        configuration: RunConfiguration,
+        frozen_initial_state: FrozenInitialState,
+    ) -> "MobileMessagesDomainRun":
+        """Resume from persisted normalized bytes rather than a mutable source path."""
+
+        del configuration
+        return MobileMessagesDomainRun(_initial_state_from_frozen_state(frozen_initial_state))
+
     @property
     def reviewed_structural_examples(self) -> tuple[MobileMessagesStructuralExample, ...]:
         return _REVIEWED_STRUCTURAL_EXAMPLES

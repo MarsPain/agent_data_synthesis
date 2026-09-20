@@ -44,6 +44,7 @@ uv run python scripts/import_downstream_benchmark_result.py --bundle artifacts/d
 uv run python scripts/export_mutation_calibration_packet.py --corpus-version mutation_calibration_corpus_v1 --output-dir artifacts/mutation-calibration
 uv run python scripts/import_mutation_calibration_labels.py --packet artifacts/mutation-calibration/mutation_calibration_review_packet.json --split-freeze artifacts/mutation-calibration/mutation_calibration_split_freeze.json --labels artifacts/mutation-calibration/human_labels.jsonl --output artifacts/mutation-calibration/reviewed_mutation_calibration_corpus.json
 uv run python scripts/run_agent_first_contacts_pilot.py --authorize-live-provider --authorization-id <id> --generator-model <generator-model> --output-dir artifacts/agent-first-contacts-pilot-<date>
+uv run python scripts/run_agent_first_scale_benchmark.py --output-directory artifacts/agent-first-scale-benchmark
 uv run python scripts/run_workspace_live_acceptance.py --authorize-live-provider --authorization-id <id> --candidate-budget 24 --attempt-budget 24 --generator-model <generator-model> --mutation-judge-model <independent-judge-model>
 uv run python scripts/run_contacts_live_contract_canary.py --authorize-live-provider --authorization-id <id> --generator-model <generator-model> --generator-timeout-seconds 90 --mutation-judge-model deepseek-v4-pro
 uv run python scripts/run_contacts_live_acceptance.py --authorize-live-provider --authorization-id <id> --candidate-budget 10 --attempt-budget 10 --generator-model <generator-model> --generator-timeout-seconds 90 --mutation-judge-model deepseek-v4-pro
@@ -55,10 +56,12 @@ uv run python -m unittest
 ## Current Implementation Shape
 
 - `agent_synthesis/` is the provisional isolated Agent-first library seam. It
-  currently proves deterministic JSON generation batches, bounded multi-turn
-  Agent Episodes, private SQLite slot/task/request persistence, deterministic
-  admission, sanitized collections, offline replay, and a flat manifest; it
-  does not replace the legacy entrypoint or register a production Domain.
+  currently proves deterministic JSON generation batches, bounded concurrent
+  multi-turn Agent Episodes, frozen-input resume, cooperative cancellation,
+  process-lifetime writer locking, private SQLite slot/task/work/request and
+  terminal-outcome persistence, deterministic admission, sanitized collections,
+  offline replay, and a flat manifest; it does not replace the legacy entrypoint
+  or register a production Domain.
 - `main.py` runs the local foundation pipeline synchronously by default and writes runtime outputs to `artifacts/foundation/`; validated run profiles can opt into durable local orchestration.
 - The implementation follows the bounded contexts in [ARCHITECTURE.md](ARCHITECTURE.md).
 - Current work state is owned by the [local issue tracker](.scratch/README.md).

@@ -8,8 +8,11 @@ only the top-level system and package map.
 
 `agent_synthesis/` is the isolated library-first replacement seam under active
 development. It accepts registered Domain and deterministic model adapters,
-stores frozen inputs and private Task cases in a private SQLite ledger, and
-exports sanitized Episode collections with a flat manifest. The legacy
+uses a process-lifetime writer lock plus a private SQLite ledger for frozen
+inputs, Task cases, in-flight ownership, terminal outcomes, and charged
+provider requests, and exports stable sanitized Episode collections with a
+flat manifest. The library supports bounded concurrent run, cancellation, and
+resume from private frozen snapshots; the legacy
 `synthesis/` package and `main.py` remain the active path until the acceptance
 and cutover work in the [Agent-First Core Rebuild](docs/product-specs/agent-first-core-rebuild.md) is complete.
 

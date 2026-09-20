@@ -987,17 +987,21 @@ class AgentRolloutTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output_directory = Path(directory)
             result = engine.run(configuration, output_directory)
-            episode = _read_json_lines(output_directory / "negatives.jsonl")[0]
+            negatives = _read_json_lines(output_directory / "negatives.jsonl")
             ledger = PrivateLedger.open(result.private_ledger_path)
             try:
                 requests = ledger.provider_requests()
+                work = ledger.work_items()
             finally:
                 ledger.close()
 
-        self.assertEqual(result.negative_count, 1)
-        self.assertEqual(episode["outcome"]["reason_code"], "provider_request_budget_exhausted")
+        self.assertEqual(result.status, "partial")
+        self.assertEqual(result.partial_reason, "provider_request_budget_exhausted")
+        self.assertEqual(result.negative_count, 0)
+        self.assertEqual(negatives, [])
         self.assertEqual(len(model.requests), 2)
         self.assertEqual(len(requests), 2)
+        self.assertEqual(work[0].status, "compiled")
 
     def test_step_ceiling_rejects_an_episode_without_a_final_response(self) -> None:
         domain = _TwoTurnDomain()

@@ -120,6 +120,28 @@ synchronous command. Async mode does not automatically activate from a profile
 decision and does not add a service, remote control endpoint, provider
 authority, or release promotion.
 
+## Agent-first local resume and scale probe
+
+The provisional `agent_synthesis` library owns a separate local run/resume
+lifecycle. It freezes private initial-state bytes, records work and charged
+physical requests in SQLite, and permits one process-lifetime writer per run
+directory. A cancelled or interrupted run can resume only with its matching
+configuration and Domain version; it rebuilds incomplete Episodes from the
+private snapshot and never replays a terminal Episode. This is not the legacy
+async runner above and does not grant provider authorization.
+
+Use the provider-free test-Domain probe to measure engine capacity:
+
+```bash
+uv run python scripts/run_agent_first_scale_benchmark.py \
+  --output-directory artifacts/agent-first-scale-benchmark
+```
+
+The default probe performs 10,000 attempts with a deterministic fake model and
+writes `agent_first_scale_benchmark.json`. Its `known_unique_task_capacity` and
+`unique_accepted_count` apply only to the test Domain; the report explicitly
+makes no production-Domain capacity or real-model-quality claim.
+
 ## Agent-first Contacts feasibility pilot
 
 The provisional `agent_synthesis` Contacts adapter has a separate,

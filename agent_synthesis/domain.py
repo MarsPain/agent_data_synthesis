@@ -160,3 +160,14 @@ class DomainAdapter(Protocol):
     domain_version: str
 
     def open_run(self, configuration: RunConfiguration) -> DomainRun: ...
+
+
+@runtime_checkable
+class FrozenStateResumableDomainAdapter(Protocol):
+    """Optional recovery capability for adapters that can reopen from private bytes."""
+
+    def open_run_from_frozen_state(
+        self,
+        configuration: RunConfiguration,
+        frozen_initial_state: FrozenInitialState,
+    ) -> DomainRun: ...

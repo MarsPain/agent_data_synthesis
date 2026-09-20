@@ -1,13 +1,19 @@
-"""Serial, bounded Agent rollout engine for the provisional Agent-first seam."""
+"""Bounded, resumable Agent rollout engine for the provisional Agent-first seam."""
 
 from __future__ import annotations
 
 import json
+import os
+import threading
+import uuid
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
+
+import fcntl
 
 from pydantic import BaseModel, JsonValue, ValidationError
 
@@ -39,9 +45,11 @@ from agent_synthesis.episode import (
 )
 from agent_synthesis.ledger import (
     AllocatedSlotRecord,
+    FrozenStateRecord,
     PrivateLedger,
     ProviderRequestRecord,
     TaskCaseRecord,
+    TerminalOutcomeRecord,
 )
 from agent_synthesis.manifest import build_manifest, write_manifest
 from agent_synthesis.model import (
@@ -63,7 +71,7 @@ from agent_synthesis.registry import AdapterRegistry
 
 @dataclass(frozen=True)
 class RunResult:
-    """Paths and collection counts from one completed local synthesis trace."""
+    """Paths, durable status, and collection counts from one local synthesis trace."""
 
     run_directory: Path
     demonstrations_path: Path
@@ -73,6 +81,11 @@ class RunResult:
     private_ledger_path: Path
     demonstration_count: int
     negative_count: int
+    status: Literal["completed", "partial", "cancelled", "failed"]
+    partial_reason: str | None
+    task_attempt_count: int
+    physical_request_count: int
+    run_report_path: Path
 
 
 @dataclass(frozen=True)
@@ -124,8 +137,68 @@ class _LogicalCallResult:
     error_code: str | None
 
 
+@dataclass(frozen=True)
+class _EpisodeAttemptResult:
+    """One worker result, preserving incomplete work for a later resume."""
+
+    episode: PublicEpisode | None
+    partial_reason: Literal["operator_cancelled", "provider_request_budget_exhausted"] | None
+
+
+class CancellationSignal:
+    """Thread-safe cooperative cancellation for a bounded local run."""
+
+    def __init__(self) -> None:
+        self._event = threading.Event()
+
+    def cancel(self) -> None:
+        self._event.set()
+
+    def is_set(self) -> bool:
+        return self._event.is_set()
+
+
+class RunLockedError(RuntimeError):
+    """Raised when another live process currently owns a run directory."""
+
+
+class FrozenInputError(ValueError):
+    """Raised when a required private frozen-input snapshot is unavailable."""
+
+
+FailureInjector = Callable[[str], None]
+
+
+class _RunDirectoryWriterLock:
+    """An advisory process-lifetime lock with no persistent recovery state."""
+
+    def __init__(self, run_directory: Path) -> None:
+        self._path = run_directory / ".private" / "writer.lock"
+        self._handle: object | None = None
+
+    def __enter__(self) -> "_RunDirectoryWriterLock":
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        handle = self._path.open("a+", encoding="utf-8")
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            handle.close()
+            raise RunLockedError(f"run directory already has an active writer: {self._path.parent}") from None
+        self._handle = handle
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        del exc_type, exc, traceback
+        handle = self._handle
+        if handle is None:
+            return
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
+        self._handle = None
+
+
 class SynthesisEngine:
-    """Run registered Domains and JSON models with serial durable accounting."""
+    """Run registered Domains and JSON models with bounded durable accounting."""
 
     def __init__(self, registry: AdapterRegistry) -> None:
         self._registry = registry
@@ -134,196 +207,146 @@ class SynthesisEngine:
         self,
         configuration: RunConfiguration | Mapping[str, object],
         output_directory: Path,
+        *,
+        cancellation_signal: CancellationSignal | None = None,
+        failure_injector: FailureInjector | object | None = None,
+        resume: bool = False,
     ) -> RunResult:
-        """Compile allocated slots and execute bounded Agent Episodes."""
+        """Start one bounded run, or delegate an explicit resume to the same lifecycle."""
 
+        if resume:
+            return self.resume(
+                configuration,
+                output_directory,
+                cancellation_signal=cancellation_signal,
+                failure_injector=failure_injector,
+            )
         config = _validated_configuration(configuration)
+        run_directory = Path(output_directory)
+        run_directory.mkdir(parents=True, exist_ok=True)
+        paths = _RunPaths.from_directory(run_directory)
         domain = self._registry.domain(config.domain_id)
         model = self._registry.model(config.model_id)
-        output_directory.mkdir(parents=True, exist_ok=True)
-        private_ledger_path = output_directory / ".private" / "ledger.sqlite3"
-        demonstrations_path = output_directory / "demonstrations.jsonl"
-        negatives_path = output_directory / "negatives.jsonl"
-        provider_usage_path = output_directory / "provider_usage.json"
-        manifest_path = output_directory / "manifest.json"
-
-        ledger = PrivateLedger.create(private_ledger_path)
-        try:
-            domain_run = domain.open_run(config)
-            ledger.record_run_metadata(config, domain_version=domain.domain_version)
-            initial_state = domain_run.freeze_initial_state()
-            ledger.record_initial_state(initial_state)
-            slots = _bounded_slots(domain_run.slots(config.slot_limit), config.slot_limit)
-            allocated = tuple(
-                AllocatedSlotRecord.from_slot(sequence=sequence, slot=slot)
-                for sequence, slot in enumerate(slots, start=1)
-            )
-            ledger.record_allocated_slots(allocated)
-
-            demonstrations: list[PublicEpisode] = []
-            negatives: list[PublicEpisode] = []
-            admitted_semantic_keys: set[str] = set()
-
-            for batch in _batches(allocated, config.generation_batch_size):
-                generation = _call_model(
-                    ledger=ledger,
-                    model=model,
-                    configuration=config,
-                    request=TaskGenerationRequest(
-                        slots=tuple(record.to_slot() for record in batch),
-                        timeout_seconds=config.timeout_seconds,
-                        max_response_bytes=config.max_response_bytes,
-                        max_output_tokens=config.max_output_tokens,
-                    ),
-                    logical_request_id=(
-                        f"task_generation:{batch[0].sequence:04d}-{batch[-1].sequence:04d}"
-                    ),
-                    sequence=None,
-                    request_kind="initial",
+        with _RunDirectoryWriterLock(run_directory):
+            ledger = PrivateLedger.create(paths.private_ledger_path)
+            try:
+                domain_run = domain.open_run(config)
+                frozen_initial_state = domain_run.freeze_initial_state()
+                ledger.record_run_metadata(config, domain_version=domain.domain_version)
+                ledger.record_initial_state(frozen_initial_state)
+                _write_frozen_snapshot(paths.frozen_snapshot_path, frozen_initial_state)
+                known_task_capacity = _known_task_capacity(domain_run, config.slot_limit)
+                ledger.record_run_status(
+                    status="running",
+                    known_task_capacity=known_task_capacity,
                 )
-                contexts = {
-                    record.sequence: _EpisodeContext(
-                        configuration=config,
-                        domain_version=domain.domain_version,
-                        sequence=record.sequence,
+                if (
+                    config.accepted_target is not None
+                    and known_task_capacity is not None
+                    and config.accepted_target > known_task_capacity
+                ):
+                    ledger.record_run_status(
+                        status="failed",
+                        reason_code="known_task_capacity_insufficient",
+                        known_task_capacity=known_task_capacity,
                     )
-                    for record in batch
-                }
-                if generation.response is None:
-                    for record in batch:
-                        negatives.append(
-                            _pre_execution_negative(
-                                context=contexts[record.sequence],
-                                task=_fallback_public_task(record.to_slot()),
-                                reason_code=generation.error_code
-                                or "generation_failed",
-                                lineage=_model_lineage(model, generation.records),
-                            )
-                        )
-                    continue
-
-                proposals, generation_reason = _mapped_generation_proposals(
-                    generation.response,
-                    batch,
-                )
-                if proposals is None:
-                    assert generation_reason is not None
-                    for record in batch:
-                        negatives.append(
-                            _pre_execution_negative(
-                                context=contexts[record.sequence],
-                                task=_fallback_public_task(record.to_slot()),
-                                reason_code=generation_reason,
-                                lineage=_model_lineage(model, generation.records),
-                            )
-                        )
-                    continue
-
-                for record in batch:
-                    context = contexts[record.sequence]
-                    try:
-                        compilation = domain_run.compile(
-                            record.to_slot(),
-                            TaskProposal(content=proposals[record.slot_id]),
-                        )
-                    except Exception:  # noqa: BLE001 - Domain adapter errors must be bounded.
-                        negatives.append(
-                            _pre_execution_negative(
-                                context=context,
-                                task=_fallback_public_task(record.to_slot()),
-                                reason_code="domain_compilation_failure",
-                                lineage=_model_lineage(model, generation.records),
-                            )
-                        )
-                        continue
-                    if isinstance(compilation, CompilationRejection):
-                        negatives.append(
-                            _compilation_negative(
-                                context=context,
-                                rejection=compilation,
-                                lineage=_model_lineage(model, generation.records),
-                            )
-                        )
-                        continue
-                    if not isinstance(compilation, CompiledTask):
-                        negatives.append(
-                            _pre_execution_negative(
-                                context=context,
-                                task=_fallback_public_task(record.to_slot()),
-                                reason_code="domain_compilation_failure",
-                                lineage=_model_lineage(model, generation.records),
-                            )
-                        )
-                        continue
-
-                    # The complete public/private case is committed before any Agent request.
-                    ledger.record_task_case(
-                        sequence=record.sequence,
-                        slot_id=record.slot_id,
-                        task=compilation,
-                    )
-                    if compilation.semantic_key in admitted_semantic_keys:
-                        negatives.append(
-                            _pre_execution_negative(
-                                context=context,
-                                task=compilation.public_task,
-                                reason_code="duplicate_semantic_task",
-                                lineage=_model_lineage(model, generation.records),
-                            )
-                        )
-                        continue
-                    episode = _run_agent_episode(
-                        domain_run=domain_run,
-                        task=compilation,
-                        frozen_initial_state=initial_state,
-                        context=context,
-                        model=model,
+                    return _finalize_run(
+                        paths=paths,
                         ledger=ledger,
-                        generation_records=generation.records,
+                        configuration=config,
+                        frozen_initial_state=frozen_initial_state,
+                        status="failed",
+                        partial_reason="known_task_capacity_insufficient",
+                        known_task_capacity=known_task_capacity,
                     )
-                    if episode.outcome.collection == "demonstrations":
-                        demonstrations.append(episode)
-                        admitted_semantic_keys.add(compilation.semantic_key)
-                    else:
-                        negatives.append(episode)
+                slots = _bounded_slots(domain_run.slots(config.slot_limit), config.slot_limit)
+                ledger.record_allocated_slots(
+                    tuple(
+                        AllocatedSlotRecord.from_slot(sequence=sequence, slot=slot)
+                        for sequence, slot in enumerate(slots, start=1)
+                    )
+                )
+                return _drive_run(
+                    configuration=config,
+                    domain_version=domain.domain_version,
+                    domain_run=domain_run,
+                    model=model,
+                    ledger=ledger,
+                    paths=paths,
+                    frozen_initial_state=frozen_initial_state,
+                    known_task_capacity=known_task_capacity,
+                    cancellation_signal=cancellation_signal,
+                    failure_injector=failure_injector,
+                )
+            finally:
+                ledger.close()
 
-            _write_collection(demonstrations_path, demonstrations)
-            _write_collection(negatives_path, negatives)
-            _write_provider_usage(provider_usage_path, ledger.provider_requests())
-            manifest = build_manifest(
-                run_id=config.run_id,
-                configuration=config.normalized_public_record(),
-                source_fingerprint=initial_state.fingerprint,
-                artifact_paths=(
-                    demonstrations_path,
-                    negatives_path,
-                    provider_usage_path,
-                ),
-            )
-            write_manifest(manifest_path, manifest)
-        finally:
-            ledger.close()
+    def resume(
+        self,
+        configuration_or_run_directory: RunConfiguration | Mapping[str, object] | Path | str,
+        output_directory: RunConfiguration | Mapping[str, object] | Path | str | None = None,
+        *,
+        cancellation_signal: CancellationSignal | None = None,
+        failure_injector: FailureInjector | object | None = None,
+    ) -> RunResult:
+        """Resume one run only after validating its frozen configuration and input."""
 
-        return RunResult(
-            run_directory=output_directory,
-            demonstrations_path=demonstrations_path,
-            negatives_path=negatives_path,
-            provider_usage_path=provider_usage_path,
-            manifest_path=manifest_path,
-            private_ledger_path=private_ledger_path,
-            demonstration_count=len(demonstrations),
-            negative_count=len(negatives),
+        requested_configuration, run_directory = _resume_arguments(
+            configuration_or_run_directory,
+            output_directory,
         )
+        paths = _RunPaths.from_directory(run_directory)
+        with _RunDirectoryWriterLock(run_directory):
+            ledger = PrivateLedger.open(paths.private_ledger_path)
+            try:
+                metadata = ledger.run_metadata()
+                configuration = metadata.configuration_model()
+                if (
+                    requested_configuration is not None
+                    and requested_configuration.normalized_public_record()
+                    != configuration.normalized_public_record()
+                ):
+                    raise ValueError("resume configuration does not match the saved run")
+                domain = self._registry.domain(configuration.domain_id)
+                model = self._registry.model(configuration.model_id)
+                if domain.domain_version != metadata.domain_version:
+                    raise ValueError("resume Domain version does not match the saved run")
+                frozen_initial_state = _read_frozen_snapshot(paths.frozen_snapshot_path, ledger)
+                domain_run = _open_run_from_frozen_state(
+                    domain,
+                    configuration,
+                    frozen_initial_state,
+                )
+                known_task_capacity = _known_task_capacity(domain_run, configuration.slot_limit)
+                ledger.recover_inflight_work()
+                ledger.record_run_status(
+                    status="running",
+                    known_task_capacity=known_task_capacity,
+                )
+                return _drive_run(
+                    configuration=configuration,
+                    domain_version=metadata.domain_version,
+                    domain_run=domain_run,
+                    model=model,
+                    ledger=ledger,
+                    paths=paths,
+                    frozen_initial_state=frozen_initial_state,
+                    known_task_capacity=known_task_capacity,
+                    cancellation_signal=cancellation_signal,
+                    failure_injector=failure_injector,
+                )
+            finally:
+                ledger.close()
 
     def replay(self, run_directory: Path) -> ReplayResult:
-        """Re-execute saved tool calls against frozen state without calling a model."""
+        """Re-execute saved tool calls against the frozen snapshot without model calls."""
 
-        private_ledger_path = run_directory / ".private" / "ledger.sqlite3"
-        ledger = PrivateLedger.open(private_ledger_path)
+        paths = _RunPaths.from_directory(run_directory)
+        ledger = PrivateLedger.open(paths.private_ledger_path)
         try:
             metadata = ledger.run_metadata()
             configuration = metadata.configuration_model()
-            frozen_initial_state = ledger.initial_state()
+            frozen_initial_state = _read_frozen_snapshot(paths.frozen_snapshot_path, ledger)
             task_cases = {record.sequence: record for record in ledger.task_cases()}
         finally:
             ledger.close()
@@ -331,11 +354,8 @@ class SynthesisEngine:
         domain = self._registry.domain(configuration.domain_id)
         if domain.domain_version != metadata.domain_version:
             raise ValueError("replay Domain version does not match the saved run")
-        domain_run = domain.open_run(configuration)
-        episodes = _read_public_episodes(
-            run_directory / "demonstrations.jsonl",
-            run_directory / "negatives.jsonl",
-        )
+        domain_run = _open_run_from_frozen_state(domain, configuration, frozen_initial_state)
+        episodes = _read_public_episodes(paths.demonstrations_path, paths.negatives_path)
         results: list[ReplayEpisodeResult] = []
         for saved_episode in episodes:
             case = task_cases.get(saved_episode.sequence)
@@ -358,13 +378,550 @@ class SynthesisEngine:
                     frozen_initial_state=frozen_initial_state,
                 )
             )
-        report_path = run_directory / "replay_report.json"
+        report_path = Path(run_directory) / "replay_report.json"
         _write_replay_report(report_path, tuple(results))
         return ReplayResult(
-            run_directory=run_directory,
+            run_directory=Path(run_directory),
             report_path=report_path,
             episode_results=tuple(results),
         )
+
+
+@dataclass(frozen=True)
+class _RunPaths:
+    run_directory: Path
+    demonstrations_path: Path
+    negatives_path: Path
+    provider_usage_path: Path
+    run_report_path: Path
+    manifest_path: Path
+    private_ledger_path: Path
+    frozen_snapshot_path: Path
+
+    @classmethod
+    def from_directory(cls, run_directory: Path) -> "_RunPaths":
+        directory = Path(run_directory)
+        private_directory = directory / ".private"
+        return cls(
+            run_directory=directory,
+            demonstrations_path=directory / "demonstrations.jsonl",
+            negatives_path=directory / "negatives.jsonl",
+            provider_usage_path=directory / "provider_usage.json",
+            run_report_path=directory / "run_report.json",
+            manifest_path=directory / "manifest.json",
+            private_ledger_path=private_directory / "ledger.sqlite3",
+            frozen_snapshot_path=private_directory / "frozen_state.json",
+        )
+
+
+def _resume_arguments(
+    configuration_or_run_directory: RunConfiguration | Mapping[str, object] | Path | str,
+    output_directory: RunConfiguration | Mapping[str, object] | Path | str | None,
+) -> tuple[RunConfiguration | None, Path]:
+    if isinstance(configuration_or_run_directory, (Path, str)):
+        run_directory = Path(configuration_or_run_directory)
+        if output_directory is None:
+            return None, run_directory
+        if isinstance(output_directory, RunConfiguration) or isinstance(output_directory, Mapping):
+            return _validated_configuration(output_directory), run_directory
+        raise TypeError("resume run directory can only be paired with a configuration")
+    if output_directory is None or isinstance(output_directory, (RunConfiguration, Mapping)):
+        raise TypeError("resume configuration requires an output directory")
+    return _validated_configuration(configuration_or_run_directory), Path(output_directory)
+
+
+def _write_frozen_snapshot(path: Path, state: FrozenInitialState) -> None:
+    record = FrozenStateRecord.from_initial_state(state)
+    _atomic_write_text(path, record.model_dump_json(indent=2) + "\n")
+
+
+def _read_frozen_snapshot(path: Path, ledger: PrivateLedger) -> FrozenInitialState:
+    try:
+        snapshot_record = FrozenStateRecord.model_validate_json(path.read_text(encoding="utf-8"))
+        snapshot = snapshot_record.to_initial_state()
+        if snapshot_record != ledger.initial_state_record():
+            raise ValueError("snapshot does not match the operational ledger")
+        return snapshot
+    except Exception:  # noqa: BLE001 - no mutable source may be consulted on failure.
+        raise FrozenInputError("frozen input snapshot is missing or corrupt") from None
+
+
+def _open_run_from_frozen_state(
+    domain: object,
+    configuration: RunConfiguration,
+    frozen_initial_state: FrozenInitialState,
+) -> DomainRun:
+    restore = getattr(domain, "open_run_from_frozen_state", None)
+    if callable(restore):
+        return restore(configuration, frozen_initial_state)
+    run = domain.open_run(configuration)
+    try:
+        current_state = run.freeze_initial_state()
+    except Exception:  # noqa: BLE001 - legacy adapters must fail closed on resume.
+        raise FrozenInputError("Domain cannot verify the saved frozen input") from None
+    if current_state != frozen_initial_state:
+        raise FrozenInputError("Domain cannot reconstruct the saved frozen input")
+    return run
+
+
+def _known_task_capacity(domain_run: DomainRun, attempt_limit: int) -> int | None:
+    try:
+        capacity = getattr(domain_run, "known_task_capacity", None)
+    except Exception:  # noqa: BLE001 - capability disclosure is optional.
+        capacity = None
+    if callable(capacity):
+        try:
+            capacity = capacity()
+        except Exception:  # noqa: BLE001 - an unavailable declaration remains unknown.
+            capacity = None
+    if isinstance(capacity, int) and not isinstance(capacity, bool) and capacity >= 0:
+        return capacity
+    slot_capacity = getattr(domain_run, "slot_capacity", None)
+    if callable(slot_capacity):
+        try:
+            declared = slot_capacity(attempt_limit)
+            capacity = getattr(declared, "known_task_capacity", None)
+        except Exception:  # noqa: BLE001 - an unavailable declaration remains unknown.
+            capacity = None
+        if isinstance(capacity, int) and not isinstance(capacity, bool) and capacity >= 0:
+            return capacity
+    return None
+
+
+def _is_cancelled(signal: CancellationSignal | None) -> bool:
+    return signal is not None and signal.is_set()
+
+
+def _checkpoint(failure_injector: FailureInjector | object | None, phase: str) -> None:
+    if failure_injector is None:
+        return
+    checkpoint = getattr(failure_injector, "checkpoint", None)
+    if callable(checkpoint):
+        checkpoint(phase)
+        return
+    if callable(failure_injector):
+        failure_injector(phase)
+        return
+    raise TypeError("failure_injector must be callable or expose checkpoint(phase)")
+
+
+def _drive_run(
+    *,
+    configuration: RunConfiguration,
+    domain_version: str,
+    domain_run: DomainRun,
+    model: JsonModelAdapter,
+    ledger: PrivateLedger,
+    paths: _RunPaths,
+    frozen_initial_state: FrozenInitialState,
+    known_task_capacity: int | None,
+    cancellation_signal: CancellationSignal | None,
+    failure_injector: FailureInjector | object | None,
+) -> RunResult:
+    """Dispatch only bounded work and leave incomplete ownership resumable."""
+
+    owner_prefix = f"run-{uuid.uuid4().hex}"
+    active_semantic_keys: set[str] = set()
+    admitted_semantic_keys = set(ledger.admitted_semantic_keys())
+    accepted_count = sum(
+        outcome.episode.admission.status == "admitted"
+        for outcome in ledger.terminal_outcomes()
+    )
+    futures: dict[Future[_EpisodeAttemptResult], tuple[int, str, str]] = {}
+    stop_reason: str | None = None
+
+    def context_for(sequence: int) -> _EpisodeContext:
+        return _EpisodeContext(
+            configuration=configuration,
+            domain_version=domain_version,
+            sequence=sequence,
+        )
+
+    def commit_terminal(episode: PublicEpisode, semantic_key: str | None) -> None:
+        nonlocal accepted_count
+        committed_episode = episode
+        if (
+            semantic_key is not None
+            and episode.admission.status == "admitted"
+            and semantic_key in admitted_semantic_keys
+        ):
+            committed_episode = _pre_execution_negative(
+                context=context_for(episode.sequence),
+                task=episode.task,
+                reason_code="duplicate_semantic_task",
+                lineage=_model_lineage(
+                    model,
+                    ledger.provider_requests_for_sequence(episode.sequence),
+                ),
+            )
+        _checkpoint(failure_injector, "before_terminal_commit")
+        ledger.commit_terminal_outcome(
+            sequence=committed_episode.sequence,
+            episode=committed_episode,
+            semantic_key=semantic_key,
+        )
+        _checkpoint(failure_injector, "after_terminal_commit")
+        if committed_episode.admission.status == "admitted":
+            accepted_count += 1
+            assert semantic_key is not None
+            admitted_semantic_keys.add(semantic_key)
+
+    def commit_pre_execution(
+        *,
+        sequence: int,
+        task: PublicTask,
+        reason_code: str,
+        semantic_key: str | None = None,
+        records: tuple[ProviderRequestRecord, ...] | None = None,
+    ) -> None:
+        commit_terminal(
+            _pre_execution_negative(
+                context=context_for(sequence),
+                task=task,
+                reason_code=reason_code,
+                lineage=_model_lineage(
+                    model,
+                    records if records is not None else ledger.provider_requests_for_sequence(sequence),
+                ),
+            ),
+            semantic_key,
+        )
+
+    def generate_pending_batch() -> str | None:
+        pending = ledger.work_items_with_status(
+            "pending",
+            limit=configuration.generation_batch_size,
+        )
+        if not pending:
+            return None
+        if not ledger.has_remaining_request_budget(
+            role="task_generation",
+            role_limit=configuration.generation_request_limit,
+            total_limit=configuration.total_request_limit,
+        ):
+            return "provider_request_budget_exhausted"
+        batch = tuple(ledger.allocated_slot(item.sequence) for item in pending)
+        owner_id = f"{owner_prefix}:generation:{batch[0].sequence}-{batch[-1].sequence}"
+        for item in pending:
+            ledger.claim_work(
+                sequence=item.sequence,
+                owner_id=owner_id,
+                status="generating",
+            )
+        generation = _call_model(
+            ledger=ledger,
+            model=model,
+            configuration=configuration,
+            request=TaskGenerationRequest(
+                slots=tuple(record.to_slot() for record in batch),
+                timeout_seconds=configuration.timeout_seconds,
+                max_response_bytes=configuration.max_response_bytes,
+                max_output_tokens=configuration.max_output_tokens,
+            ),
+            logical_request_id=(
+                f"task_generation:{batch[0].sequence:04d}-{batch[-1].sequence:04d}"
+            ),
+            sequence=None,
+            related_sequences=tuple(record.sequence for record in batch),
+            request_kind="initial",
+            failure_injector=failure_injector,
+        )
+        if generation.response is None:
+            if generation.error_code == "provider_request_budget_exhausted":
+                for item in pending:
+                    ledger.return_work_to_ready(sequence=item.sequence, owner_id=owner_id)
+                return generation.error_code
+            for record in batch:
+                commit_pre_execution(
+                    sequence=record.sequence,
+                    task=_fallback_public_task(record.to_slot()),
+                    reason_code=generation.error_code or "generation_failed",
+                    records=generation.records,
+                )
+            return None
+        proposals, generation_reason = _mapped_generation_proposals(generation.response, batch)
+        if proposals is None:
+            assert generation_reason is not None
+            for record in batch:
+                commit_pre_execution(
+                    sequence=record.sequence,
+                    task=_fallback_public_task(record.to_slot()),
+                    reason_code=generation_reason,
+                    records=generation.records,
+                )
+            return None
+        for record in batch:
+            context = context_for(record.sequence)
+            try:
+                compilation = domain_run.compile(
+                    record.to_slot(),
+                    TaskProposal(content=proposals[record.slot_id]),
+                )
+            except Exception:  # noqa: BLE001 - Domain failures become bounded negatives.
+                commit_pre_execution(
+                    sequence=record.sequence,
+                    task=_fallback_public_task(record.to_slot()),
+                    reason_code="domain_compilation_failure",
+                    records=generation.records,
+                )
+                continue
+            if isinstance(compilation, CompilationRejection):
+                commit_terminal(
+                    _compilation_negative(
+                        context=context,
+                        rejection=compilation,
+                        lineage=_model_lineage(model, generation.records),
+                    ),
+                    None,
+                )
+                continue
+            if not isinstance(compilation, CompiledTask):
+                commit_pre_execution(
+                    sequence=record.sequence,
+                    task=_fallback_public_task(record.to_slot()),
+                    reason_code="domain_compilation_failure",
+                    records=generation.records,
+                )
+                continue
+            _checkpoint(failure_injector, "before_task_case_persistence")
+            ledger.record_task_case(
+                sequence=record.sequence,
+                slot_id=record.slot_id,
+                task=compilation,
+            )
+            _checkpoint(failure_injector, "after_task_case_persistence")
+        return None
+
+    def dispatch_ready_work(executor: ThreadPoolExecutor) -> str | None:
+        remaining_target = (
+            configuration.max_concurrency
+            if configuration.accepted_target is None
+            else max(0, configuration.accepted_target - accepted_count)
+        )
+        available_workers = min(
+            configuration.max_concurrency - len(futures),
+            remaining_target,
+        )
+        if available_workers <= 0:
+            return None
+        probe_size = max(configuration.max_concurrency * 16, 64)
+        for work in ledger.work_items_with_status("compiled", limit=probe_size):
+            if available_workers <= 0:
+                break
+            case = ledger.task_case(work.sequence)
+            if case is None:
+                commit_pre_execution(
+                    sequence=work.sequence,
+                    task=_fallback_public_task(ledger.allocated_slot(work.sequence).to_slot()),
+                    reason_code="task_case_missing",
+                )
+                continue
+            if case.semantic_key in admitted_semantic_keys:
+                commit_pre_execution(
+                    sequence=work.sequence,
+                    task=case.public_task,
+                    reason_code="duplicate_semantic_task",
+                    semantic_key=case.semantic_key,
+                )
+                continue
+            if case.semantic_key in active_semantic_keys:
+                continue
+            if not ledger.has_remaining_request_budget(
+                role="agent",
+                role_limit=configuration.agent_request_limit,
+                total_limit=configuration.total_request_limit,
+            ):
+                return "provider_request_budget_exhausted"
+            try:
+                task = domain_run.restore_task_case(
+                    public_task=case.public_task,
+                    semantic_key=case.semantic_key,
+                    private_case_bytes=case.private_case_bytes(),
+                )
+            except Exception:  # noqa: BLE001 - corrupted private cases must not dispatch.
+                commit_pre_execution(
+                    sequence=work.sequence,
+                    task=case.public_task,
+                    reason_code="task_case_restore_failure",
+                    semantic_key=case.semantic_key,
+                )
+                continue
+            owner_id = f"{owner_prefix}:episode:{work.sequence}"
+            ledger.claim_work(sequence=work.sequence, owner_id=owner_id, status="running")
+            future = executor.submit(
+                _run_agent_episode,
+                domain_run=domain_run,
+                task=task,
+                frozen_initial_state=frozen_initial_state,
+                context=context_for(work.sequence),
+                model=model,
+                ledger=ledger,
+                generation_records=ledger.provider_requests_for_sequence(work.sequence),
+                cancellation_signal=cancellation_signal,
+                failure_injector=failure_injector,
+            )
+            futures[future] = (work.sequence, case.semantic_key, owner_id)
+            active_semantic_keys.add(case.semantic_key)
+            available_workers -= 1
+        return None
+
+    def collect_completed(done: set[Future[_EpisodeAttemptResult]]) -> None:
+        nonlocal stop_reason
+        for future in done:
+            sequence, semantic_key, owner_id = futures.pop(future)
+            active_semantic_keys.discard(semantic_key)
+            result = future.result()
+            if result.partial_reason is not None:
+                ledger.return_work_to_ready(sequence=sequence, owner_id=owner_id)
+                if stop_reason is None:
+                    stop_reason = result.partial_reason
+                continue
+            assert result.episode is not None
+            commit_terminal(result.episode, semantic_key)
+
+    with ThreadPoolExecutor(max_workers=configuration.max_concurrency) as executor:
+        while True:
+            completed_now = {future for future in futures if future.done()}
+            if completed_now:
+                collect_completed(completed_now)
+                continue
+            if stop_reason is None and _is_cancelled(cancellation_signal):
+                stop_reason = "operator_cancelled"
+            if (
+                stop_reason is None
+                and configuration.accepted_target is not None
+                and accepted_count >= configuration.accepted_target
+            ):
+                stop_reason = "accepted_target_reached"
+            if stop_reason is not None:
+                if futures:
+                    completed, _ = wait(futures, return_when=FIRST_COMPLETED)
+                    collect_completed(completed)
+                    continue
+                break
+            dispatch_reason = dispatch_ready_work(executor)
+            if dispatch_reason is not None:
+                stop_reason = dispatch_reason
+                continue
+            if futures:
+                completed, _ = wait(futures, return_when=FIRST_COMPLETED)
+                collect_completed(completed)
+                continue
+            if ledger.work_items_with_status("pending", limit=1):
+                generation_reason = generate_pending_batch()
+                if generation_reason is not None:
+                    stop_reason = generation_reason
+                continue
+            if ledger.work_items_with_status("compiled", limit=1):
+                stop_reason = "scheduler_no_progress"
+            break
+
+    if _is_cancelled(cancellation_signal):
+        status: Literal["completed", "partial", "cancelled", "failed"] = "cancelled"
+        partial_reason: str | None = "operator_cancelled"
+    elif configuration.accepted_target is not None and accepted_count >= configuration.accepted_target:
+        status = "completed"
+        partial_reason = None
+    elif stop_reason == "provider_request_budget_exhausted":
+        status = "partial"
+        partial_reason = stop_reason
+    elif stop_reason == "scheduler_no_progress":
+        status = "partial"
+        partial_reason = stop_reason
+    elif configuration.accepted_target is not None:
+        status = "partial"
+        partial_reason = _incomplete_target_reason(
+            configuration=configuration,
+            ledger=ledger,
+            known_task_capacity=known_task_capacity,
+        )
+    else:
+        status = "completed"
+        partial_reason = None
+    ledger.record_run_status(
+        status=status,
+        reason_code=partial_reason,
+        known_task_capacity=known_task_capacity,
+    )
+    return _finalize_run(
+        paths=paths,
+        ledger=ledger,
+        configuration=configuration,
+        frozen_initial_state=frozen_initial_state,
+        status=status,
+        partial_reason=partial_reason,
+        known_task_capacity=known_task_capacity,
+    )
+
+
+def _incomplete_target_reason(
+    *,
+    configuration: RunConfiguration,
+    ledger: PrivateLedger,
+    known_task_capacity: int | None,
+) -> str:
+    allocated_count = len(ledger.allocated_slots())
+    if allocated_count < configuration.slot_limit:
+        return "domain_slot_exhausted"
+    if known_task_capacity is None:
+        return "unknown_task_capacity"
+    return "bounded_replacement_exhausted"
+
+
+def _finalize_run(
+    *,
+    paths: _RunPaths,
+    ledger: PrivateLedger,
+    configuration: RunConfiguration,
+    frozen_initial_state: FrozenInitialState,
+    status: Literal["completed", "partial", "cancelled", "failed"],
+    partial_reason: str | None,
+    known_task_capacity: int | None,
+) -> RunResult:
+    outcomes = ledger.terminal_outcomes()
+    _write_terminal_collections(paths, outcomes)
+    requests = ledger.provider_requests()
+    _write_provider_usage(paths.provider_usage_path, requests)
+    _write_run_report(
+        paths.run_report_path,
+        configuration=configuration,
+        status=status,
+        partial_reason=partial_reason,
+        known_task_capacity=known_task_capacity,
+        allocated_slot_count=len(ledger.allocated_slots()),
+        outcomes=outcomes,
+        requests=requests,
+    )
+    manifest = build_manifest(
+        run_id=configuration.run_id,
+        configuration=configuration.normalized_public_record(),
+        source_fingerprint=frozen_initial_state.fingerprint,
+        artifact_paths=(
+            paths.demonstrations_path,
+            paths.negatives_path,
+            paths.provider_usage_path,
+        ),
+    )
+    write_manifest(paths.manifest_path, manifest)
+    demonstrations = sum(
+        outcome.episode.outcome.collection == "demonstrations" for outcome in outcomes
+    )
+    negatives = len(outcomes) - demonstrations
+    return RunResult(
+        run_directory=paths.run_directory,
+        demonstrations_path=paths.demonstrations_path,
+        negatives_path=paths.negatives_path,
+        provider_usage_path=paths.provider_usage_path,
+        manifest_path=paths.manifest_path,
+        private_ledger_path=paths.private_ledger_path,
+        demonstration_count=demonstrations,
+        negative_count=negatives,
+        status=status,
+        partial_reason=partial_reason,
+        task_attempt_count=len(outcomes),
+        physical_request_count=len(requests),
+        run_report_path=paths.run_report_path,
+    )
 
 
 def _run_agent_episode(
@@ -376,17 +933,22 @@ def _run_agent_episode(
     model: JsonModelAdapter,
     ledger: PrivateLedger,
     generation_records: tuple[ProviderRequestRecord, ...],
-) -> PublicEpisode:
+    cancellation_signal: CancellationSignal | None,
+    failure_injector: FailureInjector | object | None,
+) -> _EpisodeAttemptResult:
     try:
         episode = domain_run.open_episode(task, frozen_initial_state)
     except Exception:  # noqa: BLE001 - Domain adapter errors must be bounded.
-        return _execution_episode(
-            context=context,
-            task=task.public_task,
-            trace=_incomplete_trace("episode_open_failure"),
-            assessment=_incomplete_assessment("episode_open_failure"),
-            lineage=_model_lineage(model, generation_records),
-            terminal_reason="episode_open_failure",
+        return _EpisodeAttemptResult(
+            episode=_execution_episode(
+                context=context,
+                task=task.public_task,
+                trace=_incomplete_trace("episode_open_failure"),
+                assessment=_incomplete_assessment("episode_open_failure"),
+                lineage=_model_lineage(model, generation_records),
+                terminal_reason="episode_open_failure",
+            ),
+            partial_reason=None,
         )
 
     safe_task = sanitized_public_task(task.public_task)
@@ -402,6 +964,11 @@ def _run_agent_episode(
     final_response_received = False
 
     while steps_used < context.configuration.step_limit:
+        if _is_cancelled(cancellation_signal):
+            return _EpisodeAttemptResult(
+                episode=None,
+                partial_reason="operator_cancelled",
+            )
         request = AgentRequest(
             task=safe_task,
             observable_history=tuple(events),
@@ -420,10 +987,17 @@ def _run_agent_episode(
                 f"agent:{context.sequence:04d}:step:{steps_used + 1}:repair:{repairs_used}"
             ),
             sequence=context.sequence,
+            related_sequences=(),
             request_kind=request_kind,
+            failure_injector=failure_injector,
         )
         records.extend(call.records)
         if call.response is None:
+            if call.error_code == "provider_request_budget_exhausted":
+                return _EpisodeAttemptResult(
+                    episode=None,
+                    partial_reason="provider_request_budget_exhausted",
+                )
             terminal_reason = call.error_code or "agent_request_failed"
             events.append(EpisodeEvent(event_type="error", error_code=terminal_reason))
             break
@@ -482,13 +1056,16 @@ def _run_agent_episode(
         events=tuple(events),
     )
     assessment = _assess_episode(episode, trace, terminal_reason)
-    return _execution_episode(
-        context=context,
-        task=task.public_task,
-        trace=trace,
-        assessment=assessment,
-        lineage=_model_lineage(model, tuple(records)),
-        terminal_reason=terminal_reason,
+    return _EpisodeAttemptResult(
+        episode=_execution_episode(
+            context=context,
+            task=task.public_task,
+            trace=trace,
+            assessment=assessment,
+            lineage=_model_lineage(model, tuple(records)),
+            terminal_reason=terminal_reason,
+        ),
+        partial_reason=None,
     )
 
 
@@ -598,7 +1175,9 @@ def _call_model(
     request: JsonModelRequest,
     logical_request_id: str,
     sequence: int | None,
+    related_sequences: tuple[int, ...],
     request_kind: Literal["initial", "repair"],
+    failure_injector: FailureInjector | object | None,
 ) -> _LogicalCallResult:
     """Reserve every physical dispatch and retry only bounded transport failures."""
 
@@ -615,6 +1194,7 @@ def _call_model(
             role_limit=role_limit,
             total_limit=configuration.total_request_limit,
             sequence=sequence,
+            related_sequences=related_sequences,
             request_kind=request_kind,
         )
         if reservation is None:
@@ -623,8 +1203,61 @@ def _call_model(
                 records=tuple(records),
                 error_code="provider_request_budget_exhausted",
             )
+        def persist(
+            *,
+            status: Literal["completed", "failed"],
+            response_hash: str | None = None,
+            usage: TokenUsage | None = None,
+            error_code: str | None = None,
+        ) -> ProviderRequestRecord:
+            _checkpoint(failure_injector, "before_response_persistence")
+            finished = ledger.finish_provider_request(
+                reservation.request_id,
+                status=status,
+                response_hash=response_hash,
+                usage=usage,
+                error_code=error_code,
+            )
+            _checkpoint(failure_injector, "after_response_persistence")
+            return finished
+
+        _checkpoint(failure_injector, "before_request_dispatch")
         try:
             raw_response = model.complete(request)
+        except ModelCallError as error:
+            _checkpoint(failure_injector, "after_request_dispatch")
+            finished = persist(
+                status="failed",
+                response_hash=error.response_hash,
+                usage=error.usage,
+                error_code=error.error_code,
+            )
+            records.append(finished)
+            if error.retryable and physical_attempt < configuration.transport_retry_limit:
+                continue
+            return _LogicalCallResult(
+                response=None,
+                records=tuple(records),
+                error_code=error.error_code,
+            )
+        except (ValidationError, TypeError, ValueError):
+            _checkpoint(failure_injector, "after_request_dispatch")
+            records.append(persist(status="failed", error_code="provider_response_malformed"))
+            return _LogicalCallResult(
+                response=None,
+                records=tuple(records),
+                error_code="provider_response_malformed",
+            )
+        except Exception:  # noqa: BLE001 - Adapter failures must not escape the run.
+            _checkpoint(failure_injector, "after_request_dispatch")
+            records.append(persist(status="failed", error_code="provider_adapter_failure"))
+            return _LogicalCallResult(
+                response=None,
+                records=tuple(records),
+                error_code="provider_adapter_failure",
+            )
+        _checkpoint(failure_injector, "after_request_dispatch")
+        try:
             response = _validated_model(raw_response, JsonModelResponse)
             if len(response.model_dump_json().encode("utf-8")) > request.max_response_bytes:
                 raise ModelCallError(
@@ -645,52 +1278,33 @@ def _call_model(
                     usage=response.usage,
                 )
         except ModelCallError as error:
-            finished = ledger.finish_provider_request(
-                reservation.request_id,
-                status="failed",
-                response_hash=error.response_hash,
-                usage=error.usage,
-                error_code=error.error_code,
+            records.append(
+                persist(
+                    status="failed",
+                    response_hash=error.response_hash,
+                    usage=error.usage,
+                    error_code=error.error_code,
+                )
             )
-            records.append(finished)
-            if error.retryable and physical_attempt < configuration.transport_retry_limit:
-                continue
             return _LogicalCallResult(
                 response=None,
                 records=tuple(records),
                 error_code=error.error_code,
             )
         except (ValidationError, TypeError, ValueError):
-            finished = ledger.finish_provider_request(
-                reservation.request_id,
-                status="failed",
-                error_code="provider_response_malformed",
-            )
-            records.append(finished)
+            records.append(persist(status="failed", error_code="provider_response_malformed"))
             return _LogicalCallResult(
                 response=None,
                 records=tuple(records),
                 error_code="provider_response_malformed",
             )
-        except Exception:  # noqa: BLE001 - Adapter failures must not escape the run.
-            finished = ledger.finish_provider_request(
-                reservation.request_id,
-                status="failed",
-                error_code="provider_adapter_failure",
+        records.append(
+            persist(
+                status="completed",
+                response_hash=response.effective_response_hash,
+                usage=response.usage,
             )
-            records.append(finished)
-            return _LogicalCallResult(
-                response=None,
-                records=tuple(records),
-                error_code="provider_adapter_failure",
-            )
-        finished = ledger.finish_provider_request(
-            reservation.request_id,
-            status="completed",
-            response_hash=response.effective_response_hash,
-            usage=response.usage,
         )
-        records.append(finished)
         return _LogicalCallResult(response=response, records=tuple(records), error_code=None)
     raise AssertionError("bounded model loop must return")
 
@@ -1104,23 +1718,54 @@ def _write_replay_report(
     )
 
 
-def _write_collection(path: Path, episodes: list[PublicEpisode]) -> None:
-    contents = "".join(
-        json.dumps(
-            sanitized_episode_record(episode),
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        + "\n"
-        for episode in episodes
+def _atomic_write_text(path: Path, contents: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    temporary_path.write_text(contents, encoding="utf-8")
+    os.replace(temporary_path, path)
+
+
+def _write_terminal_collections(
+    paths: _RunPaths,
+    outcomes: tuple[TerminalOutcomeRecord, ...],
+) -> None:
+    demonstration_temporary = paths.demonstrations_path.with_name(
+        f".{paths.demonstrations_path.name}.{uuid.uuid4().hex}.tmp"
     )
-    path.write_text(contents, encoding="utf-8")
+    negative_temporary = paths.negatives_path.with_name(
+        f".{paths.negatives_path.name}.{uuid.uuid4().hex}.tmp"
+    )
+    paths.demonstrations_path.parent.mkdir(parents=True, exist_ok=True)
+    with demonstration_temporary.open("w", encoding="utf-8") as demonstrations, negative_temporary.open(
+        "w", encoding="utf-8"
+    ) as negatives:
+        for outcome in outcomes:
+            line = (
+                json.dumps(
+                    sanitized_episode_record(outcome.episode),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                + "\n"
+            )
+            destination = (
+                demonstrations
+                if outcome.episode.outcome.collection == "demonstrations"
+                else negatives
+            )
+            destination.write(line)
+    os.replace(demonstration_temporary, paths.demonstrations_path)
+    os.replace(negative_temporary, paths.negatives_path)
 
 
 def _write_provider_usage(
     path: Path,
     records: tuple[ProviderRequestRecord, ...],
 ) -> None:
+    _atomic_write_text(path, json.dumps(_provider_usage_payload(records), sort_keys=True, indent=2) + "\n")
+
+
+def _provider_usage_payload(records: tuple[ProviderRequestRecord, ...]) -> dict[str, object]:
     by_role: dict[ModelRole, list[ProviderRequestRecord]] = defaultdict(list)
     for record in records:
         by_role[record.role].append(record)
@@ -1128,15 +1773,14 @@ def _write_provider_usage(
         role: _usage_summary(role_records)
         for role, role_records in sorted(by_role.items())
     }
-    payload = {
+    return {
         "schema_version": "agent_provider_usage_v1",
         "total_physical_requests": len(records),
+        "reserved_request_count": sum(record.status == "reserved" for record in records),
+        "failed_request_count": sum(record.status == "failed" for record in records),
+        "completed_request_count": sum(record.status == "completed" for record in records),
         "roles": roles,
     }
-    path.write_text(
-        json.dumps(payload, sort_keys=True, indent=2) + "\n",
-        encoding="utf-8",
-    )
 
 
 def _usage_summary(records: list[ProviderRequestRecord]) -> dict[str, object]:
@@ -1148,6 +1792,9 @@ def _usage_summary(records: list[ProviderRequestRecord]) -> dict[str, object]:
         "repair_request_count": sum(
             1 for record in records if record.request_kind == "repair"
         ),
+        "reserved_request_count": sum(record.status == "reserved" for record in records),
+        "failed_request_count": sum(record.status == "failed" for record in records),
+        "completed_request_count": sum(record.status == "completed" for record in records),
         "known_input_tokens": _known_token_total(usages, "input_tokens"),
         "known_output_tokens": _known_token_total(usages, "output_tokens"),
         "known_total_tokens": _known_token_total(usages, "total_tokens"),
@@ -1155,6 +1802,46 @@ def _usage_summary(records: list[ProviderRequestRecord]) -> dict[str, object]:
             1 for usage in usages if usage is None or usage.total_tokens is None
         ),
     }
+
+
+def _write_run_report(
+    path: Path,
+    *,
+    configuration: RunConfiguration,
+    status: Literal["completed", "partial", "cancelled", "failed"],
+    partial_reason: str | None,
+    known_task_capacity: int | None,
+    allocated_slot_count: int,
+    outcomes: tuple[TerminalOutcomeRecord, ...],
+    requests: tuple[ProviderRequestRecord, ...],
+) -> None:
+    accepted_count = sum(
+        outcome.episode.outcome.collection == "demonstrations" for outcome in outcomes
+    )
+    payload = {
+        "schema_version": "agent_run_report_v1",
+        "status": status,
+        "partial_reason": partial_reason,
+        "targets": {
+            "accepted_target": configuration.accepted_target,
+            "task_attempt_limit": configuration.slot_limit,
+        },
+        "capacity": {
+            "known_task_capacity": known_task_capacity,
+            "allocated_slot_count": allocated_slot_count,
+            "capacity_status": (
+                "known" if known_task_capacity is not None else "unknown"
+            ),
+        },
+        "outcomes": {
+            "task_attempt_count": len(outcomes),
+            "accepted_count": accepted_count,
+            "negative_count": len(outcomes) - accepted_count,
+            "incomplete_slot_count": allocated_slot_count - len(outcomes),
+        },
+        "provider_usage": _provider_usage_payload(requests),
+    }
+    _atomic_write_text(path, json.dumps(payload, sort_keys=True, indent=2) + "\n")
 
 
 def _validated_configuration(
@@ -1180,12 +1867,6 @@ def _bounded_slots(slots: tuple[TaskSlot, ...], limit: int) -> tuple[TaskSlot, .
     if len(slot_ids) != len(set(slot_ids)):
         raise ValueError("Domain emitted duplicate deterministic slot ids")
     return bounded
-
-
-def _batches[
-    Item
-](items: tuple[Item, ...], size: int) -> tuple[tuple[Item, ...], ...]:
-    return tuple(tuple(items[index : index + size]) for index in range(0, len(items), size))
 
 
 def _candidate_id(run_id: str, sequence: int) -> str:

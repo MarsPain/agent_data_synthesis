@@ -289,6 +289,16 @@ class ContactsDomainAdapter:
         del configuration
         return ContactsDomainRun(_parse_contacts_source(self._source_contents))
 
+    def open_run_from_frozen_state(
+        self,
+        configuration: RunConfiguration,
+        frozen_initial_state: FrozenInitialState,
+    ) -> "ContactsDomainRun":
+        """Resume from persisted normalized bytes rather than a mutable source path."""
+
+        del configuration
+        return ContactsDomainRun(_initial_state_from_frozen_state(frozen_initial_state))
+
     @property
     def reviewed_structural_examples(self) -> tuple[ContactsStructuralExample, ...]:
         return _REVIEWED_STRUCTURAL_EXAMPLES

@@ -6,9 +6,9 @@ inputs, and budgets that survive repeated interruption.
 
 **Blocked by:** [02 — Run provider-neutral multi-turn Agent Episodes](02-run-provider-neutral-agent-episodes.md)
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
-**Assignee:** Unassigned
+**Assignee:** Codex
 
 **Parent spec:** [Agent-First Core Rebuild](../../../docs/product-specs/agent-first-core-rebuild.md)
 
