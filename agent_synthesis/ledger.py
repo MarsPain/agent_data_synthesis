@@ -6,6 +6,7 @@ import base64
 import sqlite3
 import threading
 from pathlib import Path
+from collections.abc import Iterator
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
@@ -437,6 +438,12 @@ class PrivateLedger:
             ).fetchall()
         return tuple(AllocatedSlotRecord.model_validate_json(row[0]) for row in rows)
 
+    def allocated_slot_count(self) -> int:
+        with self._lock:
+            row = self._connection.execute("SELECT COUNT(*) FROM allocated_slots").fetchone()
+        assert row is not None
+        return int(row[0])
+
     def allocated_slot(self, sequence: int) -> AllocatedSlotRecord:
         with self._lock:
             row = self._connection.execute(
@@ -617,6 +624,40 @@ class PrivateLedger:
             ).fetchall()
         return tuple(TerminalOutcomeRecord.model_validate_json(row[0]) for row in rows)
 
+    def iter_terminal_outcomes(self) -> Iterator[TerminalOutcomeRecord]:
+        """Yield terminal records in stable sequence without materializing a run."""
+
+        with self._lock:
+            cursor = self._connection.execute(
+                "SELECT record_json FROM terminal_outcomes ORDER BY sequence"
+            )
+            for row in cursor:
+                yield TerminalOutcomeRecord.model_validate_json(row[0])
+
+    def terminal_outcome_summary(self) -> tuple[int, int]:
+        """Return terminal and admitted counts without loading public Episodes."""
+
+        with self._lock:
+            row = self._connection.execute(
+                """
+                SELECT
+                    COUNT(*),
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN json_extract(record_json, '$.episode.admission.status') = 'admitted'
+                                THEN 1
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    )
+                FROM terminal_outcomes
+                """
+            ).fetchone()
+        assert row is not None
+        return int(row[0]), int(row[1])
+
     def terminal_outcome(self, sequence: int) -> TerminalOutcomeRecord | None:
         with self._lock:
             row = self._connection.execute(
@@ -648,17 +689,11 @@ class PrivateLedger:
         """Commit one charged physical request before model dispatch."""
 
         with self._lock, self._connection:
-            total_count = self._connection.execute(
-                "SELECT COUNT(*) FROM provider_requests"
-            ).fetchone()[0]
-            role_count = self._connection.execute(
-                """
-                SELECT COUNT(*) FROM provider_requests
-                WHERE json_extract(record_json, '$.role') = ?
-                """,
-                (role,),
-            ).fetchone()[0]
-            if total_count >= total_limit or role_count >= role_limit:
+            if not self._request_budget_available_in_transaction(
+                role=role,
+                role_limit=role_limit,
+                total_limit=total_limit,
+            ):
                 return None
             attempt = self._connection.execute(
                 """
@@ -781,16 +816,29 @@ class PrivateLedger:
         total_limit: int,
     ) -> bool:
         with self._lock:
-            total_count = self._connection.execute(
-                "SELECT COUNT(*) FROM provider_requests"
-            ).fetchone()[0]
-            role_count = self._connection.execute(
-                """
-                SELECT COUNT(*) FROM provider_requests
-                WHERE json_extract(record_json, '$.role') = ?
-                """,
-                (role,),
-            ).fetchone()[0]
+            return self._request_budget_available_in_transaction(
+                role=role,
+                role_limit=role_limit,
+                total_limit=total_limit,
+            )
+
+    def _request_budget_available_in_transaction(
+        self,
+        *,
+        role: ModelRole,
+        role_limit: int,
+        total_limit: int,
+    ) -> bool:
+        total_count = self._connection.execute(
+            "SELECT COUNT(*) FROM provider_requests"
+        ).fetchone()[0]
+        role_count = self._connection.execute(
+            """
+            SELECT COUNT(*) FROM provider_requests
+            WHERE json_extract(record_json, '$.role') = ?
+            """,
+            (role,),
+        ).fetchone()[0]
         return total_count < total_limit and role_count < role_limit
 
     def _work_item_in_transaction(self, sequence: int) -> WorkItemRecord:

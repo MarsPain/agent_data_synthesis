@@ -59,6 +59,7 @@ def run_cli(
                 "status": result.status,
                 "partial_reason": result.partial_reason,
                 "task_attempt_count": result.task_attempt_count,
+                "terminal_outcome_count": result.terminal_outcome_count,
                 "accepted_count": result.demonstration_count,
                 "negative_count": result.negative_count,
                 "physical_request_count": result.physical_request_count,

@@ -7,7 +7,7 @@ import os
 import threading
 import uuid
 from collections import defaultdict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
@@ -84,6 +84,7 @@ class RunResult:
     status: Literal["completed", "partial", "cancelled", "failed"]
     partial_reason: str | None
     task_attempt_count: int
+    terminal_outcome_count: int
     physical_request_count: int
     run_report_path: Path
 
@@ -143,6 +144,31 @@ class _EpisodeAttemptResult:
 
     episode: PublicEpisode | None
     partial_reason: Literal["operator_cancelled", "provider_request_budget_exhausted"] | None
+
+
+@dataclass(frozen=True)
+class _InFlightEpisode:
+    """The owner and semantic admission key for one active Episode future."""
+
+    sequence: int
+    semantic_key: str
+    owner_id: str
+
+
+@dataclass(frozen=True)
+class _RequestUsageSummary:
+    """One role's physical-request and reported-usage aggregates."""
+
+    physical_request_count: int
+    retry_count: int
+    repair_request_count: int
+    known_input_tokens: int | None
+    known_output_tokens: int | None
+    known_total_tokens: int | None
+    unknown_usage_count: int
+    reserved_request_count: int
+    failed_request_count: int
+    completed_request_count: int
 
 
 class CancellationSignal:
@@ -523,11 +549,8 @@ def _drive_run(
     owner_prefix = f"run-{uuid.uuid4().hex}"
     active_semantic_keys: set[str] = set()
     admitted_semantic_keys = set(ledger.admitted_semantic_keys())
-    accepted_count = sum(
-        outcome.episode.admission.status == "admitted"
-        for outcome in ledger.terminal_outcomes()
-    )
-    futures: dict[Future[_EpisodeAttemptResult], tuple[int, str, str]] = {}
+    _, accepted_count = ledger.terminal_outcome_summary()
+    futures: dict[Future[_EpisodeAttemptResult], _InFlightEpisode] = {}
     stop_reason: str | None = None
 
     def context_for(sequence: int) -> _EpisodeContext:
@@ -696,7 +719,7 @@ def _drive_run(
         remaining_target = (
             configuration.max_concurrency
             if configuration.accepted_target is None
-            else max(0, configuration.accepted_target - accepted_count)
+            else max(0, configuration.accepted_target - accepted_count - len(futures))
         )
         available_workers = min(
             configuration.max_concurrency - len(futures),
@@ -706,6 +729,8 @@ def _drive_run(
             return None
         probe_size = max(configuration.max_concurrency * 16, 64)
         for work in ledger.work_items_with_status("compiled", limit=probe_size):
+            if _is_cancelled(cancellation_signal):
+                return "operator_cancelled"
             if available_workers <= 0:
                 break
             case = ledger.task_case(work.sequence)
@@ -760,7 +785,11 @@ def _drive_run(
                 cancellation_signal=cancellation_signal,
                 failure_injector=failure_injector,
             )
-            futures[future] = (work.sequence, case.semantic_key, owner_id)
+            futures[future] = _InFlightEpisode(
+                sequence=work.sequence,
+                semantic_key=case.semantic_key,
+                owner_id=owner_id,
+            )
             active_semantic_keys.add(case.semantic_key)
             available_workers -= 1
         return None
@@ -768,16 +797,19 @@ def _drive_run(
     def collect_completed(done: set[Future[_EpisodeAttemptResult]]) -> None:
         nonlocal stop_reason
         for future in done:
-            sequence, semantic_key, owner_id = futures.pop(future)
-            active_semantic_keys.discard(semantic_key)
+            in_flight = futures.pop(future)
+            active_semantic_keys.discard(in_flight.semantic_key)
             result = future.result()
             if result.partial_reason is not None:
-                ledger.return_work_to_ready(sequence=sequence, owner_id=owner_id)
+                ledger.return_work_to_ready(
+                    sequence=in_flight.sequence,
+                    owner_id=in_flight.owner_id,
+                )
                 if stop_reason is None:
                     stop_reason = result.partial_reason
                 continue
             assert result.episode is not None
-            commit_terminal(result.episode, semantic_key)
+            commit_terminal(result.episode, in_flight.semantic_key)
 
     with ThreadPoolExecutor(max_workers=configuration.max_concurrency) as executor:
         while True:
@@ -860,7 +892,7 @@ def _incomplete_target_reason(
     ledger: PrivateLedger,
     known_task_capacity: int | None,
 ) -> str:
-    allocated_count = len(ledger.allocated_slots())
+    allocated_count = ledger.allocated_slot_count()
     if allocated_count < configuration.slot_limit:
         return "domain_slot_exhausted"
     if known_task_capacity is None:
@@ -878,8 +910,9 @@ def _finalize_run(
     partial_reason: str | None,
     known_task_capacity: int | None,
 ) -> RunResult:
-    outcomes = ledger.terminal_outcomes()
-    _write_terminal_collections(paths, outcomes)
+    terminal_outcome_count, accepted_count = ledger.terminal_outcome_summary()
+    allocated_slot_count = ledger.allocated_slot_count()
+    _write_terminal_collections(paths, ledger.iter_terminal_outcomes())
     requests = ledger.provider_requests()
     _write_provider_usage(paths.provider_usage_path, requests)
     _write_run_report(
@@ -888,8 +921,9 @@ def _finalize_run(
         status=status,
         partial_reason=partial_reason,
         known_task_capacity=known_task_capacity,
-        allocated_slot_count=len(ledger.allocated_slots()),
-        outcomes=outcomes,
+        allocated_slot_count=allocated_slot_count,
+        terminal_outcome_count=terminal_outcome_count,
+        accepted_count=accepted_count,
         requests=requests,
     )
     manifest = build_manifest(
@@ -903,10 +937,8 @@ def _finalize_run(
         ),
     )
     write_manifest(paths.manifest_path, manifest)
-    demonstrations = sum(
-        outcome.episode.outcome.collection == "demonstrations" for outcome in outcomes
-    )
-    negatives = len(outcomes) - demonstrations
+    demonstrations = accepted_count
+    negatives = terminal_outcome_count - demonstrations
     return RunResult(
         run_directory=paths.run_directory,
         demonstrations_path=paths.demonstrations_path,
@@ -918,7 +950,8 @@ def _finalize_run(
         negative_count=negatives,
         status=status,
         partial_reason=partial_reason,
-        task_attempt_count=len(outcomes),
+        task_attempt_count=allocated_slot_count,
+        terminal_outcome_count=terminal_outcome_count,
         physical_request_count=len(requests),
         run_report_path=paths.run_report_path,
     )
@@ -1499,29 +1532,24 @@ def _model_lineage(
         role_records = by_role[role]
         if not role_records:
             continue
-        usages = [record.usage for record in role_records]
+        summary = _request_usage_summary(role_records)
         roles.append(
             RoleLineage(
                 role=role,
                 provider_id=model.provider_id,
                 model_id=model.model_id,
                 model_version=model.model_version,
-                physical_request_count=len(role_records),
-                retry_count=len(role_records)
-                - len({record.logical_request_id for record in role_records}),
+                physical_request_count=summary.physical_request_count,
+                retry_count=summary.retry_count,
                 response_hashes=tuple(
                     record.response_hash
                     for record in role_records
                     if record.response_hash is not None
                 ),
-                known_input_tokens=_known_token_total(usages, "input_tokens"),
-                known_output_tokens=_known_token_total(usages, "output_tokens"),
-                known_total_tokens=_known_token_total(usages, "total_tokens"),
-                unknown_usage_count=sum(
-                    1
-                    for usage in usages
-                    if usage is None or usage.total_tokens is None
-                ),
+                known_input_tokens=summary.known_input_tokens,
+                known_output_tokens=summary.known_output_tokens,
+                known_total_tokens=summary.known_total_tokens,
+                unknown_usage_count=summary.unknown_usage_count,
             )
         )
     return ModelLineage(
@@ -1727,7 +1755,7 @@ def _atomic_write_text(path: Path, contents: str) -> None:
 
 def _write_terminal_collections(
     paths: _RunPaths,
-    outcomes: tuple[TerminalOutcomeRecord, ...],
+    outcomes: Iterable[TerminalOutcomeRecord],
 ) -> None:
     demonstration_temporary = paths.demonstrations_path.with_name(
         f".{paths.demonstrations_path.name}.{uuid.uuid4().hex}.tmp"
@@ -1784,24 +1812,39 @@ def _provider_usage_payload(records: tuple[ProviderRequestRecord, ...]) -> dict[
 
 
 def _usage_summary(records: list[ProviderRequestRecord]) -> dict[str, object]:
-    usages = [record.usage for record in records]
+    summary = _request_usage_summary(records)
     return {
-        "physical_request_count": len(records),
-        "retry_count": len(records)
-        - len({record.logical_request_id for record in records}),
-        "repair_request_count": sum(
-            1 for record in records if record.request_kind == "repair"
-        ),
-        "reserved_request_count": sum(record.status == "reserved" for record in records),
-        "failed_request_count": sum(record.status == "failed" for record in records),
-        "completed_request_count": sum(record.status == "completed" for record in records),
-        "known_input_tokens": _known_token_total(usages, "input_tokens"),
-        "known_output_tokens": _known_token_total(usages, "output_tokens"),
-        "known_total_tokens": _known_token_total(usages, "total_tokens"),
-        "unknown_usage_count": sum(
-            1 for usage in usages if usage is None or usage.total_tokens is None
-        ),
+        "physical_request_count": summary.physical_request_count,
+        "retry_count": summary.retry_count,
+        "repair_request_count": summary.repair_request_count,
+        "reserved_request_count": summary.reserved_request_count,
+        "failed_request_count": summary.failed_request_count,
+        "completed_request_count": summary.completed_request_count,
+        "known_input_tokens": summary.known_input_tokens,
+        "known_output_tokens": summary.known_output_tokens,
+        "known_total_tokens": summary.known_total_tokens,
+        "unknown_usage_count": summary.unknown_usage_count,
     }
+
+
+def _request_usage_summary(
+    records: Sequence[ProviderRequestRecord],
+) -> _RequestUsageSummary:
+    usages = [record.usage for record in records]
+    return _RequestUsageSummary(
+        physical_request_count=len(records),
+        retry_count=len(records) - len({record.logical_request_id for record in records}),
+        repair_request_count=sum(record.request_kind == "repair" for record in records),
+        known_input_tokens=_known_token_total(usages, "input_tokens"),
+        known_output_tokens=_known_token_total(usages, "output_tokens"),
+        known_total_tokens=_known_token_total(usages, "total_tokens"),
+        unknown_usage_count=sum(
+            usage is None or usage.total_tokens is None for usage in usages
+        ),
+        reserved_request_count=sum(record.status == "reserved" for record in records),
+        failed_request_count=sum(record.status == "failed" for record in records),
+        completed_request_count=sum(record.status == "completed" for record in records),
+    )
 
 
 def _write_run_report(
@@ -1812,12 +1855,10 @@ def _write_run_report(
     partial_reason: str | None,
     known_task_capacity: int | None,
     allocated_slot_count: int,
-    outcomes: tuple[TerminalOutcomeRecord, ...],
+    terminal_outcome_count: int,
+    accepted_count: int,
     requests: tuple[ProviderRequestRecord, ...],
 ) -> None:
-    accepted_count = sum(
-        outcome.episode.outcome.collection == "demonstrations" for outcome in outcomes
-    )
     payload = {
         "schema_version": "agent_run_report_v1",
         "status": status,
@@ -1834,10 +1875,11 @@ def _write_run_report(
             ),
         },
         "outcomes": {
-            "task_attempt_count": len(outcomes),
+            "task_attempt_count": allocated_slot_count,
+            "terminal_outcome_count": terminal_outcome_count,
             "accepted_count": accepted_count,
-            "negative_count": len(outcomes) - accepted_count,
-            "incomplete_slot_count": allocated_slot_count - len(outcomes),
+            "negative_count": terminal_outcome_count - accepted_count,
+            "incomplete_slot_count": allocated_slot_count - terminal_outcome_count,
         },
         "provider_usage": _provider_usage_payload(requests),
     }

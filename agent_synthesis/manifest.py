@@ -42,7 +42,7 @@ def build_manifest(
     files = tuple(
         ManifestFile(
             path=path.name,
-            sha256=_content_hash(path.read_bytes()),
+            sha256=_content_hash(path),
             byte_count=path.stat().st_size,
         )
         for path in artifact_paths
@@ -64,5 +64,9 @@ def write_manifest(path: Path, manifest: RunManifest) -> None:
     )
 
 
-def _content_hash(contents: bytes) -> str:
-    return "sha256:" + hashlib.sha256(contents).hexdigest()
+def _content_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as artifact:
+        for chunk in iter(lambda: artifact.read(1_048_576), b""):
+            digest.update(chunk)
+    return "sha256:" + digest.hexdigest()

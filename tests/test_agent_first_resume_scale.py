@@ -49,23 +49,29 @@ class _ResumeDomain:
         slot_count: int = 1,
         known_capacity: bool = True,
         duplicate_semantic_keys: bool = False,
+        cancel_during_first_restore: CancellationSignal | None = None,
     ) -> None:
         self.source_value = "original source"
         self.slot_count = slot_count
         self.known_capacity = known_capacity
         self.duplicate_semantic_keys = duplicate_semantic_keys
+        self.cancel_during_first_restore = cancel_during_first_restore
         self.open_run_calls = 0
         self.resume_sources: list[str] = []
+        self.last_run: _ResumeDomainRun | None = None
 
     def open_run(self, configuration: RunConfiguration) -> "_ResumeDomainRun":
         del configuration
         self.open_run_calls += 1
-        return _ResumeDomainRun(
+        run = _ResumeDomainRun(
             self.source_value,
             slot_count=self.slot_count,
             known_capacity=self.known_capacity,
             duplicate_semantic_keys=self.duplicate_semantic_keys,
+            cancel_during_first_restore=self.cancel_during_first_restore,
         )
+        self.last_run = run
+        return run
 
     def open_run_from_frozen_state(
         self,
@@ -75,12 +81,15 @@ class _ResumeDomain:
         del configuration
         source_value = json.loads(frozen_initial_state.contents)["source_value"]
         self.resume_sources.append(source_value)
-        return _ResumeDomainRun(
+        run = _ResumeDomainRun(
             source_value,
             slot_count=self.slot_count,
             known_capacity=self.known_capacity,
             duplicate_semantic_keys=self.duplicate_semantic_keys,
+            cancel_during_first_restore=self.cancel_during_first_restore,
         )
+        self.last_run = run
+        return run
 
 
 class _ResumeDomainRun:
@@ -91,11 +100,14 @@ class _ResumeDomainRun:
         slot_count: int,
         known_capacity: bool,
         duplicate_semantic_keys: bool,
+        cancel_during_first_restore: CancellationSignal | None,
     ) -> None:
         self._source_value = source_value
         self._slot_count = slot_count
         self._known_capacity = known_capacity
         self._duplicate_semantic_keys = duplicate_semantic_keys
+        self._cancel_during_first_restore = cancel_during_first_restore
+        self.restore_calls: list[str] = []
 
     def slots(self, limit: int) -> tuple[TaskSlot, ...]:
         slots = tuple(
@@ -156,6 +168,9 @@ class _ResumeDomainRun:
     ) -> CompiledTask:
         source_value = json.loads(private_case_bytes)["source_value"]
         slot_id = json.loads(private_case_bytes)["slot_id"]
+        self.restore_calls.append(slot_id)
+        if slot_id == "resume-slot-001" and self._cancel_during_first_restore is not None:
+            self._cancel_during_first_restore.cancel()
         expected_semantic_key = (
             f"resume:{source_value}:duplicate"
             if self._duplicate_semantic_keys
@@ -264,6 +279,14 @@ class _DelayedFinalResponseModel(_FinalResponseModel):
         finally:
             with self._lock:
                 self._active_agent_calls -= 1
+
+
+class _EarlyRejectionModel(_DelayedFinalResponseModel):
+    def complete(self, request: object) -> JsonModelResponse:
+        if request.role == "agent" and request.task.instruction.endswith("001."):
+            self.requests.append(request)
+            return JsonModelResponse(content={"type": "unsupported", "content": "bad"})
+        return super().complete(request)
 
 
 class _BlockingFinalResponseModel(_FinalResponseModel):
@@ -513,6 +536,59 @@ class AgentFirstResumeAndScaleEngineTest(unittest.TestCase):
                 self.assertEqual(resumed.status, "completed")
                 self.assertEqual(len(outcomes), 1)
 
+    def test_multiple_consecutive_crashes_preserve_the_same_charged_slot(self) -> None:
+        domain = _ResumeDomain()
+        configuration = RunConfiguration(
+            run_id="consecutive-crashes",
+            domain_id=domain.domain_id,
+            model_id=_FinalResponseModel.model_id,
+            slot_limit=1,
+            max_concurrency=1,
+        )
+
+        def crash_after_case(phase: str) -> None:
+            if phase == "after_task_case_persistence":
+                raise RuntimeError("first crash")
+
+        def crash_after_dispatch(phase: str) -> None:
+            if phase == "after_request_dispatch":
+                raise RuntimeError("second crash")
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output_directory = Path(temporary_directory)
+            with self.assertRaisesRegex(RuntimeError, "first crash"):
+                SynthesisEngine(
+                    AdapterRegistry(domains=(domain,), models=(_FinalResponseModel(),))
+                ).run(
+                    configuration,
+                    output_directory,
+                    failure_injector=crash_after_case,
+                )
+            with self.assertRaisesRegex(RuntimeError, "second crash"):
+                SynthesisEngine(
+                    AdapterRegistry(domains=(domain,), models=(_FinalResponseModel(),))
+                ).resume(
+                    configuration,
+                    output_directory,
+                    failure_injector=crash_after_dispatch,
+                )
+            completed = SynthesisEngine(
+                AdapterRegistry(domains=(domain,), models=(_FinalResponseModel(),))
+            ).resume(configuration, output_directory)
+            ledger = PrivateLedger.open(completed.private_ledger_path)
+            try:
+                work = ledger.work_items()
+                requests = ledger.provider_requests()
+                outcomes = ledger.terminal_outcomes()
+            finally:
+                ledger.close()
+
+        self.assertEqual(completed.status, "completed")
+        self.assertEqual([item.sequence for item in work], [1])
+        self.assertEqual(work[0].status, "terminal")
+        self.assertEqual(len(outcomes), 1)
+        self.assertEqual([request.status for request in requests], ["completed", "reserved", "completed"])
+
     def test_cancellation_preserves_completed_work_and_resumes_pending_slots(self) -> None:
         domain = _ResumeDomain(slot_count=3)
         signal = CancellationSignal()
@@ -548,7 +624,8 @@ class AgentFirstResumeAndScaleEngineTest(unittest.TestCase):
 
         self.assertEqual(cancelled.status, "cancelled")
         self.assertEqual(cancelled.partial_reason, "operator_cancelled")
-        self.assertEqual(cancelled.task_attempt_count, 1)
+        self.assertEqual(cancelled.task_attempt_count, 3)
+        self.assertEqual(cancelled.terminal_outcome_count, 1)
         self.assertEqual([item.status for item in work_after_cancellation], ["terminal", "pending", "pending"])
         self.assertEqual(resumed.status, "completed")
         self.assertEqual(resumed.demonstration_count, 3)
@@ -696,8 +773,35 @@ class AgentFirstResumeAndScaleEngineTest(unittest.TestCase):
         self.assertEqual(result.demonstration_count, 1)
         self.assertEqual([request.role for request in model.requests], ["task_generation", "agent"])
         self.assertEqual(report["targets"], {"accepted_target": 1, "task_attempt_limit": 3})
-        self.assertEqual(report["outcomes"]["task_attempt_count"], 1)
+        self.assertEqual(report["outcomes"]["task_attempt_count"], 3)
+        self.assertEqual(report["outcomes"]["terminal_outcome_count"], 1)
         self.assertEqual(report["provider_usage"]["total_physical_requests"], 2)
+
+    def test_in_flight_candidates_count_against_the_accepted_target(self) -> None:
+        domain = _ResumeDomain(slot_count=4)
+        model = _EarlyRejectionModel()
+        configuration = RunConfiguration(
+            run_id="in-flight-target-bound",
+            domain_id=domain.domain_id,
+            model_id=model.model_id,
+            slot_limit=4,
+            accepted_target=2,
+            generation_batch_size=4,
+            max_concurrency=4,
+            decision_repair_limit=0,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            result = SynthesisEngine(
+                AdapterRegistry(domains=(domain,), models=(model,))
+            ).run(configuration, Path(temporary_directory))
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(result.demonstration_count, 2)
+        self.assertEqual(result.negative_count, 1)
+        self.assertEqual(result.terminal_outcome_count, 3)
+        agent_requests = [request for request in model.requests if request.role == "agent"]
+        self.assertEqual(len(agent_requests), 3)
 
     def test_missing_or_corrupt_snapshot_fails_closed_before_provider_work(self) -> None:
         for replacement in (None, "not valid snapshot"):

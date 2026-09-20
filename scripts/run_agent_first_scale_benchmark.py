@@ -223,6 +223,7 @@ def run_benchmark(
         "attempt_target": attempts,
         "known_unique_task_capacity": attempts,
         "task_attempt_count": result.task_attempt_count,
+        "terminal_outcome_count": result.terminal_outcome_count,
         "unique_accepted_count": result.demonstration_count,
         "physical_request_count": result.physical_request_count,
         "initial_status": result.status,
