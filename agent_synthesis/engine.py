@@ -50,6 +50,7 @@ from agent_synthesis.ledger import (
     ProviderRequestRecord,
     TaskCaseRecord,
     TerminalOutcomeRecord,
+    WorkItemRecord,
 )
 from agent_synthesis.manifest import build_manifest, write_manifest
 from agent_synthesis.model import (
@@ -260,12 +261,13 @@ class SynthesisEngine:
                 frozen_initial_state = domain_run.freeze_initial_state()
                 ledger.record_run_metadata(config, domain_version=domain.domain_version)
                 ledger.record_initial_state(frozen_initial_state)
-                _write_frozen_snapshot(paths.frozen_snapshot_path, frozen_initial_state)
                 known_task_capacity = _known_task_capacity(domain_run, config.slot_limit)
                 ledger.record_run_status(
                     status="running",
                     known_task_capacity=known_task_capacity,
                 )
+                _write_frozen_snapshot(paths.frozen_snapshot_path, frozen_initial_state)
+                _checkpoint(failure_injector, "after_snapshot_persistence")
                 if (
                     config.accepted_target is not None
                     and known_task_capacity is not None
@@ -344,6 +346,40 @@ class SynthesisEngine:
                     frozen_initial_state,
                 )
                 known_task_capacity = _known_task_capacity(domain_run, configuration.slot_limit)
+                if (
+                    configuration.accepted_target is not None
+                    and known_task_capacity is not None
+                    and configuration.accepted_target > known_task_capacity
+                ):
+                    ledger.record_run_status(
+                        status="failed",
+                        reason_code="known_task_capacity_insufficient",
+                        known_task_capacity=known_task_capacity,
+                    )
+                    return _finalize_run(
+                        paths=paths,
+                        ledger=ledger,
+                        configuration=configuration,
+                        frozen_initial_state=frozen_initial_state,
+                        status="failed",
+                        partial_reason="known_task_capacity_insufficient",
+                        known_task_capacity=known_task_capacity,
+                    )
+                prior_status = ledger.run_status()
+                if (
+                    prior_status.status == "running"
+                    and ledger.allocated_slot_count() == 0
+                ):
+                    slots = _bounded_slots(
+                        domain_run.slots(configuration.slot_limit),
+                        configuration.slot_limit,
+                    )
+                    ledger.record_allocated_slots(
+                        tuple(
+                            AllocatedSlotRecord.from_slot(sequence=sequence, slot=slot)
+                            for sequence, slot in enumerate(slots, start=1)
+                        )
+                    )
                 ledger.recover_inflight_work()
                 ledger.record_run_status(
                     status="running",
@@ -611,6 +647,8 @@ def _drive_run(
         )
 
     def generate_pending_batch() -> str | None:
+        if _is_cancelled(cancellation_signal):
+            return "operator_cancelled"
         pending = ledger.work_items_with_status(
             "pending",
             limit=configuration.generation_batch_size,
@@ -625,12 +663,28 @@ def _drive_run(
             return "provider_request_budget_exhausted"
         batch = tuple(ledger.allocated_slot(item.sequence) for item in pending)
         owner_id = f"{owner_prefix}:generation:{batch[0].sequence}-{batch[-1].sequence}"
+        claimed: list[WorkItemRecord] = []
         for item in pending:
+            if _is_cancelled(cancellation_signal):
+                for claimed_item in claimed:
+                    ledger.return_work_to_ready(
+                        sequence=claimed_item.sequence,
+                        owner_id=owner_id,
+                    )
+                return "operator_cancelled"
             ledger.claim_work(
                 sequence=item.sequence,
                 owner_id=owner_id,
                 status="generating",
             )
+            claimed.append(item)
+        if _is_cancelled(cancellation_signal):
+            for claimed_item in claimed:
+                ledger.return_work_to_ready(
+                    sequence=claimed_item.sequence,
+                    owner_id=owner_id,
+                )
+            return "operator_cancelled"
         generation = _call_model(
             ledger=ledger,
             model=model,
@@ -648,9 +702,13 @@ def _drive_run(
             related_sequences=tuple(record.sequence for record in batch),
             request_kind="initial",
             failure_injector=failure_injector,
+            cancellation_signal=cancellation_signal,
         )
         if generation.response is None:
-            if generation.error_code == "provider_request_budget_exhausted":
+            if generation.error_code in {
+                "operator_cancelled",
+                "provider_request_budget_exhausted",
+            }:
                 for item in pending:
                     ledger.return_work_to_ready(sequence=item.sequence, owner_id=owner_id)
                 return generation.error_code
@@ -771,8 +829,13 @@ def _drive_run(
                     semantic_key=case.semantic_key,
                 )
                 continue
+            if _is_cancelled(cancellation_signal):
+                return "operator_cancelled"
             owner_id = f"{owner_prefix}:episode:{work.sequence}"
             ledger.claim_work(sequence=work.sequence, owner_id=owner_id, status="running")
+            if _is_cancelled(cancellation_signal):
+                ledger.return_work_to_ready(sequence=work.sequence, owner_id=owner_id)
+                return "operator_cancelled"
             future = executor.submit(
                 _run_agent_episode,
                 domain_run=domain_run,
@@ -1023,9 +1086,15 @@ def _run_agent_episode(
             related_sequences=(),
             request_kind=request_kind,
             failure_injector=failure_injector,
+            cancellation_signal=cancellation_signal,
         )
         records.extend(call.records)
         if call.response is None:
+            if call.error_code == "operator_cancelled":
+                return _EpisodeAttemptResult(
+                    episode=None,
+                    partial_reason="operator_cancelled",
+                )
             if call.error_code == "provider_request_budget_exhausted":
                 return _EpisodeAttemptResult(
                     episode=None,
@@ -1211,6 +1280,7 @@ def _call_model(
     related_sequences: tuple[int, ...],
     request_kind: Literal["initial", "repair"],
     failure_injector: FailureInjector | object | None,
+    cancellation_signal: CancellationSignal | None,
 ) -> _LogicalCallResult:
     """Reserve every physical dispatch and retry only bounded transport failures."""
 
@@ -1221,6 +1291,12 @@ def _call_model(
         else configuration.agent_request_limit
     )
     for physical_attempt in range(configuration.transport_retry_limit + 1):
+        if _is_cancelled(cancellation_signal):
+            return _LogicalCallResult(
+                response=None,
+                records=tuple(records),
+                error_code="operator_cancelled",
+            )
         reservation = ledger.reserve_provider_request(
             role=request.role,
             logical_request_id=logical_request_id,
@@ -1235,6 +1311,12 @@ def _call_model(
                 response=None,
                 records=tuple(records),
                 error_code="provider_request_budget_exhausted",
+            )
+        if _is_cancelled(cancellation_signal):
+            return _LogicalCallResult(
+                response=None,
+                records=tuple((*records, reservation)),
+                error_code="operator_cancelled",
             )
         def persist(
             *,
@@ -1255,6 +1337,12 @@ def _call_model(
             return finished
 
         _checkpoint(failure_injector, "before_request_dispatch")
+        if _is_cancelled(cancellation_signal):
+            return _LogicalCallResult(
+                response=None,
+                records=tuple((*records, reservation)),
+                error_code="operator_cancelled",
+            )
         try:
             raw_response = model.complete(request)
         except ModelCallError as error:
@@ -1794,6 +1882,7 @@ def _write_provider_usage(
 
 
 def _provider_usage_payload(records: tuple[ProviderRequestRecord, ...]) -> dict[str, object]:
+    summary = _request_usage_summary(records)
     by_role: dict[ModelRole, list[ProviderRequestRecord]] = defaultdict(list)
     for record in records:
         by_role[record.role].append(record)
@@ -1803,10 +1892,10 @@ def _provider_usage_payload(records: tuple[ProviderRequestRecord, ...]) -> dict[
     }
     return {
         "schema_version": "agent_provider_usage_v1",
-        "total_physical_requests": len(records),
-        "reserved_request_count": sum(record.status == "reserved" for record in records),
-        "failed_request_count": sum(record.status == "failed" for record in records),
-        "completed_request_count": sum(record.status == "completed" for record in records),
+        "total_physical_requests": summary.physical_request_count,
+        "reserved_request_count": summary.reserved_request_count,
+        "failed_request_count": summary.failed_request_count,
+        "completed_request_count": summary.completed_request_count,
         "roles": roles,
     }
 

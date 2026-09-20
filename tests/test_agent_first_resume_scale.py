@@ -396,6 +396,46 @@ class AgentFirstResumeAndScaleEngineTest(unittest.TestCase):
             self.assertEqual([request.role for request in resumed_model.requests], ["agent"])
             self.assertEqual(domain.resume_sources, ["original source"])
 
+    def test_resume_allocates_slots_after_a_crash_following_snapshot_persistence(self) -> None:
+        domain = _ResumeDomain()
+        first_model = _FinalResponseModel()
+        configuration = RunConfiguration(
+            run_id="resume-after-snapshot",
+            domain_id=domain.domain_id,
+            model_id=first_model.model_id,
+            slot_limit=1,
+            max_concurrency=1,
+        )
+
+        def crash_after_snapshot(phase: str) -> None:
+            if phase == "after_snapshot_persistence":
+                raise RuntimeError("snapshot crash")
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output_directory = Path(temporary_directory)
+            with self.assertRaisesRegex(RuntimeError, "snapshot crash"):
+                SynthesisEngine(
+                    AdapterRegistry(domains=(domain,), models=(first_model,))
+                ).run(
+                    configuration,
+                    output_directory,
+                    failure_injector=crash_after_snapshot,
+                )
+            ledger = PrivateLedger.open(output_directory / ".private" / "ledger.sqlite3")
+            try:
+                self.assertEqual(ledger.allocated_slots(), ())
+            finally:
+                ledger.close()
+
+            resumed_model = _FinalResponseModel()
+            resumed = SynthesisEngine(
+                AdapterRegistry(domains=(domain,), models=(resumed_model,))
+            ).resume(configuration, output_directory)
+
+        self.assertEqual(resumed.status, "completed")
+        self.assertEqual(resumed.demonstration_count, 1)
+        self.assertEqual([request.role for request in resumed_model.requests], ["task_generation", "agent"])
+
     def test_crash_after_request_dispatch_keeps_unknown_charge_across_resume(self) -> None:
         domain = _ResumeDomain()
         first_model = _FinalResponseModel()
@@ -633,6 +673,72 @@ class AgentFirstResumeAndScaleEngineTest(unittest.TestCase):
             [request.role for request in resumed_model.requests],
             ["task_generation", "agent", "task_generation", "agent"],
         )
+
+    def test_cancellation_signal_stops_later_dispatches_inside_one_scheduler_pass(self) -> None:
+        signal = CancellationSignal()
+        domain = _ResumeDomain(
+            slot_count=3,
+            cancel_during_first_restore=signal,
+        )
+        model = _FinalResponseModel()
+        configuration = RunConfiguration(
+            run_id="cancel-inside-dispatch",
+            domain_id=domain.domain_id,
+            model_id=model.model_id,
+            slot_limit=3,
+            generation_batch_size=3,
+            max_concurrency=3,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            result = SynthesisEngine(
+                AdapterRegistry(domains=(domain,), models=(model,))
+            ).run(
+                configuration,
+                Path(temporary_directory),
+                cancellation_signal=signal,
+            )
+
+        assert domain.last_run is not None
+        self.assertEqual(result.status, "cancelled")
+        self.assertEqual(domain.last_run.restore_calls, ["resume-slot-001"])
+        self.assertEqual([request.role for request in model.requests], ["task_generation"])
+
+    def test_cancellation_before_model_dispatch_leaves_the_reservation_charged(self) -> None:
+        signal = CancellationSignal()
+        domain = _ResumeDomain()
+        model = _FinalResponseModel()
+        configuration = RunConfiguration(
+            run_id="cancel-before-model-dispatch",
+            domain_id=domain.domain_id,
+            model_id=model.model_id,
+            slot_limit=1,
+            max_concurrency=1,
+        )
+
+        def request_cancellation(phase: str) -> None:
+            if phase == "before_request_dispatch":
+                signal.cancel()
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output_directory = Path(temporary_directory)
+            result = SynthesisEngine(
+                AdapterRegistry(domains=(domain,), models=(model,))
+            ).run(
+                configuration,
+                output_directory,
+                cancellation_signal=signal,
+                failure_injector=request_cancellation,
+            )
+            ledger = PrivateLedger.open(result.private_ledger_path)
+            try:
+                requests = ledger.provider_requests()
+            finally:
+                ledger.close()
+
+        self.assertEqual(result.status, "cancelled")
+        self.assertEqual(model.requests, [])
+        self.assertEqual([request.status for request in requests], ["reserved"])
 
     def test_concurrent_reverse_completion_exports_stable_sequences_and_duplicate_winner(self) -> None:
         domain = _ResumeDomain(slot_count=2)

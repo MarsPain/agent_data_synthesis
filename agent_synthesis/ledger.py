@@ -512,10 +512,7 @@ class PrivateLedger:
             current = self._work_item_in_transaction(sequence)
             if current.owner_id != owner_id:
                 raise ValueError(f"work item {sequence} is not owned by {owner_id}")
-            status: Literal["pending", "compiled"] = (
-                "compiled" if self._task_case_exists_in_transaction(sequence) else "pending"
-            )
-            ready = current.model_copy(update={"status": status, "owner_id": None})
+            ready = self._ready_work_item_in_transaction(current)
             self._write_work_item(ready)
         return ready
 
@@ -531,12 +528,7 @@ class PrivateLedger:
                 current = WorkItemRecord.model_validate_json(row[0])
                 if current.status not in {"generating", "running"}:
                     continue
-                status: Literal["pending", "compiled"] = (
-                    "compiled"
-                    if self._task_case_exists_in_transaction(current.sequence)
-                    else "pending"
-                )
-                ready = current.model_copy(update={"status": status, "owner_id": None})
+                ready = self._ready_work_item_in_transaction(current)
                 self._write_work_item(ready)
                 recovered.append(ready)
         return tuple(recovered)
@@ -854,6 +846,12 @@ class PrivateLedger:
             "UPDATE work_items SET record_json = ? WHERE sequence = ?",
             (record.model_dump_json(), record.sequence),
         )
+
+    def _ready_work_item_in_transaction(self, current: WorkItemRecord) -> WorkItemRecord:
+        status: Literal["pending", "compiled"] = (
+            "compiled" if self._task_case_exists_in_transaction(current.sequence) else "pending"
+        )
+        return current.model_copy(update={"status": status, "owner_id": None})
 
     def _task_case_exists_in_transaction(self, sequence: int) -> bool:
         return (
