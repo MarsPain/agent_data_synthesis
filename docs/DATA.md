@@ -1536,6 +1536,48 @@ and `created_at`. This candidate-time queue is only for rejected candidates and
 is distinct from release-audit `release_review_queue.jsonl`. The default
 foundation run keeps both workflows disabled.
 
+### Agent-first Shadow Quality and Blind Review Contract
+
+The provisional `agent_synthesis` library writes separate public artifacts for
+post-execution quality review. They are not legacy `samples.jsonl` quality
+scores and never alter deterministic Episode admission.
+
+- `shadow_quality_judgments.jsonl` contains one
+  `agent_shadow_quality_judgment_v1` per terminal Episode. A configured judge
+  sees only the public task, observable events, bounded deterministic results,
+  and the fixed five-dimension rubric: instruction fidelity, action efficiency,
+  observation grounding, final-response quality, and safety. Missing,
+  matching-identity, provider-failed, budget-exhausted, or invalid judgments
+  are explicit `unavailable` records. A shadow verdict never changes the
+  Episode collection.
+- `quality_report.json` contains explicit count-based yield, duplicate,
+  capacity, recovery, structural-family, deterministic-gate, shadow-judgment,
+  usage, and review-denominator summaries. It reports no constant quality
+  scores and treats unavailable shadow results as visible uncertainty rather
+  than approval.
+- `review_cohorts.json` freezes a purpose-bound cohort and a hash of its
+  ordered Episode membership. `blind_review_queue.jsonl` exposes only the
+  cohort/purpose identifiers, public task and tools, and observable trajectory;
+  it excludes model identities, lineage, judge verdicts, admission decisions,
+  deterministic assessment, and suggested labels. Diagnostic-development
+  selection includes all bounded shadow fail/uncertain/unavailable outcomes
+  plus a deterministic structural-family pass fill. Held-out evaluation
+  selection is based only on deterministically admitted demonstrations and
+  never on judge verdict.
+- `human_review_labels.jsonl` accepts only
+  `agent_human_review_label_v1` records bound to a known frozen cohort, purpose,
+  Episode id, all five dimensions, bounded reason codes, and valid event
+  references. Labels must attest to direct human review; duplicates, foreign
+  membership, malformed fields, unsafe identifiers, and invalid references are
+  rejected. Partial imports remain incomplete. The importer preserves Episode
+  files and cohort membership, while `review_label_import_report.json` and the
+  quality report identify human-pass Episodes separately from diagnostic and
+  held-out demonstration denominators.
+
+The Agent-first manifest hashes all available public review artifacts. None may
+contain unrestricted rationale, provider payloads, credentials, oracle fields,
+or absolute source paths.
+
 ## Versioning Rules
 
 - Changing environment schema creates a new environment version.

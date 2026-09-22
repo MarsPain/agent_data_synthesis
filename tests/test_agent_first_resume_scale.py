@@ -209,7 +209,10 @@ class _ResumeEpisode:
         del trace
         return EpisodeAssessment(
             passed=True,
-            checks=(AssessmentCheck(name="source_confirmed", passed=True),),
+            checks=(
+                AssessmentCheck(name="source_confirmed", passed=True),
+                AssessmentCheck(name="final_response_grounded", passed=True),
+            ),
             reason_codes=(),
             coverage_tags=("resume",),
             structural_key="resume.final",

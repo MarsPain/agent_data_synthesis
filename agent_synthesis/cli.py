@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TextIO
 
 from agent_synthesis.configuration import RunConfiguration
-from agent_synthesis.engine import RunResult, SynthesisEngine
+from agent_synthesis.engine import ReviewLabelImportResult, RunResult, SynthesisEngine
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -79,6 +79,50 @@ def main(
 
     result = run_cli(engine, argv)
     return 0 if result.status == "completed" else 2
+
+
+def parse_review_import_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parse only completed-run and reviewer-owned label locations."""
+
+    parser = argparse.ArgumentParser(description="Import Agent-first blind-review labels.")
+    parser.add_argument(
+        "--output-directory",
+        required=True,
+        type=Path,
+        help="Completed Agent-first run directory containing frozen review cohorts.",
+    )
+    parser.add_argument(
+        "--labels",
+        required=True,
+        type=Path,
+        help="Reviewer-owned JSONL labels bound to the frozen blind-review queue.",
+    )
+    return parser.parse_args(argv)
+
+
+def import_review_labels_cli(
+    engine: SynthesisEngine,
+    argv: Sequence[str] | None = None,
+    *,
+    stdout: TextIO | None = None,
+) -> ReviewLabelImportResult:
+    """Delegate direct-human import without exposing private run state to the CLI."""
+
+    args = parse_review_import_args(argv)
+    result = engine.import_review_labels(args.output_directory, args.labels)
+    stream = stdout or sys.stdout
+    stream.write(
+        json.dumps(
+            {
+                "status": result.status,
+                "complete": result.complete,
+                "human_approved_episode_ids": result.human_approved_episode_ids,
+            },
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    return result
 
 
 def _read_configuration(path: Path) -> RunConfiguration:

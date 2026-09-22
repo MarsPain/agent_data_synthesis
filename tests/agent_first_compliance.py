@@ -26,6 +26,9 @@ def assert_agent_episode_compliance(
         case.assertEqual(episode["outcome"]["status"], "succeeded")
         case.assertEqual(episode["admission"]["mode"], "deterministic")
         case.assertEqual(episode["admission"]["status"], "admitted")
+        gates = episode["admission"]["gates"]
+        assert isinstance(gates, Mapping)
+        case.assertTrue(all(gates.values()))
         case.assertIsNotNone(episode["verification"])
         verification = episode["verification"]
         assert isinstance(verification, Mapping)
@@ -45,6 +48,9 @@ def assert_agent_episode_compliance(
         )
         case.assertEqual(episode["admission"]["mode"], "deterministic")
         case.assertEqual(episode["admission"]["status"], "rejected")
+        gates = episode["admission"]["gates"]
+        assert isinstance(gates, Mapping)
+        case.assertIn(False, gates.values())
         case.assertFalse(bool(semantic_public_keys & set(episode)))
         episode_ids.add(episode["episode_id"])
 

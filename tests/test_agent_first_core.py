@@ -99,6 +99,7 @@ class _NoteDomain:
         include_hidden_exact_slot: bool = False,
         include_unauthorized_mutation_slot: bool = False,
         include_unauthorized_execution_slot: bool = False,
+        include_unsafe_public_material: bool = False,
         private_ledger_path: Path | None = None,
     ) -> None:
         self.initial_state = {
@@ -110,6 +111,7 @@ class _NoteDomain:
         self.include_hidden_exact_slot = include_hidden_exact_slot
         self.include_unauthorized_mutation_slot = include_unauthorized_mutation_slot
         self.include_unauthorized_execution_slot = include_unauthorized_execution_slot
+        self.include_unsafe_public_material = include_unsafe_public_material
         self.private_ledger_path = private_ledger_path
         self.ledger_was_populated_before_open = False
 
@@ -161,6 +163,19 @@ class _NoteDomainRun:
 
     def compile(self, slot: TaskSlot, proposal: TaskProposal) -> CompiledTask | CompilationRejection:
         self._configuration.model_dump(mode="json")
+        output_properties: dict[str, object] = {
+            "target": {"type": "string"},
+            "note_count": {"type": "integer"},
+        }
+        if self._domain.include_unsafe_public_material:
+            output_properties.update(
+                {
+                    "ground_truth": {"type": "string"},
+                    "auth": {"type": "string"},
+                    "http_body": {"type": "string"},
+                    "thought": {"type": "string"},
+                }
+            )
         public_task = PublicTask(
             instruction="Add a brief thank-you note for Ada.",
             tools=(
@@ -177,14 +192,7 @@ class _NoteDomainRun:
                     },
                     output_schema={
                         "type": "object",
-                        "properties": {
-                            "target": {"type": "string"},
-                            "note_count": {"type": "integer"},
-                            "ground_truth": {"type": "string"},
-                            "auth": {"type": "string"},
-                            "http_body": {"type": "string"},
-                            "thought": {"type": "string"},
-                        },
+                        "properties": output_properties,
                     },
                 ),
             ),
@@ -261,7 +269,11 @@ class _NoteDomainRun:
                 ledger.close()
         isolated_state = json.loads(frozen_initial_state.contents)
         self._domain.opened_states.append(isolated_state)
-        return _NoteEpisode(case, isolated_state)
+        return _NoteEpisode(
+            case,
+            isolated_state,
+            unsafe_public_material=self._domain.include_unsafe_public_material,
+        )
 
     def restore_task_case(
         self,
@@ -293,13 +305,24 @@ class _NoteDomainRun:
         case = task.domain_case
         assert isinstance(case, _NoteCase)
         state = json.loads(frozen_initial_state.contents)
-        return _NoteEpisode(case, state)
+        return _NoteEpisode(
+            case,
+            state,
+            unsafe_public_material=self._domain.include_unsafe_public_material,
+        )
 
 
 class _NoteEpisode:
-    def __init__(self, case: _NoteCase, state: dict[str, object]) -> None:
+    def __init__(
+        self,
+        case: _NoteCase,
+        state: dict[str, object],
+        *,
+        unsafe_public_material: bool,
+    ) -> None:
         self._case = case
         self._state = state
+        self._unsafe_public_material = unsafe_public_material
 
     def execute_tool_call(
         self,
@@ -322,29 +345,32 @@ class _NoteEpisode:
         notes = ada["notes"]
         assert isinstance(notes, list)
         notes.append(self._case.note)
-        return ToolExecutionResult(
-            result_type="state_change",
-            change={
-                "target": self._case.target,
-                "note_count": len(notes),
-                "private_oracle": self._case.private_oracle,
-                "provider_payload": {"secret": "secret-test-key"},
-                "reasoning": "private chain-of-thought material",
-                "source_path": "/Users/agent/private-fixture.json",
-                "access_token": "access-token-value",
-                "password": "password-value",
-                "response": {"raw": "unrestricted-provider-response"},
-                "source_hint": "source at /opt/private-source.json",
-                "expected_value": "private expected result",
-                "passwd": "passwd-value",
-                "completion": "raw provider completion",
-                "analysis": "hidden model analysis",
-                "ground_truth": "hidden exact answer",
-                "auth": "ghp_private_auth_value",
-                "http_body": "unrestricted HTTP provider material",
-                "thought": "hidden internal rationale",
-            },
-        )
+        change: dict[str, object] = {
+            "target": self._case.target,
+            "note_count": len(notes),
+        }
+        if self._unsafe_public_material:
+            change.update(
+                {
+                    "private_oracle": self._case.private_oracle,
+                    "provider_payload": {"secret": "secret-test-key"},
+                    "reasoning": "private chain-of-thought material",
+                    "source_path": "/Users/agent/private-fixture.json",
+                    "access_token": "access-token-value",
+                    "password": "password-value",
+                    "response": {"raw": "unrestricted-provider-response"},
+                    "source_hint": "source at /opt/private-source.json",
+                    "expected_value": "private expected result",
+                    "passwd": "passwd-value",
+                    "completion": "raw provider completion",
+                    "analysis": "hidden model analysis",
+                    "ground_truth": "hidden exact answer",
+                    "auth": "ghp_private_auth_value",
+                    "http_body": "unrestricted HTTP provider material",
+                    "thought": "hidden internal rationale",
+                }
+            )
+        return ToolExecutionResult(result_type="state_change", change=change)
 
     def assess(self, trace: ExecutionTrace) -> EpisodeAssessment:
         authorized = trace.mutation_authorization == "authorized"
@@ -353,6 +379,7 @@ class _NoteEpisode:
             checks=(
                 AssessmentCheck(name="authorized_mutation", passed=authorized),
                 AssessmentCheck(name="requested_note_recorded", passed=authorized),
+                AssessmentCheck(name="final_response_grounded", passed=authorized),
             ),
             reason_codes=() if authorized else ("unauthorized_tool_arguments",),
             coverage_tags=("mutation", "open_note"),
@@ -399,6 +426,14 @@ class AgentFirstCoreTracerTest(unittest.TestCase):
         self.assertEqual(negatives, [])
         self.assertEqual(demonstrations[0]["task"]["instruction"], "Add a brief thank-you note for Ada.")
         self.assertEqual(demonstrations[0]["admission"], {
+            "gates": {
+                "assessment": True,
+                "execution": True,
+                "final_grounding": True,
+                "mutation_authorization": True,
+                "semantic_key": True,
+                "unsafe_material": True,
+            },
             "human_review_status": "unreviewed",
             "mode": "deterministic",
             "status": "admitted",
@@ -442,11 +477,14 @@ class AgentFirstCoreTracerTest(unittest.TestCase):
         self.assertEqual(negatives[0]["outcome"]["status"], "rejected_before_execution")
         self.assertEqual(negatives[0]["admission"]["human_review_status"], "unreviewed")
 
-    def test_private_ledger_is_persisted_before_execution_and_public_artifacts_are_sanitized(self) -> None:
+    def test_unsafe_public_material_is_rejected_while_public_artifacts_stay_sanitized(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             output_directory = Path(temporary_directory)
             private_ledger_path = output_directory / ".private" / "ledger.sqlite3"
-            domain = _NoteDomain(private_ledger_path=private_ledger_path)
+            domain = _NoteDomain(
+                private_ledger_path=private_ledger_path,
+                include_unsafe_public_material=True,
+            )
             engine = SynthesisEngine(
                 AdapterRegistry(
                     domains=(domain,),
@@ -461,7 +499,7 @@ class AgentFirstCoreTracerTest(unittest.TestCase):
             )
 
             result = engine.run(configuration, output_directory)
-            public_text = (output_directory / "demonstrations.jsonl").read_text(
+            public_text = (output_directory / "negatives.jsonl").read_text(
                 encoding="utf-8"
             )
             manifest_record = json.loads(
@@ -505,7 +543,8 @@ class AgentFirstCoreTracerTest(unittest.TestCase):
                 '"thought"',
             ):
                 self.assertNotIn(forbidden, public_text)
-            public_episode = _read_json_lines(output_directory / "demonstrations.jsonl")[0]
+            public_episode = _read_json_lines(output_directory / "negatives.jsonl")[0]
+            self.assertEqual(public_episode["outcome"]["reason_code"], "unsafe_public_material")
             self.assertEqual(
                 public_episode["events"][1]["change"],
                 {"target": "Ada", "note_count": 1},
@@ -519,6 +558,9 @@ class AgentFirstCoreTracerTest(unittest.TestCase):
                     "demonstrations.jsonl",
                     "negatives.jsonl",
                     "provider_usage.json",
+                    "quality_report.json",
+                    "run_report.json",
+                    "shadow_quality_judgments.jsonl",
                 },
             )
             self.assertNotIn("evidence_graph", manifest_record)

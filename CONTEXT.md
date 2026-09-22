@@ -82,6 +82,17 @@ terms, not package structure, implementation plans, or work status. See
   final response produced while attempting a candidate task.
 - **Episode:** Sanitized runtime evidence for one task execution, suitable for
   replay, quality scoring, and reward-label derivation.
+- **Shadow quality judgment:** A post-execution, five-dimension, bounded
+  judgment over a public task, observable trajectory, deterministic results,
+  and fixed rubric. It is separate from deterministic admission and cannot
+  move an Episode between demonstrations and negatives.
+- **Blind review cohort:** A purpose-bound, frozen set of completed Episode
+  ids prepared either for diagnostic development or held-out evaluation. Its
+  reviewer-facing queue excludes model identities, judge verdicts, admission
+  decisions, and suggested deterministic labels.
+- **Human review label:** A direct-human, cohort-bound label with all five
+  quality dimensions, bounded reasons, and event references. Only an aggregate
+  human pass identifies an Episode as part of the human-approved subset.
 - **Verifier:** An independent check that compares execution evidence and final
   state with the candidate's declared expected outcome.
 - **Accepted sample:** A candidate whose contracts, execution, final answer,

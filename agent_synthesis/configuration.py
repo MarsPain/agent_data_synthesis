@@ -8,6 +8,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from agent_synthesis.quality import ShadowQualityConfiguration
+
 
 class RunConfiguration(BaseModel):
     """Configuration the core understands without learning Domain semantics."""
@@ -31,6 +33,9 @@ class RunConfiguration(BaseModel):
     max_response_bytes: int = Field(default=64_000, ge=256, le=1_000_000)
     max_output_tokens: int = Field(default=1_024, ge=1, le=32_768)
     admission_mode: Literal["deterministic"] = "deterministic"
+    shadow_quality: ShadowQualityConfiguration = Field(
+        default_factory=ShadowQualityConfiguration
+    )
 
     @field_validator("run_id", "domain_id", "model_id")
     @classmethod

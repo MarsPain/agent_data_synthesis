@@ -117,6 +117,34 @@ class EpisodeOutcome(BaseModel):
     reason_code: str | None = Field(default=None, max_length=128)
 
 
+class DeterministicAdmissionGates(BaseModel):
+    """The fixed hard gates required before an Episode enters demonstrations."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    execution: bool
+    mutation_authorization: bool
+    assessment: bool
+    final_grounding: bool
+    unsafe_material: bool
+    semantic_key: bool
+
+    @property
+    def passed(self) -> bool:
+        """Return whether every deterministic gate has passed."""
+
+        return all(
+            (
+                self.execution,
+                self.mutation_authorization,
+                self.assessment,
+                self.final_grounding,
+                self.unsafe_material,
+                self.semantic_key,
+            )
+        )
+
+
 class AdmissionRecord(BaseModel):
     """Admission is explicit and never implies human approval."""
 
@@ -124,7 +152,14 @@ class AdmissionRecord(BaseModel):
 
     mode: Literal["deterministic"]
     status: Literal["admitted", "rejected"]
+    gates: DeterministicAdmissionGates
     human_review_status: Literal["unreviewed"] = "unreviewed"
+
+    @model_validator(mode="after")
+    def _require_all_deterministic_gates_for_admission(self) -> "AdmissionRecord":
+        if self.status == "admitted" and not self.gates.passed:
+            raise ValueError("admitted Episodes must pass every deterministic gate")
+        return self
 
 
 class ModelLineage(BaseModel):
@@ -142,7 +177,7 @@ class RoleLineage(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    role: Literal["task_generation", "agent"]
+    role: Literal["task_generation", "agent", "quality_judge"]
     provider_id: str = Field(min_length=1, max_length=128)
     model_id: str = Field(min_length=1, max_length=128)
     model_version: str = Field(min_length=1, max_length=128)
@@ -238,6 +273,26 @@ def sanitized_episode_record(episode: PublicEpisode) -> dict[str, object]:
     assert isinstance(record, dict)
     _limit_event_payloads(record, episode.task.tools)
     return PublicEpisode.model_validate(record).model_dump(mode="json")
+
+
+def has_unsafe_public_material(value: object) -> bool:
+    """Detect data that the public sanitizer would redact before admission uses it.
+
+    Detection is deliberately separate from redaction: public exports remain
+    safe, while a detected secret/oracle/provider-shaped value is still a hard
+    deterministic admission failure rather than a silently cleaned success.
+    """
+
+    if isinstance(value, BaseModel):
+        return has_unsafe_public_material(value.model_dump(mode="json", exclude_none=True))
+    if isinstance(value, dict):
+        return any(
+            _forbidden_key(key) or has_unsafe_public_material(nested)
+            for key, nested in value.items()
+        )
+    if isinstance(value, (list, tuple)):
+        return any(has_unsafe_public_material(item) for item in value)
+    return isinstance(value, str) and _forbidden_text(value)
 
 
 def sanitized_public_task(task: PublicTask) -> PublicTask:

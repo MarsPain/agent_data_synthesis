@@ -13,8 +13,9 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
 
 from agent_synthesis.domain import TaskSlot
 from agent_synthesis.episode import EpisodeEvent, PublicTask
+from agent_synthesis.quality import QualityJudgeRequest
 
-type ModelRole = Literal["task_generation", "agent"]
+type ModelRole = Literal["task_generation", "agent", "quality_judge"]
 type ThinkingMode = Literal["enabled", "disabled"]
 _SAFE_ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,127}$")
 _SAFE_DIAGNOSTIC_CODE = re.compile(r"^[a-z][a-z0-9_]{0,127}$")
@@ -123,7 +124,7 @@ class AgentRequest(BaseModel):
         }
 
 
-type JsonModelRequest = TaskGenerationRequest | AgentRequest
+type JsonModelRequest = TaskGenerationRequest | AgentRequest | QualityJudgeRequest
 
 
 class JsonModelResponse(BaseModel):

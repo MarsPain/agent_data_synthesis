@@ -146,7 +146,10 @@ class _BenchmarkEpisode:
         del trace
         return EpisodeAssessment(
             passed=True,
-            checks=(AssessmentCheck(name="benchmark_final_response", passed=True),),
+            checks=(
+                AssessmentCheck(name="benchmark_final_response", passed=True),
+                AssessmentCheck(name="final_response_grounded", passed=True),
+            ),
             reason_codes=(),
             coverage_tags=("engine_scale_benchmark",),
             structural_key="benchmark.final_response",

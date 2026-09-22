@@ -15,6 +15,7 @@ from agent_synthesis.configuration import RunConfiguration
 from agent_synthesis.domain import CompiledTask, FrozenInitialState, TaskSlot
 from agent_synthesis.episode import PublicEpisode, PublicTask, sanitized_episode_record
 from agent_synthesis.model import ModelRole, TokenUsage
+from agent_synthesis.quality import QualityJudgment
 
 
 class FrozenStateRecord(BaseModel):
@@ -277,6 +278,14 @@ class PrivateLedger:
                     sequence INTEGER PRIMARY KEY,
                     semantic_key TEXT,
                     admitted INTEGER NOT NULL,
+                    record_json TEXT NOT NULL
+                )
+                """
+            )
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS quality_judgments (
+                    sequence INTEGER PRIMARY KEY,
                     record_json TEXT NOT NULL
                 )
                 """
@@ -656,6 +665,41 @@ class PrivateLedger:
                 "SELECT record_json FROM terminal_outcomes WHERE sequence = ?", (sequence,)
             ).fetchone()
         return None if row is None else TerminalOutcomeRecord.model_validate_json(row[0])
+
+    def record_quality_judgment(self, judgment: QualityJudgment) -> QualityJudgment:
+        """Persist exactly one shadow result for a completed Episode sequence."""
+
+        with self._lock, self._connection:
+            terminal = self._terminal_outcome_exists_in_transaction(judgment.sequence)
+            if not terminal:
+                raise ValueError("quality judgment requires a terminal Episode")
+            if self._connection.execute(
+                "SELECT 1 FROM quality_judgments WHERE sequence = ?",
+                (judgment.sequence,),
+            ).fetchone() is not None:
+                raise ValueError(
+                    f"quality judgment already exists for sequence {judgment.sequence}"
+                )
+            self._connection.execute(
+                "INSERT INTO quality_judgments(sequence, record_json) VALUES (?, ?)",
+                (judgment.sequence, judgment.model_dump_json()),
+            )
+        return judgment
+
+    def quality_judgment(self, sequence: int) -> QualityJudgment | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT record_json FROM quality_judgments WHERE sequence = ?",
+                (sequence,),
+            ).fetchone()
+        return None if row is None else QualityJudgment.model_validate_json(row[0])
+
+    def quality_judgments(self) -> tuple[QualityJudgment, ...]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT record_json FROM quality_judgments ORDER BY sequence"
+            ).fetchall()
+        return tuple(QualityJudgment.model_validate_json(row[0]) for row in rows)
 
     def admitted_semantic_keys(self) -> frozenset[str]:
         with self._lock:

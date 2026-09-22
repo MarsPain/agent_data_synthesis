@@ -30,6 +30,7 @@ from agent_synthesis.domain import (
 )
 from agent_synthesis.episode import (
     AdmissionRecord,
+    DeterministicAdmissionGates,
     EpisodeAssessment,
     EpisodeEvent,
     EpisodeOutcome,
@@ -40,6 +41,7 @@ from agent_synthesis.episode import (
     RoleLineage,
     ToolDefinition,
     bounded_event_for_public_tools,
+    has_unsafe_public_material,
     sanitized_episode_record,
     sanitized_public_task,
 )
@@ -68,6 +70,25 @@ from agent_synthesis.model import (
     parse_agent_decision,
 )
 from agent_synthesis.registry import AdapterRegistry
+from agent_synthesis.quality import (
+    JudgmentUnavailableReason,
+    QualityJudgeIdentity,
+    QualityJudgeRequest,
+    QualityJudgeResponse,
+    QualityJudgeUsage,
+    QualityJudgment,
+    BlindReviewQueueItem,
+    HumanReviewLabel,
+    ReviewCohort,
+    ReviewLabelImportError,
+    ReviewQueueConfiguration,
+    aggregate_dimension_verdicts,
+    blind_queue_items_for_cohort,
+    build_review_cohort,
+    build_quality_report,
+    deterministic_results_for_episode,
+    summarize_human_review,
+)
 
 
 @dataclass(frozen=True)
@@ -88,6 +109,8 @@ class RunResult:
     terminal_outcome_count: int
     physical_request_count: int
     run_report_path: Path
+    shadow_judgments_path: Path
+    quality_report_path: Path
 
 
 @dataclass(frozen=True)
@@ -119,6 +142,30 @@ class ReplayResult:
     @property
     def aligned(self) -> bool:
         return all(result.status in {"aligned", "not_executed"} for result in self.episode_results)
+
+
+@dataclass(frozen=True)
+class ReviewQueueResult:
+    """One newly frozen blind-review cohort and its public queue paths."""
+
+    run_directory: Path
+    cohort: ReviewCohort
+    queue_path: Path
+    cohorts_path: Path
+    quality_report_path: Path
+
+
+@dataclass(frozen=True)
+class ReviewLabelImportResult:
+    """The bounded status of one human-label import into frozen cohorts."""
+
+    run_directory: Path
+    status: Literal["incomplete", "complete"]
+    complete: bool
+    labels_path: Path
+    report_path: Path
+    quality_report_path: Path
+    human_approved_episode_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -170,6 +217,15 @@ class _RequestUsageSummary:
     reserved_request_count: int
     failed_request_count: int
     completed_request_count: int
+
+
+@dataclass(frozen=True)
+class _ShadowJudgeContext:
+    """Resolved shadow judge state; no unavailable state can dispatch a request."""
+
+    model: JsonModelAdapter | None
+    identity: QualityJudgeIdentity | None
+    unavailable_reason: JudgmentUnavailableReason | None
 
 
 class CancellationSignal:
@@ -230,6 +286,72 @@ class SynthesisEngine:
     def __init__(self, registry: AdapterRegistry) -> None:
         self._registry = registry
 
+    def _shadow_judge_context(
+        self,
+        configuration: RunConfiguration,
+        generator_and_agent_model: JsonModelAdapter,
+    ) -> _ShadowJudgeContext:
+        """Resolve the optional judge without allowing identity failures to dispatch."""
+
+        quality = configuration.shadow_quality
+        if quality.mode == "disabled":
+            return _ShadowJudgeContext(
+                model=None,
+                identity=None,
+                unavailable_reason="not_requested",
+            )
+        if quality.judge_model_id is None:
+            return _ShadowJudgeContext(
+                model=None,
+                identity=None,
+                unavailable_reason="judge_identity_missing",
+            )
+        try:
+            judge = self._registry.model(quality.judge_model_id)
+        except KeyError:
+            return _ShadowJudgeContext(
+                model=None,
+                identity=None,
+                unavailable_reason="judge_not_registered",
+            )
+        try:
+            identity = QualityJudgeIdentity(
+                provider_id=judge.provider_id,
+                model_id=judge.model_id,
+                model_version=judge.model_version,
+            )
+        except (TypeError, ValidationError, ValueError):
+            return _ShadowJudgeContext(
+                model=None,
+                identity=None,
+                unavailable_reason="judge_identity_missing",
+            )
+        try:
+            generator_identity = QualityJudgeIdentity(
+                provider_id=generator_and_agent_model.provider_id,
+                model_id=generator_and_agent_model.model_id,
+                model_version=generator_and_agent_model.model_version,
+            )
+        except (TypeError, ValidationError, ValueError):
+            return _ShadowJudgeContext(
+                model=None,
+                identity=None,
+                unavailable_reason="judge_identity_missing",
+            )
+        judge_identity = (identity.provider_id, identity.model_id, identity.model_version)
+        generator_identity_key = (
+            generator_identity.provider_id,
+            generator_identity.model_id,
+            generator_identity.model_version,
+        )
+        if judge_identity == generator_identity_key:
+            return _ShadowJudgeContext(
+                model=None,
+                identity=identity,
+                unavailable_reason="judge_identity_matches_generator",
+            )
+        return _ShadowJudgeContext(model=judge, identity=identity, unavailable_reason=None)
+
     def run(
         self,
         configuration: RunConfiguration | Mapping[str, object],
@@ -254,6 +376,7 @@ class SynthesisEngine:
         paths = _RunPaths.from_directory(run_directory)
         domain = self._registry.domain(config.domain_id)
         model = self._registry.model(config.model_id)
+        shadow_judge = self._shadow_judge_context(config, model)
         with _RunDirectoryWriterLock(run_directory):
             ledger = PrivateLedger.create(paths.private_ledger_path)
             try:
@@ -286,6 +409,7 @@ class SynthesisEngine:
                         status="failed",
                         partial_reason="known_task_capacity_insufficient",
                         known_task_capacity=known_task_capacity,
+                        shadow_judge=shadow_judge,
                     )
                 slots = _bounded_slots(domain_run.slots(config.slot_limit), config.slot_limit)
                 ledger.record_allocated_slots(
@@ -305,6 +429,7 @@ class SynthesisEngine:
                     known_task_capacity=known_task_capacity,
                     cancellation_signal=cancellation_signal,
                     failure_injector=failure_injector,
+                    shadow_judge=shadow_judge,
                 )
             finally:
                 ledger.close()
@@ -337,6 +462,7 @@ class SynthesisEngine:
                     raise ValueError("resume configuration does not match the saved run")
                 domain = self._registry.domain(configuration.domain_id)
                 model = self._registry.model(configuration.model_id)
+                shadow_judge = self._shadow_judge_context(configuration, model)
                 if domain.domain_version != metadata.domain_version:
                     raise ValueError("resume Domain version does not match the saved run")
                 frozen_initial_state = _read_frozen_snapshot(paths.frozen_snapshot_path, ledger)
@@ -364,6 +490,7 @@ class SynthesisEngine:
                         status="failed",
                         partial_reason="known_task_capacity_insufficient",
                         known_task_capacity=known_task_capacity,
+                        shadow_judge=shadow_judge,
                     )
                 prior_status = ledger.run_status()
                 if (
@@ -396,6 +523,7 @@ class SynthesisEngine:
                     known_task_capacity=known_task_capacity,
                     cancellation_signal=cancellation_signal,
                     failure_injector=failure_injector,
+                    shadow_judge=shadow_judge,
                 )
             finally:
                 ledger.close()
@@ -448,6 +576,119 @@ class SynthesisEngine:
             episode_results=tuple(results),
         )
 
+    def create_review_queue(
+        self,
+        run_directory: Path,
+        configuration: ReviewQueueConfiguration | Mapping[str, object],
+    ) -> ReviewQueueResult:
+        """Freeze one blind diagnostic or held-out cohort for a completed run."""
+
+        queue_configuration = (
+            configuration
+            if isinstance(configuration, ReviewQueueConfiguration)
+            else ReviewQueueConfiguration.model_validate(configuration)
+        )
+        paths = _RunPaths.from_directory(Path(run_directory))
+        with _RunDirectoryWriterLock(paths.run_directory):
+            ledger = PrivateLedger.open(paths.private_ledger_path)
+            try:
+                metadata = ledger.run_metadata()
+                status = ledger.run_status()
+                if status.status != "completed":
+                    raise ValueError("review queues require a completed run directory")
+                cohorts = _read_review_cohorts(paths.review_cohorts_path)
+                if any(
+                    cohort.cohort_id == queue_configuration.cohort_id
+                    for cohort in cohorts
+                ):
+                    raise ReviewLabelImportError("review cohort id is already frozen")
+                episodes = tuple(record.episode for record in ledger.terminal_outcomes())
+                cohort, _ = build_review_cohort(
+                    configuration=queue_configuration,
+                    episodes=episodes,
+                    judgments=ledger.quality_judgments(),
+                    existing_episode_ids=frozenset(
+                        episode_id for existing in cohorts for episode_id in existing.episode_ids
+                    ),
+                )
+                updated_cohorts = tuple((*cohorts, cohort))
+                _write_review_cohorts(paths.review_cohorts_path, updated_cohorts)
+                _write_blind_review_queue(
+                    paths.review_queue_path,
+                    updated_cohorts,
+                    episodes,
+                )
+                _refresh_quality_report_and_manifest(
+                    paths=paths,
+                    ledger=ledger,
+                    configuration=metadata.configuration_model(),
+                    status=status,
+                )
+                return ReviewQueueResult(
+                    run_directory=paths.run_directory,
+                    cohort=cohort,
+                    queue_path=paths.review_queue_path,
+                    cohorts_path=paths.review_cohorts_path,
+                    quality_report_path=paths.quality_report_path,
+                )
+            finally:
+                ledger.close()
+
+    def import_review_labels(
+        self,
+        run_directory: Path,
+        labels: Iterable[Mapping[str, object]] | Path | str,
+    ) -> ReviewLabelImportResult:
+        """Import only direct-human labels bound to frozen blind-review members."""
+
+        paths = _RunPaths.from_directory(Path(run_directory))
+        submitted_labels = _parse_submitted_human_labels(labels)
+        with _RunDirectoryWriterLock(paths.run_directory):
+            ledger = PrivateLedger.open(paths.private_ledger_path)
+            try:
+                metadata = ledger.run_metadata()
+                status = ledger.run_status()
+                if status.status != "completed":
+                    raise ValueError("review labels require a completed run directory")
+                cohorts = _read_review_cohorts(paths.review_cohorts_path)
+                if not cohorts:
+                    raise ReviewLabelImportError("review labels require a frozen review cohort")
+                existing_labels = _read_human_review_labels(paths.human_review_labels_path)
+                episodes = tuple(record.episode for record in ledger.terminal_outcomes())
+                _validate_submitted_human_labels(
+                    submitted_labels,
+                    existing_labels=existing_labels,
+                    cohorts=cohorts,
+                    episodes=episodes,
+                )
+                all_labels = tuple((*existing_labels, *submitted_labels))
+                _write_human_review_labels(paths.human_review_labels_path, all_labels)
+                summary = summarize_human_review(cohorts, all_labels)
+                if summary.status == "not_started":
+                    raise AssertionError("frozen cohorts must have an import status")
+                _write_review_label_import_report(
+                    paths.review_label_import_report_path,
+                    cohorts=cohorts,
+                    labels=all_labels,
+                )
+                _refresh_quality_report_and_manifest(
+                    paths=paths,
+                    ledger=ledger,
+                    configuration=metadata.configuration_model(),
+                    status=status,
+                )
+                return ReviewLabelImportResult(
+                    run_directory=paths.run_directory,
+                    status=summary.status,
+                    complete=summary.complete,
+                    labels_path=paths.human_review_labels_path,
+                    report_path=paths.review_label_import_report_path,
+                    quality_report_path=paths.quality_report_path,
+                    human_approved_episode_ids=summary.human_approved_episode_ids,
+                )
+            finally:
+                ledger.close()
+
 
 @dataclass(frozen=True)
 class _RunPaths:
@@ -456,6 +697,12 @@ class _RunPaths:
     negatives_path: Path
     provider_usage_path: Path
     run_report_path: Path
+    shadow_judgments_path: Path
+    quality_report_path: Path
+    review_queue_path: Path
+    review_cohorts_path: Path
+    human_review_labels_path: Path
+    review_label_import_report_path: Path
     manifest_path: Path
     private_ledger_path: Path
     frozen_snapshot_path: Path
@@ -470,10 +717,213 @@ class _RunPaths:
             negatives_path=directory / "negatives.jsonl",
             provider_usage_path=directory / "provider_usage.json",
             run_report_path=directory / "run_report.json",
+            shadow_judgments_path=directory / "shadow_quality_judgments.jsonl",
+            quality_report_path=directory / "quality_report.json",
+            review_queue_path=directory / "blind_review_queue.jsonl",
+            review_cohorts_path=directory / "review_cohorts.json",
+            human_review_labels_path=directory / "human_review_labels.jsonl",
+            review_label_import_report_path=directory / "review_label_import_report.json",
             manifest_path=directory / "manifest.json",
             private_ledger_path=private_directory / "ledger.sqlite3",
             frozen_snapshot_path=private_directory / "frozen_state.json",
         )
+
+
+def _read_review_cohorts(path: Path) -> tuple[ReviewCohort, ...]:
+    if not path.exists():
+        return ()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict) or payload.get("schema_version") != "agent_review_cohorts_v1":
+            raise ValueError
+        records = payload.get("cohorts")
+        if not isinstance(records, list):
+            raise ValueError
+        cohorts = tuple(ReviewCohort.model_validate(record) for record in records)
+    except (OSError, TypeError, ValidationError, ValueError):
+        raise ReviewLabelImportError("frozen review cohort metadata is invalid") from None
+    if len({cohort.cohort_id for cohort in cohorts}) != len(cohorts):
+        raise ReviewLabelImportError("frozen review cohort ids must be unique")
+    memberships = [episode_id for cohort in cohorts for episode_id in cohort.episode_ids]
+    if len(set(memberships)) != len(memberships):
+        raise ReviewLabelImportError("frozen review cohorts must not overlap")
+    return cohorts
+
+
+def _write_review_cohorts(path: Path, cohorts: Sequence[ReviewCohort]) -> None:
+    payload = {
+        "schema_version": "agent_review_cohorts_v1",
+        "cohorts": [cohort.model_dump(mode="json") for cohort in cohorts],
+    }
+    _atomic_write_text(path, json.dumps(payload, sort_keys=True, indent=2) + "\n")
+
+
+def _write_blind_review_queue(
+    path: Path,
+    cohorts: Sequence[ReviewCohort],
+    episodes: Sequence[PublicEpisode],
+) -> None:
+    items = [
+        item
+        for cohort in cohorts
+        for item in blind_queue_items_for_cohort(cohort, episodes)
+    ]
+    lines = (
+        json.dumps(item.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+        + "\n"
+        for item in items
+    )
+    _atomic_write_text(path, "".join(lines))
+
+
+def _read_human_review_labels(path: Path) -> tuple[HumanReviewLabel, ...]:
+    if not path.exists():
+        return ()
+    try:
+        labels = tuple(
+            HumanReviewLabel.model_validate_json(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line
+        )
+    except (OSError, ValidationError, ValueError):
+        raise ReviewLabelImportError("stored human review labels are invalid") from None
+    keys = {(label.cohort_id, label.episode_id) for label in labels}
+    if len(keys) != len(labels):
+        raise ReviewLabelImportError("stored human review labels are duplicated")
+    return labels
+
+
+def _parse_submitted_human_labels(
+    source: Iterable[Mapping[str, object]] | Path | str,
+) -> tuple[HumanReviewLabel, ...]:
+    try:
+        if isinstance(source, (Path, str)):
+            path = Path(source)
+            values: Iterable[object] = (
+                json.loads(line)
+                for line in path.read_text(encoding="utf-8").splitlines()
+                if line
+            )
+        else:
+            values = source
+        labels = tuple(HumanReviewLabel.model_validate(value) for value in values)
+    except (OSError, TypeError, ValidationError, ValueError, json.JSONDecodeError):
+        raise ReviewLabelImportError("submitted human review labels are malformed or unsafe") from None
+    keys = {(label.cohort_id, label.episode_id) for label in labels}
+    if len(keys) != len(labels):
+        raise ReviewLabelImportError("submitted human review labels are duplicated")
+    return labels
+
+
+def _validate_submitted_human_labels(
+    submitted: Sequence[HumanReviewLabel],
+    *,
+    existing_labels: Sequence[HumanReviewLabel],
+    cohorts: Sequence[ReviewCohort],
+    episodes: Sequence[PublicEpisode],
+) -> None:
+    cohorts_by_id = {cohort.cohort_id: cohort for cohort in cohorts}
+    episodes_by_id = {episode.episode_id: episode for episode in episodes}
+    existing_keys = {(label.cohort_id, label.episode_id) for label in existing_labels}
+    for label in submitted:
+        cohort = cohorts_by_id.get(label.cohort_id)
+        if cohort is None or cohort.purpose != label.purpose:
+            raise ReviewLabelImportError("human review label has a foreign cohort or purpose")
+        if label.episode_id not in cohort.episode_ids:
+            raise ReviewLabelImportError("human review label targets an Episode outside its queue")
+        key = (label.cohort_id, label.episode_id)
+        if key in existing_keys:
+            raise ReviewLabelImportError("human review label duplicates an imported label")
+        episode = episodes_by_id.get(label.episode_id)
+        if episode is None:
+            raise ReviewLabelImportError("human review label targets an unknown Episode")
+        try:
+            QualityJudgeResponse(dimensions=label.dimensions).validate_event_references(
+                len(episode.events)
+            )
+        except (ValidationError, ValueError):
+            raise ReviewLabelImportError("human review evidence references are invalid") from None
+
+
+def _write_human_review_labels(path: Path, labels: Sequence[HumanReviewLabel]) -> None:
+    ordered = sorted(labels, key=lambda label: (label.cohort_id, label.episode_id))
+    lines = (
+        json.dumps(label.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+        + "\n"
+        for label in ordered
+    )
+    _atomic_write_text(path, "".join(lines))
+
+
+def _write_review_label_import_report(
+    path: Path,
+    *,
+    cohorts: Sequence[ReviewCohort],
+    labels: Sequence[HumanReviewLabel],
+) -> None:
+    summary = summarize_human_review(cohorts, labels)
+    payload = {
+        "schema_version": "agent_review_label_import_report_v1",
+        "status": summary.status,
+        "complete": summary.complete,
+        "cohorts": [
+            {
+                "cohort_id": cohort.cohort_id,
+                "purpose": cohort.purpose,
+                "membership_hash": cohort.membership_hash,
+                "member_count": len(cohort.episode_ids),
+                "imported_label_count": summary.cohort_imported_label_counts.get(
+                    cohort.cohort_id,
+                    0,
+                ),
+                "missing_label_count": len(cohort.episode_ids)
+                - summary.cohort_imported_label_counts.get(cohort.cohort_id, 0),
+            }
+            for cohort in cohorts
+        ],
+        "human_approved_episode_ids": list(summary.human_approved_episode_ids),
+    }
+    _atomic_write_text(path, json.dumps(payload, sort_keys=True, indent=2) + "\n")
+
+
+def _refresh_quality_report_and_manifest(
+    *,
+    paths: _RunPaths,
+    ledger: PrivateLedger,
+    configuration: RunConfiguration,
+    status: object,
+) -> None:
+    run_status = getattr(status, "status")
+    partial_reason = getattr(status, "reason_code")
+    known_task_capacity = getattr(status, "known_task_capacity")
+    if not isinstance(run_status, str):
+        raise ValueError("run status is invalid")
+    if partial_reason is not None and not isinstance(partial_reason, str):
+        raise ValueError("run partial reason is invalid")
+    if known_task_capacity is not None and not isinstance(known_task_capacity, int):
+        raise ValueError("run capacity is invalid")
+    episodes = tuple(record.episode for record in ledger.terminal_outcomes())
+    requests = ledger.provider_requests()
+    cohorts = _read_review_cohorts(paths.review_cohorts_path)
+    human_labels = _read_human_review_labels(paths.human_review_labels_path)
+    _write_quality_report(
+        paths=paths,
+        configuration=configuration,
+        status=run_status,
+        partial_reason=partial_reason,
+        known_task_capacity=known_task_capacity,
+        allocated_slot_count=ledger.allocated_slot_count(),
+        episodes=episodes,
+        judgments=ledger.quality_judgments(),
+        requests=requests,
+        cohorts=cohorts,
+        human_labels=human_labels,
+    )
+    _write_public_manifest(
+        paths=paths,
+        configuration=configuration,
+        source_fingerprint=ledger.initial_state().fingerprint,
+    )
 
 
 def _resume_arguments(
@@ -579,6 +1029,7 @@ def _drive_run(
     known_task_capacity: int | None,
     cancellation_signal: CancellationSignal | None,
     failure_injector: FailureInjector | object | None,
+    shadow_judge: _ShadowJudgeContext,
 ) -> RunResult:
     """Dispatch only bounded work and leave incomplete ownership resumable."""
 
@@ -946,6 +1397,7 @@ def _drive_run(
         status=status,
         partial_reason=partial_reason,
         known_task_capacity=known_task_capacity,
+        shadow_judge=shadow_judge,
     )
 
 
@@ -972,10 +1424,18 @@ def _finalize_run(
     status: Literal["completed", "partial", "cancelled", "failed"],
     partial_reason: str | None,
     known_task_capacity: int | None,
+    shadow_judge: _ShadowJudgeContext,
 ) -> RunResult:
     terminal_outcome_count, accepted_count = ledger.terminal_outcome_summary()
     allocated_slot_count = ledger.allocated_slot_count()
     _write_terminal_collections(paths, ledger.iter_terminal_outcomes())
+    _write_shadow_quality_judgments(
+        paths=paths,
+        ledger=ledger,
+        configuration=configuration,
+        shadow_judge=shadow_judge,
+        allow_provider_calls=status != "cancelled",
+    )
     requests = ledger.provider_requests()
     _write_provider_usage(paths.provider_usage_path, requests)
     _write_run_report(
@@ -989,17 +1449,26 @@ def _finalize_run(
         accepted_count=accepted_count,
         requests=requests,
     )
-    manifest = build_manifest(
-        run_id=configuration.run_id,
-        configuration=configuration.normalized_public_record(),
-        source_fingerprint=frozen_initial_state.fingerprint,
-        artifact_paths=(
-            paths.demonstrations_path,
-            paths.negatives_path,
-            paths.provider_usage_path,
-        ),
+    cohorts = _read_review_cohorts(paths.review_cohorts_path)
+    human_labels = _read_human_review_labels(paths.human_review_labels_path)
+    _write_quality_report(
+        paths=paths,
+        configuration=configuration,
+        status=status,
+        partial_reason=partial_reason,
+        known_task_capacity=known_task_capacity,
+        allocated_slot_count=allocated_slot_count,
+        episodes=tuple(record.episode for record in ledger.terminal_outcomes()),
+        judgments=ledger.quality_judgments(),
+        requests=requests,
+        cohorts=cohorts,
+        human_labels=human_labels,
     )
-    write_manifest(paths.manifest_path, manifest)
+    _write_public_manifest(
+        paths=paths,
+        configuration=configuration,
+        source_fingerprint=frozen_initial_state.fingerprint,
+    )
     demonstrations = accepted_count
     negatives = terminal_outcome_count - demonstrations
     return RunResult(
@@ -1017,7 +1486,202 @@ def _finalize_run(
         terminal_outcome_count=terminal_outcome_count,
         physical_request_count=len(requests),
         run_report_path=paths.run_report_path,
+        shadow_judgments_path=paths.shadow_judgments_path,
+        quality_report_path=paths.quality_report_path,
     )
+
+
+def _write_shadow_quality_judgments(
+    *,
+    paths: _RunPaths,
+    ledger: PrivateLedger,
+    configuration: RunConfiguration,
+    shadow_judge: _ShadowJudgeContext,
+    allow_provider_calls: bool,
+) -> None:
+    """Evaluate each new terminal Episode in shadow, never changing its admission."""
+
+    for terminal in ledger.terminal_outcomes():
+        episode = terminal.episode
+        if ledger.quality_judgment(episode.sequence) is not None:
+            continue
+        if shadow_judge.model is None or not allow_provider_calls:
+            reason = shadow_judge.unavailable_reason or "not_requested"
+            judgment = _unavailable_quality_judgment(
+                episode=episode,
+                reason=reason,
+                identity=shadow_judge.identity,
+                records=(),
+            )
+        else:
+            request = QualityJudgeRequest(
+                task=episode.task,
+                observable_events=episode.events,
+                deterministic_results=deterministic_results_for_episode(episode),
+                timeout_seconds=configuration.timeout_seconds,
+                max_response_bytes=configuration.max_response_bytes,
+                max_output_tokens=configuration.max_output_tokens,
+            )
+            call = _call_model(
+                ledger=ledger,
+                model=shadow_judge.model,
+                configuration=configuration,
+                request=request,
+                logical_request_id=f"quality_judge:{episode.sequence:04d}",
+                sequence=episode.sequence,
+                related_sequences=(),
+                request_kind="initial",
+                failure_injector=None,
+                cancellation_signal=None,
+            )
+            if call.response is None:
+                reason: JudgmentUnavailableReason = (
+                    "request_budget_exhausted"
+                    if call.error_code == "provider_request_budget_exhausted"
+                    else "provider_failed"
+                )
+                judgment = _unavailable_quality_judgment(
+                    episode=episode,
+                    reason=reason,
+                    identity=shadow_judge.identity,
+                    records=call.records,
+                )
+            else:
+                try:
+                    response = QualityJudgeResponse.model_validate(call.response.content)
+                    response = response.validate_event_references(len(episode.events))
+                except (TypeError, ValueError, ValidationError):
+                    judgment = _unavailable_quality_judgment(
+                        episode=episode,
+                        reason="invalid_judgment",
+                        identity=shadow_judge.identity,
+                        records=call.records,
+                    )
+                else:
+                    assert shadow_judge.identity is not None
+                    judgment = QualityJudgment(
+                        sequence=episode.sequence,
+                        episode_id=episode.episode_id,
+                        domain_id=episode.domain_id,
+                        availability="available",
+                        verdict=aggregate_dimension_verdicts(response.dimensions),
+                        dimensions=response.dimensions,
+                        judge_identity=shadow_judge.identity,
+                        usage=_quality_judge_usage(call.records),
+                    )
+        ledger.record_quality_judgment(judgment)
+    lines = (
+        json.dumps(
+            judgment.model_dump(mode="json"),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+        for judgment in ledger.quality_judgments()
+    )
+    _atomic_write_text(paths.shadow_judgments_path, "".join(lines))
+
+
+def _unavailable_quality_judgment(
+    *,
+    episode: PublicEpisode,
+    reason: JudgmentUnavailableReason,
+    identity: QualityJudgeIdentity | None,
+    records: Sequence[ProviderRequestRecord],
+) -> QualityJudgment:
+    return QualityJudgment(
+        sequence=episode.sequence,
+        episode_id=episode.episode_id,
+        domain_id=episode.domain_id,
+        availability="unavailable",
+        verdict="unavailable",
+        unavailable_reason=reason,
+        judge_identity=identity,
+        usage=_quality_judge_usage(records),
+    )
+
+
+def _quality_judge_usage(
+    records: Sequence[ProviderRequestRecord],
+) -> QualityJudgeUsage:
+    summary = _request_usage_summary(records)
+    return QualityJudgeUsage(
+        physical_request_count=summary.physical_request_count,
+        retry_count=summary.retry_count,
+        response_hashes=tuple(
+            record.response_hash for record in records if record.response_hash is not None
+        ),
+        known_input_tokens=summary.known_input_tokens,
+        known_output_tokens=summary.known_output_tokens,
+        known_total_tokens=summary.known_total_tokens,
+        unknown_usage_count=summary.unknown_usage_count,
+    )
+
+
+def _write_quality_report(
+    *,
+    paths: _RunPaths,
+    configuration: RunConfiguration,
+    status: Literal["completed", "partial", "cancelled", "failed"],
+    partial_reason: str | None,
+    known_task_capacity: int | None,
+    allocated_slot_count: int,
+    episodes: Sequence[PublicEpisode],
+    judgments: Sequence[QualityJudgment],
+    requests: tuple[ProviderRequestRecord, ...],
+    cohorts: Sequence[ReviewCohort] = (),
+    human_labels: Sequence[HumanReviewLabel] = (),
+) -> None:
+    payload = build_quality_report(
+        run_id=configuration.run_id,
+        run_status=status,
+        partial_reason=partial_reason,
+        allocated_task_attempt_count=allocated_slot_count,
+        known_task_capacity=known_task_capacity,
+        episodes=episodes,
+        judgments=judgments,
+        provider_usage=_provider_usage_payload(requests),
+        cohorts=cohorts,
+        human_labels=human_labels,
+    )
+    _atomic_write_text(paths.quality_report_path, json.dumps(payload, sort_keys=True, indent=2) + "\n")
+
+
+def _write_public_manifest(
+    *,
+    paths: _RunPaths,
+    configuration: RunConfiguration,
+    source_fingerprint: str,
+) -> None:
+    """Hash every available public Agent-first artifact, never the private ledger."""
+
+    base_paths = (
+        paths.demonstrations_path,
+        paths.negatives_path,
+        paths.provider_usage_path,
+        paths.run_report_path,
+        paths.shadow_judgments_path,
+        paths.quality_report_path,
+    )
+    optional_paths = (
+        paths.review_queue_path,
+        paths.review_cohorts_path,
+        paths.human_review_labels_path,
+        paths.review_label_import_report_path,
+    )
+    artifact_paths = tuple(
+        sorted(
+            (*base_paths, *(path for path in optional_paths if path.is_file())),
+            key=lambda path: path.name,
+        )
+    )
+    manifest = build_manifest(
+        run_id=configuration.run_id,
+        configuration=configuration.normalized_public_record(),
+        source_fingerprint=source_fingerprint,
+        artifact_paths=artifact_paths,
+    )
+    write_manifest(paths.manifest_path, manifest)
 
 
 def _run_agent_episode(
@@ -1043,11 +1707,13 @@ def _run_agent_episode(
                 assessment=_incomplete_assessment("episode_open_failure"),
                 lineage=_model_lineage(model, generation_records),
                 terminal_reason="episode_open_failure",
+                unsafe_material_detected=has_unsafe_public_material(task.public_task),
             ),
             partial_reason=None,
         )
 
     safe_task = sanitized_public_task(task.public_task)
+    unsafe_material_detected = has_unsafe_public_material(task.public_task)
     events: list[EpisodeEvent] = []
     records: list[ProviderRequestRecord] = list(generation_records)
     mutation_authorization: Literal["not_applicable", "authorized", "rejected"] = (
@@ -1118,6 +1784,10 @@ def _run_agent_episode(
         steps_used += 1
         repair_pending = False
         if isinstance(decision, FinalResponseDecision):
+            unsafe_material_detected = (
+                unsafe_material_detected
+                or has_unsafe_public_material(decision.content)
+            )
             events.append(
                 bounded_event_for_public_tools(
                     EpisodeEvent(event_type="final_response", content=decision.content),
@@ -1128,6 +1798,10 @@ def _run_agent_episode(
             break
 
         assert isinstance(decision, ToolCallDecision)
+        unsafe_material_detected = (
+            unsafe_material_detected
+            or has_unsafe_public_material(decision.model_dump(mode="json"))
+        )
         action = bounded_event_for_public_tools(
             EpisodeEvent(
                 event_type="action",
@@ -1137,12 +1811,13 @@ def _run_agent_episode(
             safe_task.tools,
         )
         events.append(action)
-        tool_event, authorization = _execute_tool_decision(
+        tool_event, authorization, tool_material_unsafe = _execute_tool_decision(
             episode=episode,
             task=safe_task,
             decision=decision,
         )
         events.append(tool_event)
+        unsafe_material_detected = unsafe_material_detected or tool_material_unsafe
         if authorization == "authorized":
             mutation_authorization = "authorized"
         elif authorization == "rejected":
@@ -1166,6 +1841,7 @@ def _run_agent_episode(
             assessment=assessment,
             lineage=_model_lineage(model, tuple(records)),
             terminal_reason=terminal_reason,
+            unsafe_material_detected=unsafe_material_detected,
         ),
         partial_reason=None,
     )
@@ -1176,7 +1852,11 @@ def _execute_tool_decision(
     episode: DomainEpisode,
     task: PublicTask,
     decision: ToolCallDecision,
-) -> tuple[EpisodeEvent, Literal["not_applicable", "authorized", "rejected"]]:
+) -> tuple[
+    EpisodeEvent,
+    Literal["not_applicable", "authorized", "rejected"],
+    bool,
+]:
     tool = next((tool for tool in task.tools if tool.name == decision.tool_name), None)
     if tool is None:
         return (
@@ -1186,6 +1866,7 @@ def _execute_tool_decision(
                 error_code="unknown_tool",
             ),
             "not_applicable",
+            has_unsafe_public_material(decision.model_dump(mode="json")),
         )
     if not _valid_tool_arguments(tool, decision.arguments):
         return (
@@ -1195,6 +1876,7 @@ def _execute_tool_decision(
                 error_code="invalid_tool_arguments",
             ),
             "not_applicable",
+            has_unsafe_public_material(decision.model_dump(mode="json")),
         )
     try:
         result = _validated_model(
@@ -1209,6 +1891,7 @@ def _execute_tool_decision(
                 error_code="tool_failure",
             ),
             "not_applicable",
+            has_unsafe_public_material(decision.model_dump(mode="json")),
         )
     if result.result_type == "observation":
         assert result.observation is not None
@@ -1222,6 +1905,7 @@ def _execute_tool_decision(
                 task.tools,
             ),
             "not_applicable",
+            has_unsafe_public_material(result),
         )
     if result.result_type == "state_change":
         assert result.change is not None
@@ -1235,6 +1919,7 @@ def _execute_tool_decision(
                 task.tools,
             ),
             "authorized",
+            has_unsafe_public_material(result),
         )
     assert result.error_code is not None
     if result.result_type == "unauthorized_mutation":
@@ -1245,6 +1930,7 @@ def _execute_tool_decision(
                 error_code=result.error_code,
             ),
             "rejected",
+            has_unsafe_public_material(result),
         )
     return (
         EpisodeEvent(
@@ -1253,6 +1939,7 @@ def _execute_tool_decision(
             error_code=result.error_code,
         ),
         "not_applicable",
+        has_unsafe_public_material(result),
     )
 
 
@@ -1285,11 +1972,11 @@ def _call_model(
     """Reserve every physical dispatch and retry only bounded transport failures."""
 
     records: list[ProviderRequestRecord] = []
-    role_limit = (
-        configuration.generation_request_limit
-        if request.role == "task_generation"
-        else configuration.agent_request_limit
-    )
+    role_limit = {
+        "task_generation": configuration.generation_request_limit,
+        "agent": configuration.agent_request_limit,
+        "quality_judge": configuration.shadow_quality.judge_request_limit,
+    }[request.role]
     for physical_attempt in range(configuration.transport_retry_limit + 1):
         if _is_cancelled(cancellation_signal):
             return _LogicalCallResult(
@@ -1495,17 +2182,36 @@ def _execution_episode(
     assessment: EpisodeAssessment,
     lineage: ModelLineage,
     terminal_reason: str | None,
+    unsafe_material_detected: bool = False,
 ) -> PublicEpisode:
-    admitted = (
-        terminal_reason is None
-        and assessment.passed
-        and trace.mutation_authorization != "rejected"
+    unsafe_material_detected = (
+        unsafe_material_detected
+        or has_unsafe_public_material(task)
+        or has_unsafe_public_material(trace)
+        or has_unsafe_public_material(assessment)
     )
+    final_grounding_passed = any(
+        check.name == "final_response_grounded" and check.passed
+        for check in assessment.checks
+    )
+    gates = DeterministicAdmissionGates(
+        execution=terminal_reason is None,
+        mutation_authorization=trace.mutation_authorization != "rejected",
+        assessment=assessment.passed,
+        final_grounding=final_grounding_passed,
+        unsafe_material=not unsafe_material_detected,
+        semantic_key=True,
+    )
+    admitted = gates.passed
     reason_code = terminal_reason
     if not admitted and reason_code is None:
         reason_code = (
-            "unauthorized_mutation"
-            if trace.mutation_authorization == "rejected"
+            "unsafe_public_material"
+            if not gates.unsafe_material
+            else "unauthorized_mutation"
+            if not gates.mutation_authorization
+            else "final_response_grounding_missing"
+            if not gates.final_grounding
             else assessment.reason_codes[0]
             if assessment.reason_codes
             else "deterministic_assessment_failed"
@@ -1528,6 +2234,7 @@ def _execution_episode(
         admission=AdmissionRecord(
             mode=context.configuration.admission_mode,
             status="admitted" if admitted else "rejected",
+            gates=gates,
         ),
         lineage=lineage,
     )
@@ -1544,6 +2251,7 @@ def _compilation_negative(
         task=rejection.public_task,
         reason_code=rejection.reason_code,
         lineage=lineage,
+        unsafe_material_detected=has_unsafe_public_material(rejection.public_task),
     )
 
 
@@ -1553,7 +2261,20 @@ def _pre_execution_negative(
     task: PublicTask,
     reason_code: str,
     lineage: ModelLineage,
+    unsafe_material_detected: bool = False,
 ) -> PublicEpisode:
+    unsafe_material_detected = unsafe_material_detected or has_unsafe_public_material(task)
+    gates = DeterministicAdmissionGates(
+        execution=False,
+        mutation_authorization=reason_code not in {
+            "mutation_not_authorized_by_public_task",
+            "unauthorized_mutation",
+        },
+        assessment=False,
+        final_grounding=False,
+        unsafe_material=not unsafe_material_detected,
+        semantic_key=False,
+    )
     return PublicEpisode(
         episode_id=_episode_id(context.configuration.run_id, context.sequence),
         candidate_id=_candidate_id(context.configuration.run_id, context.sequence),
@@ -1570,6 +2291,7 @@ def _pre_execution_negative(
         admission=AdmissionRecord(
             mode=context.configuration.admission_mode,
             status="rejected",
+            gates=gates,
         ),
         lineage=lineage,
     )
@@ -1746,7 +2468,7 @@ def _replay_trace(
             tool_name=event.tool_name,
             arguments=event.arguments or {},
         )
-        actual_result, authorization = _execute_tool_decision(
+        actual_result, authorization, _ = _execute_tool_decision(
             episode=episode,
             task=safe_task,
             decision=decision,

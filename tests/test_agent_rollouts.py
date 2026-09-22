@@ -201,7 +201,10 @@ class _TwoTurnEpisode:
     def assess(self, trace: object) -> EpisodeAssessment:
         return EpisodeAssessment(
             passed=True,
-            checks=(AssessmentCheck(name="email_returned", passed=True),),
+            checks=(
+                AssessmentCheck(name="email_returned", passed=True),
+                AssessmentCheck(name="final_response_grounded", passed=True),
+            ),
             reason_codes=(),
             coverage_tags=("lookup",),
             structural_key="lookup_email",
