@@ -790,9 +790,9 @@ class WorkspaceTasksEpisode:
             ),
             coverage_tags=("item_search", self._case.route),
             structural_key=f"workspace_tasks.search.{self._case.route}",
-            review_stratification=_review_stratification(
-                self._case.action,
-                self._case.route,
+            review_stratification=ReviewStratification(
+                task_type=self._case.action,
+                difficulty=self._case.route,
             ),
         )
 
@@ -851,9 +851,9 @@ class WorkspaceTasksEpisode:
             ),
             coverage_tags=("missing_item_safe_failure",),
             structural_key="workspace_tasks.search.missing",
-            review_stratification=_review_stratification(
-                self._case.action,
-                self._case.route,
+            review_stratification=ReviewStratification(
+                task_type=self._case.action,
+                difficulty=self._case.route,
             ),
         )
 
@@ -952,9 +952,9 @@ class WorkspaceTasksEpisode:
                 if requested_effect and item_observed and route_completed
                 else None
             ),
-            review_stratification=_review_stratification(
-                self._case.action,
-                self._case.route,
+            review_stratification=ReviewStratification(
+                task_type=self._case.action,
+                difficulty=self._case.route,
             ),
         )
 
@@ -1042,27 +1042,11 @@ class WorkspaceTasksEpisode:
                 if requested_effect and item_observed and route_completed
                 else None
             ),
-            review_stratification=_review_stratification(
-                self._case.action,
-                self._case.route,
+            review_stratification=ReviewStratification(
+                task_type=self._case.action,
+                difficulty=self._case.route,
             ),
         )
-
-
-def _review_stratification(
-    action: _WorkspaceAction,
-    route: _Route,
-) -> ReviewStratification:
-    return ReviewStratification(
-        task_type=action,
-        difficulty={
-            "direct": "standard",
-            "directory": "grounded",
-            "recovery": "recovery",
-            "missing": "safe_failure",
-            "verify": "verified_mutation",
-        }[route],
-    )
 
 
 def _case_for_spec(

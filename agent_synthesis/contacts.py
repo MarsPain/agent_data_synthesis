@@ -753,9 +753,9 @@ class ContactsEpisode:
             ),
             coverage_tags=("lookup", self._case.route),
             structural_key=f"contacts.lookup.{self._case.route}",
-            review_stratification=_review_stratification(
-                self._case.action,
-                self._case.route,
+            review_stratification=ReviewStratification(
+                task_type=self._case.action,
+                difficulty=self._case.route,
             ),
         )
 
@@ -856,26 +856,11 @@ class ContactsEpisode:
                 else f"contacts.followup.{self._case.route}"
             ),
             state_change_evidence=f"followup:{_semantic_slug(self._case.target)}",
-            review_stratification=_review_stratification(
-                self._case.action,
-                self._case.route,
+            review_stratification=ReviewStratification(
+                task_type=self._case.action,
+                difficulty=self._case.route,
             ),
         )
-
-
-def _review_stratification(
-    action: _ContactsAction,
-    route: _ContactsRoute,
-) -> ReviewStratification:
-    return ReviewStratification(
-        task_type=action,
-        difficulty={
-            "direct": "standard",
-            "directory": "grounded",
-            "recovery": "recovery",
-            "verify": "verified_mutation",
-        }[route],
-    )
 
 
 def _lookup_public_task(case: _ContactsCase) -> PublicTask:
