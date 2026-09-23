@@ -51,6 +51,8 @@ operation and cutover independent of activation.
 - `uv run python -m compileall -q agent_synthesis tests` passed.
 - `uv run python scripts/validate_docs.py` passed.
 - `uv run python -m unittest` passed.
+- Final two-axis review found no remaining Standards or Spec issue after the
+  activation-integrity, cohort-separation, and review-stratification fixes.
 
 ## Scope guard
 
