@@ -1563,7 +1563,9 @@ scores and never alter deterministic Episode admission.
   selection includes all bounded shadow fail/uncertain/unavailable outcomes
   plus a deterministic structural-family pass fill. Held-out evaluation
   selection is based only on deterministically admitted demonstrations and
-  never on judge verdict.
+  never on judge verdict. Cohorts used for optional semantic enforcement also
+  bind their campaign id, selection method, pass-stratum count, and (for
+  held-out evaluation) the exact frozen policy identity before labels arrive.
 - `human_review_labels.jsonl` accepts only
   `agent_human_review_label_v1` records bound to a known frozen cohort, purpose,
   Episode id, all five dimensions, bounded reason codes, and valid event
@@ -1577,6 +1579,29 @@ scores and never alter deterministic Episode admission.
 The Agent-first manifest hashes all available public review artifacts. None may
 contain unrestricted rationale, provider payloads, credentials, oracle fields,
 or absolute source paths.
+
+`SynthesisEngine.evaluate_semantic_enforcement(...)` reads those existing
+cohorts, imported labels, shadow judgments, and private Domain semantic keys to
+produce `agent_semantic_enforcement_eligibility_report_v1`. The report is a
+finite-cohort measurement: it includes overall and per-Domain three-way
+confusion counts, all metric numerators and denominators, unavailable-judge
+counts, and explicit ineligibility reasons. Development rates are explicitly
+diagnostic. The evaluator requires a 100-Episode/30-per-Domain reviewed
+development cohort with every fail/uncertain judgment included, then a disjoint
+100-Episode/30-per-Domain deterministically eligible held-out cohort reviewed
+in full. It fails closed for missing labels, undefined required denominators,
+identity or scope drift, reused semantic/grounding groups, or human-confirmed
+critical safety false-passes.
+
+An operator may pass an eligible report and its exact policy in a new
+`RunConfiguration` with `admission_mode: "enforced"`. The engine verifies the
+current Domain, source/task scope, generator/Agent/judge identities, rubric,
+and invocation settings before any provider dispatch. In that mode only a
+judge-pass Episode that also passes every deterministic gate enters
+`demonstrations`; fail, uncertain, and unavailable judgments enter `negatives`.
+An ineligible request raises before dispatch. Ordinary deterministic/shadow
+runs remain usable regardless of activation status, and the quality report
+records this optional decision separately from core operation.
 
 ## Versioning Rules
 

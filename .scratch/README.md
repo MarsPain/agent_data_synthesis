@@ -7,10 +7,11 @@ triggers, and technical debt. Tracker configuration lives in
 
 ## Open
 - [Agent-First Core Rebuild](agent-first-core-rebuild/README.md) — canonical
-  specification and ten tracer-bullet tickets published; Tickets 03 through 06
+  specification and ten tracer-bullet tickets published; Tickets 03 through 08
   are complete, including diagnostic Contacts evidence, the three production
   Agent-first adapters, resumable local synthesis, and completed shadow-quality
-  review/validated blind-label import work
+  review/validated blind-label import work, and independently gated optional
+  semantic enforcement
 - [Semantic Mutation Admission](semantic-mutation-admission/README.md) — ticketed;
   runtime enforcement, release-artifact auditing, and calibration-corpus work
   are complete; activation evaluation is complete and the representative gate

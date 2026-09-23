@@ -5,7 +5,14 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    model_serializer,
+    model_validator,
+)
 
 
 class ToolDefinition(BaseModel):
@@ -150,16 +157,49 @@ class AdmissionRecord(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    mode: Literal["deterministic"]
+    mode: Literal["deterministic", "enforced"]
     status: Literal["admitted", "rejected"]
     gates: DeterministicAdmissionGates
     human_review_status: Literal["unreviewed"] = "unreviewed"
+    semantic_judgment: Literal[
+        "not_requested", "pass", "fail", "uncertain", "unavailable"
+    ] = "not_requested"
+    semantic_policy_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+    )
 
     @model_validator(mode="after")
     def _require_all_deterministic_gates_for_admission(self) -> "AdmissionRecord":
         if self.status == "admitted" and not self.gates.passed:
             raise ValueError("admitted Episodes must pass every deterministic gate")
+        if self.mode == "deterministic":
+            if self.semantic_judgment != "not_requested" or self.semantic_policy_id is not None:
+                raise ValueError("deterministic admission cannot claim semantic enforcement")
+        else:
+            if self.semantic_policy_id is None:
+                raise ValueError("enforced admission requires a semantic policy identity")
+            if self.semantic_judgment == "not_requested":
+                raise ValueError("enforced admission requires an explicit judge result")
+            if self.status == "admitted" and self.semantic_judgment != "pass":
+                raise ValueError("enforced admission requires a judge pass")
         return self
+
+    @model_serializer(mode="wrap")
+    def _serialize_without_enforcement_fields_for_shadow_runs(
+        self,
+        handler: object,
+    ) -> dict[str, object]:
+        """Keep established deterministic Episode exports byte-shape compatible."""
+
+        serialized = handler(self)
+        assert isinstance(serialized, dict)
+        if self.mode == "deterministic":
+            serialized.pop("semantic_judgment", None)
+            serialized.pop("semantic_policy_id", None)
+        return serialized
 
 
 class ModelLineage(BaseModel):

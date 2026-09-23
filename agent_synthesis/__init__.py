@@ -22,6 +22,7 @@ from agent_synthesis.engine import (
     ReviewQueueResult,
     RunLockedError,
     RunResult,
+    SemanticEnforcementIneligibleError,
     SynthesisEngine,
 )
 from agent_synthesis.episode import (
@@ -42,6 +43,7 @@ from agent_synthesis.quality import (
     HumanReviewLabel,
     QualityDimensionResult,
     QualityEventReference,
+    QualityJudgeIdentity,
     QualityJudgeRequest,
     QualityJudgeResponse,
     QualityJudgment,
@@ -49,6 +51,18 @@ from agent_synthesis.quality import (
     ReviewLabelImportError,
     ReviewQueueConfiguration,
     ShadowQualityConfiguration,
+)
+from agent_synthesis.enforcement import (
+    CalibrationCampaignEvidence,
+    CalibrationCohortEvidence,
+    CalibrationEpisodeEvidence,
+    SemanticEnforcementDomainScope,
+    SemanticEnforcementEligibilityReport,
+    SemanticEnforcementPolicy,
+    SemanticEnforcementRunConfiguration,
+    SemanticEnforcementThresholds,
+    evaluate_semantic_enforcement,
+    write_semantic_enforcement_eligibility_report,
 )
 from agent_synthesis.model import (
     AgentRequest,
@@ -76,6 +90,9 @@ __all__ = [
     "CompilationRejection",
     "CompiledTask",
     "CancellationSignal",
+    "CalibrationCampaignEvidence",
+    "CalibrationCohortEvidence",
+    "CalibrationEpisodeEvidence",
     "DeterministicJsonModelAdapter",
     "DomainAdapter",
     "DomainEpisode",
@@ -99,6 +116,7 @@ __all__ = [
     "PublicTask",
     "QualityDimensionResult",
     "QualityEventReference",
+    "QualityJudgeIdentity",
     "QualityJudgeRequest",
     "QualityJudgeResponse",
     "QualityJudgment",
@@ -113,6 +131,12 @@ __all__ = [
     "RunResult",
     "ReviewLabelImportError",
     "ReviewQueueConfiguration",
+    "SemanticEnforcementDomainScope",
+    "SemanticEnforcementEligibilityReport",
+    "SemanticEnforcementIneligibleError",
+    "SemanticEnforcementPolicy",
+    "SemanticEnforcementRunConfiguration",
+    "SemanticEnforcementThresholds",
     "SynthesisEngine",
     "ShadowQualityConfiguration",
     "TaskGenerationRequest",
@@ -122,4 +146,6 @@ __all__ = [
     "ToolCallDecision",
     "ToolDefinition",
     "ToolExecutionResult",
+    "evaluate_semantic_enforcement",
+    "write_semantic_enforcement_eligibility_report",
 ]

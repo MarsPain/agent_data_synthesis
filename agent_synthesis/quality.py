@@ -82,6 +82,9 @@ _IDENTIFIER_FORBIDDEN_PARTS = (
     "access_token",
 )
 _PUBLIC_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+_FINITE_COHORT_NOTICE = (
+    "Finite-cohort rates are empirical measurements, not population guarantees."
+)
 
 
 class ShadowQualityConfiguration(BaseModel):
@@ -93,18 +96,25 @@ class ShadowQualityConfiguration(BaseModel):
     judge_model_id: str | None = Field(default=None, min_length=1, max_length=128)
     judge_request_limit: int = Field(default=64, ge=1, le=100_000)
     rubric_id: Literal["agent_shadow_quality_rubric_v1"] = "agent_shadow_quality_rubric_v1"
+    judge_prompt_id: str = "agent_shadow_quality_prompt_v1"
+    judge_decoding_id: str = "agent_shadow_quality_decoding_v1"
 
     @model_validator(mode="after")
     def _only_accept_safe_public_identity(self) -> "ShadowQualityConfiguration":
-        if self.judge_model_id is None:
-            return self
-        lowered = self.judge_model_id.lower()
-        if (
-            not _PUBLIC_IDENTIFIER.fullmatch(self.judge_model_id)
-            or self.judge_model_id.startswith(("sk-", "bearer-"))
-            or any(marker in lowered for marker in _IDENTIFIER_FORBIDDEN_PARTS)
+        for value, label in (
+            (self.judge_model_id, "judge_model_id"),
+            (self.judge_prompt_id, "judge_prompt_id"),
+            (self.judge_decoding_id, "judge_decoding_id"),
         ):
-            raise ValueError("judge_model_id cannot contain credential-shaped material")
+            if value is None:
+                continue
+            lowered = value.lower()
+            if (
+                not _PUBLIC_IDENTIFIER.fullmatch(value)
+                or value.startswith(("sk-", "bearer-"))
+                or any(marker in lowered for marker in _IDENTIFIER_FORBIDDEN_PARTS)
+            ):
+                raise ValueError(f"{label} cannot contain credential-shaped material")
         return self
 
 
@@ -379,6 +389,11 @@ class QualityJudgment(BaseModel):
 
 
 type ReviewPurpose = Literal["diagnostic-development", "held-out-evaluation"]
+type ReviewSelectionMethod = Literal[
+    "diagnostic_all_nonpass_stratified_pass",
+    "held_out_all_deterministically_eligible",
+    "operator_selected",
+]
 
 
 class ReviewQueueConfiguration(BaseModel):
@@ -390,6 +405,12 @@ class ReviewQueueConfiguration(BaseModel):
     purpose: ReviewPurpose
     candidate_episode_ids: tuple[str, ...] = Field(default=(), max_length=10_000)
     pass_sample_limit: int = Field(default=64, ge=1, le=10_000)
+    campaign_id: str | None = Field(default=None, min_length=1, max_length=128)
+    quality_policy_id: str | None = Field(default=None, min_length=1, max_length=128)
+    quality_policy_fingerprint: str | None = Field(
+        default=None,
+        pattern=r"^sha256:[0-9a-f]{64}$",
+    )
 
     @model_validator(mode="after")
     def _validate_queue_identity_and_candidates(self) -> "ReviewQueueConfiguration":
@@ -399,6 +420,16 @@ class ReviewQueueConfiguration(BaseModel):
             raise ValueError("review queue candidate Episode ids must be unique")
         if any(not _PUBLIC_IDENTIFIER.fullmatch(episode_id) for episode_id in self.candidate_episode_ids):
             raise ValueError("review queue Episode ids must be bounded public identifiers")
+        if self.campaign_id is not None and not _PUBLIC_IDENTIFIER.fullmatch(self.campaign_id):
+            raise ValueError("review queue campaign id must be a bounded public identifier")
+        if (self.quality_policy_id is None) != (self.quality_policy_fingerprint is None):
+            raise ValueError("review queue policy identity must be complete or absent")
+        if self.quality_policy_id is not None and not _PUBLIC_IDENTIFIER.fullmatch(
+            self.quality_policy_id
+        ):
+            raise ValueError("review queue policy id must be a bounded public identifier")
+        if self.quality_policy_id is not None and self.campaign_id is None:
+            raise ValueError("review queue policy identity requires a bounded campaign")
         return self
 
 
@@ -415,6 +446,14 @@ class ReviewCohort(BaseModel):
     candidate_count: int = Field(ge=0)
     nonpass_or_unavailable_count: int = Field(ge=0)
     stratified_pass_count: int = Field(ge=0)
+    selection_method: ReviewSelectionMethod
+    stratified_pass_stratum_count: int = Field(ge=0, le=10_000)
+    campaign_id: str | None = Field(default=None, min_length=1, max_length=128)
+    quality_policy_id: str | None = Field(default=None, min_length=1, max_length=128)
+    quality_policy_fingerprint: str | None = Field(
+        default=None,
+        pattern=r"^sha256:[0-9a-f]{64}$",
+    )
 
     @model_validator(mode="after")
     def _bind_membership_metadata(self) -> "ReviewCohort":
@@ -424,10 +463,19 @@ class ReviewCohort(BaseModel):
             self.episode_ids
         ):
             raise ValueError("review cohort counts must bind its exact membership")
+        if (self.quality_policy_id is None) != (self.quality_policy_fingerprint is None):
+            raise ValueError("review cohort policy identity must be complete or absent")
+        if self.quality_policy_id is not None and self.campaign_id is None:
+            raise ValueError("review cohort policy identity requires a bounded campaign")
         expected = _cohort_membership_hash(
             cohort_id=self.cohort_id,
             purpose=self.purpose,
             episode_ids=self.episode_ids,
+            selection_method=self.selection_method,
+            stratified_pass_stratum_count=self.stratified_pass_stratum_count,
+            campaign_id=self.campaign_id,
+            quality_policy_id=self.quality_policy_id,
+            quality_policy_fingerprint=self.quality_policy_fingerprint,
         )
         if self.membership_hash != expected:
             raise ValueError("review cohort membership hash does not bind its members")
@@ -610,6 +658,12 @@ def build_review_cohort(
         selected = candidates
         nonpass_or_unavailable_count = 0
         stratified_pass_count = len(selected)
+        selection_method: ReviewSelectionMethod = (
+            "held_out_all_deterministically_eligible"
+            if not configuration.candidate_episode_ids
+            else "operator_selected"
+        )
+        stratified_pass_stratum_count = 0
     else:
         judgments_by_episode_id = {judgment.episode_id: judgment for judgment in judgments}
         if any(episode.episode_id not in judgments_by_episode_id for episode in candidates):
@@ -628,6 +682,14 @@ def build_review_cohort(
         selected = sorted((*nonpasses, *selected_passes), key=lambda episode: episode.sequence)
         nonpass_or_unavailable_count = len(nonpasses)
         stratified_pass_count = len(selected_passes)
+        selection_method = (
+            "diagnostic_all_nonpass_stratified_pass"
+            if not configuration.candidate_episode_ids
+            else "operator_selected"
+        )
+        stratified_pass_stratum_count = len(
+            {_review_pass_stratum(episode) for episode in selected_passes}
+        )
 
     selected_ids = tuple(episode.episode_id for episode in selected)
     overlap = set(selected_ids) & existing_episode_ids
@@ -640,11 +702,21 @@ def build_review_cohort(
             cohort_id=configuration.cohort_id,
             purpose=configuration.purpose,
             episode_ids=selected_ids,
+            selection_method=selection_method,
+            stratified_pass_stratum_count=stratified_pass_stratum_count,
+            campaign_id=configuration.campaign_id,
+            quality_policy_id=configuration.quality_policy_id,
+            quality_policy_fingerprint=configuration.quality_policy_fingerprint,
         ),
         episode_ids=selected_ids,
         candidate_count=len(candidates),
         nonpass_or_unavailable_count=nonpass_or_unavailable_count,
         stratified_pass_count=stratified_pass_count,
+        selection_method=selection_method,
+        stratified_pass_stratum_count=stratified_pass_stratum_count,
+        campaign_id=configuration.campaign_id,
+        quality_policy_id=configuration.quality_policy_id,
+        quality_policy_fingerprint=configuration.quality_policy_fingerprint,
     )
     return cohort, blind_queue_items_for_cohort(cohort, episodes)
 
@@ -685,14 +757,9 @@ def _stratified_pass_selection(
 ) -> tuple[PublicEpisode, ...]:
     """Round-robin structural strata so pass fills cannot collapse to one family."""
 
-    strata: dict[tuple[str, str], list[PublicEpisode]] = {}
+    strata: dict[tuple[str, str, tuple[str, ...]], list[PublicEpisode]] = {}
     for episode in sorted(passes, key=lambda value: value.sequence):
-        structural_key = (
-            episode.verification.structural_key
-            if episode.verification is not None
-            else "unassessed"
-        )
-        strata.setdefault((episode.domain_id, structural_key), []).append(episode)
+        strata.setdefault(_review_pass_stratum(episode), []).append(episode)
     selected: list[PublicEpisode] = []
     offsets = {key: 0 for key in strata}
     while len(selected) < limit:
@@ -712,17 +779,39 @@ def _stratified_pass_selection(
     return tuple(selected)
 
 
+def _review_pass_stratum(episode: PublicEpisode) -> tuple[str, str, tuple[str, ...]]:
+    """Use only Domain-owned public classification, never judge data, for pass fill."""
+
+    if episode.verification is None:
+        return (episode.domain_id, "unassessed", ())
+    return (
+        episode.domain_id,
+        episode.verification.structural_key,
+        tuple(sorted(episode.verification.coverage_tags)),
+    )
+
+
 def _cohort_membership_hash(
     *,
     cohort_id: str,
     purpose: ReviewPurpose,
     episode_ids: tuple[str, ...],
+    selection_method: ReviewSelectionMethod,
+    stratified_pass_stratum_count: int,
+    campaign_id: str | None,
+    quality_policy_id: str | None,
+    quality_policy_fingerprint: str | None,
 ) -> str:
     payload = json.dumps(
         {
             "cohort_id": cohort_id,
             "purpose": purpose,
             "episode_ids": episode_ids,
+            "selection_method": selection_method,
+            "stratified_pass_stratum_count": stratified_pass_stratum_count,
+            "campaign_id": campaign_id,
+            "quality_policy_id": quality_policy_id,
+            "quality_policy_fingerprint": quality_policy_fingerprint,
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -773,6 +862,8 @@ def build_quality_report(
     provider_usage: Mapping[str, object],
     cohorts: Sequence[ReviewCohort] = (),
     human_labels: Sequence[HumanReviewLabel] = (),
+    admission_mode: Literal["deterministic", "enforced"] = "deterministic",
+    semantic_enforcement: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Build a count-only quality report; it deliberately contains no scores."""
 
@@ -823,7 +914,7 @@ def build_quality_report(
         },
         "structural_family_distribution": structural_distribution,
         "admission": {
-            "mode": "deterministic",
+            "mode": admission_mode,
             "status_counts": dict(Counter(episode.admission.status for episode in episodes)),
             "gate_pass_counts": {
                 name: sum(
@@ -860,6 +951,16 @@ def build_quality_report(
                 judgment.verdict == "unavailable" for judgment in judgments
             ),
         },
+        "semantic_enforcement": (
+            dict(semantic_enforcement)
+            if semantic_enforcement is not None
+            else {
+                "status": "shadow_only",
+                "policy_id": None,
+                "activation_identity": None,
+                "finite_cohort_notice": _FINITE_COHORT_NOTICE,
+            }
+        ),
         "usage": dict(provider_usage),
         "review": _review_report_payload(cohorts, human_labels),
     }
@@ -896,6 +997,11 @@ def _review_report_payload(
                 "candidate_count": cohort.candidate_count,
                 "nonpass_or_unavailable_count": cohort.nonpass_or_unavailable_count,
                 "stratified_pass_count": cohort.stratified_pass_count,
+                "selection_method": cohort.selection_method,
+                "stratified_pass_stratum_count": cohort.stratified_pass_stratum_count,
+                "campaign_id": cohort.campaign_id,
+                "quality_policy_id": cohort.quality_policy_id,
+                "quality_policy_fingerprint": cohort.quality_policy_fingerprint,
             }
             for cohort in cohorts
         ],

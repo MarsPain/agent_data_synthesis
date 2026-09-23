@@ -93,6 +93,17 @@ terms, not package structure, implementation plans, or work status. See
 - **Human review label:** A direct-human, cohort-bound label with all five
   quality dimensions, bounded reasons, and event references. Only an aggregate
   human pass identifies an Episode as part of the human-approved subset.
+- **Semantic enforcement policy:** The frozen identity that binds one quality
+  rubric, independently identified judge, generator and Agent identities and
+  invocation settings, versioned Domain scope, source/task-distribution scope,
+  and the fixed activation thresholds. A changed field requires a new policy.
+- **Semantic enforcement eligibility:** A finite-cohort held-out evaluation of
+  one exact semantic enforcement policy. It reports raw counts, denominators,
+  three-way judge/human confusion, and explicit failures; it is neither a
+  population guarantee nor a core-cutover decision.
+- **Enforced admission:** An explicit new-run mode in which an Episode must
+  pass every deterministic gate and the eligible policy's judge. Judge fail,
+  uncertainty, and unavailability remain negative outcomes.
 - **Verifier:** An independent check that compares execution evidence and final
   state with the candidate's declared expected outcome.
 - **Accepted sample:** A candidate whose contracts, execution, final answer,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
@@ -18,6 +19,15 @@ import fcntl
 from pydantic import BaseModel, JsonValue, ValidationError
 
 from agent_synthesis.configuration import RunConfiguration
+from agent_synthesis.enforcement import (
+    CalibrationCampaignEvidence,
+    CalibrationCohortEvidence,
+    CalibrationEpisodeEvidence,
+    SemanticEnforcementEligibilityReport,
+    SemanticEnforcementPolicy,
+    SemanticEnforcementRunConfiguration,
+    evaluate_semantic_enforcement as evaluate_semantic_enforcement_evidence,
+)
 from agent_synthesis.domain import (
     CompilationRejection,
     CompiledTask,
@@ -228,6 +238,17 @@ class _ShadowJudgeContext:
     unavailable_reason: JudgmentUnavailableReason | None
 
 
+@dataclass(frozen=True)
+class _SemanticEnforcementContext:
+    """The one preflight-validated policy allowed to alter a new run's admission."""
+
+    configuration: SemanticEnforcementRunConfiguration
+
+
+class SemanticEnforcementIneligibleError(ValueError):
+    """Raised before dispatch when an enforce-mode run lacks exact eligibility evidence."""
+
+
 class CancellationSignal:
     """Thread-safe cooperative cancellation for a bounded local run."""
 
@@ -352,6 +373,100 @@ class SynthesisEngine:
             )
         return _ShadowJudgeContext(model=judge, identity=identity, unavailable_reason=None)
 
+    def _semantic_enforcement_context(
+        self,
+        *,
+        configuration: RunConfiguration,
+        domain: object,
+        generator_and_agent_model: JsonModelAdapter,
+        shadow_judge: _ShadowJudgeContext,
+    ) -> _SemanticEnforcementContext | None:
+        """Reject stale, mismatched, or unavailable activation before any provider call."""
+
+        if configuration.admission_mode == "deterministic":
+            return None
+        enforcement = configuration.semantic_enforcement
+        if enforcement is None:
+            raise SemanticEnforcementIneligibleError(
+                "enforced admission requires semantic enforcement evidence"
+            )
+        activation = enforcement.activation
+        policy = enforcement.policy
+        if activation.eligibility != "eligible":
+            raise SemanticEnforcementIneligibleError(
+                "semantic enforcement activation is ineligible"
+            )
+        if (
+            activation.policy_id != policy.policy_id
+            or activation.policy_fingerprint != policy.fingerprint
+        ):
+            raise SemanticEnforcementIneligibleError(
+                "semantic enforcement activation does not bind its policy"
+            )
+        if (
+            policy.judge_identity is None
+            or policy.generator_identity is None
+            or policy.agent_identity is None
+            or not policy.domain_scopes
+        ):
+            raise SemanticEnforcementIneligibleError(
+                "enforcement policy identity or scope is unavailable"
+            )
+        domain_id = getattr(domain, "domain_id", None)
+        domain_version = getattr(domain, "domain_version", None)
+        if not isinstance(domain_id, str) or not isinstance(domain_version, str):
+            raise SemanticEnforcementIneligibleError("enforcement Domain identity is unavailable")
+        if (domain_id, domain_version) not in {
+            (scope.domain_id, scope.domain_version) for scope in policy.domain_scopes
+        }:
+            raise SemanticEnforcementIneligibleError(
+                "enforcement policy does not cover this Domain version"
+            )
+        try:
+            model_identity = QualityJudgeIdentity(
+                provider_id=generator_and_agent_model.provider_id,
+                model_id=generator_and_agent_model.model_id,
+                model_version=generator_and_agent_model.model_version,
+            )
+        except (TypeError, ValidationError, ValueError):
+            raise SemanticEnforcementIneligibleError(
+                "enforcement generator and Agent identity is unavailable"
+            ) from None
+        if (
+            model_identity != policy.generator_identity
+            or model_identity != policy.agent_identity
+        ):
+            raise SemanticEnforcementIneligibleError(
+                "enforcement generator or Agent identity differs from activation"
+            )
+        if (
+            configuration.source_scope_id != policy.source_scope_id
+            or configuration.task_distribution_scope_id != policy.task_distribution_scope_id
+            or configuration.generator_prompt_id != policy.generator_prompt_id
+            or configuration.generator_decoding_id != policy.generator_decoding_id
+            or configuration.agent_prompt_id != policy.agent_prompt_id
+            or configuration.agent_decoding_id != policy.agent_decoding_id
+        ):
+            raise SemanticEnforcementIneligibleError(
+                "enforcement source, task, or model settings differ from activation"
+            )
+        quality = configuration.shadow_quality
+        if (
+            quality.mode != "shadow"
+            or quality.judge_model_id != policy.judge_identity.model_id
+            or quality.rubric_id != policy.rubric_id
+            or quality.judge_prompt_id != policy.judge_prompt_id
+            or quality.judge_decoding_id != policy.judge_decoding_id
+        ):
+            raise SemanticEnforcementIneligibleError(
+                "enforcement judge settings differ from activation"
+            )
+        if shadow_judge.model is None or shadow_judge.identity != policy.judge_identity:
+            raise SemanticEnforcementIneligibleError(
+                "enforcement judge identity is unavailable or differs from activation"
+            )
+        return _SemanticEnforcementContext(configuration=enforcement)
+
     def run(
         self,
         configuration: RunConfiguration | Mapping[str, object],
@@ -377,6 +492,12 @@ class SynthesisEngine:
         domain = self._registry.domain(config.domain_id)
         model = self._registry.model(config.model_id)
         shadow_judge = self._shadow_judge_context(config, model)
+        semantic_enforcement = self._semantic_enforcement_context(
+            configuration=config,
+            domain=domain,
+            generator_and_agent_model=model,
+            shadow_judge=shadow_judge,
+        )
         with _RunDirectoryWriterLock(run_directory):
             ledger = PrivateLedger.create(paths.private_ledger_path)
             try:
@@ -430,6 +551,7 @@ class SynthesisEngine:
                     cancellation_signal=cancellation_signal,
                     failure_injector=failure_injector,
                     shadow_judge=shadow_judge,
+                    semantic_enforcement=semantic_enforcement,
                 )
             finally:
                 ledger.close()
@@ -463,6 +585,12 @@ class SynthesisEngine:
                 domain = self._registry.domain(configuration.domain_id)
                 model = self._registry.model(configuration.model_id)
                 shadow_judge = self._shadow_judge_context(configuration, model)
+                semantic_enforcement = self._semantic_enforcement_context(
+                    configuration=configuration,
+                    domain=domain,
+                    generator_and_agent_model=model,
+                    shadow_judge=shadow_judge,
+                )
                 if domain.domain_version != metadata.domain_version:
                     raise ValueError("resume Domain version does not match the saved run")
                 frozen_initial_state = _read_frozen_snapshot(paths.frozen_snapshot_path, ledger)
@@ -524,6 +652,7 @@ class SynthesisEngine:
                     cancellation_signal=cancellation_signal,
                     failure_injector=failure_injector,
                     shadow_judge=shadow_judge,
+                    semantic_enforcement=semantic_enforcement,
                 )
             finally:
                 ledger.close()
@@ -689,6 +818,38 @@ class SynthesisEngine:
             finally:
                 ledger.close()
 
+    def evaluate_semantic_enforcement(
+        self,
+        *,
+        policy: SemanticEnforcementPolicy | Mapping[str, object],
+        development_run_directories: Sequence[Path],
+        development_campaign_id: str,
+        evaluation_run_directories: Sequence[Path],
+        evaluation_campaign_id: str,
+    ) -> SemanticEnforcementEligibilityReport:
+        """Evaluate existing frozen cohorts through the established label-import seam."""
+
+        resolved_policy = (
+            policy
+            if isinstance(policy, SemanticEnforcementPolicy)
+            else SemanticEnforcementPolicy.model_validate(policy)
+        )
+        development = _calibration_campaign_from_runs(
+            run_directories=development_run_directories,
+            campaign_id=development_campaign_id,
+            purpose="diagnostic-development",
+        )
+        evaluation = _calibration_campaign_from_runs(
+            run_directories=evaluation_run_directories,
+            campaign_id=evaluation_campaign_id,
+            purpose="held-out-evaluation",
+        )
+        return evaluate_semantic_enforcement_evidence(
+            policy=resolved_policy,
+            development=development,
+            evaluation=evaluation,
+        )
+
 
 @dataclass(frozen=True)
 class _RunPaths:
@@ -727,6 +888,203 @@ class _RunPaths:
             private_ledger_path=private_directory / "ledger.sqlite3",
             frozen_snapshot_path=private_directory / "frozen_state.json",
         )
+
+
+def _calibration_campaign_from_runs(
+    *,
+    run_directories: Sequence[Path],
+    campaign_id: str,
+    purpose: Literal["diagnostic-development", "held-out-evaluation"],
+) -> CalibrationCampaignEvidence:
+    """Project existing private-ledger facts into calibration evidence without new labels."""
+
+    cohorts: list[CalibrationCohortEvidence] = []
+    episodes: list[CalibrationEpisodeEvidence] = []
+    seen_run_directories: set[Path] = set()
+    for supplied_directory in run_directories:
+        directory = Path(supplied_directory).resolve()
+        if directory in seen_run_directories:
+            continue
+        seen_run_directories.add(directory)
+        paths = _RunPaths.from_directory(directory)
+        ledger = PrivateLedger.open(paths.private_ledger_path)
+        try:
+            metadata = ledger.run_metadata()
+            configuration = metadata.configuration_model()
+            if ledger.run_status().status != "completed":
+                continue
+            stored_cohorts = _read_review_cohorts(paths.review_cohorts_path)
+            matching_cohorts = tuple(
+                cohort
+                for cohort in stored_cohorts
+                if cohort.purpose == purpose and cohort.campaign_id == campaign_id
+            )
+            if not matching_cohorts:
+                continue
+            terminal_records = ledger.terminal_outcomes()
+            terminals_by_episode_id = {
+                terminal.episode.episode_id: terminal for terminal in terminal_records
+            }
+            task_cases = {case.sequence: case for case in ledger.task_cases()}
+            judgments_by_episode_id = {
+                judgment.episode_id: judgment for judgment in ledger.quality_judgments()
+            }
+            labels_by_key = {
+                (label.cohort_id, label.episode_id): label
+                for label in _read_human_review_labels(paths.human_review_labels_path)
+            }
+            memberships_by_episode_id = {
+                episode_id: cohort
+                for cohort in matching_cohorts
+                for episode_id in cohort.episode_ids
+            }
+            evidence_ids = {
+                episode_id: _calibration_evidence_id(configuration.run_id, episode_id)
+                for episode_id in terminals_by_episode_id
+            }
+            for cohort in matching_cohorts:
+                cohorts.append(
+                    CalibrationCohortEvidence(
+                        cohort_id=_calibration_cohort_id(
+                            configuration.run_id,
+                            cohort.cohort_id,
+                        ),
+                        member_evidence_ids=tuple(
+                            evidence_ids.get(
+                                episode_id,
+                                _calibration_evidence_id(
+                                    configuration.run_id,
+                                    episode_id,
+                                ),
+                            )
+                            for episode_id in cohort.episode_ids
+                        ),
+                        selection_method=cohort.selection_method,
+                        policy_id=cohort.quality_policy_id,
+                        policy_fingerprint=cohort.quality_policy_fingerprint,
+                        stratified_pass_stratum_count=(
+                            cohort.stratified_pass_stratum_count
+                        ),
+                    )
+                )
+            for terminal in terminal_records:
+                episode = terminal.episode
+                cohort = memberships_by_episode_id.get(episode.episode_id)
+                label = (
+                    labels_by_key.get((cohort.cohort_id, episode.episode_id))
+                    if cohort is not None
+                    else None
+                )
+                judgment = judgments_by_episode_id.get(episode.episode_id)
+                semantic_key = (
+                    task_cases[episode.sequence].semantic_key
+                    if episode.sequence in task_cases
+                    else None
+                )
+                episodes.append(
+                    CalibrationEpisodeEvidence(
+                        evidence_id=evidence_ids[episode.episode_id],
+                        episode_id=episode.episode_id,
+                        domain_id=episode.domain_id,
+                        domain_version=episode.domain_version,
+                        deterministic_eligible=episode.admission.gates.passed,
+                        semantic_task_group=(
+                            _canonical_calibration_group(
+                                "semantic-task",
+                                episode.domain_id,
+                                episode.domain_version,
+                                semantic_key,
+                            )
+                            if semantic_key is not None
+                            else None
+                        ),
+                        grounding_group=(
+                            _canonical_calibration_group(
+                                "grounding",
+                                episode.domain_id,
+                                episode.domain_version,
+                                semantic_key,
+                            )
+                            if semantic_key is not None
+                            else None
+                        ),
+                        judge_verdict=(
+                            judgment.verdict if judgment is not None else "unavailable"
+                        ),
+                        judge_identity=(
+                            judgment.judge_identity if judgment is not None else None
+                        ),
+                        human_verdict=(
+                            label.aggregate_verdict if label is not None else None
+                        ),
+                        human_critical_safety_failure=(
+                            _human_label_has_critical_safety_failure(label)
+                            if label is not None
+                            else False
+                        ),
+                        generator_identity=_lineage_identity(episode, "task_generation"),
+                        agent_identity=_lineage_identity(episode, "agent"),
+                        source_scope_id=configuration.source_scope_id,
+                        task_distribution_scope_id=(
+                            configuration.task_distribution_scope_id
+                        ),
+                        generator_prompt_id=configuration.generator_prompt_id,
+                        generator_decoding_id=configuration.generator_decoding_id,
+                        agent_prompt_id=configuration.agent_prompt_id,
+                        agent_decoding_id=configuration.agent_decoding_id,
+                        judge_prompt_id=configuration.shadow_quality.judge_prompt_id,
+                        judge_decoding_id=(
+                            configuration.shadow_quality.judge_decoding_id
+                        ),
+                    )
+                )
+        finally:
+            ledger.close()
+    return CalibrationCampaignEvidence(
+        campaign_id=campaign_id,
+        purpose=purpose,
+        cohorts=tuple(cohorts),
+        episodes=tuple(episodes),
+    )
+
+
+def _calibration_evidence_id(run_id: str, episode_id: str) -> str:
+    return _canonical_calibration_group("episode", run_id, episode_id)
+
+
+def _calibration_cohort_id(run_id: str, cohort_id: str) -> str:
+    return _canonical_calibration_group("cohort", run_id, cohort_id)
+
+
+def _canonical_calibration_group(kind: str, *parts: str) -> str:
+    payload = json.dumps((kind, *parts), separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _lineage_identity(
+    episode: PublicEpisode,
+    role: Literal["task_generation", "agent"],
+) -> QualityJudgeIdentity | None:
+    lineage = next((item for item in episode.lineage.roles if item.role == role), None)
+    if lineage is None:
+        return None
+    try:
+        return QualityJudgeIdentity(
+            provider_id=lineage.provider_id,
+            model_id=lineage.model_id,
+            model_version=lineage.model_version,
+        )
+    except (TypeError, ValidationError, ValueError):
+        return None
+
+
+def _human_label_has_critical_safety_failure(label: HumanReviewLabel) -> bool:
+    return any(
+        dimension.dimension == "safety"
+        and dimension.verdict == "fail"
+        and "critical_safety_failure" in dimension.reason_codes
+        for dimension in label.dimensions
+    )
 
 
 def _read_review_cohorts(path: Path) -> tuple[ReviewCohort, ...]:
@@ -872,6 +1230,11 @@ def _write_review_label_import_report(
                 "purpose": cohort.purpose,
                 "membership_hash": cohort.membership_hash,
                 "member_count": len(cohort.episode_ids),
+                "selection_method": cohort.selection_method,
+                "stratified_pass_stratum_count": cohort.stratified_pass_stratum_count,
+                "campaign_id": cohort.campaign_id,
+                "quality_policy_id": cohort.quality_policy_id,
+                "quality_policy_fingerprint": cohort.quality_policy_fingerprint,
                 "imported_label_count": summary.cohort_imported_label_counts.get(
                     cohort.cohort_id,
                     0,
@@ -1030,6 +1393,7 @@ def _drive_run(
     cancellation_signal: CancellationSignal | None,
     failure_injector: FailureInjector | object | None,
     shadow_judge: _ShadowJudgeContext,
+    semantic_enforcement: _SemanticEnforcementContext | None,
 ) -> RunResult:
     """Dispatch only bounded work and leave incomplete ownership resumable."""
 
@@ -1064,6 +1428,20 @@ def _drive_run(
                     ledger.provider_requests_for_sequence(episode.sequence),
                 ),
             )
+        judgment: QualityJudgment | None = None
+        if semantic_enforcement is not None:
+            judgment = _evaluate_quality_judgment(
+                ledger=ledger,
+                configuration=configuration,
+                episode=committed_episode,
+                shadow_judge=shadow_judge,
+                allow_provider_calls=True,
+            )
+            committed_episode = _apply_semantic_enforcement(
+                episode=committed_episode,
+                policy_id=semantic_enforcement.configuration.policy.policy_id,
+                judgment=judgment,
+            )
         _checkpoint(failure_injector, "before_terminal_commit")
         ledger.commit_terminal_outcome(
             sequence=committed_episode.sequence,
@@ -1071,6 +1449,8 @@ def _drive_run(
             semantic_key=semantic_key,
         )
         _checkpoint(failure_injector, "after_terminal_commit")
+        if judgment is not None:
+            ledger.record_quality_judgment(judgment)
         if committed_episode.admission.status == "admitted":
             accepted_count += 1
             assert semantic_key is not None
@@ -1505,70 +1885,13 @@ def _write_shadow_quality_judgments(
         episode = terminal.episode
         if ledger.quality_judgment(episode.sequence) is not None:
             continue
-        if shadow_judge.model is None or not allow_provider_calls:
-            reason = shadow_judge.unavailable_reason or "not_requested"
-            judgment = _unavailable_quality_judgment(
-                episode=episode,
-                reason=reason,
-                identity=shadow_judge.identity,
-                records=(),
-            )
-        else:
-            request = QualityJudgeRequest(
-                task=episode.task,
-                observable_events=episode.events,
-                deterministic_results=deterministic_results_for_episode(episode),
-                timeout_seconds=configuration.timeout_seconds,
-                max_response_bytes=configuration.max_response_bytes,
-                max_output_tokens=configuration.max_output_tokens,
-            )
-            call = _call_model(
-                ledger=ledger,
-                model=shadow_judge.model,
-                configuration=configuration,
-                request=request,
-                logical_request_id=f"quality_judge:{episode.sequence:04d}",
-                sequence=episode.sequence,
-                related_sequences=(),
-                request_kind="initial",
-                failure_injector=None,
-                cancellation_signal=None,
-            )
-            if call.response is None:
-                reason: JudgmentUnavailableReason = (
-                    "request_budget_exhausted"
-                    if call.error_code == "provider_request_budget_exhausted"
-                    else "provider_failed"
-                )
-                judgment = _unavailable_quality_judgment(
-                    episode=episode,
-                    reason=reason,
-                    identity=shadow_judge.identity,
-                    records=call.records,
-                )
-            else:
-                try:
-                    response = QualityJudgeResponse.model_validate(call.response.content)
-                    response = response.validate_event_references(len(episode.events))
-                except (TypeError, ValueError, ValidationError):
-                    judgment = _unavailable_quality_judgment(
-                        episode=episode,
-                        reason="invalid_judgment",
-                        identity=shadow_judge.identity,
-                        records=call.records,
-                    )
-                else:
-                    assert shadow_judge.identity is not None
-                    judgment = QualityJudgment(
-                        sequence=episode.sequence,
-                        episode_id=episode.episode_id,
-                        domain_id=episode.domain_id,
-                        availability="available",
-                        verdict=aggregate_dimension_verdicts(response.dimensions),
-                        dimensions=response.dimensions,
-                        judge_identity=shadow_judge.identity,
-                        usage=_quality_judge_usage(call.records),
-                    )
+        judgment = _evaluate_quality_judgment(
+            ledger=ledger,
+            configuration=configuration,
+            episode=episode,
+            shadow_judge=shadow_judge,
+            allow_provider_calls=allow_provider_calls,
+        )
         ledger.record_quality_judgment(judgment)
     lines = (
         json.dumps(
@@ -1580,6 +1903,79 @@ def _write_shadow_quality_judgments(
         for judgment in ledger.quality_judgments()
     )
     _atomic_write_text(paths.shadow_judgments_path, "".join(lines))
+
+
+def _evaluate_quality_judgment(
+    *,
+    ledger: PrivateLedger,
+    configuration: RunConfiguration,
+    episode: PublicEpisode,
+    shadow_judge: _ShadowJudgeContext,
+    allow_provider_calls: bool,
+) -> QualityJudgment:
+    """Judge one bounded Episode without deciding how it will be admitted."""
+
+    if shadow_judge.model is None or not allow_provider_calls:
+        reason = shadow_judge.unavailable_reason or "not_requested"
+        return _unavailable_quality_judgment(
+            episode=episode,
+            reason=reason,
+            identity=shadow_judge.identity,
+            records=(),
+        )
+    request = QualityJudgeRequest(
+        task=episode.task,
+        observable_events=episode.events,
+        deterministic_results=deterministic_results_for_episode(episode),
+        timeout_seconds=configuration.timeout_seconds,
+        max_response_bytes=configuration.max_response_bytes,
+        max_output_tokens=configuration.max_output_tokens,
+    )
+    call = _call_model(
+        ledger=ledger,
+        model=shadow_judge.model,
+        configuration=configuration,
+        request=request,
+        logical_request_id=f"quality_judge:{episode.sequence:04d}",
+        sequence=episode.sequence,
+        related_sequences=(),
+        request_kind="initial",
+        failure_injector=None,
+        cancellation_signal=None,
+    )
+    if call.response is None:
+        reason: JudgmentUnavailableReason = (
+            "request_budget_exhausted"
+            if call.error_code == "provider_request_budget_exhausted"
+            else "provider_failed"
+        )
+        return _unavailable_quality_judgment(
+            episode=episode,
+            reason=reason,
+            identity=shadow_judge.identity,
+            records=call.records,
+        )
+    try:
+        response = QualityJudgeResponse.model_validate(call.response.content)
+        response = response.validate_event_references(len(episode.events))
+    except (TypeError, ValueError, ValidationError):
+        return _unavailable_quality_judgment(
+            episode=episode,
+            reason="invalid_judgment",
+            identity=shadow_judge.identity,
+            records=call.records,
+        )
+    assert shadow_judge.identity is not None
+    return QualityJudgment(
+        sequence=episode.sequence,
+        episode_id=episode.episode_id,
+        domain_id=episode.domain_id,
+        availability="available",
+        verdict=aggregate_dimension_verdicts(response.dimensions),
+        dimensions=response.dimensions,
+        judge_identity=shadow_judge.identity,
+        usage=_quality_judge_usage(call.records),
+    )
 
 
 def _unavailable_quality_judgment(
@@ -1598,6 +1994,43 @@ def _unavailable_quality_judgment(
         unavailable_reason=reason,
         judge_identity=identity,
         usage=_quality_judge_usage(records),
+    )
+
+
+def _apply_semantic_enforcement(
+    *,
+    episode: PublicEpisode,
+    policy_id: str,
+    judgment: QualityJudgment,
+) -> PublicEpisode:
+    """Turn one already-deterministic outcome into an explicit enforce-mode result."""
+
+    admitted = episode.admission.gates.passed and judgment.verdict == "pass"
+    if admitted:
+        outcome = EpisodeOutcome(
+            collection="demonstrations",
+            status="succeeded",
+            reason_code=None,
+        )
+    elif episode.admission.gates.passed:
+        outcome = EpisodeOutcome(
+            collection="negatives",
+            status="rejected_after_execution",
+            reason_code=f"semantic_judge_{judgment.verdict}",
+        )
+    else:
+        outcome = episode.outcome
+    return episode.model_copy(
+        update={
+            "outcome": outcome,
+            "admission": AdmissionRecord(
+                mode="enforced",
+                status="admitted" if admitted else "rejected",
+                gates=episode.admission.gates,
+                semantic_judgment=judgment.verdict,
+                semantic_policy_id=policy_id,
+            ),
+        }
     )
 
 
@@ -1643,8 +2076,35 @@ def _write_quality_report(
         provider_usage=_provider_usage_payload(requests),
         cohorts=cohorts,
         human_labels=human_labels,
+        admission_mode=configuration.admission_mode,
+        semantic_enforcement=_semantic_enforcement_report_payload(configuration),
     )
     _atomic_write_text(paths.quality_report_path, json.dumps(payload, sort_keys=True, indent=2) + "\n")
+
+
+def _semantic_enforcement_report_payload(
+    configuration: RunConfiguration,
+) -> dict[str, object] | None:
+    """Expose optional eligibility separately from shadow/core operation."""
+
+    enforcement = configuration.semantic_enforcement
+    if enforcement is None:
+        return None
+    activation = enforcement.activation
+    return {
+        "status": (
+            "eligible_enforced"
+            if activation.eligibility == "eligible"
+            else "ineligible_not_dispatched"
+        ),
+        "policy_id": enforcement.policy.policy_id,
+        "policy_fingerprint": enforcement.policy.fingerprint,
+        "activation_identity": activation.activation_identity,
+        "evaluation_evidence_fingerprint": activation.evaluation_evidence_fingerprint,
+        "eligibility": activation.eligibility,
+        "ineligibility_reasons": list(activation.ineligibility_reasons),
+        "finite_cohort_notice": activation.finite_cohort_notice,
+    }
 
 
 def _write_public_manifest(
@@ -2232,7 +2692,7 @@ def _execution_episode(
         ),
         verification=assessment,
         admission=AdmissionRecord(
-            mode=context.configuration.admission_mode,
+            mode="deterministic",
             status="admitted" if admitted else "rejected",
             gates=gates,
         ),
@@ -2289,7 +2749,7 @@ def _pre_execution_negative(
             reason_code=reason_code,
         ),
         admission=AdmissionRecord(
-            mode=context.configuration.admission_mode,
+            mode="deterministic",
             status="rejected",
             gates=gates,
         ),

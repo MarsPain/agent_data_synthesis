@@ -41,22 +41,32 @@ class _QualityDomain:
         *,
         unsafe_public_tool_schema: bool = False,
         slot_count: int = 1,
+        slot_start: int = 1,
     ) -> None:
         self._unsafe_public_tool_schema = unsafe_public_tool_schema
         self._slot_count = slot_count
+        self._slot_start = slot_start
 
     def open_run(self, configuration: RunConfiguration) -> "_QualityDomainRun":
         del configuration
         return _QualityDomainRun(
             unsafe_public_tool_schema=self._unsafe_public_tool_schema,
             slot_count=self._slot_count,
+            slot_start=self._slot_start,
         )
 
 
 class _QualityDomainRun:
-    def __init__(self, *, unsafe_public_tool_schema: bool, slot_count: int) -> None:
+    def __init__(
+        self,
+        *,
+        unsafe_public_tool_schema: bool,
+        slot_count: int,
+        slot_start: int,
+    ) -> None:
         self._unsafe_public_tool_schema = unsafe_public_tool_schema
         self._slot_count = slot_count
+        self._slot_start = slot_start
 
     def slots(self, limit: int) -> tuple[TaskSlot, ...]:
         slots = tuple(
@@ -64,7 +74,7 @@ class _QualityDomainRun:
                 slot_id=f"quality-review-{index:03d}",
                 proposal_prompt="Return the fixed public task.",
             )
-            for index in range(1, self._slot_count + 1)
+            for index in range(self._slot_start, self._slot_start + self._slot_count)
         )
         return slots[:limit]
 
@@ -359,6 +369,11 @@ class AgentFirstShadowQualityReviewTest(unittest.TestCase):
         queue_item = _read_json_lines(queue.queue_path)[0]
 
         self.assertEqual(
+            queue.cohort.selection_method,
+            "held_out_all_deterministically_eligible",
+        )
+
+        self.assertEqual(
             set(queue_item),
             {
                 "schema_version",
@@ -487,6 +502,11 @@ class AgentFirstShadowQualityReviewTest(unittest.TestCase):
         self.assertEqual(result.negative_count, 0)
         self.assertEqual(queue.cohort.nonpass_or_unavailable_count, 2)
         self.assertEqual(queue.cohort.stratified_pass_count, 1)
+        self.assertEqual(
+            queue.cohort.selection_method,
+            "diagnostic_all_nonpass_stratified_pass",
+        )
+        self.assertEqual(queue.cohort.stratified_pass_stratum_count, 1)
         self.assertEqual(len(queue_items), 3)
         self.assertEqual(partial.status, "incomplete")
         self.assertEqual(complete.status, "complete")
