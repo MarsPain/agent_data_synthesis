@@ -325,6 +325,19 @@ class SemanticEnforcementEligibilityTest(unittest.TestCase):
                 activation=activation,
             )
 
+        forged_activation = activation.model_copy(
+            update={
+                "evaluation": activation.evaluation.model_copy(
+                    update={"deterministic_selection_complete": False}
+                ),
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "does not match frozen evidence"):
+            SemanticEnforcementRunConfiguration(
+                policy=policy,
+                activation=forged_activation,
+            )
+
         generator = _GeneratorAndAgentModel()
         judge = _IndependentShadowJudge()
         engine = SynthesisEngine(
@@ -343,6 +356,26 @@ class SemanticEnforcementEligibilityTest(unittest.TestCase):
             ):
                 engine.run(changed_run, Path(temporary_directory))
 
+        valid_run = _enforced_quality_configuration(
+            policy=policy,
+            activation=activation,
+            judge_model_id=judge.model_id,
+        )
+        assert valid_run.semantic_enforcement is not None
+        forged_run = valid_run.model_copy(
+            update={
+                "semantic_enforcement": valid_run.semantic_enforcement.model_copy(
+                    update={"activation": forged_activation}
+                )
+            }
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            with self.assertRaisesRegex(
+                SemanticEnforcementIneligibleError,
+                "does not match frozen evidence",
+            ):
+                engine.run(forged_run, Path(temporary_directory))
+
     def test_ineligible_enforcement_fails_before_dispatch_without_blocking_shadow_runs(self) -> None:
         from tests.test_agent_first_quality_review import (
             _GeneratorAndAgentModel,
@@ -358,12 +391,8 @@ class SemanticEnforcementEligibilityTest(unittest.TestCase):
                 self.requests.append(request)
                 return super().complete(request)
 
-        policy, activation = _engine_policy_and_activation()
-        ineligible_activation = activation.model_copy(
-            update={
-                "eligibility": "ineligible",
-                "ineligibility_reasons": ("overall_agreement_below_threshold",),
-            }
+        policy, ineligible_activation = _engine_policy_and_activation(
+            evaluation_verdicts=(("fail", "fail"),) * 100,
         )
         generator = RecordingGenerator()
         judge = _IndependentShadowJudge()
@@ -587,6 +616,65 @@ class SemanticEnforcementEligibilityTest(unittest.TestCase):
         )
         self.assertIn("evaluation_reuses_development_evidence", reused_report.ineligibility_reasons)
 
+        unreviewed_development_episode = development.episodes[0].model_copy(
+            update={
+                "evidence_id": "development-extra-evidence",
+                "episode_id": "episode-development-extra",
+                "semantic_task_group": _group("semantic", "development-extra"),
+                "grounding_group": _group("grounding", "development-extra"),
+            }
+        )
+        extra_development = development.model_copy(
+            update={"episodes": (*development.episodes, unreviewed_development_episode)}
+        )
+        reused_unreviewed_episodes = list(evaluation.episodes)
+        reused_unreviewed_episodes[0] = reused_unreviewed_episodes[0].model_copy(
+            update={
+                "semantic_task_group": unreviewed_development_episode.semantic_task_group,
+                "grounding_group": unreviewed_development_episode.grounding_group,
+            }
+        )
+        reused_unreviewed_report = evaluate_semantic_enforcement(
+            policy=policy,
+            development=extra_development,
+            evaluation=evaluation.model_copy(
+                update={"episodes": tuple(reused_unreviewed_episodes)}
+            ),
+        )
+        self.assertIn(
+            "evaluation_reuses_development_evidence",
+            reused_unreviewed_report.ineligibility_reasons,
+        )
+
+        unstratified_development_episodes = list(development.episodes)
+        unstratified_development_episodes[0] = unstratified_development_episodes[0].model_copy(
+            update={
+                "task_type": None,
+                "difficulty": None,
+                "structural_family": None,
+            }
+        )
+        unstratified_report = evaluate_semantic_enforcement(
+            policy=policy,
+            development=development.model_copy(
+                update={"episodes": tuple(unstratified_development_episodes)}
+            ),
+            evaluation=evaluation,
+        )
+        self.assertIn("development_passes_not_stratified", unstratified_report.ineligibility_reasons)
+
+        empty_engine = SynthesisEngine(AdapterRegistry(domains=(), models=()))
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            missing_report = empty_engine.evaluate_semantic_enforcement(
+                policy=policy,
+                development_run_directories=(Path(temporary_directory) / "missing-development",),
+                development_campaign_id="missing-development-campaign",
+                evaluation_run_directories=(Path(temporary_directory) / "missing-evaluation",),
+                evaluation_campaign_id="missing-evaluation-campaign",
+            )
+        self.assertIn("development_evidence_unavailable", missing_report.ineligibility_reasons)
+        self.assertIn("evaluation_evidence_unavailable", missing_report.ineligibility_reasons)
+
         missing_label_episodes = list(evaluation.episodes)
         missing_label_episodes[0] = missing_label_episodes[0].model_copy(
             update={"human_verdict": None}
@@ -697,6 +785,9 @@ def _campaign(
                     deterministic_eligible=True,
                     semantic_task_group=_group("semantic", evidence_id),
                     grounding_group=_group("grounding", evidence_id),
+                    task_type=f"{domain_id}_task",
+                    difficulty="standard",
+                    structural_family=f"{domain_id}.fixture.direct",
                     judge_verdict=judge_verdict,
                     judge_identity=policy.judge_identity,
                     human_verdict=human_verdict,
@@ -761,6 +852,7 @@ def _engine_policy_and_activation(
     *,
     judge_model_id: str = "quality_independent_judge",
     judge_model_version: str = "quality_independent_judge_v1",
+    evaluation_verdicts: tuple[tuple[str, str], ...] | None = None,
 ) -> tuple[
     SemanticEnforcementPolicy,
     object,
@@ -807,7 +899,7 @@ def _engine_policy_and_activation(
         campaign_id="quality-evaluation-campaign",
         purpose="held-out-evaluation",
         policy=policy,
-        verdicts=(("pass", "pass"),) * 100,
+        verdicts=evaluation_verdicts or (("pass", "pass"),) * 100,
         bind_policy=True,
         domains=domains,
     )

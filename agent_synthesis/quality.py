@@ -81,10 +81,11 @@ _IDENTIFIER_FORBIDDEN_PARTS = (
     "secret",
     "access_token",
 )
-_PUBLIC_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
-_FINITE_COHORT_NOTICE = (
+PUBLIC_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+FINITE_COHORT_NOTICE = (
     "Finite-cohort rates are empirical measurements, not population guarantees."
 )
+_PUBLIC_IDENTIFIER = PUBLIC_IDENTIFIER_PATTERN
 
 
 class ShadowQualityConfiguration(BaseModel):
@@ -394,6 +395,17 @@ type ReviewSelectionMethod = Literal[
     "held_out_all_deterministically_eligible",
     "operator_selected",
 ]
+
+
+def is_safe_public_identifier(value: str) -> bool:
+    """Return whether a public identifier is bounded and not credential-shaped."""
+
+    lowered = value.lower()
+    return bool(
+        PUBLIC_IDENTIFIER_PATTERN.fullmatch(value)
+        and not value.startswith(("sk-", "bearer-"))
+        and not any(marker in lowered for marker in _IDENTIFIER_FORBIDDEN_PARTS)
+    )
 
 
 class ReviewQueueConfiguration(BaseModel):
@@ -757,7 +769,7 @@ def _stratified_pass_selection(
 ) -> tuple[PublicEpisode, ...]:
     """Round-robin structural strata so pass fills cannot collapse to one family."""
 
-    strata: dict[tuple[str, str, tuple[str, ...]], list[PublicEpisode]] = {}
+    strata: dict[tuple[str, str, str, str], list[PublicEpisode]] = {}
     for episode in sorted(passes, key=lambda value: value.sequence):
         strata.setdefault(_review_pass_stratum(episode), []).append(episode)
     selected: list[PublicEpisode] = []
@@ -779,15 +791,25 @@ def _stratified_pass_selection(
     return tuple(selected)
 
 
-def _review_pass_stratum(episode: PublicEpisode) -> tuple[str, str, tuple[str, ...]]:
+def _review_pass_stratum(episode: PublicEpisode) -> tuple[str, str, str, str]:
     """Use only Domain-owned public classification, never judge data, for pass fill."""
 
     if episode.verification is None:
-        return (episode.domain_id, "unassessed", ())
+        return (episode.domain_id, "unclassified", "unclassified", "unassessed")
+    review_stratification = episode.verification.review_stratification
     return (
         episode.domain_id,
+        (
+            review_stratification.task_type
+            if review_stratification is not None
+            else "unclassified"
+        ),
+        (
+            review_stratification.difficulty
+            if review_stratification is not None
+            else "unclassified"
+        ),
         episode.verification.structural_key,
-        tuple(sorted(episode.verification.coverage_tags)),
     )
 
 
@@ -958,7 +980,7 @@ def build_quality_report(
                 "status": "shadow_only",
                 "policy_id": None,
                 "activation_identity": None,
-                "finite_cohort_notice": _FINITE_COHORT_NOTICE,
+                "finite_cohort_notice": FINITE_COHORT_NOTICE,
             }
         ),
         "usage": dict(provider_usage),

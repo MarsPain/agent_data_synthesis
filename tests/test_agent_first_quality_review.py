@@ -16,6 +16,7 @@ from agent_synthesis import (
     JsonModelResponse,
     ModelCallError,
     PublicTask,
+    ReviewStratification,
     ReviewLabelImportError,
     ReviewQueueConfiguration,
     RunConfiguration,
@@ -168,6 +169,10 @@ class _QualityEpisode:
             reason_codes=(),
             coverage_tags=("fixture", "direct"),
             structural_key="quality.fixture.direct",
+            review_stratification=ReviewStratification(
+                task_type="fixture_task",
+                difficulty="standard",
+            ),
         )
 
 

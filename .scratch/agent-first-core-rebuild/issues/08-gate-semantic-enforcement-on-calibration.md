@@ -33,6 +33,10 @@ operation and cutover independent of activation.
   eligibility report, and report writer. `SynthesisEngine` projects existing
   frozen cohorts and imported direct-human labels into that evaluator; it does
   not create a second review or import path.
+- Domain assessments now provide explicit task-type and difficulty review axes;
+  diagnostic pass fill combines those axes with the existing structural family.
+  The activation record carries the exact frozen development/evaluation evidence
+  and is recomputed before enforce-mode dispatch.
 - Enforced runs bind an eligible activation record in their immutable
   configuration, preflight the current Domain/model/judge/scope settings before
   any provider call, and retain explicit semantic verdicts in public admission

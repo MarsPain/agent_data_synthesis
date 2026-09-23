@@ -403,6 +403,15 @@ class SynthesisEngine:
             raise SemanticEnforcementIneligibleError(
                 "semantic enforcement activation does not bind its policy"
             )
+        expected_activation = evaluate_semantic_enforcement_evidence(
+            policy=policy,
+            development=activation.development_evidence,
+            evaluation=activation.evaluation_evidence,
+        )
+        if activation != expected_activation:
+            raise SemanticEnforcementIneligibleError(
+                "semantic enforcement activation does not match frozen evidence"
+            )
         if (
             policy.judge_identity is None
             or policy.generator_identity is None
@@ -900,151 +909,178 @@ def _calibration_campaign_from_runs(
 
     cohorts: list[CalibrationCohortEvidence] = []
     episodes: list[CalibrationEpisodeEvidence] = []
+    unavailable_source_count = 0
     seen_run_directories: set[Path] = set()
     for supplied_directory in run_directories:
         directory = Path(supplied_directory).resolve()
         if directory in seen_run_directories:
             continue
         seen_run_directories.add(directory)
-        paths = _RunPaths.from_directory(directory)
-        ledger = PrivateLedger.open(paths.private_ledger_path)
         try:
-            metadata = ledger.run_metadata()
-            configuration = metadata.configuration_model()
-            if ledger.run_status().status != "completed":
-                continue
-            stored_cohorts = _read_review_cohorts(paths.review_cohorts_path)
-            matching_cohorts = tuple(
-                cohort
-                for cohort in stored_cohorts
-                if cohort.purpose == purpose and cohort.campaign_id == campaign_id
-            )
-            if not matching_cohorts:
-                continue
-            terminal_records = ledger.terminal_outcomes()
-            terminals_by_episode_id = {
-                terminal.episode.episode_id: terminal for terminal in terminal_records
-            }
-            task_cases = {case.sequence: case for case in ledger.task_cases()}
-            judgments_by_episode_id = {
-                judgment.episode_id: judgment for judgment in ledger.quality_judgments()
-            }
-            labels_by_key = {
-                (label.cohort_id, label.episode_id): label
-                for label in _read_human_review_labels(paths.human_review_labels_path)
-            }
-            memberships_by_episode_id = {
-                episode_id: cohort
-                for cohort in matching_cohorts
-                for episode_id in cohort.episode_ids
-            }
-            evidence_ids = {
-                episode_id: _calibration_evidence_id(configuration.run_id, episode_id)
-                for episode_id in terminals_by_episode_id
-            }
-            for cohort in matching_cohorts:
-                cohorts.append(
-                    CalibrationCohortEvidence(
-                        cohort_id=_calibration_cohort_id(
-                            configuration.run_id,
-                            cohort.cohort_id,
-                        ),
-                        member_evidence_ids=tuple(
-                            evidence_ids.get(
-                                episode_id,
-                                _calibration_evidence_id(
-                                    configuration.run_id,
+            paths = _RunPaths.from_directory(directory)
+            ledger = PrivateLedger.open(paths.private_ledger_path)
+            try:
+                metadata = ledger.run_metadata()
+                configuration = metadata.configuration_model()
+                if ledger.run_status().status != "completed":
+                    unavailable_source_count += 1
+                    continue
+                stored_cohorts = _read_review_cohorts(paths.review_cohorts_path)
+                matching_cohorts = tuple(
+                    cohort
+                    for cohort in stored_cohorts
+                    if cohort.purpose == purpose and cohort.campaign_id == campaign_id
+                )
+                if not matching_cohorts:
+                    unavailable_source_count += 1
+                    continue
+                terminal_records = ledger.terminal_outcomes()
+                terminals_by_episode_id = {
+                    terminal.episode.episode_id: terminal for terminal in terminal_records
+                }
+                task_cases = {case.sequence: case for case in ledger.task_cases()}
+                judgments_by_episode_id = {
+                    judgment.episode_id: judgment for judgment in ledger.quality_judgments()
+                }
+                labels_by_key = {
+                    (label.cohort_id, label.episode_id): label
+                    for label in _read_human_review_labels(paths.human_review_labels_path)
+                }
+                memberships_by_episode_id = {
+                    episode_id: cohort
+                    for cohort in matching_cohorts
+                    for episode_id in cohort.episode_ids
+                }
+                evidence_ids = {
+                    episode_id: _calibration_evidence_id(configuration.run_id, episode_id)
+                    for episode_id in terminals_by_episode_id
+                }
+                for cohort in matching_cohorts:
+                    cohorts.append(
+                        CalibrationCohortEvidence(
+                            cohort_id=_calibration_cohort_id(
+                                configuration.run_id,
+                                cohort.cohort_id,
+                            ),
+                            member_evidence_ids=tuple(
+                                evidence_ids.get(
                                     episode_id,
-                                ),
-                            )
-                            for episode_id in cohort.episode_ids
-                        ),
-                        selection_method=cohort.selection_method,
-                        policy_id=cohort.quality_policy_id,
-                        policy_fingerprint=cohort.quality_policy_fingerprint,
-                        stratified_pass_stratum_count=(
-                            cohort.stratified_pass_stratum_count
-                        ),
+                                    _calibration_evidence_id(
+                                        configuration.run_id,
+                                        episode_id,
+                                    ),
+                                )
+                                for episode_id in cohort.episode_ids
+                            ),
+                            selection_method=cohort.selection_method,
+                            policy_id=cohort.quality_policy_id,
+                            policy_fingerprint=cohort.quality_policy_fingerprint,
+                            stratified_pass_stratum_count=(
+                                cohort.stratified_pass_stratum_count
+                            ),
+                        )
                     )
-                )
-            for terminal in terminal_records:
-                episode = terminal.episode
-                cohort = memberships_by_episode_id.get(episode.episode_id)
-                label = (
-                    labels_by_key.get((cohort.cohort_id, episode.episode_id))
-                    if cohort is not None
-                    else None
-                )
-                judgment = judgments_by_episode_id.get(episode.episode_id)
-                semantic_key = (
-                    task_cases[episode.sequence].semantic_key
-                    if episode.sequence in task_cases
-                    else None
-                )
-                episodes.append(
-                    CalibrationEpisodeEvidence(
-                        evidence_id=evidence_ids[episode.episode_id],
-                        episode_id=episode.episode_id,
-                        domain_id=episode.domain_id,
-                        domain_version=episode.domain_version,
-                        deterministic_eligible=episode.admission.gates.passed,
-                        semantic_task_group=(
-                            _canonical_calibration_group(
-                                "semantic-task",
-                                episode.domain_id,
-                                episode.domain_version,
-                                semantic_key,
-                            )
-                            if semantic_key is not None
-                            else None
-                        ),
-                        grounding_group=(
-                            _canonical_calibration_group(
-                                "grounding",
-                                episode.domain_id,
-                                episode.domain_version,
-                                semantic_key,
-                            )
-                            if semantic_key is not None
-                            else None
-                        ),
-                        judge_verdict=(
-                            judgment.verdict if judgment is not None else "unavailable"
-                        ),
-                        judge_identity=(
-                            judgment.judge_identity if judgment is not None else None
-                        ),
-                        human_verdict=(
-                            label.aggregate_verdict if label is not None else None
-                        ),
-                        human_critical_safety_failure=(
-                            _human_label_has_critical_safety_failure(label)
-                            if label is not None
-                            else False
-                        ),
-                        generator_identity=_lineage_identity(episode, "task_generation"),
-                        agent_identity=_lineage_identity(episode, "agent"),
-                        source_scope_id=configuration.source_scope_id,
-                        task_distribution_scope_id=(
-                            configuration.task_distribution_scope_id
-                        ),
-                        generator_prompt_id=configuration.generator_prompt_id,
-                        generator_decoding_id=configuration.generator_decoding_id,
-                        agent_prompt_id=configuration.agent_prompt_id,
-                        agent_decoding_id=configuration.agent_decoding_id,
-                        judge_prompt_id=configuration.shadow_quality.judge_prompt_id,
-                        judge_decoding_id=(
-                            configuration.shadow_quality.judge_decoding_id
-                        ),
+                for terminal in terminal_records:
+                    episode = terminal.episode
+                    cohort = memberships_by_episode_id.get(episode.episode_id)
+                    label = (
+                        labels_by_key.get((cohort.cohort_id, episode.episode_id))
+                        if cohort is not None
+                        else None
                     )
-                )
-        finally:
-            ledger.close()
+                    judgment = judgments_by_episode_id.get(episode.episode_id)
+                    semantic_key = (
+                        task_cases[episode.sequence].semantic_key
+                        if episode.sequence in task_cases
+                        else None
+                    )
+                    episodes.append(
+                        CalibrationEpisodeEvidence(
+                            evidence_id=evidence_ids[episode.episode_id],
+                            episode_id=episode.episode_id,
+                            domain_id=episode.domain_id,
+                            domain_version=episode.domain_version,
+                            deterministic_eligible=episode.admission.gates.passed,
+                            semantic_task_group=(
+                                _canonical_calibration_group(
+                                    "semantic-task",
+                                    episode.domain_id,
+                                    episode.domain_version,
+                                    semantic_key,
+                                )
+                                if semantic_key is not None
+                                else None
+                            ),
+                            grounding_group=(
+                                _canonical_calibration_group(
+                                    "grounding",
+                                    episode.domain_id,
+                                    episode.domain_version,
+                                    semantic_key,
+                                )
+                                if semantic_key is not None
+                                else None
+                            ),
+                            task_type=(
+                                episode.verification.review_stratification.task_type
+                                if episode.verification is not None
+                                and episode.verification.review_stratification is not None
+                                else None
+                            ),
+                            difficulty=(
+                                episode.verification.review_stratification.difficulty
+                                if episode.verification is not None
+                                and episode.verification.review_stratification is not None
+                                else None
+                            ),
+                            structural_family=(
+                                episode.verification.structural_key
+                                if episode.verification is not None
+                                else None
+                            ),
+                            judge_verdict=(
+                                judgment.verdict if judgment is not None else "unavailable"
+                            ),
+                            judge_identity=(
+                                judgment.judge_identity if judgment is not None else None
+                            ),
+                            human_verdict=(
+                                label.aggregate_verdict if label is not None else None
+                            ),
+                            human_critical_safety_failure=(
+                                _human_label_has_critical_safety_failure(label)
+                                if label is not None
+                                else False
+                            ),
+                            generator_identity=_lineage_identity(
+                                episode,
+                                "task_generation",
+                            ),
+                            agent_identity=_lineage_identity(episode, "agent"),
+                            source_scope_id=configuration.source_scope_id,
+                            task_distribution_scope_id=(
+                                configuration.task_distribution_scope_id
+                            ),
+                            generator_prompt_id=configuration.generator_prompt_id,
+                            generator_decoding_id=configuration.generator_decoding_id,
+                            agent_prompt_id=configuration.agent_prompt_id,
+                            agent_decoding_id=configuration.agent_decoding_id,
+                            judge_prompt_id=configuration.shadow_quality.judge_prompt_id,
+                            judge_decoding_id=(
+                                configuration.shadow_quality.judge_decoding_id
+                            ),
+                        )
+                    )
+            finally:
+                ledger.close()
+        except (OSError, LookupError, ReviewLabelImportError, ValidationError, ValueError):
+            unavailable_source_count += 1
     return CalibrationCampaignEvidence(
         campaign_id=campaign_id,
         purpose=purpose,
         cohorts=tuple(cohorts),
         episodes=tuple(episodes),
+        unavailable_source_count=unavailable_source_count,
     )
 
 

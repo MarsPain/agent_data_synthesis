@@ -1561,7 +1561,8 @@ scores and never alter deterministic Episode admission.
   it excludes model identities, lineage, judge verdicts, admission decisions,
   deterministic assessment, and suggested labels. Diagnostic-development
   selection includes all bounded shadow fail/uncertain/unavailable outcomes
-  plus a deterministic structural-family pass fill. Held-out evaluation
+  plus a deterministic Domain-owned task-type, difficulty, and structural-family
+  pass fill. Held-out evaluation
   selection is based only on deterministically admitted demonstrations and
   never on judge verdict. Cohorts used for optional semantic enforcement also
   bind their campaign id, selection method, pass-stratum count, and (for
@@ -1585,7 +1586,8 @@ cohorts, imported labels, shadow judgments, and private Domain semantic keys to
 produce `agent_semantic_enforcement_eligibility_report_v1`. The report is a
 finite-cohort measurement: it includes overall and per-Domain three-way
 confusion counts, all metric numerators and denominators, unavailable-judge
-counts, and explicit ineligibility reasons. Development rates are explicitly
+counts, frozen development/evaluation evidence, and explicit ineligibility
+reasons. Development rates are explicitly
 diagnostic. The evaluator requires a 100-Episode/30-per-Domain reviewed
 development cohort with every fail/uncertain judgment included, then a disjoint
 100-Episode/30-per-Domain deterministically eligible held-out cohort reviewed

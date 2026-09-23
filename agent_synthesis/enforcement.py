@@ -19,24 +19,20 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agent_synthesis.quality import (
     DimensionVerdict,
+    FINITE_COHORT_NOTICE,
+    PUBLIC_IDENTIFIER_PATTERN,
     QualityJudgeIdentity,
     QualityVerdict,
+    ReviewSelectionMethod,
+    is_safe_public_identifier,
 )
 
 
 type CalibrationPurpose = Literal["diagnostic-development", "held-out-evaluation"]
-type CalibrationSelectionMethod = Literal[
-    "diagnostic_all_nonpass_stratified_pass",
-    "held_out_all_deterministically_eligible",
-    "operator_selected",
-]
 type EligibilityStatus = Literal["eligible", "ineligible"]
 
-_PUBLIC_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
-_FINITE_COHORT_NOTICE = (
-    "Finite-cohort rates are empirical measurements, not population guarantees."
-)
+_STRUCTURAL_FAMILY_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,511}$")
 
 
 class SemanticEnforcementDomainScope(BaseModel):
@@ -152,6 +148,9 @@ class CalibrationEpisodeEvidence(BaseModel):
     deterministic_eligible: bool
     semantic_task_group: str | None = Field(default=None, min_length=1, max_length=128)
     grounding_group: str | None = Field(default=None, min_length=1, max_length=128)
+    task_type: str | None = Field(default=None, min_length=1, max_length=128)
+    difficulty: str | None = Field(default=None, min_length=1, max_length=128)
+    structural_family: str | None = Field(default=None, min_length=1, max_length=512)
     judge_verdict: QualityVerdict
     judge_identity: QualityJudgeIdentity | None = None
     human_verdict: DimensionVerdict | None = None
@@ -181,6 +180,17 @@ class CalibrationEpisodeEvidence(BaseModel):
         for group in (self.semantic_task_group, self.grounding_group):
             if group is not None and not _HASH.fullmatch(group):
                 raise ValueError("calibration groups must be canonical hashes")
+        for value, label in (
+            (self.task_type, "task_type"),
+            (self.difficulty, "difficulty"),
+        ):
+            if value is not None:
+                _require_public_identifier(value, label)
+        if (
+            self.structural_family is not None
+            and not _STRUCTURAL_FAMILY_IDENTIFIER.fullmatch(self.structural_family)
+        ):
+            raise ValueError("structural_family must be a bounded public identifier")
         return self
 
 
@@ -191,7 +201,7 @@ class CalibrationCohortEvidence(BaseModel):
 
     cohort_id: str = Field(min_length=1, max_length=128)
     member_evidence_ids: tuple[str, ...] = Field(max_length=10_000)
-    selection_method: CalibrationSelectionMethod
+    selection_method: ReviewSelectionMethod
     policy_id: str | None = Field(default=None, min_length=1, max_length=128)
     policy_fingerprint: str | None = Field(default=None, min_length=1, max_length=128)
     stratified_pass_stratum_count: int = Field(default=0, ge=0, le=10_000)
@@ -201,7 +211,10 @@ class CalibrationCohortEvidence(BaseModel):
         _require_public_identifier(self.cohort_id, "cohort_id")
         if len(set(self.member_evidence_ids)) != len(self.member_evidence_ids):
             raise ValueError("calibration cohort membership must be unique")
-        if any(not _PUBLIC_IDENTIFIER.fullmatch(value) for value in self.member_evidence_ids):
+        if any(
+            not PUBLIC_IDENTIFIER_PATTERN.fullmatch(value)
+            for value in self.member_evidence_ids
+        ):
             raise ValueError("calibration cohort evidence ids must be public identifiers")
         if (self.policy_id is None) != (self.policy_fingerprint is None):
             raise ValueError("calibration cohort policy identity must be complete or absent")
@@ -222,6 +235,7 @@ class CalibrationCampaignEvidence(BaseModel):
     purpose: CalibrationPurpose
     cohorts: tuple[CalibrationCohortEvidence, ...] = Field(default=(), max_length=256)
     episodes: tuple[CalibrationEpisodeEvidence, ...] = Field(default=(), max_length=100_000)
+    unavailable_source_count: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")
     def _require_unique_campaign_records(self) -> "CalibrationCampaignEvidence":
@@ -323,6 +337,8 @@ class SemanticEnforcementEligibilityReport(BaseModel):
     activation_identity: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     eligibility: EligibilityStatus
     ineligibility_reasons: tuple[str, ...]
+    development_evidence: CalibrationCampaignEvidence
+    evaluation_evidence: CalibrationCampaignEvidence
     development: CalibrationDevelopmentReport
     evaluation: HeldOutEvaluationReport
     finite_cohort_notice: str
@@ -337,6 +353,14 @@ class SemanticEnforcementEligibilityReport(BaseModel):
                 "evaluation_evidence_fingerprint": self.evaluation_evidence_fingerprint,
             }
         )
+        expected_evaluation_fingerprint = _hash_payload(
+            {
+                "policy_fingerprint": self.policy_fingerprint,
+                "evaluation": self.evaluation_evidence.model_dump(mode="json"),
+            }
+        )
+        if self.evaluation_evidence_fingerprint != expected_evaluation_fingerprint:
+            raise ValueError("evaluation evidence fingerprint does not bind frozen evidence")
         if self.activation_identity != expected_identity:
             raise ValueError("activation identity does not bind policy and evaluation evidence")
         if self.eligibility == "eligible" and self.ineligibility_reasons:
@@ -363,6 +387,13 @@ class SemanticEnforcementRunConfiguration(BaseModel):
             or self.activation.policy_fingerprint != self.policy.fingerprint
         ):
             raise ValueError("semantic enforcement activation does not bind its policy")
+        expected_activation = evaluate_semantic_enforcement(
+            policy=self.policy,
+            development=self.activation.development_evidence,
+            evaluation=self.activation.evaluation_evidence,
+        )
+        if self.activation != expected_activation:
+            raise ValueError("semantic enforcement activation does not match frozen evidence")
         return self
 
 
@@ -410,6 +441,8 @@ def evaluate_semantic_enforcement(
         activation_identity=activation_identity,
         eligibility="eligible" if not unique_reasons else "ineligible",
         ineligibility_reasons=unique_reasons,
+        development_evidence=development,
+        evaluation_evidence=evaluation,
         development=CalibrationDevelopmentReport(
             campaign_id=development.campaign_id,
             overall=development_summary.overall,
@@ -418,7 +451,10 @@ def evaluate_semantic_enforcement(
                 development,
                 development_summary,
             ),
-            stratified_pass_selection=_has_stratified_pass_selection(development),
+            stratified_pass_selection=_has_stratified_pass_selection(
+                development,
+                development_summary,
+            ),
         ),
         evaluation=HeldOutEvaluationReport(
             campaign_id=evaluation.campaign_id,
@@ -437,7 +473,7 @@ def evaluate_semantic_enforcement(
                 evaluation_summary,
             ),
         ),
-        finite_cohort_notice=_FINITE_COHORT_NOTICE,
+        finite_cohort_notice=FINITE_COHORT_NOTICE,
     )
 
 
@@ -615,6 +651,8 @@ def _check_development_campaign(
 ) -> None:
     if campaign.purpose != "diagnostic-development":
         reasons.append("development_campaign_purpose_invalid")
+    if campaign.unavailable_source_count:
+        reasons.append("development_evidence_unavailable")
     if summary.unknown_member_count or summary.duplicate_member_count:
         reasons.append("development_cohort_membership_invalid")
     if summary.overall.reviewed_count < 100:
@@ -623,7 +661,7 @@ def _check_development_campaign(
         reasons.append("development_human_labels_incomplete")
     if not _all_nonpasses_included(campaign, summary):
         reasons.append("development_nonpass_or_unavailable_not_fully_reviewed")
-    if not _has_stratified_pass_selection(campaign):
+    if not _has_stratified_pass_selection(campaign, summary):
         reasons.append("development_passes_not_stratified")
     _check_domain_review_quotas(policy, summary, "development", reasons)
 
@@ -638,6 +676,8 @@ def _check_evaluation_campaign(
 ) -> None:
     if evaluation.purpose != "held-out-evaluation":
         reasons.append("evaluation_campaign_purpose_invalid")
+    if evaluation.unavailable_source_count:
+        reasons.append("evaluation_evidence_unavailable")
     if evaluation_summary.unknown_member_count or evaluation_summary.duplicate_member_count:
         reasons.append("evaluation_cohort_membership_invalid")
     if evaluation_summary.overall.reviewed_count < 100:
@@ -688,11 +728,29 @@ def _all_nonpasses_included(
     return nonpasses <= reviewed
 
 
-def _has_stratified_pass_selection(campaign: CalibrationCampaignEvidence) -> bool:
-    return bool(campaign.cohorts) and all(
+def _has_stratified_pass_selection(
+    campaign: CalibrationCampaignEvidence,
+    summary: _CampaignSummary,
+) -> bool:
+    if not campaign.cohorts or not all(
         cohort.selection_method == "diagnostic_all_nonpass_stratified_pass"
         and cohort.stratified_pass_stratum_count > 0
         for cohort in campaign.cohorts
+    ):
+        return False
+    selected_passes = [
+        summary.evidence_by_id[evidence_id]
+        for evidence_id in summary.reviewed_ids
+        if _effective_judge_verdict(
+            summary.evidence_by_id[evidence_id].judge_verdict
+        )
+        == "pass"
+    ]
+    return bool(selected_passes) and all(
+        episode.task_type is not None
+        and episode.difficulty is not None
+        and episode.structural_family is not None
+        for episode in selected_passes
     )
 
 
@@ -728,26 +786,24 @@ def _campaigns_are_disjoint(
     development: _CampaignSummary,
     evaluation: _CampaignSummary,
 ) -> bool:
-    development_reviewed = [
-        development.evidence_by_id[evidence_id]
-        for evidence_id in development.reviewed_ids
-    ]
-    evaluation_reviewed = [
-        evaluation.evidence_by_id[evidence_id]
-        for evidence_id in evaluation.reviewed_ids
-    ]
-    development_episode_ids = {episode.episode_id for episode in development_reviewed}
-    evaluation_episode_ids = {episode.episode_id for episode in evaluation_reviewed}
+    development_candidates = tuple(development.evidence_by_id.values())
+    evaluation_candidates = tuple(evaluation.evidence_by_id.values())
+    development_episode_ids = {episode.episode_id for episode in development_candidates}
+    evaluation_episode_ids = {episode.episode_id for episode in evaluation_candidates}
     if development_episode_ids & evaluation_episode_ids:
         return False
     development_semantic_groups = {
-        episode.semantic_task_group for episode in development_reviewed
+        episode.semantic_task_group for episode in development_candidates
     }
     evaluation_semantic_groups = {
-        episode.semantic_task_group for episode in evaluation_reviewed
+        episode.semantic_task_group for episode in evaluation_candidates
     }
-    development_grounding_groups = {episode.grounding_group for episode in development_reviewed}
-    evaluation_grounding_groups = {episode.grounding_group for episode in evaluation_reviewed}
+    development_grounding_groups = {
+        episode.grounding_group for episode in development_candidates
+    }
+    evaluation_grounding_groups = {
+        episode.grounding_group for episode in evaluation_candidates
+    }
     if None in development_semantic_groups or None in evaluation_semantic_groups:
         return False
     if None in development_grounding_groups or None in evaluation_grounding_groups:
@@ -854,5 +910,5 @@ def _hash_payload(payload: object) -> str:
 
 
 def _require_public_identifier(value: str, label: str) -> None:
-    if not _PUBLIC_IDENTIFIER.fullmatch(value):
+    if not is_safe_public_identifier(value):
         raise ValueError(f"{label} must be a bounded public identifier")

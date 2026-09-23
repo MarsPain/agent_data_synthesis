@@ -30,6 +30,7 @@ from agent_synthesis.episode import (
     EpisodeEvent,
     ExecutionTrace,
     PublicTask,
+    ReviewStratification,
     ToolDefinition,
 )
 
@@ -684,6 +685,10 @@ class MobileMessagesEpisode:
             ),
             coverage_tags=("search", self._case.route),
             structural_key=f"mobile_messages.search.{self._case.route}",
+            review_stratification=_review_stratification(
+                self._case.action,
+                self._case.route,
+            ),
         )
 
     def _assess_reminder(self, trace: ExecutionTrace) -> EpisodeAssessment:
@@ -750,6 +755,10 @@ class MobileMessagesEpisode:
                 _state_change_evidence("reminder", self._case.target)
                 if requested_effect and lookup_completed
                 else None
+            ),
+            review_stratification=_review_stratification(
+                self._case.action,
+                self._case.route,
             ),
         )
 
@@ -825,7 +834,26 @@ class MobileMessagesEpisode:
                 if requested_effect and lookup_completed
                 else None
             ),
+            review_stratification=_review_stratification(
+                self._case.action,
+                self._case.route,
+            ),
         )
+
+
+def _review_stratification(
+    action: _MobileAction,
+    route: _Route,
+) -> ReviewStratification:
+    return ReviewStratification(
+        task_type=action,
+        difficulty={
+            "direct": "standard",
+            "directory": "grounded",
+            "recovery": "recovery",
+            "verify": "verified_mutation",
+        }[route],
+    )
 
 
 def _public_task(case: _MobileCase) -> PublicTask:

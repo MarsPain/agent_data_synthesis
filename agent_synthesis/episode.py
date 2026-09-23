@@ -101,6 +101,23 @@ class AssessmentCheck(BaseModel):
     passed: bool
 
 
+class ReviewStratification(BaseModel):
+    """Domain-owned task-type and difficulty axes for calibration pass sampling."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    task_type: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+    )
+    difficulty: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+    )
+
+
 class EpisodeAssessment(BaseModel):
     """Domain-owned deterministic assessment exposed in an Episode."""
 
@@ -112,6 +129,20 @@ class EpisodeAssessment(BaseModel):
     coverage_tags: tuple[str, ...]
     structural_key: str = Field(min_length=1, max_length=512)
     state_change_evidence: str | None = Field(default=None, max_length=512)
+    review_stratification: ReviewStratification | None = None
+
+    @model_serializer(mode="wrap")
+    def _serialize_without_unclassified_review_axes(
+        self,
+        handler: object,
+    ) -> dict[str, object]:
+        """Preserve pre-calibration Episode shape until a Domain owns the axes."""
+
+        serialized = handler(self)
+        assert isinstance(serialized, dict)
+        if self.review_stratification is None:
+            serialized.pop("review_stratification", None)
+        return serialized
 
 
 class EpisodeOutcome(BaseModel):

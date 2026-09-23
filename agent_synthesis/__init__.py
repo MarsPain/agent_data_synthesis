@@ -35,6 +35,7 @@ from agent_synthesis.episode import (
     ModelLineage,
     PublicEpisode,
     PublicTask,
+    ReviewStratification,
     RoleLineage,
     ToolDefinition,
 )
@@ -123,6 +124,7 @@ __all__ = [
     "ReplayEpisodeResult",
     "ReplayResult",
     "ReviewLabelImportResult",
+    "ReviewStratification",
     "ReviewCohort",
     "ReviewQueueResult",
     "RoleLineage",

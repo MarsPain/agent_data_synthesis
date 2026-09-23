@@ -93,6 +93,9 @@ terms, not package structure, implementation plans, or work status. See
 - **Human review label:** A direct-human, cohort-bound label with all five
   quality dimensions, bounded reasons, and event references. Only an aggregate
   human pass identifies an Episode as part of the human-approved subset.
+- **Review stratification:** The explicit Domain-owned task type and difficulty
+  attached to an Episode assessment, used with its structural family to select
+  diagnostic pass fill without reading a judge verdict into that taxonomy.
 - **Semantic enforcement policy:** The frozen identity that binds one quality
   rubric, independently identified judge, generator and Agent identities and
   invocation settings, versioned Domain scope, source/task-distribution scope,
