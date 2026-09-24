@@ -3,10 +3,10 @@
 - **Status:** Ticketed
 - **Label:** `ready-for-agent`
 - **Canonical spec:** [Agent-First Core Rebuild](../../docs/product-specs/agent-first-core-rebuild.md)
-- **Current phase:** Ticket 09 has a frozen provider-free three-Domain
-  acceptance rehearsal. Fresh live authorization, blind human review, and
-  engineering validation are pending. Optional judge activation remains
-  independent of core cutover.
+- **Current phase:** Ticket 09 completed its separately authorized bounded
+  live runs and froze 120 blind-review Episodes. Independent direct-human
+  labels and a clean shared-workspace docs check remain pending. Optional
+  judge activation remains independent of core cutover.
 
 This feature replaces the legacy core after engineering and independent human
 dataset acceptance. Judge enforcement is a separate optional delivery path.
@@ -31,7 +31,7 @@ state, dependency edges, assignments, and implementation discussion.
 6. [Resume and scale local synthesis runs](issues/06-resume-and-scale-local-runs.md) — completed
 7. [Add shadow quality review and blind-label import](issues/07-add-shadow-quality-review.md) — completed
 8. [Gate optional semantic enforcement on held-out evaluation](issues/08-gate-semantic-enforcement-on-calibration.md) — completed; optional and outside the cutover dependency path
-9. [Run independent three-domain dataset acceptance](issues/09-run-three-domain-agent-acceptance.md) — in progress; dependencies complete, live authorization pending
+9. [Run independent three-domain dataset acceptance](issues/09-run-three-domain-agent-acceptance.md) — in progress; live cohort frozen, direct-human review pending
 10. [Cut over and remove the legacy core](issues/10-cut-over-and-remove-legacy-core.md) — blocked by 09
 
 ## Dependency Shape

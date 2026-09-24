@@ -48,8 +48,9 @@ human-passed Episodes may be described as human-approved.
 - The rehearsal fixes `deepseek-v4-flash` for task generation and Agent
   rollout, disables the optional shadow judge, and caps the campaign at 240
   task attempts and 1,980 physical requests: 30 generator and 1,950 Agent,
-  with zero transport retries. The operator has requested fresh authorization
-  for that exact plan. No acceptance provider call or human label exists yet.
+  with zero transport retries. The operator explicitly authorized that exact
+  plan; the non-secret campaign authorization ID is
+  `user-20260924-28b293c2`.
 - The Workspace Tasks adapter now has a versioned `all_unique` target scope for
   enough unique task slots, while its representative default and reviewed
   nine-family semantics remain intact. The campaign runner refuses plan drift,
@@ -64,3 +65,21 @@ human-passed Episodes may be described as human-approved.
   validation and its corresponding full-suite test. No static typechecker is
   configured; compilation checks passed. Engineering readiness remains
   unpassed in the actual workspace until that title is resolved.
+- The live run completed once with no transport retries: Contacts admitted
+  40 demonstrations from 80 allocated slots, 7 families, largest share 0.275,
+  182 physical requests; Mobile Messages admitted 40 from 80, 12 families,
+  largest share 0.125, 184 requests; Workspace Tasks admitted 40 from 80,
+  9 families, largest share 0.175, 178 requests. All selected Episodes carry
+  Agent-rollout lineage, pass deterministic gates, have distinct private
+  semantic keys, and align under provider-free replay. Each Domain's first
+  forty admitted Episodes are frozen in a separate blind-review cohort.
+  Manifest hashes and cohort membership were checked after the run. Known
+  token totals are 88,959 / 109,669 / 99,698 respectively, with zero
+  unknown-usage requests. The 13 / 12 / 17 negative outcomes remain separate.
+- `artifacts/agent-first-acceptance-20260924/review_handoff.md` gives the
+  independent human reviewers the three blind queues and label contract.
+  No direct-human labels have been imported. Dataset acceptance remains
+  incomplete at 0 of 120 reviews; no human-approved Episode is claimed.
+  The campaign decision records engineering readiness as failed on the
+  unrelated shared-workspace docs title check, dataset acceptance as
+  incomplete, and optional semantic enforcement as shadow-only.
