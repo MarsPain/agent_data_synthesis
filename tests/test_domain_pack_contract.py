@@ -70,6 +70,10 @@ class DomainPackContractTest(unittest.TestCase):
             "synthesis/verification.py",
             "scripts/build_workspace_tracer_proof.py",
             "scripts/run_workspace_live_acceptance.py",
+            "scripts/rehearse_agent_first_acceptance.py",
+            "scripts/run_agent_first_three_domain_acceptance.py",
+            "scripts/import_agent_first_acceptance_labels.py",
+            "scripts/finalize_agent_first_three_domain_acceptance.py",
             "scripts/import_training_recommendation.py",
             "scripts/verify_workspace_tracer_proof.py",
         }

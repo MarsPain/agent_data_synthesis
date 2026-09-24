@@ -1,0 +1,46 @@
+{
+  "drafts": [],
+  "messages": [
+    {
+      "body": "Please review the Q4 budget summary before Thursday.",
+      "message_id": "message-budget-001",
+      "sender": "Morgan Hale"
+    },
+    {
+      "body": "Could you check the interface design notes before our Tuesday review?",
+      "message_id": "message-design-002",
+      "sender": "Nina Park"
+    },
+    {
+      "body": "Please confirm the vendor comparison is ready for Friday.",
+      "message_id": "message-vendor-003",
+      "sender": "Omar Silva"
+    },
+    {
+      "body": "Can you review the interview plan before Monday?",
+      "message_id": "message-hiring-004",
+      "sender": "Priya Shah"
+    },
+    {
+      "body": "Please look over the release checklist before Wednesday.",
+      "message_id": "message-release-005",
+      "sender": "Quinn Foster"
+    },
+    {
+      "body": "Could you check the support handoff before next week?",
+      "message_id": "message-support-006",
+      "sender": "Rosa Kim"
+    },
+    {
+      "body": "Please review the training outline before Friday.",
+      "message_id": "message-training-007",
+      "sender": "Samira Lopez"
+    },
+    {
+      "body": "Can you check the security audit summary before Tuesday?",
+      "message_id": "message-security-008",
+      "sender": "Theo Mercer"
+    }
+  ],
+  "reminders": []
+}

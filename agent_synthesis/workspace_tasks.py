@@ -237,22 +237,39 @@ class WorkspaceTasksDomainAdapter:
     domain_id = "workspace_tasks"
     domain_version = "workspace_tasks_agent_adapter_v1"
 
-    def __init__(self, source_contents: bytes) -> None:
+    def __init__(
+        self,
+        source_contents: bytes,
+        *,
+        target_scope: Literal["representative", "all_unique"] = "representative",
+    ) -> None:
         if not isinstance(source_contents, bytes) or not source_contents:
             raise ValueError("Workspace Tasks adapter requires non-empty source bytes")
+        if target_scope not in {"representative", "all_unique"}:
+            raise ValueError("unsupported Workspace Tasks target scope")
         self._source_contents = bytes(source_contents)
+        self._target_scope = target_scope
+        if target_scope == "all_unique":
+            self.domain_version = "workspace_tasks_agent_adapter_v2_all_unique"
 
     @classmethod
     def fixture(cls) -> "WorkspaceTasksDomainAdapter":
         return cls(_canonical_json_bytes(_FIXTURE_SOURCE))
 
     @classmethod
-    def from_local_file(cls, path: Path | str) -> "WorkspaceTasksDomainAdapter":
-        return cls(Path(path).read_bytes())
+    def from_local_file(
+        cls,
+        path: Path | str,
+        *,
+        target_scope: Literal["representative", "all_unique"] = "representative",
+    ) -> "WorkspaceTasksDomainAdapter":
+        return cls(Path(path).read_bytes(), target_scope=target_scope)
 
     def open_run(self, configuration: RunConfiguration) -> "WorkspaceTasksDomainRun":
         del configuration
-        return WorkspaceTasksDomainRun(_parse_source(self._source_contents))
+        return WorkspaceTasksDomainRun(
+            _parse_source(self._source_contents), target_scope=self._target_scope
+        )
 
     def open_run_from_frozen_state(
         self,
@@ -262,7 +279,10 @@ class WorkspaceTasksDomainAdapter:
         """Resume from persisted normalized bytes rather than a mutable source path."""
 
         del configuration
-        return WorkspaceTasksDomainRun(_initial_state_from_frozen_state(frozen_initial_state))
+        return WorkspaceTasksDomainRun(
+            _initial_state_from_frozen_state(frozen_initial_state),
+            target_scope=self._target_scope,
+        )
 
     @property
     def reviewed_structural_examples(self) -> tuple[WorkspaceTasksStructuralExample, ...]:
@@ -272,9 +292,15 @@ class WorkspaceTasksDomainAdapter:
 class WorkspaceTasksDomainRun:
     """Run-scoped Workspace slot issuance and public request compilation."""
 
-    def __init__(self, initial_state: _InitialState) -> None:
+    def __init__(
+        self,
+        initial_state: _InitialState,
+        *,
+        target_scope: Literal["representative", "all_unique"] = "representative",
+    ) -> None:
         self._initial_state = _copy_initial_state(initial_state)
         self._items = dict(initial_state.items)
+        self._target_scope = target_scope
         self._missing_query = _missing_document_query_for(self._items)
         self._normalized_state = _canonical_json_bytes(
             {"items": [_item_record(item) for item in _sorted_items(self._items)]}
@@ -490,12 +516,12 @@ class WorkspaceTasksDomainRun:
     ) -> "WorkspaceTasksEpisode":
         case = _case_from_task(task)
         initial_state = _initial_state_from_frozen_state(frozen_initial_state)
-        if not _case_is_bound_to_frozen_state(case, initial_state):
+        if not _case_is_bound_to_frozen_state(case, initial_state, self._target_scope):
             raise ValueError("task case is not bound to the frozen Workspace Tasks state")
         return WorkspaceTasksEpisode(case, initial_state)
 
     def _available_specs(self) -> tuple[tuple[_TaskSpec, _WorkspaceItem | None], ...]:
-        return _available_specs_for_items(self._items)
+        return _available_specs_for_items(self._items, self._target_scope)
 
     def _resolved_target_for_spec(
         self,
@@ -504,16 +530,19 @@ class WorkspaceTasksDomainRun:
         return _resolved_target_for_spec(self._items, spec)
 
     def _slot_spec(self, slot_id: str) -> tuple[_TaskSpec, _WorkspaceItem | None] | None:
-        for spec in _TASK_SPECS:
-            if spec.route == "missing":
-                if slot_id == self._slot_id(spec, None, missing_query=self._missing_query):
-                    return spec, None
-                continue
-            for target in self._candidate_targets_for_spec(spec):
-                if (
-                    slot_id == self._slot_id(spec, target)
-                ):
-                    return spec, target
+        if self._target_scope == "representative":
+            for spec in _TASK_SPECS:
+                if spec.route == "missing":
+                    if slot_id == self._slot_id(spec, None, missing_query=self._missing_query):
+                        return spec, None
+                    continue
+                for target in self._candidate_targets_for_spec(spec):
+                    if slot_id == self._slot_id(spec, target):
+                        return spec, target
+            return None
+        for spec, target in self._available_specs():
+            if slot_id == self._slot_id(spec, target, missing_query=self._missing_query):
+                return spec, target
         return None
 
     def _candidate_targets_for_spec(self, spec: _TaskSpec) -> tuple[_WorkspaceItem, ...]:
@@ -1432,21 +1461,44 @@ def _target_kind_is_supported_by_spec(target: _WorkspaceItem, spec: _TaskSpec) -
     return spec.target_kind is None or target.kind == spec.target_kind or spec.fallback_to_any_item
 
 
-def _case_is_bound_to_frozen_state(case: _WorkspaceCase, state: _InitialState) -> bool:
+def _case_is_bound_to_frozen_state(
+    case: _WorkspaceCase,
+    state: _InitialState,
+    target_scope: Literal["representative", "all_unique"],
+) -> bool:
     expected_cases = {
         _case_for_spec(
             spec,
             target,
             missing_query=_missing_document_query_for(state.items),
         )
-        for spec, target in _available_specs_for_items(state.items)
+        for spec, target in _available_specs_for_items(state.items, target_scope)
     }
     return case in expected_cases
 
 
 def _available_specs_for_items(
     items: dict[str, _WorkspaceItem],
+    target_scope: Literal["representative", "all_unique"] = "representative",
 ) -> tuple[tuple[_TaskSpec, _WorkspaceItem | None], ...]:
+    if target_scope == "all_unique":
+        grouped: list[tuple[tuple[_TaskSpec, _WorkspaceItem | None], ...]] = []
+        for spec in _TASK_SPECS:
+            if spec.route == "missing":
+                grouped.append(((spec, None),))
+            else:
+                targets = tuple(
+                    item
+                    for item in _candidate_targets_for_spec(items, spec)
+                    if _item_query_is_unique(item, items)
+                )
+                grouped.append(tuple((spec, item) for item in targets))
+        return tuple(
+            pair
+            for target_index in range(max(map(len, grouped), default=0))
+            for pairs in grouped
+            for pair in pairs[target_index : target_index + 1]
+        )
     result: list[tuple[_TaskSpec, _WorkspaceItem | None]] = []
     for spec in _TASK_SPECS:
         available, target = _resolved_target_for_spec(items, spec)

@@ -350,6 +350,50 @@ class WorkspaceTasksAgentAdapterTest(unittest.TestCase):
         assert isinstance(wrong_project, CompilationRejection)
         self.assertEqual(wrong_project.reason_code, "wrong_item_binding")
 
+    def test_all_unique_target_scope_exposes_multiple_targets_per_family(self) -> None:
+        source = {
+            "projects": [
+                {"project_id": f"project-{index}", "name": f"Project {index}"}
+                for index in range(4)
+            ],
+            "tasks": [
+                {
+                    "task_id": f"task-{index}",
+                    "project_id": f"project-{index}",
+                    "title": f"Task {index}",
+                }
+                for index in range(4)
+            ],
+            "documents": [
+                {
+                    "document_id": f"document-{index}",
+                    "project_id": f"project-{index}",
+                    "title": f"Document {index}",
+                    "body": f"Body {index}",
+                }
+                for index in range(4)
+            ],
+            "comments": [],
+        }
+        adapter = WorkspaceTasksDomainAdapter(
+            json.dumps(source).encode("utf-8"), target_scope="all_unique"
+        )
+        run = adapter.open_run(_workspace_configuration(adapter))
+        slots = run.slots(100)
+        payloads = [
+            json.loads(slot.proposal_prompt.removeprefix("Return exactly this JSON proposal: "))
+            for slot in slots
+        ]
+
+        self.assertEqual(run.known_task_capacity, 33)
+        self.assertEqual(len(slots), 33)
+        self.assertEqual(len({slot.slot_id for slot in slots}), 33)
+        self.assertEqual(
+            len({(payload["action"], payload["route"]) for payload in payloads[:9]}),
+            9,
+        )
+        self.assertNotEqual(adapter.domain_version, WorkspaceTasksDomainAdapter.domain_version)
+
     def test_mutations_require_an_observed_item_and_distinguish_open_from_exact_comments(self) -> None:
         adapter = WorkspaceTasksDomainAdapter.fixture()
         run = adapter.open_run(_workspace_configuration(adapter))

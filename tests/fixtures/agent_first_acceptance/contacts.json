@@ -1,0 +1,45 @@
+{
+  "contacts": [
+    {
+      "email": "cora.ellis@example.test",
+      "name": "Cora Ellis"
+    },
+    {
+      "email": "damon.price@example.test",
+      "name": "Damon Price"
+    },
+    {
+      "email": "elena.ruiz@example.test",
+      "name": "Elena Ruiz"
+    },
+    {
+      "email": "farah.patel@example.test",
+      "name": "Farah Patel"
+    },
+    {
+      "email": "gavin.brooks@example.test",
+      "name": "Gavin Brooks"
+    },
+    {
+      "email": "hana.mori@example.test",
+      "name": "Hana Mori"
+    },
+    {
+      "email": "isaac.reed@example.test",
+      "name": "Isaac Reed"
+    },
+    {
+      "email": "jules.navarro@example.test",
+      "name": "Jules Navarro"
+    },
+    {
+      "email": "keira.moss@example.test",
+      "name": "Keira Moss"
+    },
+    {
+      "email": "liam.ortega@example.test",
+      "name": "Liam Ortega"
+    }
+  ],
+  "followups": []
+}

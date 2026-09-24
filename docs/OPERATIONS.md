@@ -181,6 +181,53 @@ retained diagnostic result. Neither outcome authorizes a rerun, protocol
 investigation, dataset acceptance, or release qualification; each later
 provider attempt needs a new explicit authorization.
 
+## Agent-first three-Domain dataset acceptance
+
+Freeze the provider-free campaign plan before asking for live authorization:
+
+```bash
+uv run python scripts/rehearse_agent_first_acceptance.py \
+  --output artifacts/agent-first-acceptance-<date>/rehearsal.json
+```
+
+Review the resulting plan fingerprint, local source hashes, ordered slot ids,
+model and provider host, structural examples, rubric, pilot exclusions, and
+physical-request ceilings. The current plan targets forty demonstrations in
+each Domain from at most eighty task attempts, with an optional judge disabled.
+Only a fresh authorization for that exact fingerprint and every role's ceiling
+permits the following one-shot command:
+
+```bash
+uv run python scripts/run_agent_first_three_domain_acceptance.py \
+  --plan artifacts/agent-first-acceptance-<date>/rehearsal.json \
+  --plan-fingerprint <approved-sha256-fingerprint> \
+  --authorize-live-provider \
+  --authorization-id <fresh-nonsecret-id>
+```
+
+The runner validates the plan again before provider dispatch, keeps bounded
+run and failure evidence under the campaign directory, and freezes the first
+forty admitted Episodes per completed Domain into its blind review queue. It
+does not retry a failed campaign. Independent reviewers label all 120 queued
+Episodes before dataset acceptance can pass. Import each Domain's direct-human
+labels through the existing engine contract:
+
+```bash
+uv run python scripts/import_agent_first_acceptance_labels.py \
+  --plan artifacts/agent-first-acceptance-<date>/rehearsal.json \
+  --plan-fingerprint <approved-sha256-fingerprint> \
+  --domain contacts \
+  --labels <contacts-human-labels.jsonl>
+uv run python scripts/finalize_agent_first_three_domain_acceptance.py \
+  --plan artifacts/agent-first-acceptance-<date>/rehearsal.json \
+  --plan-fingerprint <approved-sha256-fingerprint>
+```
+
+Repeat the import for Mobile Messages and Workspace Tasks. The decision file
+reports engineering readiness, dataset acceptance, and optional semantic
+enforcement eligibility separately. Missing labels, failed evidence, or absent
+engineering checks keep core cutover blocked; judge ineligibility alone does not.
+
 ## Live Workspace Release Candidate acceptance
 
 The Workspace tracer's real leg is a separate, explicitly authorized command.

@@ -6,9 +6,9 @@ for judge-enforcement eligibility.
 
 **Blocked by:** [05 — Add the Workspace Tasks Domain adapter](05-add-workspace-tasks-domain-adapter.md), [06 — Resume and scale local synthesis runs](06-resume-and-scale-local-runs.md), [07 — Add shadow quality review and blind-label import](07-add-shadow-quality-review.md)
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
-**Assignee:** Unassigned
+**Assignee:** Codex
 
 **Parent spec:** [Agent-First Core Rebuild](../../../docs/product-specs/agent-first-core-rebuild.md)
 
@@ -35,3 +35,32 @@ into the acceptance rate, tune thresholds after seeing outcomes, publish data,
 or treat statistical judge eligibility as required engineering functionality.
 A complete review establishes measured cohort quality; only individually
 human-passed Episodes may be described as human-approved.
+
+## Current campaign state
+
+- A provider-free rehearsal is frozen at
+  `artifacts/agent-first-acceptance-20260924/rehearsal.json`, fingerprint
+  `sha256:28b293c2903b10b8771d3fa2a45c3a33bf78fd0ca225e92fdd5ca3c90991ae42`.
+  Its local sources expose 80 Contacts, 96 Mobile Messages, and 97 Workspace
+  Tasks slots; the first 80 per Domain are frozen. Contacts grounding entities
+  are disjoint from the earlier fixture pilot. No calibration-development
+  campaign has run in this rebuild.
+- The rehearsal fixes `deepseek-v4-flash` for task generation and Agent
+  rollout, disables the optional shadow judge, and caps the campaign at 240
+  task attempts and 1,980 physical requests: 30 generator and 1,950 Agent,
+  with zero transport retries. The operator has requested fresh authorization
+  for that exact plan. No acceptance provider call or human label exists yet.
+- The Workspace Tasks adapter now has a versioned `all_unique` target scope for
+  enough unique task slots, while its representative default and reviewed
+  nine-family semantics remain intact. The campaign runner refuses plan drift,
+  freezes the first forty admitted Episodes per completed Domain, and uses the
+  existing blind-label import. The decision report keeps engineering, dataset,
+  and optional judge results separate.
+- Focused suites, compilation, a clean offline installation, and the two-axis
+  implementation review passed. The full suite passed 1,113 tests in an
+  isolated copy with only the unrelated Ticket 08 title restored to its
+  committed form; documentation validation passed there too. In the shared
+  working tree, the pre-existing malformed Ticket 08 title still fails docs
+  validation and its corresponding full-suite test. No static typechecker is
+  configured; compilation checks passed. Engineering readiness remains
+  unpassed in the actual workspace until that title is resolved.
