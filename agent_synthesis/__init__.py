@@ -1,4 +1,4 @@
-"""Provisional library-first core for Agent trajectory synthesis."""
+"""Agent-first synthesis core for Agent trajectory synthesis."""
 
 from agent_synthesis.configuration import RunConfiguration
 from agent_synthesis.domain import (

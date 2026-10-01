@@ -1,4 +1,4 @@
-"""Bounded, resumable Agent rollout engine for the provisional Agent-first seam."""
+"""Bounded, resumable Agent rollout engine for the Agent-first seam."""
 
 from __future__ import annotations
 
@@ -1368,7 +1368,7 @@ def _open_run_from_frozen_state(
     run = domain.open_run(configuration)
     try:
         current_state = run.freeze_initial_state()
-    except Exception:  # noqa: BLE001 - legacy adapters must fail closed on resume.
+    except Exception:  # noqa: BLE001 - non-resumable adapters must fail closed on resume.
         raise FrozenInputError("Domain cannot verify the saved frozen input") from None
     if current_state != frozen_initial_state:
         raise FrozenInputError("Domain cannot reconstruct the saved frozen input")

@@ -7,6 +7,8 @@ adapters through ``AdapterRegistry``.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from agent_synthesis.contacts import ContactsDomainAdapter
 from agent_synthesis.domain import DomainAdapter
 from agent_synthesis.mobile_messages import MobileMessagesDomainAdapter
@@ -28,3 +30,18 @@ def builtin_fixture_domains() -> tuple[DomainAdapter, ...]:
         MobileMessagesDomainAdapter.fixture(),
         WorkspaceTasksDomainAdapter.fixture(),
     )
+
+
+def builtin_domain(domain_id: str, source: Path | None = None) -> DomainAdapter:
+    """Compose one built-in Domain from a fixture or a local source file."""
+
+    adapters = {
+        ContactsDomainAdapter.domain_id: ContactsDomainAdapter,
+        MobileMessagesDomainAdapter.domain_id: MobileMessagesDomainAdapter,
+        WorkspaceTasksDomainAdapter.domain_id: WorkspaceTasksDomainAdapter,
+    }
+    try:
+        adapter = adapters[domain_id]
+    except KeyError:
+        raise ValueError(f"unsupported built-in Domain: {domain_id}") from None
+    return adapter.fixture() if source is None else adapter.from_local_file(source)

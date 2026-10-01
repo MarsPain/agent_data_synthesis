@@ -1,358 +1,90 @@
-# Local Synthesis Operations
+# Agent-first Operations
 
-`main.py` remains synchronous unless the operator explicitly enables local
-orchestration. The ordinary command is unchanged:
+All commands use the single active `agent_synthesis` core through `main.py`.
+Use Python 3.13 or newer. Outputs belong under `artifacts/`.
 
-```bash
-uv run python main.py --output-dir artifacts/foundation
-```
+## Offline run
 
-## Create a job
-
-Async execution requires a validated run profile and a stable job identifier.
-The job state is owned by the selected output directory.
-
-```bash
-uv run python main.py \
-  --run-profile tests/fixtures/run_profiles/profile-local-workspace-tasks.json \
-  --enable-async-runner \
-  --job-id workspace-local-01 \
-  --output-dir artifacts/workspace-local-01
-```
-
-`--enable-async-runner` also accepts the opt-in aliases `--enable-async` and
-`--async`. If `--max-concurrency` is omitted, the durable job records one
-worker. A positive bound can be selected explicitly:
+Create a validated configuration JSON. The minimal required fields are
+`run_id`, `domain_id` (`contacts`, `mobile_messages`, or `workspace_tasks`),
+`model_id`, and `slot_limit`. Set `accepted_target` when a particular count is
+required. The configuration also supports bounded generation batches,
+concurrency, steps, per-role physical requests, retries, timeouts, and optional
+shadow review. `agent_synthesis.configuration.RunConfiguration` owns the exact
+schema.
 
 ```bash
-uv run python main.py \
-  --run-profile tests/fixtures/run_profiles/profile-local-contacts.json \
-  --enable-async-runner \
-  --job-id contacts-local-02 \
-  --max-concurrency 2 \
-  --output-dir artifacts/contacts-local-02
+uv run python main.py run \
+  --configuration <configuration.json> \
+  --output-directory artifacts/<run> \
+  --fixture-responses <responses.jsonl>
 ```
 
-The bound is part of job identity and cannot change during resume. CLI feature
-switches that affect a profile's execution must be declared in the profile so
-the durable configuration remains hash-bound. Profile-local sources continue
-through source admission and domain-owned importers.
+`responses.jsonl` contains one strict JSON model decision per physical call,
+in dispatch order. This path is for scripted offline fixtures. `--source` may
+select a local Domain source file; without it, the built-in fixture is used.
+A fresh run directory is required. Inspect `run_report.json`,
+`provider_usage.json`, `demonstrations.jsonl`, `negatives.jsonl`, and
+`manifest.json` after completion.
 
-Profiles that enable task expansion or refinement remain synchronous-only until
-their additional work is represented in the durable job ledger; async mode
-rejects them before execution rather than silently dropping that work.
+## Live provider run
 
-## Inspect status and artifacts
-
-The completion line reports the job status and durable paths. The local state
-is under:
-
-```text
-<output-dir>/orchestration/<job-id>/
-  job.json             lifecycle, configuration identity, and counts
-  work_items.jsonl     candidate or coverage-slot dispositions
-  events.jsonl         append-only integrity-chained journal
-  provider_usage.json  sanitized role, attempt, token, and price evidence
-```
-
-Core dataset artifacts stay at the output root: `samples.jsonl`,
-`rejections.jsonl`, `manifest.json`, `quality_report.json`, and any explicitly
-requested evaluation, episode, coverage, or release reports. Orchestration
-files are separate and are not attached to a dataset manifest or release pack.
-
-## Cancel and resume
-
-Press `Ctrl-C` or send `SIGTERM` to an active async process. Both signals set a
-cooperative cancellation signal. The runner stops picking up new work, drains
-bounded in-flight work where possible, records interrupted dispositions, and
-finishes with a valid `cancelled` job snapshot. Repeated cancellation is
-idempotent. A cancelled dataset manifest is diagnostic and marked incomplete;
-it cannot pass fulfillment or release gates.
-
-Resume with the same output directory and job identity:
+A live attempt requires a fresh authorization for its exact model, source,
+request ceilings, and purpose. The command checks authorization before any
+provider dispatch:
 
 ```bash
-uv run python main.py \
-  --run-profile tests/fixtures/run_profiles/profile-local-workspace-tasks.json \
-  --enable-async-runner \
-  --job-id workspace-local-01 \
-  --resume \
-  --output-dir artifacts/workspace-local-01
+AGENT_DATA_LLM_BASE_URL=<base-url> AGENT_DATA_API_KEY=<secret> \
+AGENT_DATA_LLM_MODEL=<remote-model> \
+uv run python main.py run \
+  --configuration <configuration.json> \
+  --output-directory artifacts/<run> \
+  --authorize-live-provider --authorization-id <nonsecret-id>
 ```
 
-Resume validates the profile/configuration hash, output ownership, journal,
-provider identity, authorization, and concurrency before provider work begins.
-Missing state, drift, unsafe ownership, malformed history, or an exhausted
-logical-call budget fails closed. Completed jobs are inspectable but are not
-reprocessed.
+The CLI does not infer live authorization from environment variables alone.
+A resume that may call the provider needs its own fresh authorization ID.
+Do not use a prior acceptance-campaign authorization for a new run.
 
-## Provider authorization and ambiguity
+## Resume and replay
 
-Async LLM profiles require an explicit cumulative logical-call budget. Provider
-and model aliases are sanitized identity values, while credentials remain in
-the normal environment configuration:
+Resume repeats the same configuration and model adapter selection while using
+the persisted frozen state and request ledger. It does not repeat terminal
+Episodes. A scripted resume supplies only decisions still needed.
 
 ```bash
-uv run python main.py \
-  --run-profile tests/fixtures/contacts-coverage-tracer.json \
-  --use-llm \
-  --enable-async-runner \
-  --job-id contacts-provider-01 \
-  --logical-call-budget 6 \
-  --provider-alias approved-provider \
-  --model-alias approved-model \
-  --output-dir artifacts/contacts-provider-01
+uv run python main.py resume \
+  --configuration <configuration.json> \
+  --output-directory artifacts/<run> \
+  --fixture-responses <remaining-responses.jsonl>
+uv run python main.py replay --output-directory artifacts/<run>
 ```
 
-Issued attempts consume the cumulative budget, including attempts whose
-responses are lost and later classified as `ProviderResponseLost` or
-ambiguous. The journal and usage summary retain sanitized role lineage,
-adapter retry counts, allowlisted token fields, and provider-reported price
-metadata when present. Missing price metadata is reported as unavailable; it
-is never inferred from tokens. Raw prompts, provider payloads, credentials,
-authorization headers, private source rows, and host paths are not durable
-orchestration material.
+Replay calls no provider and writes `replay_report.json`. It reports whether
+saved observations and assessments align with reconstructed execution.
 
-Contacts, mobile messages, and workspace tasks use the same runner boundary.
-Deterministic fixture runs should produce the same core samples, rejections,
-ordering, quality, evaluation, and applicable coverage evidence as the
-synchronous command. Async mode does not automatically activate from a profile
-decision and does not add a service, remote control endpoint, provider
-authority, or release promotion.
+## Blind review
 
-## Agent-first local resume and scale probe
-
-The provisional `agent_synthesis` library owns a separate local run/resume
-lifecycle. It freezes private initial-state bytes, records work and charged
-physical requests in SQLite, and permits one process-lifetime writer per run
-directory. A cancelled or interrupted run can resume only with its matching
-configuration and Domain version; it rebuilds incomplete Episodes from the
-private snapshot and never replays a terminal Episode. This is not the legacy
-async runner above and does not grant provider authorization.
-
-Use the provider-free test-Domain probe to measure engine capacity:
+Freeze a blind queue from a completed run before labeling:
 
 ```bash
-uv run python scripts/run_agent_first_scale_benchmark.py \
-  --output-directory artifacts/agent-first-scale-benchmark
+uv run python main.py create-review-queue \
+  --output-directory artifacts/<run> \
+  --cohort-id <unique-cohort-id> \
+  --purpose held-out-evaluation
 ```
 
-The default probe performs 10,000 attempts with a deterministic fake model and
-writes `agent_first_scale_benchmark.json`. Its `known_unique_task_capacity` and
-`unique_accepted_count` apply only to the test Domain; the report explicitly
-makes no production-Domain capacity or real-model-quality claim.
-
-## Agent-first Contacts feasibility pilot
-
-The provisional `agent_synthesis` Contacts adapter has a separate,
-diagnostic-only live pilot. It is not the legacy Contacts Release Candidate
-acceptance path below, does not use a mutation judge, and cannot produce a
-`real_live` proof or a release-qualification claim. Each invocation requires
-fresh explicit authorization because it sends the fixture's public task context
-and observable tool results to the configured OpenAI-compatible provider.
+Use the resulting `blind_review_queue.jsonl`. A human reviewer
+submits direct labels with the required five dimensions, Episode/cohort IDs,
+and direct-human provenance. Import those labels without a model or provider:
 
 ```bash
-uv run python scripts/run_agent_first_contacts_pilot.py \
-  --authorize-live-provider \
-  --authorization-id <fresh-authorization-id> \
-  --generator-model <approved-provider-model> \
-  --output-dir artifacts/agent-first-contacts-pilot-<date>
+uv run python main.py import-review-labels \
+  --output-directory artifacts/<run> \
+  --labels <human-labels.jsonl>
 ```
 
-The command reads `AGENT_DATA_LLM_BASE_URL` and `AGENT_DATA_API_KEY` only at
-dispatch time. It explicitly sends `thinking: {"type": "disabled"}` for the
-DeepSeek V4-Flash provider contract, runs the first eight deterministic Contacts
-slots, retains the reviewed sixteen-slot ceiling in
-`contacts_pilot_rehearsal.json`, and fixes one task-generation request plus at
-most forty Agent requests (41 physical requests total), zero automatic
-transport retries, a 30-second request timeout, and a 4,096-output-token cap
-per request. It writes sanitized demonstrations or negatives, provider-usage
-totals, a provider-free replay report, and
-`contacts_live_pilot_report.json`; it never retains provider payloads, prompts,
-credentials, or private task cases.
-
-`required_behaviors_observed` means at least one successful, inspectable
-Episode of direct lookup, authorized mutation, and successful recovery was
-observed within the attempt ceiling and replay aligned. The report records
-whether the eight-demonstration target was met separately: a target shortfall
-is retained as diagnostic evidence, but does not negate early feasibility when
-the required behavior examples exist. `insufficient_evidence` is likewise a
-retained diagnostic result. Neither outcome authorizes a rerun, protocol
-investigation, dataset acceptance, or release qualification; each later
-provider attempt needs a new explicit authorization.
-
-## Agent-first three-Domain dataset acceptance
-
-Freeze the provider-free campaign plan before asking for live authorization:
-
-```bash
-uv run python scripts/rehearse_agent_first_acceptance.py \
-  --output artifacts/agent-first-acceptance-<date>/rehearsal.json
-```
-
-Review the resulting plan fingerprint, local source hashes, ordered slot ids,
-model and provider host, structural examples, rubric, pilot exclusions, and
-physical-request ceilings. The current plan targets forty demonstrations in
-each Domain from at most eighty task attempts, with an optional judge disabled.
-Only a fresh authorization for that exact fingerprint and every role's ceiling
-permits the following one-shot command:
-
-```bash
-uv run python scripts/run_agent_first_three_domain_acceptance.py \
-  --plan artifacts/agent-first-acceptance-<date>/rehearsal.json \
-  --plan-fingerprint <approved-sha256-fingerprint> \
-  --authorize-live-provider \
-  --authorization-id <fresh-nonsecret-id>
-```
-
-The runner validates the plan again before provider dispatch, keeps bounded
-run and failure evidence under the campaign directory, and freezes the first
-forty admitted Episodes per completed Domain into its blind review queue. It
-does not retry a failed campaign. Independent reviewers label all 120 queued
-Episodes before dataset acceptance can pass. Import each Domain's direct-human
-labels through the existing engine contract:
-
-```bash
-uv run python scripts/import_agent_first_acceptance_labels.py \
-  --plan artifacts/agent-first-acceptance-<date>/rehearsal.json \
-  --plan-fingerprint <approved-sha256-fingerprint> \
-  --domain contacts \
-  --labels <contacts-human-labels.jsonl>
-uv run python scripts/finalize_agent_first_three_domain_acceptance.py \
-  --plan artifacts/agent-first-acceptance-<date>/rehearsal.json \
-  --plan-fingerprint <approved-sha256-fingerprint>
-```
-
-Repeat the import for Mobile Messages and Workspace Tasks. The decision file
-reports engineering readiness, dataset acceptance, and optional semantic
-enforcement eligibility separately. Missing labels, failed evidence, or absent
-engineering checks keep core cutover blocked; judge ineligibility alone does not.
-
-## Live Workspace Release Candidate acceptance
-
-The Workspace tracer's real leg is a separate, explicitly authorized command.
-It is not a default pipeline mode and a prior authorization does not authorize
-a new provider-spending attempt:
-
-```bash
-uv run python scripts/run_workspace_live_acceptance.py \
-  --authorize-live-provider \
-  --authorization-id <fresh-authorization-id> \
-  --candidate-budget 24 \
-  --attempt-budget 24 \
-  --generator-model <generator-model> \
-  --mutation-judge-model <independent-judge-model> \
-  --max-generator-retries <0-3> \
-  --output-dir artifacts/workspace-live-acceptance-<date>
-```
-
-The command requires the fixed coverage-enabled Workspace Release Candidate
-profile, a generator and a distinct mutation-admission judge identity, and the
-normal provider environment variables. Before any generation call, it sends one
-fixed, non-source-backed request through the production semantic-judge contract.
-The preflight uses the profile retry limit and is included in a physical judge
-call ceiling derived from the approved coverage attempt ceiling. A preflight
-failure stops before generation spend.
-
-The current DeepSeek V4-Pro judge profile explicitly sets
-`thinking_mode: disabled` and a 90-second bounded deadline. The judge-only
-client emits the documented top-level `"thinking": {"type": "disabled"}`
-request field; the setting contributes to the sanitized judge configuration
-identity. It is not an environment variable and does not affect the task
-generator. See the
-[DeepSeek thinking and timeout research](references/deepseek-thinking-timeout-research.md)
-before changing the bound timeout or retry policy again.
-
-The explicitly authorized generator retry limit is 0 through 3. It remains
-separate from the logical attempt budget: the frozen evidence binds the derived
-physical generator-call ceiling (`attempt budget × (retry limit + 1)`) and the
-observed physical-call count.
-
-An unsuccessful authorized attempt writes
-`live_attempt_failure.json`. It records the authorization and run binding,
-bounded generation and judge usage, bounded judge failure-class totals, a
-bounded rejection-cause summary, and whether a qualification was reached. It
-never records provider responses,
-prompts, credentials, source payloads, or a tracer proof. The CLI prints that
-record's path when available. Only an independently verified Release Candidate
-may freeze `trace/provider.json` and construct the `real_live` tracer proof;
-neither outcome is publication approval or a training recommendation.
-
-## Live Contacts Release Candidate acceptance
-
-Contacts has a separate operator boundary with the same safety shape, bound to
-the exact Contacts Release Candidate profile:
-
-```bash
-uv run python scripts/run_contacts_live_acceptance.py \
-  --authorize-live-provider \
-  --authorization-id <fresh-authorization-id> \
-  --candidate-budget 10 \
-  --attempt-budget 10 \
-  --generator-model <generator-model> \
-  --generator-timeout-seconds 90 \
-  --mutation-judge-model deepseek-v4-pro \
-  --max-generator-retries <0-3> \
-  --output-dir artifacts/contacts-live-acceptance-<date>
-```
-
-The `--mutation-judge-model` option defaults to `deepseek-v4-pro`; it is shown
-above to make the authorized identity explicit. The command requires fresh
-explicit authorization, the exact Contacts release profile, bounded logical and
-retry-expanded physical-call budgets, and distinct generator and mutation-judge
-identities. Before generation it sends one fixed, non-source-backed request
-through the production Contacts mutation-judge contract. A failed preflight writes
-`contacts_live_attempt_failure.json` and makes no generator request.
-
-The current Contacts live policy gives both generator and judge a 90-second
-deadline. It keeps zero generator and judge retries, and sends the judge in
-explicit non-thinking mode (`thinking: {"type": "disabled"}`). These values
-are bound into the authorization/evidence identity and must be explicitly
-authorized again for every real-provider attempt.
-
-### Contacts follow-up grounding canary
-
-Before a full Contacts Release Candidate campaign, run this non-qualifying
-canary. It selects one `contact_followup` coverage assignment, makes one
-generator request and at most one mutation-judge request, then verifies the
-exact primary arguments, final answer, follow-up name/note-email relationship,
-frozen admission outcome, and provider-free local replay. It writes only a
-sanitized status record; it never creates a dataset, release evidence, provider
-evidence, replay proof, or qualification claim.
-
-```bash
-uv run python scripts/run_contacts_live_contract_canary.py \
-  --authorize-live-provider \
-  --authorization-id <fresh-authorization-id> \
-  --generator-model <generator-model> \
-  --generator-timeout-seconds 90 \
-  --mutation-judge-model deepseek-v4-pro \
-  --output-dir artifacts/contacts-live-contract-canary-<date>
-```
-
-Do not run the full acceptance campaign unless this canary records `passed`.
-
-Successful runs freeze only sanitized `real_live` provider evidence after
-independent Contacts release-pack and Release Candidate verification. The
-Contacts proof then replays that evidence with zero provider calls. Failed
-provider, parser, judge, budget, pipeline, release-evidence, or qualification
-paths retain only a bounded failure record, including aggregate sanitized
-generator or judge failure classes when available; no response, prompt,
-credential, source payload, or proof root is reusable from the failure.
-For Domain Plan membership failures, the record may additionally aggregate
-allowlisted local membership reasons without retaining a generated task or
-provider response.
-
-After a successful run, verify the copied proof in a clean offline process. The
-`--real-live` flag selects the frozen real-provider evidence contract explicitly;
-the verifier does not load provider credentials or make network requests:
-
-```bash
-uv run python scripts/verify_contacts_acceptance_proof.py \
-  artifacts/contacts-live-acceptance-<date>-proof \
-  --real-live
-```
-
-This path is opt-in and does not alter the provider-free default commands,
-semantic-mutation activation thresholds, publication authority, or downstream
-training claims. The proof establishes at most a Contacts Release Candidate.
+AI diagnostics are separate artifacts and are not valid inputs to this command.
+The prior three-Domain campaign procedure and decision files are retained under
+`artifacts/agent-first-acceptance-20260924/`; its formal dataset result remains
+incomplete under the operator-directed cutover exception.

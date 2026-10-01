@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from scripts.validate_docs import (
     is_wayfinder_map_path,
     resolve_link,
     strip_fenced_blocks,
+    validate_cutover_boundaries,
 )
 
 
@@ -72,6 +74,17 @@ class DocumentationValidationTest(unittest.TestCase):
                 Path(".scratch/outcome-validated-domain-pack/README.md")
             )
         )
+
+    def test_cutover_validator_rejects_legacy_runtime_and_active_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "synthesis").mkdir()
+            (root / "agent_synthesis").mkdir()
+            (root / "agent_synthesis" / "bad.py").write_text("from synthesis.pipeline import run\n")
+            (root / "README.md").write_text("main.py runs the local foundation pipeline\n")
+            errors: list[str] = []
+            validate_cutover_boundaries(root, errors)
+            self.assertEqual(len(errors), 3)
 
 
 if __name__ == "__main__":

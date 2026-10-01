@@ -1,4 +1,4 @@
-"""Mobile Messages implementation of the provisional Agent-first Domain seam.
+"""Mobile Messages implementation of the Agent-first Domain seam.
 
 This module owns Mobile fixture semantics, compilation, isolated state, and
 assessment.  The shared Agent-first core sees only the generic adapter protocol.

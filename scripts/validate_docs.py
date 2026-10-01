@@ -599,6 +599,35 @@ def validate_adrs(registry: ArtifactRegistry, errors: list[str]) -> None:
                 errors.append(f"ADR must declare explicit status: {adr.relative_to(ROOT)}")
 
 
+def validate_cutover_boundaries(root: Path, errors: list[str]) -> None:
+    """Reject active references to removed runtimes and stale entrypoint claims."""
+
+    for directory in ("synthesis", "awm_runtime", "release_lab"):
+        if (root / directory).exists():
+            errors.append(f"Removed runtime directory is still active: {directory}/")
+    source_files = [root / "main.py"]
+    source_files.extend((root / "agent_synthesis").glob("*.py"))
+    source_files.extend((root / "scripts").glob("*.py"))
+    old_import = re.compile(r"^\s*(?:from|import)\s+(?:synthesis|awm_runtime|release_lab)\b", re.MULTILINE)
+    for path in source_files:
+        if path.is_file() and old_import.search(path.read_text(encoding="utf-8")):
+            errors.append(f"Active code imports removed runtime: {path.relative_to(root)}")
+    stale_claim = re.compile(
+        r"legacy (?:synthesis/.*|core.*)remain[s]? the active path|"
+        r"main\.py runs the local foundation pipeline|"
+        r"provisional Agent-first core under active development",
+        re.IGNORECASE,
+    )
+    for name in (
+        "README.md", "README.zh.md", "AGENTS.md", "ARCHITECTURE.md",
+        "CONTEXT.md", "docs/README.md", "docs/DESIGN.md", "docs/BACKEND.md",
+        "docs/DATA.md", "docs/SECURITY.md", "docs/OPERATIONS.md",
+    ):
+        path = root / name
+        if path.is_file() and stale_claim.search(path.read_text(encoding="utf-8")):
+            errors.append(f"Active documentation has a stale cutover claim: {name}")
+
+
 def main() -> int:
     errors: list[str] = []
     registry = discover_artifacts(errors)
@@ -610,6 +639,7 @@ def main() -> int:
     validate_issue_tracker(registry, errors)
     validate_work_boundaries(errors)
     validate_adrs(registry, errors)
+    validate_cutover_boundaries(ROOT, errors)
 
     if errors:
         print("Documentation validation failed:")

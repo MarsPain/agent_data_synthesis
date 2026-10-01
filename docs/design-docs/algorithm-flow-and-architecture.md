@@ -1,3 +1,5 @@
+> Historical design note: legacy source paths refer to code retained in repository history.
+
 # Agent Data Synthesis Algorithm Flow And Architecture
 
 本文是一份面向理解的说明报告。它不替代 [../DESIGN.md](../DESIGN.md)、[../DATA.md](../DATA.md)、[../BACKEND.md](../BACKEND.md) 和 [../SECURITY.md](../SECURITY.md)，而是把当前代码、规范和 Agent data synthesis 思想串成一条更容易阅读的主线。
@@ -34,21 +36,21 @@ source bundle / fixture
 治理流: contract validation -> verification -> quality gates -> rejection/review/sample -> manifest
 ```
 
-当前 foundation implementation 入口位于 [../../synthesis/pipeline.py](../../synthesis/pipeline.py)。它使用 contacts fixture 或受控网络输入构建一个 SQLite-backed contacts environment，再围绕这个环境生成和验证工具使用样本。
+当前 foundation implementation 入口位于 `../../synthesis/pipeline.py` (historical path)。它使用 contacts fixture 或受控网络输入构建一个 SQLite-backed contacts environment，再围绕这个环境生成和验证工具使用样本。
 
 主要模块包括：
 
-- [../../synthesis/sources.py](../../synthesis/sources.py): source record、license decision、network policy、sandbox policy、controlled fetch 和 source-event audit。
-- [../../synthesis/environments.py](../../synthesis/environments.py): contacts SQLite 环境、reset recipe、checkpoint/restore 和环境元数据。
-- [../../synthesis/tools.py](../../synthesis/tools.py): typed tool registry、tool schemas、side effects、capability gap 和 curated tool admission。
-- [../../synthesis/tasks.py](../../synthesis/tasks.py): candidate task、task suggestion、edited task、curriculum ordering 和 seed transformation。
-- [../../synthesis/execution.py](../../synthesis/execution.py): solution policy、ordered tool steps、branch execution、trajectory capture 和 adapter routing。
-- [../../synthesis/verification.py](../../synthesis/verification.py): independent verifier 和 state-aware checks。
-- [../../synthesis/datasets.py](../../synthesis/datasets.py): accepted samples、rejections、manifest、quality report 和 lineage assembly。
-- [../../synthesis/quality.py](../../synthesis/quality.py): duplicate detection、logical-support checks、review routing 和 quality slices。
-- [../../synthesis/refinement.py](../../synthesis/refinement.py): repairability decision 和 critic/refinement rerun。
-- [../../synthesis/mcp.py](../../synthesis/mcp.py): opt-in local MCP-compatible adapter boundary。
-- [../../synthesis/roles.py](../../synthesis/roles.py): role registry 和 remote LLM role lineage。
+- `../../synthesis/sources.py` (historical path): source record、license decision、network policy、sandbox policy、controlled fetch 和 source-event audit。
+- `../../synthesis/environments.py` (historical path): contacts SQLite 环境、reset recipe、checkpoint/restore 和环境元数据。
+- `../../synthesis/tools.py` (historical path): typed tool registry、tool schemas、side effects、capability gap 和 curated tool admission。
+- `../../synthesis/tasks.py` (historical path): candidate task、task suggestion、edited task、curriculum ordering 和 seed transformation。
+- `../../synthesis/execution.py` (historical path): solution policy、ordered tool steps、branch execution、trajectory capture 和 adapter routing。
+- `../../synthesis/verification.py` (historical path): independent verifier 和 state-aware checks。
+- `../../synthesis/datasets.py` (historical path): accepted samples、rejections、manifest、quality report 和 lineage assembly。
+- `../../synthesis/quality.py` (historical path): duplicate detection、logical-support checks、review routing 和 quality slices。
+- `../../synthesis/refinement.py` (historical path): repairability decision 和 critic/refinement rerun。
+- `../../synthesis/mcp.py` (historical path): opt-in local MCP-compatible adapter boundary。
+- `../../synthesis/roles.py` (historical path): role registry 和 remote LLM role lineage。
 
 ## 2. 贯穿案例：从联系人任务到可验证样本
 

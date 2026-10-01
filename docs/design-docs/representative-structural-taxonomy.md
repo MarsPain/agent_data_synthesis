@@ -1,3 +1,5 @@
+> Historical design note: legacy source paths refer to code retained in repository history.
+
 # Representative Structural Taxonomy
 
 ## Purpose
@@ -8,7 +10,7 @@ measures executed task structure without relying on natural-language wording or
 on coverage metadata that legacy samples do not contain.
 
 The implementation lives in
-[`synthesis/structural_taxonomy.py`](../../synthesis/structural_taxonomy.py).
+``synthesis/structural_taxonomy.py`` (historical path).
 Its canonical definition is hash-bound in every comparison report.
 
 ## Family Features

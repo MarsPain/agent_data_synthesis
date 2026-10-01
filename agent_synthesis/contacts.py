@@ -1,4 +1,4 @@
-"""Contacts implementation of the provisional Agent-first Domain seam.
+"""Contacts implementation of the Agent-first Domain seam.
 
 The module deliberately owns the Contacts source format, task meaning, and
 isolated mutable state.  The shared synthesis engine only sees the generic
@@ -264,7 +264,7 @@ _REVIEWED_STRUCTURAL_EXAMPLES = (
 
 
 class ContactsDomainAdapter:
-    """A fixture-backed Contacts adapter with no dependency on legacy code."""
+    """A fixture-backed Contacts adapter for local and fixture-backed sources."""
 
     domain_id = "contacts"
     domain_version = "contacts_agent_adapter_v1"

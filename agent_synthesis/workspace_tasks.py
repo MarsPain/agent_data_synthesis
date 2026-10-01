@@ -1,4 +1,4 @@
-"""Workspace Tasks implementation of the provisional Agent-first Domain seam.
+"""Workspace Tasks implementation of the Agent-first Domain seam.
 
 The adapter owns its fixture format, task compilation, isolated state, and
 assessment. The shared Agent-first core sees only the generic Domain protocol.

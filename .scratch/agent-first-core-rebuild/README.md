@@ -3,13 +3,16 @@
 - **Status:** Ticketed
 - **Label:** `ready-for-agent`
 - **Canonical spec:** [Agent-First Core Rebuild](../../docs/product-specs/agent-first-core-rebuild.md)
-- **Current phase:** Ticket 09 completed its separately authorized bounded
-  live runs and froze 120 blind-review Episodes. Independent direct-human
-  labels and a clean shared-workspace docs check remain pending. Optional
-  judge activation remains independent of core cutover.
+- **Current phase:** Ticket 10's Agent-first implementation cutover is complete
+  under the operator's explicit prerequisite exception. Ticket 09's AI
+  diagnostic review found 106 pass, 13 fail, and 1 uncertain; independent
+  direct-human labels remain absent and formal dataset acceptance is still
+  incomplete. Optional judge activation remains independent of core cutover.
 
-This feature replaces the legacy core after engineering and independent human
-dataset acceptance. Judge enforcement is a separate optional delivery path.
+The original spec required engineering and independent human dataset acceptance
+before replacing the legacy core. Engineering passed; the operator directed
+the implementation cutover under an explicit exception to the incomplete
+human gate. Judge enforcement remains a separate optional delivery path.
 The canonical spec owns behavior and acceptance; this tracker owns delivery
 state, dependency edges, assignments, and implementation discussion.
 
@@ -32,7 +35,7 @@ state, dependency edges, assignments, and implementation discussion.
 7. [Add shadow quality review and blind-label import](issues/07-add-shadow-quality-review.md) — completed
 8. [Gate optional semantic enforcement on held-out evaluation](issues/08-gate-semantic-enforcement-on-calibration.md) — completed; optional and outside the cutover dependency path
 9. [Run independent three-domain dataset acceptance](issues/09-run-three-domain-agent-acceptance.md) — in progress; live cohort frozen, direct-human review pending
-10. [Cut over and remove the legacy core](issues/10-cut-over-and-remove-legacy-core.md) — blocked by 09
+10. [Cut over and remove the legacy core](issues/10-cut-over-and-remove-legacy-core.md) — implementation completed under an explicit prerequisite exception; formal dataset acceptance remains incomplete
 
 ## Dependency Shape
 

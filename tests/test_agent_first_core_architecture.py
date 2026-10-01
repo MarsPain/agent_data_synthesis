@@ -144,10 +144,10 @@ class AgentFirstCoreArchitectureTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_glossary_distinguishes_the_agent_first_adapter_from_the_legacy_pack(self) -> None:
+    def test_glossary_describes_the_active_adapter_and_historical_legacy_pack(self) -> None:
         glossary = (ROOT / "CONTEXT.md").read_text(encoding="utf-8")
         self.assertIn("**Agent-first Domain adapter:**", glossary)
-        self.assertIn("**Domain Pack (legacy core):**", glossary)
+        self.assertIn("**Legacy Domain Pack:**", glossary)
 
     def test_core_source_allows_registered_domains_while_rejecting_legacy_and_cross_domain_dependencies(self) -> None:
         shared_core_imports: list[str] = []

@@ -5,10 +5,16 @@ description = "Executable Agent training data synthesis framework"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "fastapi>=0.136.1",
     "httpx>=0.28.1",
-    "pypdf>=6.10.2",
     "pydantic>=2.13.4",
-    "uvicorn>=0.46.0",
-    "itsdangerous>=2.2.0",
 ]
+
+[project.scripts]
+agent-data-synthesis = "agent_synthesis.app:main"
+
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["agent_synthesis*"]

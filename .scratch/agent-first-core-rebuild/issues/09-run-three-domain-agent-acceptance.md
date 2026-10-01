@@ -83,3 +83,23 @@ human-passed Episodes may be described as human-approved.
   The campaign decision records engineering readiness as failed on the
   unrelated shared-workspace docs title check, dataset acceptance as
   incomplete, and optional semantic enforcement as shadow-only.
+
+## Operator-directed acceptance exception (2026-09-24)
+
+The operator directed work to continue despite the frozen 90% threshold and
+the absence of direct-human labels. A separate AI review of all 120 blind
+queue items is recorded in
+`artifacts/agent-first-acceptance-20260924/ai_review_summary.md` and
+`ai_review_diagnostic.jsonl`: 106 pass, 13 fail, and 1 uncertain. Contacts
+passed 38/40, Mobile Messages 39/40, and Workspace Tasks 29/40 with one
+uncertain. These are AI diagnostic verdicts, not human labels or formal dataset
+acceptance. The campaign decision remains incomplete and its frozen evidence
+is unchanged. Ticket 10 may proceed under this explicit exception, while this
+ticket remains in progress until its stated acceptance criteria are met.
+
+The shared workspace then passed documentation validation and all 1,113
+pre-cutover tests. `engineering_readiness.json` was refreshed and the campaign
+decision recomputed: engineering readiness is `passed`, dataset acceptance is
+still `incomplete`, optional enforcement is `shadow_only_not_evaluated`, and
+formal core cutover status remains `blocked`. The operator exception is tracked
+separately from that formal decision.
